@@ -66,14 +66,17 @@ def load_external(path):
     return pd.concat(dfs, ignore_index=True) if dfs else pd.DataFrame()
 
 # ---------------------------------------------------
-# Load Data
+# Load Data (File Upload)
 # ---------------------------------------------------
 sheet_id = "14VvZ7IyOmpM4SZrY5_ArHDgLkeFN4inW"
-external_path = r"C:\Users\BIYENSA.NEGERA\Hp_medicines_Stock_Final.xlsx"
-
 google_sheets = load_google(sheet_id)
-df_external = load_external(external_path)
 
+uploaded_file = st.sidebar.file_uploader("Upload Stock Excel", type=["xlsx"])
+if uploaded_file is None:
+    st.warning("Please upload the stock Excel file to continue.")
+    st.stop()
+
+df_external = load_external(uploaded_file)
 if df_external.empty:
     st.error("External Excel contains no valid data.")
     st.stop()
@@ -94,7 +97,6 @@ required_cols = [
 'WB_PO','WB_Qty','WB_MOS',
 'TMD_PO','TMD_Qty','TMD_MOS',"Status"
 ]
-
 df_google = df_google[[c for c in required_cols if c in df_google.columns]]
 
 # ---------------------------------------------------
@@ -108,19 +110,16 @@ if 'S/N' in df.columns:
 df = df.set_index("Material Description")
 
 # ---------------------------------------------------
-# ---------------------------------------------------
 # Format Columns
 # ---------------------------------------------------
 po_cols = ['GIT_PO','LC_PO','WB_PO','TMD_PO']
 qty_cols = ['AMC','GIT_Qty','LC_Qty','WB_Qty','TMD_Qty']
 mos_cols = ['NMOS','GIT_MOS','LC_MOS','WB_MOS','TMD_MOS']
 
-# Keep PO columns as text
 for c in po_cols:
     if c in df.columns:
         df[c] = df[c].astype(str).replace("nan","")
 
-# Format quantity and MOS columns
 for c in qty_cols:
     if c in df.columns:
         df[c] = format_qty(df[c])
@@ -165,13 +164,10 @@ def calculate_risk(row):
         wb_mos = float(row['WB_MOS']) if row.get('WB_MOS', "") not in ["", None] else np.nan
         tmd_mos = float(row['TMD_MOS']) if row.get('TMD_MOS', "") not in ["", None] else np.nan
 
-        # Rule 1
         if nmos < 4 and git_mos == 0:
             return "Risk of Stock Out"
-        # Rule 2
         elif nmos < 6 and lc_mos == 0 and wb_mos == 0:
             return "Risk of Stock Out"
-        # Rule 3
         elif nmos < 7 and lc_mos == 0 and wb_mos == 0 and tmd_mos == 0:
             return "Risk of Stock Out"
         else:
@@ -210,7 +206,6 @@ tab1, tab2 = st.tabs(["Stock Table","KPIs"])
 # ---------------------------------------------------
 with tab1:
 
-    # Reorder columns: NMOS after AMC, Risk of Stock after Stock Status
     cols = list(df_filtered.columns)
     if 'NMOS' in cols and 'AMC' in cols:
         cols.insert(cols.index('AMC') + 1, cols.pop(cols.index('NMOS')))
@@ -231,15 +226,13 @@ with tab1:
         return styles
 
     styled = df_filtered.style.apply(color_row, axis=1)
-
-    # Hide columns 2–22 by default but expandable
     hidden_cols = df_filtered.columns[1:22].tolist()
     st.dataframe(
         styled,
         use_container_width=True,
         hide_index=True,
         height=(len(df_filtered)+1)*35,
-        column_config={col: {"hide": True} for col in hidden_cols}  # Streamlit >=1.26.0
+        column_config={col: {"hide": True} for col in hidden_cols}
     )
 
 # ---------------------------------------------------
@@ -260,33 +253,17 @@ with tab2:
         return go.Figure(go.Indicator(
             mode="gauge+number",
             value=value,
-            number={
-                'suffix': "%",
-                'font': {'size': 36, 'color': display_color, 'family': 'Arial', 'weight':'bold'}
-            },
-            title={
-                'text': f"<b>{title} KPI</b>",
-                'font': {'size': 24, 'family': 'Arial', 'weight':'bold'}
-            },
-            gauge={
-                'axis': {'range':[0,100]},
-                'bar': {'color':'skyblue'},
-                'bgcolor': "lightgray",
-                'borderwidth': 2,
-                'bordercolor': "gray"
-            }
+            number={'suffix':"%",'font':{'size':36,'color':display_color}},
+            title={'text':f"<b>{title} KPI</b>"},
+            gauge={'axis':{'range':[0,100]},'bar':{'color':'skyblue'}}
         ))
 
     with col1:
-        fig_availability = create_kpi_fig(availability, availability_target, "Availability")
-        st.plotly_chart(fig_availability, use_container_width=True)
+        st.plotly_chart(create_kpi_fig(availability, availability_target, "Availability"), use_container_width=True)
     with col2:
-        fig_sap = create_kpi_fig(sap, sap_target, "SAP")
-        st.plotly_chart(fig_sap, use_container_width=True)
+        st.plotly_chart(create_kpi_fig(sap, sap_target, "SAP"), use_container_width=True)
 
-    # ---------------------------
-    # Stock Status Pie Chart
-    # ---------------------------
+    # Pie Chart
     try:
         status_counts = df_filtered['Stock Status'].replace("", np.nan).dropna().value_counts()
         status_counts = status_counts.astype(int)
@@ -304,24 +281,9 @@ with tab2:
                     "Overstock":"skyblue"
                 },
             )
-            fig.update_traces(
-                textposition='inside',
-                textinfo='percent+value',
-                insidetextfont={'size':16, 'color':'black'}
-            )
-            fig.add_annotation(
-                dict(
-                    text=f"Total:<br>{total_count}",
-                    x=0.5, y=0.5, showarrow=False,
-                    font_size=20,
-                    font_color='black'
-                )
-            )
-            fig.update_layout(
-                title={'text':"<b>Stock Status</b>", 'x':0.5, 'xanchor':'center', 'font':{'size':24}},
-                legend_title_text='Status',
-                legend={'font':{'size':14}}
-            )
+            fig.update_traces(textposition='inside', textinfo='percent+value', insidetextfont={'size':16,'color':'black'})
+            fig.add_annotation(dict(text=f"Total:<br>{total_count}", x=0.5, y=0.5, showarrow=False, font_size=20, font_color='black'))
+            fig.update_layout(title={'text':"<b>Stock Status</b>", 'x':0.5, 'xanchor':'center','font':{'size':24}})
             st.plotly_chart(fig, use_container_width=True)
     except Exception as e:
         st.error(f"Pie chart could not be displayed: {e}")
