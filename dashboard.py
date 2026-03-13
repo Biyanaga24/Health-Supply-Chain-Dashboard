@@ -233,9 +233,10 @@ with tab1:
     )
 
 # ---------------------------------------------------
-# TAB 2 KPIs & Pie Chart
+# TAB 2 KPIs & Charts
 # ---------------------------------------------------
 with tab2:
+    # --- KPI Gauges ---
     nmos = pd.to_numeric(df_filtered['NMOS'], errors='coerce').dropna()
     availability = (nmos>1).mean()*100 if len(nmos)>0 else 0
     sap = ((nmos>=6)&(nmos<=18)).mean()*100 if len(nmos)>0 else 0
@@ -259,6 +260,7 @@ with tab2:
     with col2:
         st.plotly_chart(create_kpi_fig(sap, sap_target, "SAP"), use_container_width=True)
 
+    # --- Pie Chart ---
     try:
         status_counts = df_filtered['Stock Status'].replace("", np.nan).dropna().value_counts()
         status_counts = status_counts.astype(int)
@@ -279,8 +281,72 @@ with tab2:
     except Exception as e:
         st.error(f"Pie chart could not be displayed: {e}")
 
+    # --- Stacked Bar Chart: Split if more than 10 materials ---
+    try:
+        if 'Hubs' in df_filtered.columns and 'Head Office' in df_filtered.columns and 'NSOH' in df_filtered.columns:
+            hubs_vals = pd.to_numeric(df_filtered['Hubs'], errors='coerce').fillna(0)
+            ho_vals = pd.to_numeric(df_filtered['Head Office'], errors='coerce').fillna(0)
+            nsoh_vals = pd.to_numeric(df_filtered['NSOH'], errors='coerce').replace(0, np.nan)
+
+            hubs_pct = (hubs_vals / nsoh_vals * 100).fillna(0)
+            ho_pct = (ho_vals / nsoh_vals * 100).fillna(0)
+
+            bar_df = pd.DataFrame({
+                'Material': df_filtered['Material Description'],
+                'Hubs%': hubs_pct,
+                'Head Office%': ho_pct
+            })
+
+            # Sort by Hubs% ascending
+            bar_df = bar_df.sort_values('Hubs%')
+
+            # Split Material Description into equal parts
+            def split_text(text, n=40):
+                text = str(text)
+                return '<br>'.join([text[i:i+n] for i in range(0, len(text), n)])
+
+            bar_df['Material_split'] = bar_df['Material'].apply(lambda x: split_text(x, n=25))
+
+            # Split into groups of 10
+            n = 12
+            for i in range(0, len(bar_df), n):
+                df_chunk = bar_df.iloc[i:i+n]
+                fig_bar = go.Figure()
+                fig_bar.add_trace(go.Bar(
+                    y=df_chunk['Material_split'],
+                    x=df_chunk['Hubs%'],
+                    name='Hubs%',
+                    orientation='h',
+                    marker_color='skyblue',
+                    text=df_chunk['Hubs%'].apply(lambda x: f"{x:.1f}%"),
+                    textposition='inside'
+                ))
+                fig_bar.add_trace(go.Bar(
+                    y=df_chunk['Material_split'],
+                    x=df_chunk['Head Office%'],
+                    name='Head Office%',
+                    orientation='h',
+                    marker_color='orange',
+                    text=df_chunk['Head Office%'].apply(lambda x: f"{x:.1f}%"),
+                    textposition='inside'
+                ))
+                fig_bar.update_layout(
+                    barmode='stack',
+                    title={'text':f'NSOH Distribution (%) by Hubs vs Head Office (Materials {i+1} to {i+len(df_chunk)})',
+                           'x':0.5, 'xanchor':'center', 'font':{'size':24}},
+                    xaxis_title='Percentage of NSOH',
+                    yaxis_title='Material Description',
+                    yaxis={'categoryorder':'total ascending'},
+                    legend_title='Location',
+                    height=max(600, 30*len(df_chunk))
+                )
+                st.plotly_chart(fig_bar, use_container_width=True)
+
+    except Exception as e:
+        st.error(f"Stacked bar chart could not be displayed: {e}")
+
 # ---------------------------------------------------
-# Download
+# Download Filtered Data
 # ---------------------------------------------------
 st.divider()
 st.download_button("Download Filtered Data", df_filtered.to_csv(index=False), "stock_dashboard.csv", "text/csv")
