@@ -44,16 +44,16 @@ def categorize_stock(nmos):
         return ""
 
 # ---------------------------------------------------
-# Load Google Sheets
+# Load Google Sheets (auto-refresh every 60s)
 # ---------------------------------------------------
-@st.cache_data
+@st.cache_data(ttl=60)
 def load_google(sheet_id):
     url = f"https://docs.google.com/spreadsheets/d/{sheet_id}/export?format=xlsx"
     sheets = pd.read_excel(url, sheet_name=None, header=2)
     return {name: clean_df(df) for name, df in sheets.items()}
 
 # ---------------------------------------------------
-# Load External Excel (from file uploader)
+# Load External Excel (file uploader)
 # ---------------------------------------------------
 def load_external(uploaded_file):
     if uploaded_file is None:
@@ -67,7 +67,7 @@ def load_external(uploaded_file):
     return pd.concat(dfs, ignore_index=True)
 
 # ---------------------------------------------------
-# Upload Excel
+# Upload External Excel
 # ---------------------------------------------------
 uploaded_file = st.file_uploader("Upload External Excel File", type=["xlsx"])
 df_external = load_external(uploaded_file)
