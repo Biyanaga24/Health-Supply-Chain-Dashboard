@@ -4,7 +4,6 @@ import numpy as np
 import math
 import plotly.express as px
 import plotly.graph_objects as go
-import os
 
 # ---------------------------------------------------
 # Page Setup
@@ -54,26 +53,30 @@ def load_google(sheet_id):
     return {name: clean_df(df) for name, df in sheets.items()}
 
 # ---------------------------------------------------
-# Load Local Excel
+# Load External Excel (from file uploader)
 # ---------------------------------------------------
-def load_external(path):
-    if not os.path.exists(path):
-        st.error(f"Excel file not found: {path}")
+def load_external(uploaded_file):
+    if uploaded_file is None:
+        st.warning("Please upload the external Excel file (Hp_medicines_Stock_Final.xlsx)")
         st.stop()
-    df = pd.read_excel(path)
-    if "Material Description" not in df.columns:
-        st.error("Excel file does not contain 'Material Description' column")
+    sheets = pd.read_excel(uploaded_file, sheet_name=None)
+    dfs = [clean_df(df) for df in sheets.values() if "Material Description" in df.columns]
+    if not dfs:
+        st.error("Uploaded Excel does not contain 'Material Description'")
         st.stop()
-    return clean_df(df)
+    return pd.concat(dfs, ignore_index=True)
 
 # ---------------------------------------------------
-# Load Data
+# Upload Excel
+# ---------------------------------------------------
+uploaded_file = st.file_uploader("Upload External Excel File", type=["xlsx"])
+df_external = load_external(uploaded_file)
+
+# ---------------------------------------------------
+# Load Google Sheets Data
 # ---------------------------------------------------
 sheet_id = "14VvZ7IyOmpM4SZrY5_ArHDgLkeFN4inW"
 google_sheets = load_google(sheet_id)
-
-external_path = "./Hp_medicines_Stock_Final.xlsx"
-df_external = load_external(external_path)
 
 # ---------------------------------------------------
 # Sidebar Program Selection
