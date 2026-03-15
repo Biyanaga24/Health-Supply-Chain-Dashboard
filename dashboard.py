@@ -281,7 +281,7 @@ with tab2:
     except Exception as e:
         st.error(f"Pie chart could not be displayed: {e}")
 
-    # --- MOS Horizontal Bar Chart (Reversed with TMOS at tip) ---
+    # --- MOS Horizontal Bar Chart (Ascending NMOS) ---
     try:
         mos_cols_chart = ['Material Description','NMOS','GIT_MOS','LC_MOS','WB_MOS','TMD_MOS','TMOS']
         available_cols = [c for c in mos_cols_chart if c in df_filtered.columns]
@@ -292,11 +292,9 @@ with tab2:
                 if c in mos_df.columns:
                     mos_df[c] = pd.to_numeric(mos_df[c], errors='coerce').fillna(0)
 
-            # Sort by NMOS descending (highest first), then reverse for display
             mos_df = mos_df.sort_values('NMOS', ascending=True).reset_index(drop=True)
 
-            # Split Material Description into equal parts
-            split_len =40
+            split_len = 40
             mos_df['Material_split'] = mos_df['Material Description'].apply(
                 lambda x: '<br>'.join([str(x)[i:i+split_len] for i in range(0, len(str(x)), split_len)])
             )
@@ -354,7 +352,7 @@ with tab2:
     except Exception as e:
         st.error(f"MOS bar chart could not be displayed: {e}")
 
-    # --- Stacked Bar Chart: Hubs vs Head Office ---
+    # --- Stacked Bar Chart: Hubs vs Head Office (ascending Hubs%) ---
     try:
         if 'Hubs' in df_filtered.columns and 'Head Office' in df_filtered.columns and 'NSOH' in df_filtered.columns:
             hubs_vals = pd.to_numeric(df_filtered['Hubs'], errors='coerce').fillna(0)
@@ -362,25 +360,50 @@ with tab2:
             nsoh_vals = pd.to_numeric(df_filtered['NSOH'], errors='coerce').replace(0, np.nan)
             hubs_pct = (hubs_vals / nsoh_vals * 100).fillna(0)
             ho_pct = (ho_vals / nsoh_vals * 100).fillna(0)
-            bar_df = pd.DataFrame({'Material': df_filtered['Material Description'], 'Hubs%': hubs_pct, 'Head Office%': ho_pct})
+
+            bar_df = pd.DataFrame({
+                'Material Description': df_filtered['Material Description'],
+                'Hubs%': hubs_pct,
+                'Head Office%': ho_pct
+            })
+
+            # Sort by Hubs% ascending
             bar_df = bar_df.sort_values('Hubs%')
-            bar_df['Material_split'] = bar_df['Material'].apply(lambda x: '<br>'.join([str(x)[i:i+25] for i in range(0, len(str(x)), 25)]))
+
+            bar_df['Material_split'] = bar_df['Material Description'].apply(lambda x: '<br>'.join([str(x)[i:i+25] for i in range(0, len(str(x)), 25)]))
+
             n = 11
             for i in range(0, len(bar_df), n):
                 df_chunk = bar_df.iloc[i:i+n]
                 fig_bar = go.Figure()
-                fig_bar.add_trace(go.Bar(y=df_chunk['Material_split'], x=df_chunk['Hubs%'], name='Hubs%', orientation='h',
-                                         marker_color='skyblue', text=df_chunk['Hubs%'].apply(lambda x: f"{x:.1f}%"), textposition='inside'))
-                fig_bar.add_trace(go.Bar(y=df_chunk['Material_split'], x=df_chunk['Head Office%'], name='Head Office%', orientation='h',
-                                         marker_color='orange', text=df_chunk['Head Office%'].apply(lambda x: f"{x:.1f}%"), textposition='inside'))
-                fig_bar.update_layout(barmode='stack',
-                                      title={'text':f'NSOH Distribution (%) by Hubs vs Head Office (Materials {i+1} to {i+len(df_chunk)})',
-                                             'x':0.5, 'xanchor':'center', 'font':{'size':24}},
-                                      xaxis_title='Percentage of NSOH',
-                                      yaxis_title='Material Description',
-                                      yaxis={'categoryorder':'total ascending'},
-                                      legend_title='Location',
-                                      height=max(600, 30*len(df_chunk)))
+                fig_bar.add_trace(go.Bar(
+                    y=df_chunk['Material_split'], 
+                    x=df_chunk['Hubs%'], 
+                    name='Hubs%', 
+                    orientation='h',
+                    marker_color='skyblue', 
+                    text=df_chunk['Hubs%'].apply(lambda x: f"{x:.1f}%"), 
+                    textposition='inside'
+                ))
+                fig_bar.add_trace(go.Bar(
+                    y=df_chunk['Material_split'], 
+                    x=df_chunk['Head Office%'], 
+                    name='Head Office%', 
+                    orientation='h',
+                    marker_color='orange', 
+                    text=df_chunk['Head Office%'].apply(lambda x: f"{x:.1f}%"), 
+                    textposition='inside'
+                ))
+                fig_bar.update_layout(
+                    barmode='stack',
+                    title={'text': f'NSOH Distribution (%) by Hubs vs Head Office (Materials {i+1} to {i+len(df_chunk)})',
+                           'x': 0.5, 'xanchor': 'center', 'font': {'size': 24}},
+                    xaxis_title='Percentage of NSOH',
+                    yaxis_title='Material Description',
+                    yaxis={'categoryorder':'total ascending'},
+                    legend_title='Location',
+                    height=max(600, 30*len(df_chunk))
+                )
                 st.plotly_chart(fig_bar, use_container_width=True)
     except Exception as e:
         st.error(f"Stacked bar chart could not be displayed: {e}")
@@ -389,4 +412,9 @@ with tab2:
 # Download Filtered Data
 # ---------------------------------------------------
 st.divider()
-st.download_button("Download Filtered Data", df_filtered.to_csv(index=False), "stock_dashboard.csv", "text/csv")
+st.download_button(
+    label="Download Filtered Data", 
+    data=df_filtered.to_csv(index=False), 
+    file_name="stock_dashboard.csv", 
+    mime="text/csv"
+)
