@@ -379,7 +379,6 @@ with tab2:
                                       xaxis_title='Percentage of NSOH',
                                       yaxis_title='Material Description',
                                       yaxis={'categoryorder':'total ascending'},
-                                      yaxis=dict(autorange="reversed"),
                                       legend_title='Location',
                                       height=max(600, 30*len(df_chunk)))
                 st.plotly_chart(fig_bar, use_container_width=True)
