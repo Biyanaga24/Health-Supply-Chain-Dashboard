@@ -293,7 +293,7 @@ with tab2:
                     mos_df[c] = pd.to_numeric(mos_df[c], errors='coerce').fillna(0)
 
             # Sort by NMOS descending (highest first), then reverse for display
-            mos_df = mos_df.sort_values('NMOS', ascending=True).iloc[::-1].reset_index(drop=True)
+            mos_df = mos_df.sort_values('NMOS', ascending=True).reset_index(drop=True)
 
             # Split Material Description into equal parts
             split_len =40
@@ -346,6 +346,7 @@ with tab2:
                            'x':0.5, 'xanchor':'center', 'font':{'size':24}},
                     xaxis_title='Months of Stock', 
                     yaxis_title='Material Description',
+                    yaxis=dict(autorange="reversed"),
                     height=max(500, 35*len(df_chunk)), 
                     legend_title='MOS Type'
                 )
@@ -378,6 +379,7 @@ with tab2:
                                       xaxis_title='Percentage of NSOH',
                                       yaxis_title='Material Description',
                                       yaxis={'categoryorder':'total ascending'},
+                                      yaxis=dict(autorange="reversed"),
                                       legend_title='Location',
                                       height=max(600, 30*len(df_chunk)))
                 st.plotly_chart(fig_bar, use_container_width=True)
