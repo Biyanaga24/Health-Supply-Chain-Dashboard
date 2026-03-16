@@ -11,37 +11,6 @@ from datetime import datetime
 # ---------------------------------------------------
 st.set_page_config(page_title="Health Program Supply Chain Dashboard", layout="wide")
 
-# Apply Times New Roman font globally and style for headers
-st.markdown("""
-<style>
-    * {
-        font-family: 'Times New Roman', Times, serif !important;
-    }
-    .stApp {
-        font-family: 'Times New Roman', Times, serif;
-    }
-    /* Style for dataframe headers */
-    .dataframe th {
-        background-color: skyblue !important;
-        font-weight: bold !important;
-        color: black !important;
-        font-family: 'Times New Roman', Times, serif !important;
-    }
-    /* Style for column headers in data editor */
-    .stDataFrame [data-testid="stDataFrameResizable"] th {
-        background-color: skyblue !important;
-        font-weight: bold !important;
-        color: black !important;
-    }
-    /* Style for column headers in data editor */
-    .stDataFrame thead tr th {
-        background-color: skyblue !important;
-        font-weight: bold !important;
-        color: black !important;
-    }
-</style>
-""", unsafe_allow_html=True)
-
 st.title("Health Program Supply Chain Dashboard")
 
 # ---------------------------------------------------
@@ -365,7 +334,7 @@ tab1, tab2, tab3 = st.tabs(["Stock Table", "KPIs", "Decision Briefs"])
 # TAB 1 TABLE - All columns
 # ---------------------------------------------------
 with tab1:
-    st.subheader("Complete Stock Table")
+    st.subheader("Complete Stock Status Table")
 
     # Reorder columns
     cols = list(display_df_filtered.columns)
