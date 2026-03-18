@@ -184,7 +184,7 @@ if df_external.empty:
     st.stop()
 
 # Load branch data from current directory
-branch_filename = "Branch_Health Program_AMC .xlsx"  # Name of the file in current directory
+branch_filename = "./Branch_Health Program_AMC .xlsx"
 cf = load_branch_data(branch_filename)
 
 # ---------------------------------------------------
@@ -461,8 +461,7 @@ with tab2:
     sap_target = 65
 
     # Display 4 KPI gauges
-    col1, col2 = st.columns(2)
-    col3, col4 = st.columns(2)
+    col1, col2, col3, col4 = st.columns(4)
 
     def create_kpi_fig(value, target, title, suffix="%"):
         display_color = 'red' if value < target else 'black'
