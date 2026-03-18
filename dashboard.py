@@ -6,12 +6,16 @@ import plotly.graph_objects as go
 from datetime import datetime
 import sys
 import os
+import pickle
 
 # Add the current directory to path
 sys.path.append(os.path.dirname(__file__))
 
 # Import authentication functions
 from auth import show_login_page, show_profile_page, show_admin_panel
+
+# Page config must be the first Streamlit command
+st.set_page_config(page_title="Health Program Medicines Dashboard", layout="wide")
 
 # Check authentication
 if 'auth' not in st.session_state:
@@ -22,38 +26,10 @@ if not st.session_state['auth']:
     st.stop()
 
 # ---------------------------------------------------
-# Page Setup
-# ---------------------------------------------------
-st.set_page_config(page_title="Health Program Medicines Dashboard", layout="wide")
-
-# ---------------------------------------------------
 # User Info in Sidebar
 # ---------------------------------------------------
 with st.sidebar:
     st.title(f"Welcome, {st.session_state['user']['full_name']}!")
-
-# ---------------------------------------------------
-# Helper function to find files
-# ---------------------------------------------------
-def find_file(filename):
-    """Find a file in common locations"""
-    # Get the directory where this script is running
-    script_dir = os.path.dirname(os.path.abspath(__file__))
-
-    # List of possible locations to check
-    possible_paths = [
-        filename,  # Current directory
-        os.path.join(script_dir, filename),  # Same directory as script
-        os.path.join(".", filename),  # Explicit current directory
-        os.path.join(script_dir, "data", filename),  # data subfolder
-        os.path.join(".", "data", filename),  # data subfolder from current
-    ]
-
-    for path in possible_paths:
-        if os.path.exists(path):
-            return path
-
-    return None
 
 # ---------------------------------------------------
 # Load Data
@@ -65,38 +41,33 @@ def load_google(sheet_id):
     return {name: clean_df(df) for name, df in sheets.items()}
 
 @st.cache_data(ttl=60)
-def load_external(filename):
-    """Load external Excel file with better path handling"""
+def load_external(path):
     try:
-        file_path = find_file(filename)
-        if file_path:
-            st.sidebar.success(f"Found file: {os.path.basename(file_path)}")
-            df = pd.read_excel(file_path, header=0)
-            return clean_df(df)
-        else:
-            st.error(f"File '{filename}' not found. Please check:")
-            st.error("1. Is the file in the same folder as dashboard.py?")
-            st.error("2. Is the filename exactly correct?")
-            st.error("3. Current directory: " + os.getcwd())
-            return pd.DataFrame()
+        df = pd.read_excel(path, header=0)
+        return clean_df(df)
     except Exception as e:
-        st.error(f"Error loading {filename}: {e}")
+        st.error(f"External Excel not found or invalid: {e}")
         return pd.DataFrame()
 
 # Function to load branch data from the current directory
 @st.cache_data
 def load_branch_data(filename):
-    """Load branch data with better path handling"""
+    """Load branch data from the current directory"""
     try:
-        file_path = find_file(filename)
-        if file_path:
-            st.sidebar.success(f"Found branch file: {os.path.basename(file_path)}")
-            df = pd.read_excel(file_path, header=0)
+        # Check if file exists in current directory
+        if os.path.exists(filename):
+            df = pd.read_excel(filename, header=0)
             return clean_df(df)
         else:
-            st.sidebar.warning(f"Branch data file '{filename}' not found.")
-            st.sidebar.info("Please upload it to the application directory.")
-            return None
+            # Try looking in the same directory as the script
+            script_dir = os.path.dirname(os.path.abspath(__file__))
+            file_path = os.path.join(script_dir, filename)
+            if os.path.exists(file_path):
+                df = pd.read_excel(file_path, header=0)
+                return clean_df(df)
+            else:
+                st.sidebar.warning(f"Branch data file '{filename}' not found. Please upload it to the application directory.")
+                return None
     except Exception as e:
         st.sidebar.warning(f"Could not load branch data: {e}")
         return None
@@ -170,6 +141,31 @@ def safe_convert_to_numeric(series):
     except:
         return series
 
+def wrap_text(text, width=30):
+    """Wrap text to specified width"""
+    if pd.isna(text) or text == "":
+        return ""
+    text = str(text)
+    words = text.split()
+    lines = []
+    current_line = []
+    current_length = 0
+
+    for word in words:
+        if current_length + len(word) + 1 <= width:
+            current_line.append(word)
+            current_length += len(word) + 1
+        else:
+            if current_line:
+                lines.append(' '.join(current_line))
+            current_line = [word]
+            current_length = len(word)
+
+    if current_line:
+        lines.append(' '.join(current_line))
+
+    return '<br>'.join(lines)
+
 def calculate_coefficient_of_variation(values):
     """Calculate coefficient of variation (CV = std/mean * 100)"""
     try:
@@ -185,55 +181,36 @@ def calculate_coefficient_of_variation(values):
         return np.nan
 
 # ---------------------------------------------------
-# Show current directory for debugging
+# Load main data - Using pickle file
 # ---------------------------------------------------
-st.sidebar.markdown("---")
-st.sidebar.caption(f"Current directory: {os.getcwd()}")
-
-# Load main data
 sheet_id = "14VvZ7IyOmpM4SZrY5_ArHDgLkeFN4inW"
 google_sheets = load_google(sheet_id)
 
-# Try different possible filenames
-possible_filenames = [
-    "Hp_medicines_Stock_Final.xlsx",
-    "Hp_medicines_Stock_Final.xls",
-    "hp_medicines_stock_final.xlsx",
-    "Medicines_Stock_Final.xlsx"
-]
-
-df_external = pd.DataFrame()
-for filename in possible_filenames:
-    df_external = load_external(filename)
-    if not df_external.empty:
-        st.sidebar.success(f"✅ Loaded: {filename}")
-        break
+# Load the saved national_final2 dataframe from pickle
+if os.path.exists('national_final2.pkl'):
+    try:
+        with open('national_final2.pkl', 'rb') as f:
+            national_final2 = pickle.load(f)
+        df_external = national_final2
+        st.sidebar.success(f"✅ Loaded national_final2 with {len(df_external)} rows")
+    except Exception as e:
+        st.error(f"Error loading national_final2.pkl: {e}")
+        st.stop()
+else:
+    st.error("national_final2.pkl not found. Please run Health Program_SOH.ipynb first to create it.")
+    st.info("Instructions: In Health Program_SOH.ipynb, add this code at the end:\n"
+            "import pickle\n"
+            "with open('national_final2.pkl', 'wb') as f:\n"
+            "    pickle.dump(national_final2, f)")
+    st.stop()
 
 if df_external.empty:
-    st.error("❌ Could not find Hp_medicines_Stock_Final.xlsx file.")
-    st.info("Please make sure the file is in the same directory as dashboard.py")
-    st.info(f"Current directory: {os.getcwd()}")
-
-    # List files in current directory to help debug
-    try:
-        files = os.listdir(".")
-        st.write("Files in current directory:")
-        for f in files:
-            if f.endswith('.xlsx') or f.endswith('.xls'):
-                st.write(f"📊 {f}")
-    except:
-        pass
-
+    st.error("Loaded dataframe contains no data.")
     st.stop()
 
 # Load branch data from current directory
 branch_filename = "Branch_Health Program_AMC .xlsx"
 cf = load_branch_data(branch_filename)
-
-# If not found, try without the space
-if cf is None:
-    branch_filename = "Branch_Health_Program_AMC.xlsx"
-    cf = load_branch_data(branch_filename)
 
 # ---------------------------------------------------
 # Program Selection (First filter in sidebar)
@@ -260,15 +237,33 @@ required_cols = [
     'WB_PO', 'WB_Qty', 'WB_MOS',
     'TMD_PO', 'TMD_Qty', 'TMD_MOS', "Status"
 ]
-df_google = df_google[[c for c in required_cols if c in df_google.columns]]
+
+# Filter columns that exist in df_google
+existing_cols = [c for c in required_cols if c in df_google.columns]
+df_google = df_google[existing_cols]
 
 # ---------------------------------------------------
 # Merge and process data
 # ---------------------------------------------------
-df = df_external.merge(df_google, on="Material Description", how="right")
+# Check if 'Material Description' exists in both dataframes
+if 'Material Description' not in df_external.columns:
+    st.error("Material Description column not found in national_final2")
+    st.write("Available columns:", list(df_external.columns))
+    st.stop()
+
+if 'Material Description' not in df_google.columns:
+    st.warning("Material Description column not found in Google Sheets data. Using only external data.")
+    df = df_external.copy()
+else:
+    # Merge the data
+    df = df_external.merge(df_google, on="Material Description", how="right")
+
 if 'S/N' in df.columns:
     df = df.drop(columns=['S/N'])
-df = df.set_index("Material Description")
+
+# Set index if Material Description exists
+if 'Material Description' in df.columns:
+    df = df.set_index("Material Description").reset_index()
 
 # Preserve Status and Expiry columns as text
 if 'Status' in df.columns:
@@ -282,7 +277,7 @@ else:
     expiry_values = None
 
 # Convert numeric columns
-text_columns = ['Status', 'Expiry']
+text_columns = ['Status', 'Expiry', 'Material Description']
 for col in df.columns:
     if col not in text_columns:
         try:
@@ -297,21 +292,21 @@ if expiry_values is not None:
     df['Expiry'] = expiry_values
 
 # Calculate NMOS if not present
-if 'NSOH' in df.columns and 'AMC' in df.columns:
-    nsoh = df['NSOH']
-    amc = df['AMC']
+if 'NSOH' in df.columns and 'AMC' in df.columns and 'NMOS' not in df.columns:
+    nsoh = pd.to_numeric(df['NSOH'], errors='coerce')
+    amc = pd.to_numeric(df['AMC'], errors='coerce')
     nmos = np.where(amc != 0, nsoh / amc, np.nan)
     df['NMOS'] = pd.Series(nmos, index=df.index)
 
 # Calculate TMOS
 mos_cols = ['NMOS', 'GIT_MOS', 'LC_MOS', 'WB_MOS', 'TMD_MOS']
 available_mos = [c for c in mos_cols if c in df.columns]
-if available_mos:
+if available_mos and 'TMOS' not in df.columns:
     df['TMOS'] = df[available_mos].sum(axis=1)
 
 # Stock Status
-df = df.reset_index()
-df['Stock Status'] = df['NMOS'].apply(categorize_stock)
+if 'NMOS' in df.columns and 'Stock Status' not in df.columns:
+    df['Stock Status'] = df['NMOS'].apply(categorize_stock)
 
 # Calculate Hubs% and Head Office%
 if 'Hubs' in df.columns and 'Head Office' in df.columns and 'NSOH' in df.columns:
@@ -344,7 +339,8 @@ def calculate_risk(row):
     except:
         return ""
 
-df['Risk of Stock'] = df.apply(calculate_risk, axis=1)
+if 'Risk of Stock' not in df.columns:
+    df['Risk of Stock'] = df.apply(calculate_risk, axis=1)
 
 # Create formatted display version
 display_df = df.copy()
@@ -354,15 +350,24 @@ for col in display_df.columns:
     if col not in text_columns_to_preserve:
         if col in ['NMOS', 'GIT_MOS', 'LC_MOS', 'WB_MOS', 'TMD_MOS', 'TMOS']:
             display_df[col] = display_df[col].apply(format_mos_with_decimals)
-        else:
+        elif col not in ['Material Description']:
             display_df[col] = display_df[col].apply(format_number_with_commas)
 
 # ---------------------------------------------------
 # Additional Filters (After Program selection)
 # ---------------------------------------------------
-materials = ["All"] + sorted(df['Material Description'].astype(str).unique())
-status_values = [s for s in df['Stock Status'].unique() if s != "" and pd.notna(s)]
-statuses = ["All"] + sorted(status_values)
+if 'Material Description' in df.columns:
+    materials = ["All"] + sorted(df['Material Description'].astype(str).unique())
+else:
+    materials = ["All"]
+    st.warning("Material Description column not found")
+
+if 'Stock Status' in df.columns:
+    status_values = [s for s in df['Stock Status'].unique() if s != "" and pd.notna(s)]
+    statuses = ["All"] + sorted(status_values)
+else:
+    statuses = ["All"]
+
 risk_filter_options = ["All", "Risk of Stock out"]
 
 material_filter = st.sidebar.selectbox("Material Description", materials)
@@ -373,13 +378,13 @@ risk_filter = st.sidebar.selectbox("Risk of Stock", risk_filter_options)
 df_filtered = df.copy()
 display_df_filtered = display_df.copy()
 
-if material_filter != "All":
+if material_filter != "All" and 'Material Description' in df_filtered.columns:
     df_filtered = df_filtered[df_filtered['Material Description'] == material_filter]
     display_df_filtered = display_df_filtered[display_df_filtered['Material Description'] == material_filter]
-if status_filter != "All":
+if status_filter != "All" and 'Stock Status' in df_filtered.columns:
     df_filtered = df_filtered[df_filtered['Stock Status'] == status_filter]
     display_df_filtered = display_df_filtered[display_df_filtered['Stock Status'] == status_filter]
-if risk_filter != "All":
+if risk_filter != "All" and 'Risk of Stock' in df_filtered.columns:
     df_filtered = df_filtered[df_filtered['Risk of Stock'] == risk_filter]
     display_df_filtered = display_df_filtered[display_df_filtered['Risk of Stock'] == risk_filter]
 
@@ -440,46 +445,49 @@ tab1, tab2, tab3, tab4 = st.tabs([
 with tab1:
     st.markdown("<h3 style='font-size: 28px; font-weight: bold; font-family: Times New Roman;'>Complete Stock Status Table</h3>", unsafe_allow_html=True)
 
-    # Reorder columns
-    cols = list(display_df_filtered.columns)
-    if 'NMOS' in cols and 'AMC' in cols:
-        cols.insert(cols.index('AMC') + 1, cols.pop(cols.index('NMOS')))
-    if 'Risk of Stock' in cols and 'Stock Status' in cols:
-        cols.insert(cols.index('Stock Status') + 1, cols.pop(cols.index('Risk of Stock')))
-    display_df_filtered = display_df_filtered[cols]
+    if not display_df_filtered.empty:
+        # Reorder columns
+        cols = list(display_df_filtered.columns)
+        if 'NMOS' in cols and 'AMC' in cols:
+            cols.insert(cols.index('AMC') + 1, cols.pop(cols.index('NMOS')))
+        if 'Risk of Stock' in cols and 'Stock Status' in cols:
+            cols.insert(cols.index('Stock Status') + 1, cols.pop(cols.index('Risk of Stock')))
+        display_df_filtered = display_df_filtered[cols]
 
-    def color_row(row):
-        colors = {
-            "Stock Out": "background-color:red;color:white",
-            "Understock": "background-color:yellow",
-            "Normal Stock": "background-color:green;color:white",
-            "Overstock": "background-color:skyblue"
+        def color_row(row):
+            colors = {
+                "Stock Out": "background-color:red;color:white",
+                "Understock": "background-color:yellow",
+                "Normal Stock": "background-color:green;color:white",
+                "Overstock": "background-color:skyblue"
+            }
+            styles = [''] * len(row)
+            for i, col in enumerate(row.index):
+                if col == 'Material Description':
+                    styles[i] = colors.get(row['Stock Status'], '')
+                    break
+            return styles
+
+        styled = display_df_filtered.style.apply(color_row, axis=1)
+
+        column_config = {
+            "Material Description": st.column_config.TextColumn(
+                "Material Description",
+                width=300,
+                pinned=True,
+                help="Material name (frozen column)"
+            )
         }
-        styles = [''] * len(row)
-        for i, col in enumerate(row.index):
-            if col == 'Material Description':
-                styles[i] = colors.get(row['Stock Status'], '')
-                break
-        return styles
 
-    styled = display_df_filtered.style.apply(color_row, axis=1)
-
-    column_config = {
-        "Material Description": st.column_config.TextColumn(
-            "Material Description",
-            width=300,
-            pinned=True,
-            help="Material name (frozen column)"
+        st.dataframe(
+            styled,
+            column_config=column_config,
+            use_container_width=True,
+            hide_index=True,
+            height=(len(display_df_filtered) + 1) * 35
         )
-    }
-
-    st.dataframe(
-        styled,
-        column_config=column_config,
-        use_container_width=True,
-        hide_index=True,
-        height=(len(display_df_filtered) + 1) * 35
-    )
+    else:
+        st.info("No data to display")
 
 # ---------------------------------------------------
 # TAB 2 KPIs & Charts
@@ -487,253 +495,260 @@ with tab1:
 with tab2:
     st.markdown("<h3 style='font-size: 28px; font-weight: bold; font-family: Times New Roman;'>Key Performance Indicators</h3>", unsafe_allow_html=True)
 
-    # KPI Gauges
-    nmos_values = pd.to_numeric(df_filtered['NMOS'], errors='coerce').dropna()
-    availability = (nmos_values > 1).mean() * 100 if len(nmos_values) > 0 else 0
-    sap = ((nmos_values >= 6) & (nmos_values <= 18)).mean() * 100 if len(nmos_values) > 0 else 0
+    if not df_filtered.empty and 'NMOS' in df_filtered.columns:
+        # KPI Gauges
+        nmos_values = pd.to_numeric(df_filtered['NMOS'], errors='coerce').dropna()
+        availability = (nmos_values > 1).mean() * 100 if len(nmos_values) > 0 else 0
+        sap = ((nmos_values >= 6) & (nmos_values <= 18)).mean() * 100 if len(nmos_values) > 0 else 0
 
-    # Calculate average Hubs% and Head Office%
-    if 'Hubs%' in df_filtered.columns:
-        hubs_pct_values = pd.to_numeric(df_filtered['Hubs%'], errors='coerce').dropna()
-        avg_hubs_pct = hubs_pct_values.mean() if len(hubs_pct_values) > 0 else 0
-    else:
-        avg_hubs_pct = 0
+        # Calculate average Hubs% and Head Office%
+        if 'Hubs%' in df_filtered.columns:
+            hubs_pct_values = pd.to_numeric(df_filtered['Hubs%'], errors='coerce').dropna()
+            avg_hubs_pct = hubs_pct_values.mean() if len(hubs_pct_values) > 0 else 0
+        else:
+            avg_hubs_pct = 0
 
-    if 'Head Office%' in df_filtered.columns:
-        ho_pct_values = pd.to_numeric(df_filtered['Head Office%'], errors='coerce').dropna()
-        avg_ho_pct = ho_pct_values.mean() if len(ho_pct_values) > 0 else 0
-    else:
-        avg_ho_pct = 0
+        if 'Head Office%' in df_filtered.columns:
+            ho_pct_values = pd.to_numeric(df_filtered['Head Office%'], errors='coerce').dropna()
+            avg_ho_pct = ho_pct_values.mean() if len(ho_pct_values) > 0 else 0
+        else:
+            avg_ho_pct = 0
 
-    availability_target = 100
-    sap_target = 65
+        availability_target = 100
+        sap_target = 65
 
-    # Display 4 KPI gauges
-    col1, col2 = st.columns(2)
-    col3, col4 = st.columns(2)
+        # Display 4 KPI gauges
+        col1, col2 = st.columns(2)
+        col3, col4 = st.columns(2)
 
-    def create_kpi_fig(value, target, title, suffix="%"):
-        display_color = 'red' if value < target else 'black'
-        return go.Figure(go.Indicator(
-            mode="gauge+number",
-            value=value,
-            number={'suffix': suffix, 'font': {'size': 36, 'color': display_color, 'family': 'Times New Roman', 'weight': 'bold'}},
-            title={'text': f"<b>{title}</b>", 'font': {'size': 24, 'family': 'Times New Roman', 'weight': 'bold'}},
-            gauge={'axis': {'range': [0, 100]}, 'bar': {'color': 'skyblue'}, 'bgcolor': "lightgray", 'borderwidth': 2, 'bordercolor': "gray"}
-        ))
+        def create_kpi_fig(value, target, title, suffix="%"):
+            display_color = 'red' if value < target else 'black'
+            return go.Figure(go.Indicator(
+                mode="gauge+number",
+                value=value,
+                number={'suffix': suffix, 'font': {'size': 36, 'color': display_color, 'family': 'Times New Roman', 'weight': 'bold'}},
+                title={'text': f"<b>{title}</b>", 'font': {'size': 24, 'family': 'Times New Roman', 'weight': 'bold'}},
+                gauge={'axis': {'range': [0, 100]}, 'bar': {'color': 'skyblue'}, 'bgcolor': "lightgray", 'borderwidth': 2, 'bordercolor': "gray"}
+            ))
 
-    with col1:
-        st.plotly_chart(create_kpi_fig(availability, availability_target, "Availability"), use_container_width=True)
-    with col2:
-        st.plotly_chart(create_kpi_fig(sap, sap_target, "SAP"), use_container_width=True)
-    with col3:
-        st.plotly_chart(create_kpi_fig(avg_hubs_pct, 50, "Avg Hubs %"), use_container_width=True)
-    with col4:
-        st.plotly_chart(create_kpi_fig(avg_ho_pct, 50, "Avg Head Office %"), use_container_width=True)
+        with col1:
+            st.plotly_chart(create_kpi_fig(availability, availability_target, "Availability"), use_container_width=True)
+        with col2:
+            st.plotly_chart(create_kpi_fig(sap, sap_target, "SAP"), use_container_width=True)
+        with col3:
+            st.plotly_chart(create_kpi_fig(avg_hubs_pct, 50, "Avg Hubs %"), use_container_width=True)
+        with col4:
+            st.plotly_chart(create_kpi_fig(avg_ho_pct, 50, "Avg Head Office %"), use_container_width=True)
 
-    # Pie Chart
-    try:
-        status_counts = df_filtered['Stock Status'].replace("", np.nan).dropna().value_counts()
-        status_counts = status_counts.astype(int)
-        if not status_counts.empty:
-            total_count = status_counts.sum()
+        # Pie Chart
+        try:
+            if 'Stock Status' in df_filtered.columns:
+                status_counts = df_filtered['Stock Status'].replace("", np.nan).dropna().value_counts()
+                status_counts = status_counts.astype(int)
+                if not status_counts.empty:
+                    total_count = status_counts.sum()
 
-            if sheet_name == "All":
-                pie_title = "<b>Stock Status - All Programs (Medicines)</b>"
-            else:
-                pie_title = f"<b>Stock Status - {sheet_name} (Medicines)</b>"
+                    if sheet_name == "All":
+                        pie_title = "<b>Stock Status - All Programs (Medicines)</b>"
+                    else:
+                        pie_title = f"<b>Stock Status - {sheet_name} (Medicines)</b>"
 
-            fig = px.pie(
-                values=status_counts.values,
-                names=status_counts.index.astype(str),
-                hole=0.5,
-                color=status_counts.index.astype(str),
-                color_discrete_map={"Stock Out": "red", "Understock": "yellow", "Normal Stock": "green", "Overstock": "skyblue"},
-            )
-            fig.update_traces(textposition='inside', textinfo='percent+value', insidetextfont={'size': 16, 'color': 'black', 'family': 'Times New Roman'})
-            fig.add_annotation(dict(text=f"Total:<br>{total_count}", x=0.5, y=0.5, showarrow=False, font_size=20, font_color='black', font_family='Times New Roman'))
-            fig.update_layout(
-                title={'text': pie_title, 'x': 0.5, 'xanchor': 'center', 'font': {'size': 28, 'family': 'Times New Roman', 'weight': 'bold'}},
-                legend_title_text='Status',
-                legend={'font': {'size': 14, 'family': 'Times New Roman'}}
-            )
-            st.plotly_chart(fig, use_container_width=True)
-    except Exception as e:
-        st.error(f"Pie chart could not be displayed: {e}")
+                    fig = px.pie(
+                        values=status_counts.values,
+                        names=status_counts.index.astype(str),
+                        hole=0.5,
+                        color=status_counts.index.astype(str),
+                        color_discrete_map={"Stock Out": "red", "Understock": "yellow", "Normal Stock": "green", "Overstock": "skyblue"},
+                    )
+                    fig.update_traces(textposition='inside', textinfo='percent+value', insidetextfont={'size': 16, 'color': 'black', 'family': 'Times New Roman'})
+                    fig.add_annotation(dict(text=f"Total:<br>{total_count}", x=0.5, y=0.5, showarrow=False, font_size=20, font_color='black', font_family='Times New Roman'))
+                    fig.update_layout(
+                        title={'text': pie_title, 'x': 0.5, 'xanchor': 'center', 'font': {'size': 28, 'family': 'Times New Roman', 'weight': 'bold'}},
+                        legend_title_text='Status',
+                        legend={'font': {'size': 14, 'family': 'Times New Roman'}}
+                    )
+                    st.plotly_chart(fig, use_container_width=True)
+        except Exception as e:
+            st.error(f"Pie chart could not be displayed: {e}")
 
-    # MOS Horizontal Bar Chart
-    try:
-        mos_cols_chart = ['Material Description', 'NMOS', 'GIT_MOS', 'LC_MOS', 'WB_MOS', 'TMD_MOS', 'TMOS']
-        available_cols = [c for c in mos_cols_chart if c in df_filtered.columns]
-        mos_df = df_filtered[available_cols].copy()
-        mos_df = mos_df[mos_df['NMOS'].notna()]
-        if not mos_df.empty:
-            for c in ['NMOS', 'GIT_MOS', 'LC_MOS', 'WB_MOS', 'TMD_MOS', 'TMOS']:
-                if c in mos_df.columns:
-                    mos_df[c] = pd.to_numeric(mos_df[c], errors='coerce').fillna(0)
+        # MOS Horizontal Bar Chart
+        try:
+            mos_cols_chart = ['Material Description', 'NMOS', 'GIT_MOS', 'LC_MOS', 'WB_MOS', 'TMD_MOS', 'TMOS']
+            available_cols = [c for c in mos_cols_chart if c in df_filtered.columns]
+            if len(available_cols) >= 2:  # At least Material Description and NMOS
+                mos_df = df_filtered[available_cols].copy()
+                if 'NMOS' in mos_df.columns:
+                    mos_df = mos_df[mos_df['NMOS'].notna()]
+                if not mos_df.empty:
+                    for c in ['NMOS', 'GIT_MOS', 'LC_MOS', 'WB_MOS', 'TMD_MOS', 'TMOS']:
+                        if c in mos_df.columns:
+                            mos_df[c] = pd.to_numeric(mos_df[c], errors='coerce').fillna(0)
 
-            mos_df = mos_df.sort_values('NMOS', ascending=True).reset_index(drop=True)
+                    mos_df = mos_df.sort_values('NMOS', ascending=True).reset_index(drop=True)
 
-            split_len = 40
-            mos_df['Material_split'] = mos_df['Material Description'].apply(
-                lambda x: '<br>'.join([str(x)[i:i + split_len] for i in range(0, len(str(x)), split_len)])
-            )
+                    split_len = 40
+                    mos_df['Material_split'] = mos_df['Material Description'].apply(
+                        lambda x: '<br>'.join([str(x)[i:i + split_len] for i in range(0, len(str(x)), split_len)])
+                    )
 
-            mos_df['NMOS_color'] = mos_df['NMOS'].apply(lambda x: "red" if x < 1 else "yellow" if x < 6 else "green" if x <= 18 else "skyblue")
+                    mos_df['NMOS_color'] = mos_df['NMOS'].apply(lambda x: "red" if x < 1 else "yellow" if x < 6 else "green" if x <= 18 else "skyblue")
 
-            split_size = 10
-            for i in range(0, len(mos_df), split_size):
-                df_chunk = mos_df.iloc[i:i + split_size]
-                fig = go.Figure()
+                    split_size = 10
+                    for i in range(0, len(mos_df), split_size):
+                        df_chunk = mos_df.iloc[i:i + split_size]
+                        fig = go.Figure()
 
-                fig.add_trace(go.Bar(
-                    y=df_chunk['Material_split'],
-                    x=df_chunk['NMOS'],
-                    name='NMOS',
-                    orientation='h',
-                    marker=dict(color=df_chunk['NMOS_color']),
-                    text=df_chunk['NMOS'].apply(lambda x: f"{x:.1f}"),
-                    textposition='inside'
-                ))
-
-                for col, color, label in [('GIT_MOS', 'cyan', 'GIT MOS'), ('LC_MOS', 'plum', 'LC MOS'),
-                                          ('WB_MOS', 'gray', 'WB MOS'), ('TMD_MOS', 'orange', 'TMD MOS')]:
-                    if col in df_chunk.columns:
                         fig.add_trace(go.Bar(
                             y=df_chunk['Material_split'],
-                            x=df_chunk[col],
-                            name=label,
+                            x=df_chunk['NMOS'],
+                            name='NMOS',
                             orientation='h',
-                            marker_color=color,
-                            text=df_chunk[col].apply(lambda x: f"{x:.1f}"),
+                            marker=dict(color=df_chunk['NMOS_color']),
+                            text=df_chunk['NMOS'].apply(lambda x: f"{x:.1f}"),
                             textposition='inside'
                         ))
 
-                fig.add_trace(go.Scatter(
-                    y=df_chunk['Material_split'],
-                    x=df_chunk['TMOS'],
-                    mode='text',
-                    text=df_chunk['TMOS'].apply(lambda x: f"TMOS: {x:.2f}"),
-                    textposition='middle right',
-                    showlegend=False
-                ))
+                        for col, color, label in [('GIT_MOS', 'cyan', 'GIT MOS'), ('LC_MOS', 'plum', 'LC MOS'),
+                                                  ('WB_MOS', 'gray', 'WB MOS'), ('TMD_MOS', 'orange', 'TMD MOS')]:
+                            if col in df_chunk.columns:
+                                fig.add_trace(go.Bar(
+                                    y=df_chunk['Material_split'],
+                                    x=df_chunk[col],
+                                    name=label,
+                                    orientation='h',
+                                    marker_color=color,
+                                    text=df_chunk[col].apply(lambda x: f"{x:.1f}"),
+                                    textposition='inside'
+                                ))
 
-                if sheet_name == "All":
-                    chart_title = f'<b>National and Pipeline Stock Status - All Programs (Medicines {i + 1}-{i + len(df_chunk)})</b>'
-                else:
-                    chart_title = f'<b>National and Pipeline Stock Status - {sheet_name} (Medicines {i + 1}-{i + len(df_chunk)})</b>'
+                        if 'TMOS' in df_chunk.columns:
+                            fig.add_trace(go.Scatter(
+                                y=df_chunk['Material_split'],
+                                x=df_chunk['TMOS'],
+                                mode='text',
+                                text=df_chunk['TMOS'].apply(lambda x: f"TMOS: {x:.2f}"),
+                                textposition='middle right',
+                                showlegend=False
+                            ))
 
-                fig.update_layout(
-                    barmode='stack',
-                    title={'text': chart_title,
-                           'x': 0.5, 'xanchor': 'center', 'font': {'size': 28, 'family': 'Times New Roman', 'weight': 'bold'}},
-                    xaxis_title='Months of Stock',
-                    yaxis_title='Material Description',
-                    xaxis={'title_font': {'family': 'Times New Roman', 'size': 16}, 'tickfont': {'family': 'Times New Roman', 'size': 14}},
-                    yaxis={'title_font': {'family': 'Times New Roman', 'size': 16}, 'tickfont': {'family': 'Times New Roman', 'size': 12}, 'autorange': "reversed"},
-                    height=max(500, 35 * len(df_chunk)),
-                    legend_title='MOS Type',
-                    legend={'font': {'family': 'Times New Roman', 'size': 14}}
-                )
-                st.plotly_chart(fig, use_container_width=True)
-    except Exception as e:
-        st.error(f"MOS bar chart could not be displayed: {e}")
+                        if sheet_name == "All":
+                            chart_title = f'<b>National and Pipeline Stock Status - All Programs (Medicines {i + 1}-{i + len(df_chunk)})</b>'
+                        else:
+                            chart_title = f'<b>National and Pipeline Stock Status - {sheet_name} (Medicines {i + 1}-{i + len(df_chunk)})</b>'
 
-    # Stacked Bar Chart: Hubs vs Head Office
-    try:
-        if 'Hubs' in df_filtered.columns and 'Head Office' in df_filtered.columns and 'NSOH' in df_filtered.columns:
-            hubs_vals = pd.to_numeric(df_filtered['Hubs'], errors='coerce').fillna(0)
-            ho_vals = pd.to_numeric(df_filtered['Head Office'], errors='coerce').fillna(0)
-            nsoh_vals = pd.to_numeric(df_filtered['NSOH'], errors='coerce')
-
-            valid_nsoh_mask = nsoh_vals.notna() & (nsoh_vals > 0)
-
-            if valid_nsoh_mask.any():
-                valid_indices = valid_nsoh_mask[valid_nsoh_mask].index
-
-                hubs_vals_valid = hubs_vals[valid_indices]
-                ho_vals_valid = ho_vals[valid_indices]
-                nsoh_vals_valid = nsoh_vals[valid_indices]
-                materials_valid = df_filtered.loc[valid_indices, 'Material Description']
-
-                hubs_pct = (hubs_vals_valid / nsoh_vals_valid * 100).fillna(0)
-                ho_pct = (ho_vals_valid / nsoh_vals_valid * 100).fillna(0)
-
-                nsoh_formatted = nsoh_vals_valid.apply(lambda x: f"{x:,.0f}")
-
-                bar_df = pd.DataFrame({
-                    'Material Description': materials_valid,
-                    'Hubs%': hubs_pct,
-                    'Head Office%': ho_pct,
-                    'NSOH_actual': nsoh_vals_valid,
-                    'NSOH_display': nsoh_formatted
-                }).reset_index(drop=True)
-
-                bar_df = bar_df.sort_values('Hubs%')
-                bar_df['Material_split'] = bar_df['Material Description'].apply(
-                    lambda x: '<br>'.join([str(x)[i:i + 25] for i in range(0, len(str(x)), 25)])
-                )
-
-                n = 11
-                for i in range(0, len(bar_df), n):
-                    df_chunk = bar_df.iloc[i:i + n]
-
-                    fig_bar = go.Figure()
-
-                    fig_bar.add_trace(go.Bar(
-                        y=df_chunk['Material_split'],
-                        x=df_chunk['Hubs%'],
-                        name='Hubs%',
-                        orientation='h',
-                        marker_color='skyblue',
-                        text=df_chunk['Hubs%'].apply(lambda x: f"{x:.1f}%" if x > 0 else ""),
-                        textposition='inside',
-                        textfont=dict(size=12, family='Times New Roman')
-                    ))
-
-                    fig_bar.add_trace(go.Bar(
-                        y=df_chunk['Material_split'],
-                        x=df_chunk['Head Office%'],
-                        name='Head Office%',
-                        orientation='h',
-                        marker_color='orange',
-                        text=df_chunk['Head Office%'].apply(lambda x: f"{x:.1f}%" if x > 0 else ""),
-                        textposition='inside',
-                        textfont=dict(size=12, family='Times New Roman')
-                    ))
-
-                    for idx, row in df_chunk.iterrows():
-                        total_pct = row['Hubs%'] + row['Head Office%']
-
-                        fig_bar.add_annotation(
-                            x=total_pct + 2,
-                            y=row['Material_split'],
-                            text=f"NSOH: {row['NSOH_display']}",
-                            showarrow=False,
-                            font=dict(size=12, color="black", family='Times New Roman'),
-                            xanchor='left',
-                            yanchor='middle'
+                        fig.update_layout(
+                            barmode='stack',
+                            title={'text': chart_title,
+                                   'x': 0.5, 'xanchor': 'center', 'font': {'size': 28, 'family': 'Times New Roman', 'weight': 'bold'}},
+                            xaxis_title='Months of Stock',
+                            yaxis_title='Material Description',
+                            xaxis={'title_font': {'family': 'Times New Roman', 'size': 16}, 'tickfont': {'family': 'Times New Roman', 'size': 14}},
+                            yaxis={'title_font': {'family': 'Times New Roman', 'size': 16}, 'tickfont': {'family': 'Times New Roman', 'size': 12}, 'autorange': "reversed"},
+                            height=max(500, 35 * len(df_chunk)),
+                            legend_title='MOS Type',
+                            legend={'font': {'family': 'Times New Roman', 'size': 14}}
                         )
+                        st.plotly_chart(fig, use_container_width=True)
+        except Exception as e:
+            st.error(f"MOS bar chart could not be displayed: {e}")
 
-                    fig_bar.update_layout(
-                        barmode='stack',
-                        title={'text': f'Stock Distribution Hubs vs Head Office (Materials - {i + 1} to {i + len(df_chunk)})',
-                               'x': 0.5, 'xanchor': 'center', 'font': {'size': 28, 'family': 'Times New Roman', 'weight': 'bold'}},
-                        xaxis_title='Percentage of NSOH (%)',
-                        yaxis_title='Material Description',
-                        xaxis={'title_font': {'family': 'Times New Roman', 'size': 16}, 'tickfont': {'family': 'Times New Roman', 'size': 14}, 'range': [0, 120]},
-                        yaxis={'title_font': {'family': 'Times New Roman', 'size': 16}, 'tickfont': {'family': 'Times New Roman', 'size': 12}, 'categoryorder': 'total ascending'},
-                        legend_title='Location',
-                        legend={'font': {'family': 'Times New Roman', 'size': 14}},
-                        height=max(600, 40 * len(df_chunk)),
-                        margin=dict(r=150)
+        # Stacked Bar Chart: Hubs vs Head Office
+        try:
+            if 'Hubs' in df_filtered.columns and 'Head Office' in df_filtered.columns and 'NSOH' in df_filtered.columns:
+                hubs_vals = pd.to_numeric(df_filtered['Hubs'], errors='coerce').fillna(0)
+                ho_vals = pd.to_numeric(df_filtered['Head Office'], errors='coerce').fillna(0)
+                nsoh_vals = pd.to_numeric(df_filtered['NSOH'], errors='coerce')
+
+                valid_nsoh_mask = nsoh_vals.notna() & (nsoh_vals > 0)
+
+                if valid_nsoh_mask.any():
+                    valid_indices = valid_nsoh_mask[valid_nsoh_mask].index
+
+                    hubs_vals_valid = hubs_vals[valid_indices]
+                    ho_vals_valid = ho_vals[valid_indices]
+                    nsoh_vals_valid = nsoh_vals[valid_indices]
+                    materials_valid = df_filtered.loc[valid_indices, 'Material Description']
+
+                    hubs_pct = (hubs_vals_valid / nsoh_vals_valid * 100).fillna(0)
+                    ho_pct = (ho_vals_valid / nsoh_vals_valid * 100).fillna(0)
+
+                    nsoh_formatted = nsoh_vals_valid.apply(lambda x: f"{x:,.0f}")
+
+                    bar_df = pd.DataFrame({
+                        'Material Description': materials_valid,
+                        'Hubs%': hubs_pct,
+                        'Head Office%': ho_pct,
+                        'NSOH_actual': nsoh_vals_valid,
+                        'NSOH_display': nsoh_formatted
+                    }).reset_index(drop=True)
+
+                    bar_df = bar_df.sort_values('Hubs%')
+                    bar_df['Material_split'] = bar_df['Material Description'].apply(
+                        lambda x: '<br>'.join([str(x)[i:i + 25] for i in range(0, len(str(x)), 25)])
                     )
 
-                    st.plotly_chart(fig_bar, use_container_width=True)
-            else:
-                st.info("No materials with valid NSOH (>0) to display in the stacked bar chart.")
-    except Exception as e:
-        st.error(f"Stacked bar chart could not be displayed: {e}")
+                    n = 11
+                    for i in range(0, len(bar_df), n):
+                        df_chunk = bar_df.iloc[i:i + n]
+
+                        fig_bar = go.Figure()
+
+                        fig_bar.add_trace(go.Bar(
+                            y=df_chunk['Material_split'],
+                            x=df_chunk['Hubs%'],
+                            name='Hubs%',
+                            orientation='h',
+                            marker_color='skyblue',
+                            text=df_chunk['Hubs%'].apply(lambda x: f"{x:.1f}%" if x > 0 else ""),
+                            textposition='inside',
+                            textfont=dict(size=12, family='Times New Roman')
+                        ))
+
+                        fig_bar.add_trace(go.Bar(
+                            y=df_chunk['Material_split'],
+                            x=df_chunk['Head Office%'],
+                            name='Head Office%',
+                            orientation='h',
+                            marker_color='orange',
+                            text=df_chunk['Head Office%'].apply(lambda x: f"{x:.1f}%" if x > 0 else ""),
+                            textposition='inside',
+                            textfont=dict(size=12, family='Times New Roman')
+                        ))
+
+                        for idx, row in df_chunk.iterrows():
+                            total_pct = row['Hubs%'] + row['Head Office%']
+
+                            fig_bar.add_annotation(
+                                x=total_pct + 2,
+                                y=row['Material_split'],
+                                text=f"NSOH: {row['NSOH_display']}",
+                                showarrow=False,
+                                font=dict(size=12, color="black", family='Times New Roman'),
+                                xanchor='left',
+                                yanchor='middle'
+                            )
+
+                        fig_bar.update_layout(
+                            barmode='stack',
+                            title={'text': f'Stock Distribution Hubs vs Head Office (Materials - {i + 1} to {i + len(df_chunk)})',
+                                   'x': 0.5, 'xanchor': 'center', 'font': {'size': 28, 'family': 'Times New Roman', 'weight': 'bold'}},
+                            xaxis_title='Percentage of NSOH (%)',
+                            yaxis_title='Material Description',
+                            xaxis={'title_font': {'family': 'Times New Roman', 'size': 16}, 'tickfont': {'family': 'Times New Roman', 'size': 14}, 'range': [0, 120]},
+                            yaxis={'title_font': {'family': 'Times New Roman', 'size': 16}, 'tickfont': {'family': 'Times New Roman', 'size': 12}, 'categoryorder': 'total ascending'},
+                            legend_title='Location',
+                            legend={'font': {'family': 'Times New Roman', 'size': 14}},
+                            height=max(600, 40 * len(df_chunk)),
+                            margin=dict(r=150)
+                        )
+
+                        st.plotly_chart(fig_bar, use_container_width=True)
+                else:
+                    st.info("No materials with valid NSOH (>0) to display in the stacked bar chart.")
+        except Exception as e:
+            st.error(f"Stacked bar chart could not be displayed: {e}")
+    else:
+        st.info("No data available for KPI charts")
 
 # ---------------------------------------------------
 # TAB 3 - Decision Briefs
@@ -755,12 +770,12 @@ with tab3:
 
         for idx, row in df_filtered.iterrows():
             problems = []
-            if row['Stock Status'] == 'Stock Out':
+            if 'Stock Status' in row and row['Stock Status'] == 'Stock Out':
                 problems.append('Stock Out')
-            if row['Risk of Stock'] == 'Risk of Stock out':
+            if 'Risk of Stock' in row and row['Risk of Stock'] == 'Risk of Stock out':
                 problems.append('Risk of Stock out')
 
-            if problems:
+            if problems and idx in decision_df.index:
                 decision_df.at[idx, 'Identified Problems'] = ', '.join(problems)
 
         decision_df = decision_df[decision_df['Identified Problems'] != ''].copy()
@@ -874,11 +889,11 @@ with tab3:
 # ---------------------------------------------------
 with tab4:
     try:
-        # Use the cf data loaded from current directory
+        # Use the cf data if available
         main_df = df.copy()
 
-        if cf is not None and 'Material Description' in main_df.columns and 'Material Description' in cf.columns:
-            gh = main_df.iloc[:, 0:20].copy()
+        if cf is not None and not cf.empty and 'Material Description' in main_df.columns and 'Material Description' in cf.columns:
+            gh = main_df.iloc[:, 0:min(20, len(main_df.columns))].copy()
 
             st.markdown("<h4 style='font-size: 24px; font-weight: bold; font-family: Times New Roman;'>Stock Distribution Across Hubs by MOS</h4>", unsafe_allow_html=True)
 
@@ -945,8 +960,8 @@ with tab4:
                     division_df['CV (%)'] = division_df['CV (%)'].round(1)
 
                     # Reorder columns to put CV after Material Description
-                    cols = ['Material Description', 'CV (%)'] + branch_cols
-                    division_df = division_df[cols]
+                    cols_order = ['Material Description', 'CV (%)'] + branch_cols
+                    division_df = division_df[cols_order]
 
                     # Categorize CV values
                     def categorize_cv(cv_value):
@@ -991,13 +1006,13 @@ with tab4:
 
                     # HEATMAP
                     if division_df.shape[1] > 2:
-                        branch_cols = [col for col in division_df.columns if col not in ['Material Description', 'CV (%)', 'CV Category']]
+                        branch_cols_heatmap = [col for col in division_df.columns if col not in ['Material Description', 'CV (%)', 'CV Category']]
 
                         heatmap_df = division_df.copy()
                         heatmap_df = heatmap_df.sort_values('Material Description')
 
                         heatmap_df_indexed = heatmap_df.set_index('Material Description')
-                        heatmap_df_indexed = heatmap_df_indexed[branch_cols]
+                        heatmap_df_indexed = heatmap_df_indexed[branch_cols_heatmap]
                         heatmap_df_transposed = heatmap_df_indexed.T
 
                         total_materials = len(heatmap_df_transposed.columns)
@@ -1144,7 +1159,7 @@ with tab4:
 
             # Show available data as fallback
             if 'Material Description' in df.columns:
-                gh = df[['Material Description'] + df.columns[1:20].tolist()].copy()
+                gh = df[['Material Description'] + df.columns[1:min(20, len(df.columns))].tolist()].copy()
                 st.markdown("<h5 style='font-size: 20px; font-weight: bold; font-family: Times New Roman;'>Available Hubs SOH Data</h5>", unsafe_allow_html=True)
                 st.dataframe(
                     gh,
@@ -1164,9 +1179,10 @@ with tab4:
 # Download Filtered Data
 # ---------------------------------------------------
 st.divider()
-st.download_button(
-    label="Download Full Filtered Data",
-    data=display_df_filtered.to_csv(index=False),
-    file_name=f"full_stock_dashboard_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
-    mime="text/csv"
-)
+if not display_df_filtered.empty:
+    st.download_button(
+        label="Download Full Filtered Data",
+        data=display_df_filtered.to_csv(index=False),
+        file_name=f"full_stock_dashboard_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+        mime="text/csv"
+    )
