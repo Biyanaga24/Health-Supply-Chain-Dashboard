@@ -33,6 +33,29 @@ with st.sidebar:
     st.title(f"Welcome, {st.session_state['user']['full_name']}!")
 
 # ---------------------------------------------------
+# Helper function to find files
+# ---------------------------------------------------
+def find_file(filename):
+    """Find a file in common locations"""
+    # Get the directory where this script is running
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+
+    # List of possible locations to check
+    possible_paths = [
+        filename,  # Current directory
+        os.path.join(script_dir, filename),  # Same directory as script
+        os.path.join(".", filename),  # Explicit current directory
+        os.path.join(script_dir, "data", filename),  # data subfolder
+        os.path.join(".", "data", filename),  # data subfolder from current
+    ]
+
+    for path in possible_paths:
+        if os.path.exists(path):
+            return path
+
+    return None
+
+# ---------------------------------------------------
 # Load Data
 # ---------------------------------------------------
 @st.cache_data
@@ -42,33 +65,38 @@ def load_google(sheet_id):
     return {name: clean_df(df) for name, df in sheets.items()}
 
 @st.cache_data(ttl=60)
-def load_external(path):
+def load_external(filename):
+    """Load external Excel file with better path handling"""
     try:
-        df = pd.read_excel(path, header=0)
-        return clean_df(df)
+        file_path = find_file(filename)
+        if file_path:
+            st.sidebar.success(f"Found file: {os.path.basename(file_path)}")
+            df = pd.read_excel(file_path, header=0)
+            return clean_df(df)
+        else:
+            st.error(f"File '{filename}' not found. Please check:")
+            st.error("1. Is the file in the same folder as dashboard.py?")
+            st.error("2. Is the filename exactly correct?")
+            st.error("3. Current directory: " + os.getcwd())
+            return pd.DataFrame()
     except Exception as e:
-        st.error(f"External Excel not found or invalid: {e}")
+        st.error(f"Error loading {filename}: {e}")
         return pd.DataFrame()
 
 # Function to load branch data from the current directory
 @st.cache_data
 def load_branch_data(filename):
-    """Load branch data from the current directory"""
+    """Load branch data with better path handling"""
     try:
-        # Check if file exists in current directory
-        if os.path.exists(filename):
-            df = pd.read_excel(filename, header=0)
+        file_path = find_file(filename)
+        if file_path:
+            st.sidebar.success(f"Found branch file: {os.path.basename(file_path)}")
+            df = pd.read_excel(file_path, header=0)
             return clean_df(df)
         else:
-            # Try looking in the same directory as the script
-            script_dir = os.path.dirname(os.path.abspath(__file__))
-            file_path = os.path.join(script_dir, filename)
-            if os.path.exists(file_path):
-                df = pd.read_excel(file_path, header=0)
-                return clean_df(df)
-            else:
-                st.sidebar.warning(f"Branch data file '{filename}' not found. Please upload it to the application directory.")
-                return None
+            st.sidebar.warning(f"Branch data file '{filename}' not found.")
+            st.sidebar.info("Please upload it to the application directory.")
+            return None
     except Exception as e:
         st.sidebar.warning(f"Could not load branch data: {e}")
         return None
@@ -142,31 +170,6 @@ def safe_convert_to_numeric(series):
     except:
         return series
 
-def wrap_text(text, width=30):
-    """Wrap text to specified width"""
-    if pd.isna(text) or text == "":
-        return ""
-    text = str(text)
-    words = text.split()
-    lines = []
-    current_line = []
-    current_length = 0
-
-    for word in words:
-        if current_length + len(word) + 1 <= width:
-            current_line.append(word)
-            current_length += len(word) + 1
-        else:
-            if current_line:
-                lines.append(' '.join(current_line))
-            current_line = [word]
-            current_length = len(word)
-
-    if current_line:
-        lines.append(' '.join(current_line))
-
-    return '<br>'.join(lines)
-
 def calculate_coefficient_of_variation(values):
     """Calculate coefficient of variation (CV = std/mean * 100)"""
     try:
@@ -181,20 +184,56 @@ def calculate_coefficient_of_variation(values):
     except:
         return np.nan
 
+# ---------------------------------------------------
+# Show current directory for debugging
+# ---------------------------------------------------
+st.sidebar.markdown("---")
+st.sidebar.caption(f"Current directory: {os.getcwd()}")
+
 # Load main data
 sheet_id = "14VvZ7IyOmpM4SZrY5_ArHDgLkeFN4inW"
 google_sheets = load_google(sheet_id)
 
-external_path = "./Hp_medicines_Stock_Final.xlsx"
-df_external = load_external(external_path)
+# Try different possible filenames
+possible_filenames = [
+    "Hp_medicines_Stock_Final.xlsx",
+    "Hp_medicines_Stock_Final.xls",
+    "hp_medicines_stock_final.xlsx",
+    "Medicines_Stock_Final.xlsx"
+]
+
+df_external = pd.DataFrame()
+for filename in possible_filenames:
+    df_external = load_external(filename)
+    if not df_external.empty:
+        st.sidebar.success(f"✅ Loaded: {filename}")
+        break
 
 if df_external.empty:
-    st.error("External Excel contains no valid data.")
+    st.error("❌ Could not find Hp_medicines_Stock_Final.xlsx file.")
+    st.info("Please make sure the file is in the same directory as dashboard.py")
+    st.info(f"Current directory: {os.getcwd()}")
+
+    # List files in current directory to help debug
+    try:
+        files = os.listdir(".")
+        st.write("Files in current directory:")
+        for f in files:
+            if f.endswith('.xlsx') or f.endswith('.xls'):
+                st.write(f"📊 {f}")
+    except:
+        pass
+
     st.stop()
 
 # Load branch data from current directory
-branch_filename = "Branch_Health Program_AMC .xlsx"  # Name of the file in current directory
+branch_filename = "Branch_Health Program_AMC .xlsx"
 cf = load_branch_data(branch_filename)
+
+# If not found, try without the space
+if cf is None:
+    branch_filename = "Branch_Health_Program_AMC.xlsx"
+    cf = load_branch_data(branch_filename)
 
 # ---------------------------------------------------
 # Program Selection (First filter in sidebar)
@@ -1100,8 +1139,8 @@ with tab4:
             else:
                 st.warning("No matching Material Description found between the two files")
         elif cf is None:
-            st.warning(f"Branch data file '{branch_filename}' not found in the application directory.")
-            st.info("Please upload the file to the same folder as this application.")
+            st.warning(f"Branch data file not found.")
+            st.info("Please upload 'Branch_Health Program_AMC .xlsx' to the same folder as this application.")
 
             # Show available data as fallback
             if 'Material Description' in df.columns:
