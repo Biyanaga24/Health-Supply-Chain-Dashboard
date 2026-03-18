@@ -183,23 +183,56 @@ def calculate_coefficient_of_variation(values):
 # ---------------------------------------------------
 # Load main data - Using pickle file
 # ---------------------------------------------------
+# ---------------------------------------------------
+# Load main data - Using pickle file with debugging
+# ---------------------------------------------------
 sheet_id = "14VvZ7IyOmpM4SZrY5_ArHDgLkeFN4inW"
 google_sheets = load_google(sheet_id)
 
 # Load the saved national_final2 dataframe from pickle
 file_path = 'national_final2.pkl'
 
+st.sidebar.write(f"Looking for file: {os.path.abspath(file_path)}")
+st.sidebar.write(f"File exists: {os.path.exists(file_path)}")
+
 if os.path.exists(file_path):
     try:
-        # Use standard pickle load instead of pd.read_pickle
+        # Try different loading methods
+        st.sidebar.write("Attempting to load with pickle...")
         with open(file_path, 'rb') as f:
             df_external = pickle.load(f)
         st.sidebar.success(f"✅ Loaded data with {len(df_external)} rows")
+        st.sidebar.write(f"Data type: {type(df_external)}")
+        if isinstance(df_external, pd.DataFrame):
+            st.sidebar.write(f"Columns: {list(df_external.columns)}")
     except Exception as e:
         st.error(f"Error loading file: {e}")
+        st.error(f"Error type: {type(e)}")
+
+        # Try alternative loading method
+        try:
+            st.sidebar.write("Attempting to load with pandas...")
+            df_external = pd.read_pickle(file_path)
+            st.sidebar.success(f"✅ Loaded with pandas: {len(df_external)} rows")
+        except Exception as e2:
+            st.error(f"Pandas loading also failed: {e2}")
+
+            # Show file info
+            file_size = os.path.getsize(file_path)
+            st.error(f"File size: {file_size} bytes")
+
+            # Try to read first few bytes to see file type
+            with open(file_path, 'rb') as f:
+                header = f.read(20)
+            st.error(f"File header (first 20 bytes): {header}")
         st.stop()
 else:
-    st.error("File not found. Please create national_final2.pkl first.")
+    st.error(f"File not found at: {os.path.abspath(file_path)}")
+    st.error("Please create national_final2.pkl first.")
+    st.stop()
+
+if df_external.empty:
+    st.error("Loaded dataframe is empty.")
     st.stop()
 
 # Load branch data from current directory
