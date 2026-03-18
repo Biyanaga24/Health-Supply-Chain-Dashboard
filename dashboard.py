@@ -622,7 +622,7 @@ with tab2:
                         marker_color='skyblue',
                         text=df_chunk['Hubs%'].apply(lambda x: f"{x:.1f}%" if x > 0 else ""),
                         textposition='inside',
-                        textfont=dict(size=10, family='Times New Roman')
+                        textfont=dict(size=12, family='Times New Roman')
                     ))
 
                     fig_bar.add_trace(go.Bar(
@@ -633,7 +633,7 @@ with tab2:
                         marker_color='orange',
                         text=df_chunk['Head Office%'].apply(lambda x: f"{x:.1f}%" if x > 0 else ""),
                         textposition='inside',
-                        textfont=dict(size=10, family='Times New Roman')
+                        textfont=dict(size=12, family='Times New Roman')
                     ))
 
                     for idx, row in df_chunk.iterrows():
@@ -644,7 +644,7 @@ with tab2:
                             y=row['Material_split'],
                             text=f"NSOH: {row['NSOH_display']}",
                             showarrow=False,
-                            font=dict(size=10, color="black", family='Times New Roman'),
+                            font=dict(size=12, color="black", family='Times New Roman'),
                             xanchor='left',
                             yanchor='middle'
                         )
