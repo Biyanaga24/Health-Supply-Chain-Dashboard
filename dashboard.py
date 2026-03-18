@@ -191,17 +191,15 @@ file_path = 'national_final2.pkl'
 
 if os.path.exists(file_path):
     try:
-        df_external = pd.read_pickle(file_path)
+        # Use standard pickle load instead of pd.read_pickle
+        with open(file_path, 'rb') as f:
+            df_external = pickle.load(f)
         st.sidebar.success(f"✅ Loaded data with {len(df_external)} rows")
     except Exception as e:
         st.error(f"Error loading file: {e}")
         st.stop()
 else:
     st.error("File not found. Please create national_final2.pkl first.")
-    st.stop()
-
-if df_external.empty:
-    st.error("Loaded dataframe is empty.")
     st.stop()
 
 # Load branch data from current directory
