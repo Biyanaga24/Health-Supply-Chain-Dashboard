@@ -50,6 +50,29 @@ def load_external(path):
         st.error(f"External Excel not found or invalid: {e}")
         return pd.DataFrame()
 
+# Function to load branch data from the current directory
+@st.cache_data
+def load_branch_data(filename):
+    """Load branch data from the current directory"""
+    try:
+        # Check if file exists in current directory
+        if os.path.exists(filename):
+            df = pd.read_excel(filename, header=0)
+            return clean_df(df)
+        else:
+            # Try looking in the same directory as the script
+            script_dir = os.path.dirname(os.path.abspath(__file__))
+            file_path = os.path.join(script_dir, filename)
+            if os.path.exists(file_path):
+                df = pd.read_excel(file_path, header=0)
+                return clean_df(df)
+            else:
+                st.sidebar.warning(f"Branch data file '{filename}' not found. Please upload it to the application directory.")
+                return None
+    except Exception as e:
+        st.sidebar.warning(f"Could not load branch data: {e}")
+        return None
+
 # Utility Functions
 def clean_df(df):
     df = df.loc[:, ~df.columns.str.contains("^Unnamed")]
@@ -158,7 +181,7 @@ def calculate_coefficient_of_variation(values):
     except:
         return np.nan
 
-# Load data
+# Load main data
 sheet_id = "14VvZ7IyOmpM4SZrY5_ArHDgLkeFN4inW"
 google_sheets = load_google(sheet_id)
 
@@ -168,6 +191,10 @@ df_external = load_external(external_path)
 if df_external.empty:
     st.error("External Excel contains no valid data.")
     st.stop()
+
+# Load branch data from current directory
+branch_filename = "Branch_Health Program_AMC .xlsx"  # Name of the file in current directory
+cf = load_branch_data(branch_filename)
 
 # ---------------------------------------------------
 # Program Selection (First filter in sidebar)
@@ -322,7 +349,7 @@ if risk_filter != "All":
 # ---------------------------------------------------
 st.sidebar.divider()
 
-# Show navigation options (without admin account display)
+# Show navigation options
 if st.session_state['user']['role'] == 'admin':
     page = st.sidebar.radio("Navigation", ["Dashboard", "Admin Panel", "Profile"])
 else:
@@ -359,7 +386,7 @@ if 'heatmap_page' not in st.session_state:
     st.session_state.heatmap_page = 1
 
 # ---------------------------------------------------
-# Tabs with larger, bold headers (Times New Roman)
+# Tabs
 # ---------------------------------------------------
 tab1, tab2, tab3, tab4 = st.tabs([
     "📊 **STOCK STATUS TABLE**", 
@@ -421,7 +448,7 @@ with tab1:
 with tab2:
     st.markdown("<h3 style='font-size: 28px; font-weight: bold; font-family: Times New Roman;'>Key Performance Indicators</h3>", unsafe_allow_html=True)
 
-    # KPI Gauges - Now including Hubs% and Head Office%
+    # KPI Gauges
     nmos_values = pd.to_numeric(df_filtered['NMOS'], errors='coerce').dropna()
     availability = (nmos_values > 1).mean() * 100 if len(nmos_values) > 0 else 0
     sap = ((nmos_values >= 6) & (nmos_values <= 18)).mean() * 100 if len(nmos_values) > 0 else 0
@@ -442,7 +469,7 @@ with tab2:
     availability_target = 100
     sap_target = 65
 
-    # Display 4 KPI gauges in 2 rows
+    # Display 4 KPI gauges
     col1, col2 = st.columns(2)
     col3, col4 = st.columns(2)
 
@@ -495,7 +522,7 @@ with tab2:
     except Exception as e:
         st.error(f"Pie chart could not be displayed: {e}")
 
-    # MOS Horizontal Bar Chart (Ascending NMOS)
+    # MOS Horizontal Bar Chart
     try:
         mos_cols_chart = ['Material Description', 'NMOS', 'GIT_MOS', 'LC_MOS', 'WB_MOS', 'TMD_MOS', 'TMOS']
         available_cols = [c for c in mos_cols_chart if c in df_filtered.columns]
@@ -573,7 +600,7 @@ with tab2:
     except Exception as e:
         st.error(f"MOS bar chart could not be displayed: {e}")
 
-    # Stacked Bar Chart: Hubs vs Head Office with NSOH values
+    # Stacked Bar Chart: Hubs vs Head Office
     try:
         if 'Hubs' in df_filtered.columns and 'Head Office' in df_filtered.columns and 'NSOH' in df_filtered.columns:
             hubs_vals = pd.to_numeric(df_filtered['Hubs'], errors='coerce').fillna(0)
@@ -808,10 +835,10 @@ with tab3:
 # ---------------------------------------------------
 with tab4:
     try:
-        cf = pd.read_excel(r"D:\All files\Branch_Health Program_AMC .xlsx")
+        # Use the cf data loaded from current directory
         main_df = df.copy()
 
-        if 'Material Description' in main_df.columns and 'Material Description' in cf.columns:
+        if cf is not None and 'Material Description' in main_df.columns and 'Material Description' in cf.columns:
             gh = main_df.iloc[:, 0:20].copy()
 
             st.markdown("<h4 style='font-size: 24px; font-weight: bold; font-family: Times New Roman;'>Stock Distribution Across Hubs by MOS</h4>", unsafe_allow_html=True)
@@ -923,16 +950,13 @@ with tab4:
                             high_pct = (high_count / total_materials * 100) if total_materials > 0 else 0
                             st.metric("High Variation (>100%)", f"{high_count} ({high_pct:.1f}%)")
 
-
-                    # HEATMAP - Placed immediately after Quick Summary
-                    if division_df.shape[1] > 2:  # At least Material, CV, and one branch
-                        # Exclude CV column from heatmap
+                    # HEATMAP
+                    if division_df.shape[1] > 2:
                         branch_cols = [col for col in division_df.columns if col not in ['Material Description', 'CV (%)', 'CV Category']]
 
                         heatmap_df = division_df.copy()
                         heatmap_df = heatmap_df.sort_values('Material Description')
 
-                        # Keep original Material Description without wrapping
                         heatmap_df_indexed = heatmap_df.set_index('Material Description')
                         heatmap_df_indexed = heatmap_df_indexed[branch_cols]
                         heatmap_df_transposed = heatmap_df_indexed.T
@@ -1075,32 +1099,22 @@ with tab4:
                 st.caption(f"**Rows:** {cf.shape[0]} | **Columns:** {cf.shape[1]}")
             else:
                 st.warning("No matching Material Description found between the two files")
+        elif cf is None:
+            st.warning(f"Branch data file '{branch_filename}' not found in the application directory.")
+            st.info("Please upload the file to the same folder as this application.")
 
-                col1, col2 = st.columns(2)
-                with col1:
-                    st.write("Sample materials from gh:")
-                    st.write(gh['Material Description'].head(10).tolist())
-                with col2:
-                    st.write("Sample materials from cf:")
-                    st.write(cf['Material Description'].head(10).tolist())
+            # Show available data as fallback
+            if 'Material Description' in df.columns:
+                gh = df[['Material Description'] + df.columns[1:20].tolist()].copy()
+                st.markdown("<h5 style='font-size: 20px; font-weight: bold; font-family: Times New Roman;'>Available Hubs SOH Data</h5>", unsafe_allow_html=True)
+                st.dataframe(
+                    gh,
+                    use_container_width=True,
+                    height=400,
+                    hide_index=True
+                )
         else:
             st.error("'Material Description' column not found in one or both dataframes")
-            st.write("Columns in main dataframe:", main_df.columns.tolist())
-            st.write("Columns in cf dataframe:", cf.columns.tolist())
-
-    except FileNotFoundError:
-        st.error("File not found: D:\\All files\\Branch_Health Program_AMC .xlsx")
-        st.info("Please check if the file exists at the specified path.")
-
-        if 'Material Description' in df.columns:
-            gh = df[['Material Description'] + df.columns[1:20].tolist()].copy()
-            st.markdown("<h5 style='font-size: 20px; font-weight: bold; font-family: Times New Roman;'>gh (Hubs SOH) - First 20 Columns</h5>", unsafe_allow_html=True)
-            st.dataframe(
-                gh,
-                use_container_width=True,
-                height=400,
-                hide_index=True
-            )
 
     except Exception as e:
         st.error(f"Error processing files: {e}")
