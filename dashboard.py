@@ -187,25 +187,21 @@ sheet_id = "14VvZ7IyOmpM4SZrY5_ArHDgLkeFN4inW"
 google_sheets = load_google(sheet_id)
 
 # Load the saved national_final2 dataframe from pickle
-if os.path.exists('national_final2.pkl'):
+file_path = 'national_final2.pkl'
+
+if os.path.exists(file_path):
     try:
-        with open('national_final2.pkl', 'rb') as f:
-            national_final2 = pickle.load(f)
-        df_external = national_final2
-        st.sidebar.success(f"✅ Loaded national_final2 with {len(df_external)} rows")
+        df_external = pd.read_pickle(file_path)
+        st.sidebar.success(f"✅ Loaded data with {len(df_external)} rows")
     except Exception as e:
-        st.error(f"Error loading national_final2.pkl: {e}")
+        st.error(f"Error loading file: {e}")
         st.stop()
 else:
-    st.error("national_final2.pkl not found. Please run Health Program_SOH.ipynb first to create it.")
-    st.info("Instructions: In Health Program_SOH.ipynb, add this code at the end:\n"
-            "import pickle\n"
-            "with open('national_final2.pkl', 'wb') as f:\n"
-            "    pickle.dump(national_final2, f)")
+    st.error("File not found. Please create national_final2.pkl first.")
     st.stop()
 
 if df_external.empty:
-    st.error("Loaded dataframe contains no data.")
+    st.error("Loaded dataframe is empty.")
     st.stop()
 
 # Load branch data from current directory
