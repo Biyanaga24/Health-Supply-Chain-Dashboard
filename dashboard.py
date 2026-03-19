@@ -48,8 +48,8 @@ if 'heatmap_page' not in st.session_state:
     st.session_state.heatmap_page = 1
 if 'google_sheets_data' not in st.session_state:
     st.session_state.google_sheets_data = None
-if 'is_uploading' not in st.session_state:
-    st.session_state.is_uploading = False
+if 'upload_in_progress' not in st.session_state:
+    st.session_state.upload_in_progress = False
 
 # ---------------------------------------------------
 # Helper Functions for File Handling
@@ -114,22 +114,41 @@ def safe_write_excel(filepath, uploaded_file):
             tmp_file.write(uploaded_file.getbuffer())
             tmp_path = tmp_file.name
 
+        # Wait a moment to ensure file is fully written
+        time.sleep(0.5)
+
         # Try to replace the target file
         try:
             # If target exists, try to remove it first
             if os.path.exists(filepath):
+                # Ensure file is not locked by waiting
+                time.sleep(0.5)
                 os.remove(filepath)
+                time.sleep(0.5)
+
             # Copy temp file to target
             shutil.copy2(tmp_path, filepath)
-            # Clean up temp file
-            os.unlink(tmp_path)
-            return True
+
+            # Verify the file was written
+            if os.path.exists(filepath) and os.path.getsize(filepath) > 0:
+                # Clean up temp file
+                os.unlink(tmp_path)
+                return True
+            else:
+                raise Exception("File was not written successfully")
+
         except PermissionError:
             st.error(f"Cannot write to {filepath}. Please close the file if it's open in another program.")
-            os.unlink(tmp_path)  # Clean up temp file
+            if os.path.exists(tmp_path):
+                os.unlink(tmp_path)  # Clean up temp file
+            return False
+        except Exception as e:
+            st.error(f"Error saving file: {e}")
+            if os.path.exists(tmp_path):
+                os.unlink(tmp_path)  # Clean up temp file
             return False
     except Exception as e:
-        st.error(f"Error saving file: {e}")
+        st.error(f"Error creating temporary file: {e}")
         return False
 
 # ---------------------------------------------------
@@ -596,38 +615,66 @@ if st.sidebar.button("🗑️ Clear Cache", use_container_width=True):
     time.sleep(1)
     st.rerun()
 
-# File upload section - ONLY FOR ADMINISTRATORS
+# ---------------------------------------------------
+# ---------------------------------------------------
+# File upload section - ONLY FOR ADMINISTRATORS (COMPLETELY REWRITTEN)
+# ---------------------------------------------------
 if st.session_state['user']['role'] == 'admin':
     with st.sidebar.expander("📁 Upload New Files (Admin Only)"):
         st.caption("Upload updated Excel files to replace existing ones")
         st.info("⚠️ Please close the files in Excel before uploading")
 
-        uploaded_branch = st.file_uploader("Upload Branch Data", type=['xlsx'], key='branch_upload')
-        if uploaded_branch is not None:
-            st.session_state.is_uploading = True
-            success = safe_write_excel('./Branch_Health Program_AMC .xlsx', uploaded_branch)
-            if success:
-                st.success("Branch file uploaded successfully!")
-                st.cache_data.clear()
-                st.session_state.is_uploading = False
-                time.sleep(1)
-                st.rerun()
-            else:
-                st.session_state.is_uploading = False
+        # Use a form to prevent automatic reruns
+        with st.form(key="upload_form", clear_on_submit=True):
+            uploaded_branch = st.file_uploader("Choose Branch Data file", type=['xlsx'], key='branch_upload_form')
+            uploaded_stock = st.file_uploader("Choose Stock Data file", type=['xlsx'], key='stock_upload_form')
 
-        uploaded_stock = st.file_uploader("Upload Stock Data", type=['xlsx'], key='stock_upload')
-        if uploaded_stock is not None:
-            st.session_state.is_uploading = True
-            success = safe_write_excel('./Hp_medicines_Stock_Final.xlsx', uploaded_stock)
-            if success:
-                st.success("Stock file uploaded successfully!")
-                st.cache_data.clear()
-                st.session_state.is_uploading = False
-                time.sleep(1)
-                st.rerun()
-            else:
-                st.session_state.is_uploading = False
+            submit_button = st.form_submit_button("📤 Upload Files")
 
+            if submit_button:
+                upload_success = False
+
+                # Handle branch file upload
+                if uploaded_branch is not None:
+                    with st.spinner("Uploading branch data..."):
+                        try:
+                            # Read the file content
+                            branch_content = uploaded_branch.getvalue()
+
+                            # Write directly to file
+                            with open('./Branch_Health Program_AMC .xlsx', 'wb') as f:
+                                f.write(branch_content)
+
+                            st.success("✅ Branch file uploaded successfully!")
+                            upload_success = True
+                        except Exception as e:
+                            st.error(f"❌ Error uploading branch file: {e}")
+
+                # Handle stock file upload
+                if uploaded_stock is not None:
+                    with st.spinner("Uploading stock data..."):
+                        try:
+                            # Read the file content
+                            stock_content = uploaded_stock.getvalue()
+
+                            # Write directly to file
+                            with open('./Hp_medicines_Stock_Final.xlsx', 'wb') as f:
+                                f.write(stock_content)
+
+                            st.success("✅ Stock file uploaded successfully!")
+                            upload_success = True
+                        except Exception as e:
+                            st.error(f"❌ Error uploading stock file: {e}")
+
+                # If any upload was successful, clear cache and show refresh button
+                if upload_success:
+                    st.cache_data.clear()
+                    st.session_state.data_timestamp = datetime.now()
+                    st.info("✅ Files uploaded successfully! Click the button below to refresh the dashboard.")
+
+                    # Add a manual refresh button
+                    if st.button("🔄 Click to Refresh Dashboard"):
+                        st.rerun()
 # ---------------------------------------------------
 # Logout (At the bottom)
 # ---------------------------------------------------
@@ -1109,7 +1156,7 @@ with tab3:
         st.info("No data available for decision briefs.")
 
 # ---------------------------------------------------
-# TAB 4 - Hubs Distribution Pattern (FIXED: Same CV for all users)
+# TAB 4 - Hubs Distribution Pattern
 # ---------------------------------------------------
 with tab4:
     try:
