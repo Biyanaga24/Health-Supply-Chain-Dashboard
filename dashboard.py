@@ -80,80 +80,13 @@ def check_for_file_updates():
 # ---------------------------------------------------
 with st.sidebar:
     st.title(f"Welcome, {st.session_state['user']['full_name']}!")
+    st.caption(f"Role: {st.session_state['user']['role'].title()}")
 
 # ---------------------------------------------------
-# Data Refresh Controls (in sidebar)
+# Program Selection (First filter in sidebar)
 # ---------------------------------------------------
-with st.sidebar:
-    st.divider()
-    st.markdown("### 🔄 Data Updates")
-
-    # Show current data status
-    st.caption(f"📅 Data as of: {st.session_state.data_timestamp.strftime('%Y-%m-%d %H:%M:%S')}")
-
-    # Auto-refresh option
-    auto_refresh = st.checkbox("Auto-refresh every 5 minutes", value=st.session_state.auto_refresh)
-    if auto_refresh != st.session_state.auto_refresh:
-        st.session_state.auto_refresh = auto_refresh
-        if auto_refresh:
-            st.session_state.last_auto_refresh = datetime.now()
-
-    # Auto-refresh logic
-    if st.session_state.auto_refresh:
-        time_since_refresh = (datetime.now() - st.session_state.data_timestamp).total_seconds()
-        if time_since_refresh > 300:  # 5 minutes
-            st.cache_data.clear()
-            st.session_state.data_timestamp = datetime.now()
-            st.rerun()
-
-        # Show countdown
-        seconds_left = max(0, 300 - int(time_since_refresh))
-        minutes = seconds_left // 60
-        seconds = seconds_left % 60
-        st.caption(f"⏱️ Next auto-refresh in: {minutes:02d}:{seconds:02d}")
-
-    # Check for file modifications
-    if check_for_file_updates():
-        st.warning("⚠️ Data files have been modified on disk")
-        if st.button("🔄 Load Updated Files", use_container_width=True):
-            st.cache_data.clear()
-            st.session_state.data_timestamp = datetime.now()
-            st.rerun()
-
-    # Manual refresh button
-    col1, col2 = st.columns(2)
-    with col1:
-        if st.button("🔄 Refresh Now", use_container_width=True):
-            st.cache_data.clear()
-            st.session_state.data_timestamp = datetime.now()
-            st.rerun()
-
-    with col2:
-        if st.button("🗑️ Clear Cache", use_container_width=True):
-            st.cache_data.clear()
-            st.success("Cache cleared!")
-            time.sleep(1)
-            st.rerun()
-
-    # Optional: Manual file upload
-    with st.expander("📁 Upload New Files"):
-        uploaded_branch = st.file_uploader("Upload Branch Data", type=['xlsx'], key='branch_upload')
-        if uploaded_branch is not None:
-            with open('./Branch_Health Program_AMC .xlsx', 'wb') as f:
-                f.write(uploaded_branch.getbuffer())
-            st.success("Branch file uploaded!")
-            st.cache_data.clear()
-            st.rerun()
-
-        uploaded_stock = st.file_uploader("Upload Stock Data", type=['xlsx'], key='stock_upload')
-        if uploaded_stock is not None:
-            with open('./Hp_medicines_Stock_Final.xlsx', 'wb') as f:
-                f.write(uploaded_stock.getbuffer())
-            st.success("Stock file uploaded!")
-            st.cache_data.clear()
-            st.rerun()
-
-    st.divider()
+program_list = ["All"] + list(google_sheets.keys() if 'google_sheets' in dir() else [])
+sheet_name = st.sidebar.selectbox("Program", program_list, index=0)
 
 # ---------------------------------------------------
 # Load Data Functions (with TTL caching)
@@ -301,11 +234,9 @@ if df_external.empty:
 branch_filename = "./Branch_Health Program_AMC .xlsx"
 cf = load_branch_data(branch_filename)
 
-# ---------------------------------------------------
-# Program Selection (First filter in sidebar)
-# ---------------------------------------------------
+# Update program list after loading data
 program_list = ["All"] + list(google_sheets.keys())
-sheet_name = st.sidebar.selectbox("Program", program_list, index=0)
+sheet_name = st.sidebar.selectbox("Program", program_list, index=0, key="program_selector")
 
 if sheet_name == "All":
     all_dfs = []
@@ -450,7 +381,7 @@ if risk_filter != "All":
     display_df_filtered = display_df_filtered[display_df_filtered['Risk of Stock'] == risk_filter]
 
 # ---------------------------------------------------
-# Navigation and Logout (Below filters in sidebar)
+# Navigation (Below filters)
 # ---------------------------------------------------
 st.sidebar.divider()
 
@@ -460,6 +391,81 @@ if st.session_state['user']['role'] == 'admin':
 else:
     page = st.sidebar.radio("Navigation", ["Dashboard", "Profile"])
 
+# ---------------------------------------------------
+# Data Refresh Controls (Below navigation, above logout)
+# ---------------------------------------------------
+st.sidebar.divider()
+st.sidebar.markdown("### 🔄 Data Updates")
+
+# Show current data status
+st.sidebar.caption(f"📅 Data as of: {st.session_state.data_timestamp.strftime('%Y-%m-%d %H:%M:%S')}")
+
+# Auto-refresh option (available to all users)
+auto_refresh = st.sidebar.checkbox("Auto-refresh every 5 minutes", value=st.session_state.auto_refresh)
+if auto_refresh != st.session_state.auto_refresh:
+    st.session_state.auto_refresh = auto_refresh
+    if auto_refresh:
+        st.session_state.last_auto_refresh = datetime.now()
+
+# Auto-refresh logic
+if st.session_state.auto_refresh:
+    time_since_refresh = (datetime.now() - st.session_state.data_timestamp).total_seconds()
+    if time_since_refresh > 300:  # 5 minutes
+        st.cache_data.clear()
+        st.session_state.data_timestamp = datetime.now()
+        st.rerun()
+
+    # Show countdown
+    seconds_left = max(0, 300 - int(time_since_refresh))
+    minutes = seconds_left // 60
+    seconds = seconds_left % 60
+    st.sidebar.caption(f"⏱️ Next auto-refresh in: {minutes:02d}:{seconds:02d}")
+
+# Check for file modifications (visible to all users)
+if check_for_file_updates():
+    st.sidebar.warning("⚠️ Data files have been updated")
+    if st.sidebar.button("🔄 Load Updated Files", use_container_width=True):
+        st.cache_data.clear()
+        st.session_state.data_timestamp = datetime.now()
+        st.rerun()
+
+# Manual refresh button (available to all users)
+if st.sidebar.button("🔄 Refresh Now", use_container_width=True):
+    st.cache_data.clear()
+    st.session_state.data_timestamp = datetime.now()
+    st.rerun()
+
+# Clear cache button (available to all users)
+if st.sidebar.button("🗑️ Clear Cache", use_container_width=True):
+    st.cache_data.clear()
+    st.sidebar.success("Cache cleared!")
+    time.sleep(1)
+    st.rerun()
+
+# File upload section - ONLY FOR ADMINISTRATORS
+if st.session_state['user']['role'] == 'admin':
+    with st.sidebar.expander("📁 Upload New Files (Admin Only)"):
+        st.caption("Upload updated Excel files to replace existing ones")
+
+        uploaded_branch = st.file_uploader("Upload Branch Data", type=['xlsx'], key='branch_upload')
+        if uploaded_branch is not None:
+            with open('./Branch_Health Program_AMC .xlsx', 'wb') as f:
+                f.write(uploaded_branch.getbuffer())
+            st.success("Branch file uploaded successfully!")
+            st.cache_data.clear()
+            st.rerun()
+
+        uploaded_stock = st.file_uploader("Upload Stock Data", type=['xlsx'], key='stock_upload')
+        if uploaded_stock is not None:
+            with open('./Hp_medicines_Stock_Final.xlsx', 'wb') as f:
+                f.write(uploaded_stock.getbuffer())
+            st.success("Stock file uploaded successfully!")
+            st.cache_data.clear()
+            st.rerun()
+
+# ---------------------------------------------------
+# Logout (At the bottom)
+# ---------------------------------------------------
 st.sidebar.divider()
 if st.sidebar.button("🚪 Logout", use_container_width=True):
     st.session_state['auth'] = False
