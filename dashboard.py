@@ -9,8 +9,7 @@ import os
 import time
 import requests
 from io import BytesIO
-import tempfile
-import shutil
+import sqlite3
 
 # Add the current directory to path
 sys.path.append(os.path.dirname(__file__))
@@ -32,14 +31,10 @@ if not st.session_state['auth']:
 st.set_page_config(page_title="Health Program Medicines Dashboard", layout="wide")
 
 # ---------------------------------------------------
-# Initialize session state for timestamps
+# Initialize session state
 # ---------------------------------------------------
 if 'data_timestamp' not in st.session_state:
     st.session_state.data_timestamp = datetime.now()
-if 'last_file_check' not in st.session_state:
-    st.session_state.last_file_check = datetime.now()
-if 'file_mod_times' not in st.session_state:
-    st.session_state.file_mod_times = {}
 if 'auto_refresh' not in st.session_state:
     st.session_state.auto_refresh = False
 if 'recommendations' not in st.session_state:
@@ -48,242 +43,107 @@ if 'heatmap_page' not in st.session_state:
     st.session_state.heatmap_page = 1
 if 'google_sheets_data' not in st.session_state:
     st.session_state.google_sheets_data = None
-if 'upload_in_progress' not in st.session_state:
-    st.session_state.upload_in_progress = False
 
 # ---------------------------------------------------
-# Helper Functions for File Handling
+# Database Connection
 # ---------------------------------------------------
-def get_file_mod_time(filepath):
-    """Get file modification time"""
-    try:
-        if os.path.exists(filepath):
-            return os.path.getmtime(filepath)
-        return 0
-    except:
-        return 0
-
-def check_for_file_updates():
-    """Check if any data files have been modified - but don't show warning"""
-    files_to_check = {
-        'branch_data': './Branch_Health Program_AMC .xlsx',
-        'stock_data': './Hp_medicines_Stock_Final.xlsx'
-    }
-
-    updates_found = False
-    for name, path in files_to_check.items():
-        current_mod_time = get_file_mod_time(path)
-        if current_mod_time > 0:
-            if name in st.session_state.file_mod_times:
-                if current_mod_time > st.session_state.file_mod_times[name]:
-                    updates_found = True
-                    st.session_state.file_mod_times[name] = current_mod_time
-            else:
-                st.session_state.file_mod_times[name] = current_mod_time
-
-    return updates_found
-
-def safe_read_excel(filepath, max_retries=3):
-    """Safely read Excel file with retry logic for permission issues"""
-    for attempt in range(max_retries):
-        try:
-            if os.path.exists(filepath):
-                # Try to read the file
-                df = pd.read_excel(filepath, header=0)
-                return df
-            else:
-                return None
-        except PermissionError:
-            if attempt < max_retries - 1:
-                time.sleep(1)  # Wait 1 second before retrying
-                continue
-            else:
-                st.error(f"Permission denied: Cannot access {filepath}. Please close the file if it's open in another program.")
-                return None
-        except Exception as e:
-            st.error(f"Error reading {filepath}: {e}")
-            return None
-    return None
-
-def safe_write_excel(filepath, uploaded_file):
-    """Safely write uploaded file with temporary file handling"""
-    try:
-        # Create a temporary file first
-        with tempfile.NamedTemporaryFile(delete=False, suffix='.xlsx') as tmp_file:
-            # Write uploaded content to temp file
-            tmp_file.write(uploaded_file.getbuffer())
-            tmp_path = tmp_file.name
-
-        # Wait a moment to ensure file is fully written
-        time.sleep(0.5)
-
-        # Try to replace the target file
-        try:
-            # If target exists, try to remove it first
-            if os.path.exists(filepath):
-                # Ensure file is not locked by waiting
-                time.sleep(0.5)
-                os.remove(filepath)
-                time.sleep(0.5)
-
-            # Copy temp file to target
-            shutil.copy2(tmp_path, filepath)
-
-            # Verify the file was written
-            if os.path.exists(filepath) and os.path.getsize(filepath) > 0:
-                # Clean up temp file
-                os.unlink(tmp_path)
-                return True
-            else:
-                raise Exception("File was not written successfully")
-
-        except PermissionError:
-            st.error(f"Cannot write to {filepath}. Please close the file if it's open in another program.")
-            if os.path.exists(tmp_path):
-                os.unlink(tmp_path)  # Clean up temp file
-            return False
-        except Exception as e:
-            st.error(f"Error saving file: {e}")
-            if os.path.exists(tmp_path):
-                os.unlink(tmp_path)  # Clean up temp file
-            return False
-    except Exception as e:
-        st.error(f"Error creating temporary file: {e}")
-        return False
-
-# ---------------------------------------------------
-# Load Data Functions (with TTL caching) - NO SPINNERS
-# ---------------------------------------------------
-@st.cache_data(ttl=300)
-def load_google(sheet_id):
-    """Load Google Sheets data with retry logic and better error handling"""
-    url = f"https://docs.google.com/spreadsheets/d/{sheet_id}/export?format=xlsx"
-
-    max_retries = 3
-    retry_delay = 2  # seconds
-
-    for attempt in range(max_retries):
-        try:
-            # Use requests with timeout and stream=False to avoid IncompleteRead
-            response = requests.get(url, timeout=45, stream=False)
-            response.raise_for_status()
-
-            # Read the content
-            content = response.content
-
-            # Load from bytes
-            sheets = pd.read_excel(BytesIO(content), sheet_name=None, header=2)
-
-            # Clean each dataframe
-            cleaned_sheets = {}
-            for name, df in sheets.items():
-                cleaned_sheets[name] = clean_df(df)
-
-            # Store in session state as backup
-            st.session_state.google_sheets_data = cleaned_sheets
-
-            return cleaned_sheets
-
-        except requests.exceptions.Timeout:
-            if attempt < max_retries - 1:
-                wait_time = retry_delay * (attempt + 1)
-                time.sleep(wait_time)
-            else:
-                st.error("Failed to load Google Sheets after multiple attempts due to timeout. Please try again later.")
-                # Try to return cached data if available
-                if st.session_state.google_sheets_data:
-                    return st.session_state.google_sheets_data
-                return {}
-
-        except requests.exceptions.IncompleteRead as e:
-            if attempt < max_retries - 1:
-                wait_time = retry_delay * (attempt + 1)
-                time.sleep(wait_time)
-            else:
-                st.error(f"Failed to load Google Sheets: Incomplete read. Please check your internet connection.")
-                # Try to return cached data if available
-                if st.session_state.google_sheets_data:
-                    return st.session_state.google_sheets_data
-                return {}
-
-        except requests.exceptions.ConnectionError:
-            if attempt < max_retries - 1:
-                wait_time = retry_delay * (attempt + 1)
-                time.sleep(wait_time)
-            else:
-                st.error("Failed to connect to Google Sheets. Please check your internet connection.")
-                # Try to return cached data if available
-                if st.session_state.google_sheets_data:
-                    return st.session_state.google_sheets_data
-                return {}
-
-        except Exception as e:
-            if attempt < max_retries - 1:
-                wait_time = retry_delay * (attempt + 1)
-                time.sleep(wait_time)
-            else:
-                st.error(f"Failed to load Google Sheets: {str(e)}")
-                # Try to return cached data if available
-                if st.session_state.google_sheets_data:
-                    return st.session_state.google_sheets_data
-                return {}
-
-    return {}
+DATABASE_FILE = "health_supply.db"
 
 @st.cache_data(ttl=300)
-def load_external(path):
-    """Load external Excel file with error handling for permission issues"""
+def load_national_data():
+    """Load national_data table from SQLite database"""
     try:
-        # Check if file exists and get modification time
-        if os.path.exists(path):
-            mod_time = os.path.getmtime(path)
-            st.session_state.file_mod_times['stock_data'] = mod_time
-
-            # Use safe read with retry
-            df = safe_read_excel(path)
-            if df is not None:
-                return clean_df(df)
-            else:
-                return pd.DataFrame()
-        else:
-            st.error(f"Stock data file not found: {path}")
+        if not os.path.exists(DATABASE_FILE):
+            st.error(f"Database file {DATABASE_FILE} not found. Please upload through admin panel.")
             return pd.DataFrame()
+
+        conn = sqlite3.connect(DATABASE_FILE)
+
+        # Check if table exists
+        cursor = conn.cursor()
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='national_data'")
+        if not cursor.fetchone():
+            st.error("Table 'national_data' not found in database")
+            conn.close()
+            return pd.DataFrame()
+
+        # Load the data
+        df = pd.read_sql_query("SELECT * FROM national_data", conn)
+        conn.close()
+
+        if df.empty:
+            st.warning("No data in national_data table")
+            return pd.DataFrame()
+
+        # Clean dataframe
+        df = df.loc[:, ~df.columns.str.contains("^Unnamed")]
+        df.columns = df.columns.str.strip()
+        df = df.replace({None: "", "None": ""}).fillna("")
+
+        return df
     except Exception as e:
-        st.error(f"Error loading stock data: {e}")
+        st.error(f"Error loading database: {e}")
         return pd.DataFrame()
 
 @st.cache_data(ttl=300)
-def load_branch_data(filename):
-    """Load branch data from current directory with error handling"""
+def load_branch_data():
+    """Load branch AMC data from GitHub (static file)"""
     try:
-        # Check if file exists and get modification time
-        if os.path.exists(filename):
-            mod_time = os.path.getmtime(filename)
-            st.session_state.file_mod_times['branch_data'] = mod_time
+        # Your branch AMC file from GitHub
+        url = "https://raw.githubusercontent.com/Biyanaga24/Health-Supply-Chain-Dashboard/main/Branch_Health%20Program_AMC%20.xlsx"
 
-            # Use safe read with retry
-            df = safe_read_excel(filename)
-            if df is not None:
-                return clean_df(df)
-            else:
-                return None
-        else:
-            st.warning(f"Branch data file '{filename}' not found in the application directory.")
-            return None
+        response = requests.get(url, timeout=30)
+        response.raise_for_status()
+
+        df = pd.read_excel(BytesIO(response.content), header=0)
+
+        # Clean dataframe
+        df = df.loc[:, ~df.columns.str.contains("^Unnamed")]
+        df.columns = df.columns.str.strip()
+        df = df.replace({None: "", "None": ""}).fillna("")
+
+        return df
     except Exception as e:
-        st.error(f"Error loading branch data: {e}")
+        st.warning(f"Could not load branch data from GitHub: {e}")
         return None
 
-# Utility Functions
-def clean_df(df):
-    """Clean dataframe by removing unnamed columns and stripping whitespace"""
-    df = df.loc[:, ~df.columns.str.contains("^Unnamed")]
-    df.columns = df.columns.str.strip()
-    df = df.replace({None:"", "None":""}).fillna("")
-    return df
+@st.cache_data(ttl=300)
+def load_google_sheets(sheet_id):
+    """Load Google Sheets data"""
+    url = f"https://docs.google.com/spreadsheets/d/{sheet_id}/export?format=xlsx"
 
+    max_retries = 3
+    for attempt in range(max_retries):
+        try:
+            response = requests.get(url, timeout=45)
+            response.raise_for_status()
+
+            content = response.content
+            sheets = pd.read_excel(BytesIO(content), sheet_name=None, header=2)
+
+            cleaned_sheets = {}
+            for name, df in sheets.items():
+                df = df.loc[:, ~df.columns.str.contains("^Unnamed")]
+                df.columns = df.columns.str.strip()
+                df = df.replace({None: "", "None": ""}).fillna("")
+                cleaned_sheets[name] = df
+
+            st.session_state.google_sheets_data = cleaned_sheets
+            return cleaned_sheets
+        except Exception as e:
+            if attempt < max_retries - 1:
+                time.sleep(2)
+            else:
+                if st.session_state.google_sheets_data:
+                    return st.session_state.google_sheets_data
+                st.error(f"Error loading Google Sheets: {e}")
+                return {}
+
+# ---------------------------------------------------
+# Utility Functions
+# ---------------------------------------------------
 def format_number_with_commas(x):
-    """Format number with commas and return empty string if NaN/None"""
+    """Format number with commas"""
     try:
         if pd.isna(x) or x == "" or x is None:
             return ""
@@ -298,7 +158,7 @@ def format_number_with_commas(x):
         return ""
 
 def format_mos_with_decimals(x):
-    """Format MOS with 2 decimals and return empty string if NaN/None"""
+    """Format MOS with 2 decimals"""
     try:
         if pd.isna(x) or x == "" or x is None:
             return ""
@@ -310,17 +170,8 @@ def format_mos_with_decimals(x):
     except:
         return ""
 
-def format_percentage(x):
-    """Format percentage with 1 decimal"""
-    try:
-        if pd.isna(x) or x == "" or x is None:
-            return "0.0%"
-        return f"{float(x):.1f}%"
-    except:
-        return "0.0%"
-
 def categorize_stock(nmos):
-    """Categorize stock status based on NMOS value"""
+    """Categorize stock status"""
     try:
         x = float(nmos) if pd.notna(nmos) else np.nan
         if pd.isna(x):
@@ -337,7 +188,7 @@ def categorize_stock(nmos):
         return ""
 
 def safe_convert_to_numeric(series):
-    """Safely convert series to numeric, handling datetime objects"""
+    """Safely convert to numeric"""
     try:
         if pd.api.types.is_datetime64_any_dtype(series):
             return series
@@ -346,7 +197,7 @@ def safe_convert_to_numeric(series):
         return series
 
 def calculate_coefficient_of_variation(values):
-    """Calculate coefficient of variation (CV = std/mean * 100)"""
+    """Calculate coefficient of variation"""
     try:
         values = pd.to_numeric(values, errors='coerce')
         values = values[values.notna() & (values > 0)]
@@ -359,24 +210,39 @@ def calculate_coefficient_of_variation(values):
     except:
         return np.nan
 
+def calculate_risk(row):
+    """Calculate risk of stock out"""
+    try:
+        nmos = row['NMOS'] if pd.notna(row['NMOS']) else np.nan
+        git_mos = row['GIT_MOS'] if pd.notna(row['GIT_MOS']) else 0
+        lc_mos = row['LC_MOS'] if pd.notna(row['LC_MOS']) else 0
+        wb_mos = row['WB_MOS'] if pd.notna(row['WB_MOS']) else 0
+        tmd_mos = row['TMD_MOS'] if pd.notna(row['TMD_MOS']) else 0
+
+        if pd.notna(nmos) and nmos > 1:
+            if nmos < 4 and git_mos == 0:
+                return "Risk of Stock out"
+            elif nmos < 6 and git_mos == 0 and lc_mos == 0 and wb_mos == 0:
+                return "Risk of Stock out"
+            elif nmos < 7 and git_mos == 0 and lc_mos == 0 and wb_mos == 0 and tmd_mos == 0:
+                return "Risk of Stock out"
+        return ""
+    except:
+        return ""
+
 # ---------------------------------------------------
-# Load all data - NO SPINNERS AT ALL
+# Load ALL data
 # ---------------------------------------------------
 sheet_id = "14VvZ7IyOmpM4SZrY5_ArHDgLkeFN4inW"
 
-# Load data without any spinners or progress bars
-google_sheets = load_google(sheet_id)
-
-external_path = "./Hp_medicines_Stock_Final.xlsx"
-df_external = load_external(external_path)
+# Load data from different sources
+df_external = load_national_data()  # From your database
+cf = load_branch_data()              # From GitHub (static)
+google_sheets = load_google_sheets(sheet_id)  # From Google Sheets
 
 if df_external.empty:
-    st.error("External Excel contains no valid data. Please check the file.")
+    st.error("❌ No data in database. Please upload health_supply.db through admin panel.")
     st.stop()
-
-# Load branch data from current directory
-branch_filename = "./Branch_Health Program_AMC .xlsx"
-cf = load_branch_data(branch_filename)
 
 # ---------------------------------------------------
 # User Info in Sidebar
@@ -386,30 +252,27 @@ with st.sidebar:
     st.caption(f"Role: {st.session_state['user']['role'].title()}")
 
 # ---------------------------------------------------
-# Program Selection (First filter in sidebar)
+# Program Selection
 # ---------------------------------------------------
 if google_sheets:
     program_list = ["All"] + list(google_sheets.keys())
 else:
     program_list = ["All"]
-    st.sidebar.warning("No Google Sheets data available")
 
 sheet_name = st.sidebar.selectbox("Program", program_list, index=0, key="program_selector")
 
 if sheet_name == "All" and google_sheets:
     all_dfs = []
     for name, df_program in google_sheets.items():
-        df_program = df_program.copy()
-        all_dfs.append(df_program)
+        all_dfs.append(df_program.copy())
     df_google = pd.concat(all_dfs, ignore_index=True) if all_dfs else pd.DataFrame()
 elif google_sheets and sheet_name in google_sheets:
     df_google = google_sheets[sheet_name]
 else:
     df_google = pd.DataFrame()
-    st.sidebar.warning(f"Program '{sheet_name}' not found in data")
 
 # ---------------------------------------------------
-# Required Columns
+# Required Columns from Google Sheets
 # ---------------------------------------------------
 if not df_google.empty:
     required_cols = [
@@ -425,7 +288,7 @@ else:
     df_google = pd.DataFrame()
 
 # ---------------------------------------------------
-# Merge and process data
+# Merge database data with Google Sheets data
 # ---------------------------------------------------
 if not df_google.empty and not df_external.empty:
     df = df_external.merge(df_google, on="Material Description", how="right")
@@ -440,7 +303,7 @@ if not df.empty:
     if 'Material Description' in df.columns:
         df = df.set_index("Material Description")
 
-    # Preserve Status and Expiry columns as text
+    # Preserve text columns
     if 'Status' in df.columns:
         status_values = df['Status'].copy()
     else:
@@ -495,25 +358,6 @@ if not df.empty:
         df['Head Office%'] = np.where(valid_mask, (ho_vals / nsoh_vals * 100).round(1), np.nan)
 
     # Risk of Stock calculation
-    def calculate_risk(row):
-        try:
-            nmos = row['NMOS'] if pd.notna(row['NMOS']) else np.nan
-            git_mos = row['GIT_MOS'] if pd.notna(row['GIT_MOS']) else 0
-            lc_mos = row['LC_MOS'] if pd.notna(row['LC_MOS']) else 0
-            wb_mos = row['WB_MOS'] if pd.notna(row['WB_MOS']) else 0
-            tmd_mos = row['TMD_MOS'] if pd.notna(row['TMD_MOS']) else 0
-
-            if pd.notna(nmos) and nmos > 1:
-                if nmos < 4 and git_mos == 0:
-                    return "Risk of Stock out"
-                elif nmos < 6 and git_mos == 0 and lc_mos == 0 and wb_mos == 0:
-                    return "Risk of Stock out"
-                elif nmos < 7 and git_mos == 0 and lc_mos == 0 and wb_mos == 0 and tmd_mos == 0:
-                    return "Risk of Stock out"
-            return ""
-        except:
-            return ""
-
     df['Risk of Stock'] = df.apply(calculate_risk, axis=1)
 
     # Create formatted display version
@@ -527,9 +371,7 @@ if not df.empty:
             else:
                 display_df[col] = display_df[col].apply(format_number_with_commas)
 
-    # ---------------------------------------------------
-    # Additional Filters (After Program selection)
-    # ---------------------------------------------------
+    # Filters
     materials = ["All"] + sorted(df['Material Description'].astype(str).unique())
     status_values = [s for s in df['Stock Status'].unique() if s != "" and pd.notna(s)]
     statuses = ["All"] + sorted(status_values)
@@ -554,129 +396,84 @@ if not df.empty:
         display_df_filtered = display_df_filtered[display_df_filtered['Risk of Stock'] == risk_filter]
 
 else:
-    st.error("No data available to display. Please check your data sources.")
+    st.error("No data available.")
     df_filtered = pd.DataFrame()
     display_df_filtered = pd.DataFrame()
 
 # ---------------------------------------------------
-# Navigation (Below filters)
+# Navigation
 # ---------------------------------------------------
 st.sidebar.divider()
 
-# Show navigation options
 if st.session_state['user']['role'] == 'admin':
     page = st.sidebar.radio("Navigation", ["Dashboard", "Admin Panel", "Profile"])
 else:
     page = st.sidebar.radio("Navigation", ["Dashboard", "Profile"])
 
 # ---------------------------------------------------
-# Data Refresh Controls (Below navigation, above logout)
+# Data Refresh Controls
 # ---------------------------------------------------
 st.sidebar.divider()
 st.sidebar.markdown("### 🔄 Data Updates")
-
-# Show current data status
 st.sidebar.caption(f"📅 Data as of: {st.session_state.data_timestamp.strftime('%Y-%m-%d %H:%M:%S')}")
 
-# Auto-refresh option (available to all users)
 auto_refresh = st.sidebar.checkbox("Auto-refresh every 5 minutes", value=st.session_state.auto_refresh)
 if auto_refresh != st.session_state.auto_refresh:
     st.session_state.auto_refresh = auto_refresh
-    if auto_refresh:
-        st.session_state.last_auto_refresh = datetime.now()
 
-# Auto-refresh logic
 if st.session_state.auto_refresh:
     time_since_refresh = (datetime.now() - st.session_state.data_timestamp).total_seconds()
-    if time_since_refresh > 300:  # 5 minutes
+    if time_since_refresh > 300:
         st.cache_data.clear()
         st.session_state.data_timestamp = datetime.now()
         st.rerun()
 
-    # Show countdown
-    seconds_left = max(0, 300 - int(time_since_refresh))
-    minutes = seconds_left // 60
-    seconds = seconds_left % 60
-    st.sidebar.caption(f"⏱️ Next auto-refresh in: {minutes:02d}:{seconds:02d}")
-
-# Check for file modifications (silent - no warning shown)
-file_updates_detected = check_for_file_updates()
-
-# Manual refresh button (available to all users)
 if st.sidebar.button("🔄 Refresh Now", use_container_width=True):
     st.cache_data.clear()
     st.session_state.data_timestamp = datetime.now()
     st.rerun()
 
-# Clear cache button (available to all users)
-if st.sidebar.button("🗑️ Clear Cache", use_container_width=True):
-    st.cache_data.clear()
-    st.sidebar.success("Cache cleared!")
-    time.sleep(1)
-    st.rerun()
-
 # ---------------------------------------------------
-# ---------------------------------------------------
-# File upload section - ONLY FOR ADMINISTRATORS (COMPLETELY REWRITTEN)
+# Admin Panel - Database Upload
 # ---------------------------------------------------
 if st.session_state['user']['role'] == 'admin':
-    with st.sidebar.expander("📁 Upload New Files (Admin Only)"):
-        st.caption("Upload updated Excel files to replace existing ones")
-        st.info("⚠️ Please close the files in Excel before uploading")
+    with st.sidebar.expander("📁 Upload New Database"):
+        st.caption("Upload updated health_supply.db file from Jupyter notebook")
+        st.info("Run your Jupyter notebook to generate fresh database, then upload here")
 
-        # Use a form to prevent automatic reruns
-        with st.form(key="upload_form", clear_on_submit=True):
-            uploaded_branch = st.file_uploader("Choose Branch Data file", type=['xlsx'], key='branch_upload_form')
-            uploaded_stock = st.file_uploader("Choose Stock Data file", type=['xlsx'], key='stock_upload_form')
+        # Show current database info
+        if os.path.exists(DATABASE_FILE):
+            size_mb = os.path.getsize(DATABASE_FILE) / (1024 * 1024)
+            mod_time = datetime.fromtimestamp(os.path.getmtime(DATABASE_FILE))
+            st.write(f"**Current database:**")
+            st.write(f"- Size: {size_mb:.2f} MB")
+            st.write(f"- Modified: {mod_time.strftime('%Y-%m-%d %H:%M:%S')}")
 
-            submit_button = st.form_submit_button("📤 Upload Files")
+        # Upload new database
+        uploaded_db = st.file_uploader(
+            "Choose health_supply.db", 
+            type=['db'], 
+            key='db_upload'
+        )
 
-            if submit_button:
-                upload_success = False
+        if uploaded_db:
+            if st.button("📤 Replace Database", use_container_width=True, type="primary"):
+                with st.spinner("Uploading new database..."):
+                    try:
+                        # Save uploaded database
+                        with open(DATABASE_FILE, 'wb') as f:
+                            f.write(uploaded_db.getbuffer())
 
-                # Handle branch file upload
-                if uploaded_branch is not None:
-                    with st.spinner("Uploading branch data..."):
-                        try:
-                            # Read the file content
-                            branch_content = uploaded_branch.getvalue()
-
-                            # Write directly to file
-                            with open('./Branch_Health Program_AMC .xlsx', 'wb') as f:
-                                f.write(branch_content)
-
-                            st.success("✅ Branch file uploaded successfully!")
-                            upload_success = True
-                        except Exception as e:
-                            st.error(f"❌ Error uploading branch file: {e}")
-
-                # Handle stock file upload
-                if uploaded_stock is not None:
-                    with st.spinner("Uploading stock data..."):
-                        try:
-                            # Read the file content
-                            stock_content = uploaded_stock.getvalue()
-
-                            # Write directly to file
-                            with open('./Hp_medicines_Stock_Final.xlsx', 'wb') as f:
-                                f.write(stock_content)
-
-                            st.success("✅ Stock file uploaded successfully!")
-                            upload_success = True
-                        except Exception as e:
-                            st.error(f"❌ Error uploading stock file: {e}")
-
-                # If any upload was successful, clear cache and show refresh button
-                if upload_success:
-                    st.cache_data.clear()
-                    st.session_state.data_timestamp = datetime.now()
-                    st.info("✅ Files uploaded successfully! Click the button below to refresh the dashboard.")
-
-                    # Add a manual refresh button
-                    if st.button("🔄 Click to Refresh Dashboard"):
+                        st.success("✅ Database updated successfully!")
+                        st.cache_data.clear()
+                        st.session_state.data_timestamp = datetime.now()
+                        time.sleep(1)
                         st.rerun()
+                    except Exception as e:
+                        st.error(f"Error saving database: {e}")
+
 # ---------------------------------------------------
-# Logout (At the bottom)
+# Logout
 # ---------------------------------------------------
 st.sidebar.divider()
 if st.sidebar.button("🚪 Logout", use_container_width=True):
@@ -685,7 +482,7 @@ if st.sidebar.button("🚪 Logout", use_container_width=True):
     st.rerun()
 
 # ---------------------------------------------------
-# Route to different pages
+# Route to pages
 # ---------------------------------------------------
 if page == "Profile":
     show_profile_page()
@@ -710,7 +507,7 @@ tab1, tab2, tab3, tab4 = st.tabs([
 ])
 
 # ---------------------------------------------------
-# TAB 1 TABLE
+# TAB 1 - Stock Status Table
 # ---------------------------------------------------
 with tab1:
     st.markdown("<h3 style='font-size: 28px; font-weight: bold; font-family: Times New Roman;'>Complete Stock Status Table</h3>", unsafe_allow_html=True)
@@ -744,8 +541,7 @@ with tab1:
             "Material Description": st.column_config.TextColumn(
                 "Material Description",
                 width=300,
-                pinned=True,
-                help="Material name (frozen column)"
+                pinned=True
             )
         }
 
@@ -760,7 +556,7 @@ with tab1:
         st.info("No data available to display in the table.")
 
 # ---------------------------------------------------
-# TAB 2 KPIs & Charts - MODIFIED FOR 2 COLUMNS
+# TAB 2 - KPIs & Charts
 # ---------------------------------------------------
 with tab2:
     st.markdown("<h3 style='font-size: 28px; font-weight: bold; font-family: Times New Roman;'>Key Performance Indicators</h3>", unsafe_allow_html=True)
@@ -787,7 +583,7 @@ with tab2:
         availability_target = 100
         sap_target = 65
 
-        # Display 4 KPI gauges in 2 columns (2 per row)
+        # Display 4 KPI gauges in 2 columns
         def create_kpi_fig(value, target, title, suffix="%"):
             display_color = 'red' if value < target else 'black'
             return go.Figure(go.Indicator(
@@ -1164,7 +960,7 @@ with tab4:
         main_df = df.copy()
 
         if cf is not None and 'Material Description' in main_df.columns and 'Material Description' in cf.columns:
-            # Take Material Description plus columns 2-20 for all users (same logic)
+            # Take Material Description plus columns 2-20
             material_desc = main_df[['Material Description']].copy()
             gh_data = main_df.iloc[:, 1:20].copy()
             gh = pd.concat([material_desc, gh_data], axis=1)
@@ -1428,8 +1224,7 @@ with tab4:
             else:
                 st.warning("No matching Material Description found between the two files")
         elif cf is None:
-            st.warning(f"Branch data file '{branch_filename}' not found in the application directory.")
-            st.info("Please upload the file to the same folder as this application.")
+            st.warning("Branch data file not available from GitHub.")
 
             # Show available data as fallback
             if not df.empty and 'Material Description' in df.columns:
