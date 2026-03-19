@@ -6,6 +6,7 @@ import plotly.graph_objects as go
 from datetime import datetime
 import sys
 import os
+import time
 
 # Add the current directory to path
 sys.path.append(os.path.dirname(__file__))
@@ -27,33 +28,169 @@ if not st.session_state['auth']:
 st.set_page_config(page_title="Health Program Medicines Dashboard", layout="wide")
 
 # ---------------------------------------------------
+# Initialize session state for timestamps
+# ---------------------------------------------------
+if 'data_timestamp' not in st.session_state:
+    st.session_state.data_timestamp = datetime.now()
+if 'last_file_check' not in st.session_state:
+    st.session_state.last_file_check = datetime.now()
+if 'file_mod_times' not in st.session_state:
+    st.session_state.file_mod_times = {}
+if 'auto_refresh' not in st.session_state:
+    st.session_state.auto_refresh = False
+if 'recommendations' not in st.session_state:
+    st.session_state.recommendations = {}
+if 'heatmap_page' not in st.session_state:
+    st.session_state.heatmap_page = 1
+
+# ---------------------------------------------------
+# Helper Functions
+# ---------------------------------------------------
+def get_file_mod_time(filepath):
+    """Get file modification time"""
+    try:
+        if os.path.exists(filepath):
+            return os.path.getmtime(filepath)
+        return 0
+    except:
+        return 0
+
+def check_for_file_updates():
+    """Check if any data files have been modified"""
+    files_to_check = {
+        'branch_data': './Branch_Health Program_AMC .xlsx',
+        'stock_data': './Hp_medicines_Stock_Final.xlsx'
+    }
+
+    updates_found = False
+    for name, path in files_to_check.items():
+        current_mod_time = get_file_mod_time(path)
+        if current_mod_time > 0:
+            if name in st.session_state.file_mod_times:
+                if current_mod_time > st.session_state.file_mod_times[name]:
+                    updates_found = True
+                    st.session_state.file_mod_times[name] = current_mod_time
+            else:
+                st.session_state.file_mod_times[name] = current_mod_time
+
+    return updates_found
+
+# ---------------------------------------------------
 # User Info in Sidebar
 # ---------------------------------------------------
 with st.sidebar:
     st.title(f"Welcome, {st.session_state['user']['full_name']}!")
 
 # ---------------------------------------------------
-# Load Data
+# Data Refresh Controls (in sidebar)
 # ---------------------------------------------------
-@st.cache_data
+with st.sidebar:
+    st.divider()
+    st.markdown("### 🔄 Data Updates")
+
+    # Show current data status
+    st.caption(f"📅 Data as of: {st.session_state.data_timestamp.strftime('%Y-%m-%d %H:%M:%S')}")
+
+    # Auto-refresh option
+    auto_refresh = st.checkbox("Auto-refresh every 5 minutes", value=st.session_state.auto_refresh)
+    if auto_refresh != st.session_state.auto_refresh:
+        st.session_state.auto_refresh = auto_refresh
+        if auto_refresh:
+            st.session_state.last_auto_refresh = datetime.now()
+
+    # Auto-refresh logic
+    if st.session_state.auto_refresh:
+        time_since_refresh = (datetime.now() - st.session_state.data_timestamp).total_seconds()
+        if time_since_refresh > 300:  # 5 minutes
+            st.cache_data.clear()
+            st.session_state.data_timestamp = datetime.now()
+            st.rerun()
+
+        # Show countdown
+        seconds_left = max(0, 300 - int(time_since_refresh))
+        minutes = seconds_left // 60
+        seconds = seconds_left % 60
+        st.caption(f"⏱️ Next auto-refresh in: {minutes:02d}:{seconds:02d}")
+
+    # Check for file modifications
+    if check_for_file_updates():
+        st.warning("⚠️ Data files have been modified on disk")
+        if st.button("🔄 Load Updated Files", use_container_width=True):
+            st.cache_data.clear()
+            st.session_state.data_timestamp = datetime.now()
+            st.rerun()
+
+    # Manual refresh button
+    col1, col2 = st.columns(2)
+    with col1:
+        if st.button("🔄 Refresh Now", use_container_width=True):
+            st.cache_data.clear()
+            st.session_state.data_timestamp = datetime.now()
+            st.rerun()
+
+    with col2:
+        if st.button("🗑️ Clear Cache", use_container_width=True):
+            st.cache_data.clear()
+            st.success("Cache cleared!")
+            time.sleep(1)
+            st.rerun()
+
+    # Optional: Manual file upload
+    with st.expander("📁 Upload New Files"):
+        uploaded_branch = st.file_uploader("Upload Branch Data", type=['xlsx'], key='branch_upload')
+        if uploaded_branch is not None:
+            with open('./Branch_Health Program_AMC .xlsx', 'wb') as f:
+                f.write(uploaded_branch.getbuffer())
+            st.success("Branch file uploaded!")
+            st.cache_data.clear()
+            st.rerun()
+
+        uploaded_stock = st.file_uploader("Upload Stock Data", type=['xlsx'], key='stock_upload')
+        if uploaded_stock is not None:
+            with open('./Hp_medicines_Stock_Final.xlsx', 'wb') as f:
+                f.write(uploaded_stock.getbuffer())
+            st.success("Stock file uploaded!")
+            st.cache_data.clear()
+            st.rerun()
+
+    st.divider()
+
+# ---------------------------------------------------
+# Load Data Functions (with TTL caching)
+# ---------------------------------------------------
+@st.cache_data(ttl=300, show_spinner="Loading Google Sheets data...")
 def load_google(sheet_id):
     url = f"https://docs.google.com/spreadsheets/d/{sheet_id}/export?format=xlsx"
-    sheets = pd.read_excel(url, sheet_name=None, header=2)
-    return {name: clean_df(df) for name, df in sheets.items()}
+    try:
+        sheets = pd.read_excel(url, sheet_name=None, header=2)
+        return {name: clean_df(df) for name, df in sheets.items()}
+    except Exception as e:
+        st.error(f"Error loading Google Sheets: {e}")
+        return {}
 
-@st.cache_data(ttl=60)
+@st.cache_data(ttl=300, show_spinner="Loading stock data...")
 def load_external(path):
     try:
+        # Check if file exists and get modification time
+        if os.path.exists(path):
+            mod_time = os.path.getmtime(path)
+            st.session_state.file_mod_times['stock_data'] = mod_time
+
         df = pd.read_excel(path, header=0)
         return clean_df(df)
     except Exception as e:
         st.error(f"External Excel not found or invalid: {e}")
         return pd.DataFrame()
 
-@st.cache_data
+@st.cache_data(ttl=300, show_spinner="Loading branch data...")
 def load_branch_data(filename):
     """Load branch data from current directory"""
     try:
+        # Check if file exists and get modification time
+        if os.path.exists(filename):
+            mod_time = os.path.getmtime(filename)
+            st.session_state.file_mod_times['branch_data'] = mod_time
+
         if os.path.exists(filename):
             df = pd.read_excel(filename)
             return clean_df(df)
@@ -133,31 +270,6 @@ def safe_convert_to_numeric(series):
     except:
         return series
 
-def wrap_text(text, width=30):
-    """Wrap text to specified width"""
-    if pd.isna(text) or text == "":
-        return ""
-    text = str(text)
-    words = text.split()
-    lines = []
-    current_line = []
-    current_length = 0
-
-    for word in words:
-        if current_length + len(word) + 1 <= width:
-            current_line.append(word)
-            current_length += len(word) + 1
-        else:
-            if current_line:
-                lines.append(' '.join(current_line))
-            current_line = [word]
-            current_length = len(word)
-
-    if current_line:
-        lines.append(' '.join(current_line))
-
-    return '<br>'.join(lines)
-
 def calculate_coefficient_of_variation(values):
     """Calculate coefficient of variation (CV = std/mean * 100)"""
     try:
@@ -172,7 +284,9 @@ def calculate_coefficient_of_variation(values):
     except:
         return np.nan
 
-# Load data
+# ---------------------------------------------------
+# Load all data
+# ---------------------------------------------------
 sheet_id = "14VvZ7IyOmpM4SZrY5_ArHDgLkeFN4inW"
 google_sheets = load_google(sheet_id)
 
@@ -366,15 +480,6 @@ elif page == "Admin Panel" and st.session_state['user']['role'] == 'admin':
 # MAIN DASHBOARD
 # ---------------------------------------------------
 st.markdown("<h1 style='font-size: 32px; font-weight: bold; font-family: Times New Roman;'>Health Program Medicines Dashboard</h1>", unsafe_allow_html=True)
-
-# ---------------------------------------------------
-# Initialize session state for recommendations and heatmap page
-# ---------------------------------------------------
-if 'recommendations' not in st.session_state:
-    st.session_state.recommendations = {}
-
-if 'heatmap_page' not in st.session_state:
-    st.session_state.heatmap_page = 1
 
 # ---------------------------------------------------
 # Tabs
