@@ -24,34 +24,31 @@ from user_auth import (
 )
 
 # ---------------------------------------------------
-# Supabase Configuration - Using Streamlit Secrets
+# Supabase Configuration - Works for both Local and Cloud
 # ---------------------------------------------------
 @st.cache_resource
 def init_supabase():
     """Initialize Supabase client using Streamlit secrets"""
     try:
-        # Check if secrets are available
-        if not hasattr(st, 'secrets') or not st.secrets:
-            st.warning("Streamlit secrets not found. Using default configuration?")
-            # For local development without secrets
-            SUPABASE_URL = "https://etjfrptbjecafupbbase.supabase.co"
-            SUPABASE_KEY = "sb_publishable_j0JwaJAJBuJO79-xh7RkYg_PFKqLK1H"
-        else:
-            # Get credentials from Streamlit secrets
-            SUPABASE_URL = st.secrets.get("SUPABASE_URL")
-            SUPABASE_KEY = st.secrets.get("SUPABASE_KEY")
-
-            if not SUPABASE_URL or not SUPABASE_KEY:
-                st.warning("SUPABASE_URL or SUPABASE_KEY not found in secrets. Using default configuration?")
+        # For Streamlit Cloud - uses secrets
+        if hasattr(st, 'secrets') and st.secrets:
+            if "SUPABASE_URL" in st.secrets and "SUPABASE_KEY" in st.secrets:
+                SUPABASE_URL = st.secrets["SUPABASE_URL"]
+                SUPABASE_KEY = st.secrets["SUPABASE_KEY"]
+            else:
+                # Fallback for testing
                 SUPABASE_URL = "https://etjfrptbjecafupbbase.supabase.co"
                 SUPABASE_KEY = "sb_publishable_j0JwaJAJBuJO79-xh7RkYg_PFKqLK1H"
+        else:
+            # For local development - hardcoded
+            SUPABASE_URL = "https://etjfrptbjecafupbbase.supabase.co"
+            SUPABASE_KEY = "sb_publishable_j0JwaJAJBuJO79-xh7RkYg_PFKqLK1H"
 
         supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
         return supabase
     except Exception as e:
         st.error(f"Error connecting to Supabase: {e}")
         return None
-
 # Initialize session state
 init_session_state()
 
