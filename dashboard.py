@@ -14,8 +14,14 @@ from supabase import create_client
 # Add the current directory to path
 sys.path.append(os.path.dirname(__file__))
 
-# Import authentication functions
-from auth import show_login_page, show_profile_page, show_admin_panel
+# Import authentication functions from user_auth (renamed to avoid conflicts)
+from user_auth import (
+    show_login_page, 
+    show_profile_page, 
+    show_admin_panel, 
+    init_session_state,
+    check_session_validity
+)
 
 # ---------------------------------------------------
 # Supabase Configuration - Using Streamlit Secrets
@@ -26,16 +32,19 @@ def init_supabase():
     try:
         # Check if secrets are available
         if not hasattr(st, 'secrets') or not st.secrets:
-            st.error("Streamlit secrets not found. Please configure your secrets.")
-            return None
+            st.warning("Streamlit secrets not found. Using default configuration?")
+            # For local development without secrets
+            SUPABASE_URL = "https://etjfrptbjecafupbbase.supabase.co"
+            SUPABASE_KEY = "sb_publishable_j0JwaJAJBuJO79-xh7RkYg_PFKqLK1H"
+        else:
+            # Get credentials from Streamlit secrets
+            SUPABASE_URL = st.secrets.get("SUPABASE_URL")
+            SUPABASE_KEY = st.secrets.get("SUPABASE_KEY")
 
-        # Get credentials from Streamlit secrets
-        SUPABASE_URL = st.secrets.get("SUPABASE_URL")
-        SUPABASE_KEY = st.secrets.get("SUPABASE_KEY")
-
-        if not SUPABASE_URL or not SUPABASE_KEY:
-            st.error("SUPABASE_URL or SUPABASE_KEY not found in secrets. Please check your configuration.")
-            return None
+            if not SUPABASE_URL or not SUPABASE_KEY:
+                st.warning("SUPABASE_URL or SUPABASE_KEY not found in secrets. Using default configuration?")
+                SUPABASE_URL = "https://etjfrptbjecafupbbase.supabase.co"
+                SUPABASE_KEY = "sb_publishable_j0JwaJAJBuJO79-xh7RkYg_PFKqLK1H"
 
         supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
         return supabase
@@ -43,20 +52,32 @@ def init_supabase():
         st.error(f"Error connecting to Supabase: {e}")
         return None
 
+# Initialize session state
+init_session_state()
+
 # Check authentication
 if 'auth' not in st.session_state:
     st.session_state['auth'] = False
+
+# Check session validity
+if st.session_state['auth']:
+    check_session_validity()
 
 if not st.session_state['auth']:
     show_login_page()
     st.stop()
 
-# ---------------------------------------------------
 # Page Setup
-# ---------------------------------------------------
-st.set_page_config(page_title="Health Program Medicines Dashboard", layout="wide")
+st.set_page_config(
+    page_title="Health Program Medicines Dashboard", 
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
 
-# ---------------------------------------------------
+# Rest of your dashboard code continues here...
+
+
+   # ---------------------------------------------------
 # Initialize session state
 # ---------------------------------------------------
 if 'data_timestamp' not in st.session_state:
