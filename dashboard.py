@@ -14,67 +14,39 @@ from supabase import create_client
 # Add the current directory to path
 sys.path.append(os.path.dirname(__file__))
 
-# Import authentication functions from user_auth (renamed to avoid conflicts)
-from user_auth import (
-    show_login_page, 
-    show_profile_page, 
-    show_admin_panel, 
-    init_session_state,
-    check_session_validity
-)
+# Import authentication functions
+from auth import show_login_page, show_profile_page, show_admin_panel
 
 # ---------------------------------------------------
-# Supabase Configuration - Works for both Local and Cloud
+# Supabase Configuration
 # ---------------------------------------------------
+SUPABASE_URL = "https://etjfrptbjecafupbbase.supabase.co"
+SUPABASE_KEY = "sb_publishable_j0JwaJAJBuJO79-xh7RkYg_PFKqLK1H"
+
 @st.cache_resource
 def init_supabase():
-    """Initialize Supabase client using Streamlit secrets"""
+    """Initialize Supabase client"""
     try:
-        # For Streamlit Cloud - uses secrets
-        if hasattr(st, 'secrets') and st.secrets:
-            if "SUPABASE_URL" in st.secrets and "SUPABASE_KEY" in st.secrets:
-                SUPABASE_URL = st.secrets["SUPABASE_URL"]
-                SUPABASE_KEY = st.secrets["SUPABASE_KEY"]
-            else:
-                # Fallback for testing
-                SUPABASE_URL = "https://etjfrptbjecafupbbase.supabase.co"
-                SUPABASE_KEY = "sb_publishable_j0JwaJAJBuJO79-xh7RkYg_PFKqLK1H"
-        else:
-            # For local development - hardcoded
-            SUPABASE_URL = "https://etjfrptbjecafupbbase.supabase.co"
-            SUPABASE_KEY = "sb_publishable_j0JwaJAJBuJO79-xh7RkYg_PFKqLK1H"
-
         supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
         return supabase
     except Exception as e:
         st.error(f"Error connecting to Supabase: {e}")
         return None
-# Initialize session state
-init_session_state()
 
 # Check authentication
 if 'auth' not in st.session_state:
     st.session_state['auth'] = False
 
-# Check session validity
-if st.session_state['auth']:
-    check_session_validity()
-
 if not st.session_state['auth']:
     show_login_page()
     st.stop()
 
+# ---------------------------------------------------
 # Page Setup
-st.set_page_config(
-    page_title="Health Program Medicines Dashboard", 
-    layout="wide",
-    initial_sidebar_state="expanded"
-)
+# ---------------------------------------------------
+st.set_page_config(page_title="Health Program Medicines Dashboard", layout="wide")
 
-# Rest of your dashboard code continues here...
-
-
-   # ---------------------------------------------------
+# ---------------------------------------------------
 # Initialize session state
 # ---------------------------------------------------
 if 'data_timestamp' not in st.session_state:
@@ -752,7 +724,7 @@ elif page == "Admin Panel" and st.session_state['user']['role'] == 'admin':
 st.markdown("<h1 style='font-size: 32px; font-weight: bold; font-family: Times New Roman;'>Health Program Medicines Dashboard</h1>", unsafe_allow_html=True)
 
 # ---------------------------------------------------
-# Tabs
+# Tabs (Same as before - keeping all tab functionality)
 # ---------------------------------------------------
 tab1, tab2, tab3, tab4 = st.tabs([
     "📊 **STOCK STATUS TABLE**", 
