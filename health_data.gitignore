@@ -35,3 +35,4 @@ Thumbs.db
 .env
 .streamlit/secrets.toml
 users.db
+secrets.toml
