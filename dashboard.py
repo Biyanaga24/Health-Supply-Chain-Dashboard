@@ -41,8 +41,6 @@ if not st.session_state['auth']:
     show_login_page()
     st.stop()
 
-# ... [REST OF THE CODE REMAINS EXACTLY THE SAME] ...
-
 # ---------------------------------------------------
 # Page Setup
 # ---------------------------------------------------
