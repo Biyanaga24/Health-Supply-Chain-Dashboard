@@ -1,3 +1,4 @@
+%%writefile dashboard.py
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -18,16 +19,16 @@ sys.path.append(os.path.dirname(__file__))
 from auth import show_login_page, show_profile_page, show_admin_panel
 
 # ---------------------------------------------------
-# Supabase Configuration
+# Supabase Configuration - Using Streamlit Secrets
 # ---------------------------------------------------
-SUPABASE_URL = "https://etjfrptbjecafupbbase.supabase.co"
-SUPABASE_KEY = "sb_publishable_j0JwaJAJBuJO79-xh7RkYg_PFKqLK1H"
-
 @st.cache_resource
 def init_supabase():
     """Initialize Supabase client"""
     try:
-        supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
+        # Get credentials from secrets
+        supabase_url = st.secrets["SUPABASE_URL"]
+        supabase_key = st.secrets["SUPABASE_KEY"]
+        supabase = create_client(supabase_url, supabase_key)
         return supabase
     except Exception as e:
         st.error(f"Error connecting to Supabase: {e}")
@@ -40,6 +41,8 @@ if 'auth' not in st.session_state:
 if not st.session_state['auth']:
     show_login_page()
     st.stop()
+
+# ... [REST OF THE CODE REMAINS EXACTLY THE SAME] ...
 
 # ---------------------------------------------------
 # Page Setup
