@@ -416,7 +416,7 @@ sheet_id = "14VvZ7IyOmpM4SZrY5_ArHDgLkeFN4inW"
 
 # Load data from different sources
 df_external = load_national_data()  # Real-time from Supabase (no cache)
-cf = load_branch_data()  # Cached for 5 minutes with fallback
+cf = load_branch_data()  # Cached for 5 minutes with fallback - AVAILABLE TO ALL USERS
 google_sheets = load_google_sheets(sheet_id)  # Cached for 5 minutes with fallback
 
 if df_external.empty:
@@ -434,12 +434,7 @@ with st.sidebar:
     if st.session_state['user']['role'] == 'admin' and st.session_state.supabase_client:
         st.success("✅ Connected to Supabase")
 
-    # Show branch data status for admin only
-    if st.session_state['user']['role'] == 'admin':
-        if cf is not None and not cf.empty and 'Material Description' in cf.columns:
-            st.success("✅ Branch data loaded")
-        else:
-            st.warning("⚠️ Branch data unavailable - some features limited")
+    # Branch data status message removed - no longer displayed to any users
 
 # ---------------------------------------------------
 # Program Selection
@@ -1299,285 +1294,242 @@ with tab4:
         if not df.empty:
             main_df = df.copy()
 
-            # Only show branch data for admin users
-            if st.session_state['user']['role'] == 'admin':
-                if cf is not None and 'Material Description' in main_df.columns and 'Material Description' in cf.columns and not cf.empty:
-                    # Take Material Description plus branch columns
-                    branch_cols = [col for col in main_df.columns if 'Branch' in col or col == 'Material Description']
-                    gh = main_df[branch_cols].copy() if branch_cols else pd.DataFrame()
+            # Branch AMC data from GitHub is available to all users
+            if cf is not None and 'Material Description' in main_df.columns and 'Material Description' in cf.columns and not cf.empty:
+                # Take Material Description plus branch columns
+                branch_cols = [col for col in main_df.columns if 'Branch' in col or col == 'Material Description']
+                gh = main_df[branch_cols].copy() if branch_cols else pd.DataFrame()
 
-                    st.markdown("<h4 style='font-size: 24px; font-weight: bold; font-family: Times New Roman;'>Stock Distribution Across Hubs by MOS</h4>", unsafe_allow_html=True)
+                st.markdown("<h4 style='font-size: 24px; font-weight: bold; font-family: Times New Roman;'>Stock Distribution Across Hubs by MOS</h4>", unsafe_allow_html=True)
 
-                    merged_df = pd.merge(
-                        gh,
-                        cf,
-                        on='Material Description',
-                        how='inner',
-                        suffixes=('_gh', '_cf')
+                merged_df = pd.merge(
+                    gh,
+                    cf,
+                    on='Material Description',
+                    how='inner',
+                    suffixes=('_gh', '_cf')
+                )
+
+                if not merged_df.empty:
+                    gh_cols = [col for col in gh.columns if col != 'Material Description']
+                    cf_cols = [col for col in cf.columns if col != 'Material Description']
+
+                    division_data = {'Material Description': merged_df['Material Description']}
+
+                    branch_name_map = {
+                        'Addis Ababa Branch 1': 'Addis Ababa 1',
+                        'Addis Ababa Branch 2': 'Addis Ababa 2',
+                        'Adama Branch': 'Adama',
+                        'Bahir Dar Branch': 'Bahir Dar',
+                        'Mekelle Branch': 'Mekelle',
+                        'Hawassa Branch': 'Hawassa',
+                        'Dire Dawa Branch': 'Dire Dawa',
+                        'Jimma Branch': 'Jimma',
+                        'Gondar Branch': 'Gondar',
+                        'Dessie Branch': 'Dessie'
+                    }
+
+                    min_cols = min(len(gh_cols), len(cf_cols))
+
+                    for i in range(min_cols):
+                        gh_col = gh_cols[i]
+                        cf_col = cf_cols[i]
+
+                        display_col_name = gh_col
+                        for full_name, short_name in branch_name_map.items():
+                            if full_name in gh_col:
+                                display_col_name = short_name
+                                break
+
+                        gh_values = pd.to_numeric(merged_df[f"{gh_col}_gh"], errors='coerce')
+                        cf_values = pd.to_numeric(merged_df[f"{cf_col}_cf"], errors='coerce')
+
+                        with np.errstate(divide='ignore', invalid='ignore'):
+                            division_result = np.where(
+                                cf_values != 0,
+                                gh_values / cf_values,
+                                np.nan
+                            )
+
+                        division_data[display_col_name] = division_result
+
+                    division_df = pd.DataFrame(division_data)
+                    division_df = division_df.replace([np.inf, -np.inf], np.nan).round(2)
+
+                    # Calculate Coefficient of Variation for each material
+                    if division_df.shape[1] > 1:
+                        branch_cols = [col for col in division_df.columns if col != 'Material Description']
+                        division_df['CV (%)'] = division_df[branch_cols].apply(
+                            lambda row: calculate_coefficient_of_variation(row), axis=1
+                        )
+                        division_df['CV (%)'] = division_df['CV (%)'].round(1)
+
+                        # Reorder columns to put CV after Material Description
+                        cols = ['Material Description', 'CV (%)'] + branch_cols
+                        division_df = division_df[cols]
+
+                        # Categorize CV values
+                        def categorize_cv(cv_value):
+                            if pd.isna(cv_value):
+                                return "Unknown"
+                            elif cv_value < 50:
+                                return "Low variation"
+                            elif cv_value <= 100:
+                                return "Moderate variation"
+                            else:
+                                return "High variation"
+
+                        division_df['CV Category'] = division_df['CV (%)'].apply(categorize_cv)
+
+                        # Count materials in each category
+                        cv_counts = division_df['CV Category'].value_counts()
+
+                        # Display metrics in columns
+                        col1, col2, col3, col4 = st.columns(4)
+
+                        with col1:
+                            total_materials = len(division_df)
+                            st.metric("Total Materials", total_materials)
+
+                        if 'Low variation' in cv_counts:
+                            with col2:
+                                low_count = cv_counts['Low variation']
+                                low_pct = (low_count / total_materials * 100) if total_materials > 0 else 0
+                                st.metric("Low Variation (<50%)", f"{low_count} ({low_pct:.1f}%)")
+
+                        if 'Moderate variation' in cv_counts:
+                            with col3:
+                                mod_count = cv_counts['Moderate variation']
+                                mod_pct = (mod_count / total_materials * 100) if total_materials > 0 else 0
+                                st.metric("Moderate Variation (50-100%)", f"{mod_count} ({mod_pct:.1f}%)")
+
+                        if 'High variation' in cv_counts:
+                            with col4:
+                                high_count = cv_counts['High variation']
+                                high_pct = (high_count / total_materials * 100) if total_materials > 0 else 0
+                                st.metric("High Variation (>100%)", f"{high_count} ({high_pct:.1f}%)")
+
+                        # HEATMAP
+                        if division_df.shape[1] > 2:
+                            branch_cols = [col for col in division_df.columns if col not in ['Material Description', 'CV (%)', 'CV Category']]
+
+                            heatmap_df = division_df.copy()
+                            heatmap_df = heatmap_df.sort_values('Material Description')
+
+                            heatmap_df_indexed = heatmap_df.set_index('Material Description')
+                            heatmap_df_indexed = heatmap_df_indexed[branch_cols]
+                            heatmap_df_transposed = heatmap_df_indexed.T
+
+                            total_materials = len(heatmap_df_transposed.columns)
+                            materials_per_page = 11
+
+                            if total_materials > materials_per_page:
+                                total_pages = (total_materials + materials_per_page - 1) // materials_per_page
+
+                                col1, col2, col3 = st.columns([1, 3, 1])
+                                with col1:
+                                    if st.button("◀ Previous", key="heatmap_prev"):
+                                        if st.session_state.heatmap_page > 1:
+                                            st.session_state.heatmap_page -= 1
+                                            st.rerun()
+                                with col2:
+                                    st.markdown(f"<h5 style='text-align: center; font-family: Times New Roman;'>Page {st.session_state.heatmap_page} of {total_pages}</h5>", unsafe_allow_html=True)
+                                with col3:
+                                    if st.button("Next ▶", key="heatmap_next"):
+                                        if st.session_state.heatmap_page < total_pages:
+                                            st.session_state.heatmap_page += 1
+                                            st.rerun()
+
+                                start_idx = (st.session_state.heatmap_page - 1) * materials_per_page
+                                end_idx = min(start_idx + materials_per_page, total_materials)
+
+                                page_materials = heatmap_df_transposed.columns[start_idx:end_idx]
+                                heatmap_page_df = heatmap_df_transposed[page_materials]
+
+                                st.info(f"Showing materials {start_idx + 1} to {end_idx} of {total_materials}")
+                            else:
+                                heatmap_page_df = heatmap_df_transposed
+
+                            fig = go.Figure(data=go.Heatmap(
+                                z=heatmap_page_df.values,
+                                y=heatmap_page_df.index,
+                                x=heatmap_page_df.columns,
+                                colorscale=[
+                                    [0.0, 'red'],
+                                    [0.0625, 'red'],
+                                    [0.125, 'yellow'],
+                                    [0.25, 'yellow'],
+                                    [0.5, 'green'],
+                                    [0.75, 'green'],
+                                    [1.0, 'skyblue']
+                                ],
+                                zmin=0,
+                                zmax=8,
+                                text=heatmap_page_df.values.round(1),
+                                texttemplate='%{text}',
+                                textfont={"size": 14},
+                                colorbar=dict(
+                                    title="MOS",
+                                    tickvals=[0.5, 1, 2, 4, 6, 8],
+                                    ticktext=['0.5', '1', '2', '4', '6', '8+']
+                                ),
+                                hovertemplate='<b>Material:</b> %{x}<br>' +
+                                            '<b>Branch:</b> %{y}<br>' +
+                                            '<b>MOS:</b> %{z:.2f} months<br>' +
+                                            '<extra></extra>'
+                            ))
+
+                            fig.update_layout(
+                                xaxis={
+                                    'title': 'Material Description',
+                                    'tickangle': -45,
+                                    'tickfont': {'size': 12}
+                                },
+                                yaxis={
+                                    'title': 'Branches',
+                                    'tickfont': {'size': 12}
+                                },
+                                height=650,
+                                margin=dict(l=120, r=120, t=50, b=200)
+                            )
+
+                            st.plotly_chart(fig, use_container_width=True)
+
+                            st.markdown("#### MOS Thresholds:")
+                            col1, col2, col3, col4 = st.columns(4)
+                            with col1:
+                                st.markdown("🔴 **< 0.5** : Stock Out")
+                            with col2:
+                                st.markdown("🟡 **0.5 - 1** : Understock")
+                            with col3:
+                                st.markdown("🟢 **1 - 4** : Normal Stock")
+                            with col4:
+                                st.markdown("🔵 **> 4** : Overstock")
+
+                    st.markdown("---")
+                    st.markdown("<h5 style='font-size: 20px; font-weight: bold; font-family: Times New Roman;'>Full Branch MOS Data with CV</h5>", unsafe_allow_html=True)
+
+                    # Create a display version with formatted CV
+                    display_division_df = division_df.copy()
+                    display_division_df['CV (%)'] = display_division_df['CV (%)'].apply(lambda x: f"{x:.1f}%" if pd.notna(x) else "")
+
+                    st.dataframe(
+                        display_division_df,
+                        use_container_width=True,
+                        height=400,
+                        hide_index=True
+                    )
+                    st.caption(f"**Rows:** {division_df.shape[0]} | **Columns:** {division_df.shape[1]}")
+
+                    st.download_button(
+                        label="Download Hubs MOS with CV",
+                        data=division_df.to_csv(index=False),
+                        file_name="hubs_mos_distribution_with_cv.csv",
+                        mime="text/csv"
                     )
 
-                    if not merged_df.empty:
-                        gh_cols = [col for col in gh.columns if col != 'Material Description']
-                        cf_cols = [col for col in cf.columns if col != 'Material Description']
-
-                        division_data = {'Material Description': merged_df['Material Description']}
-
-                        branch_name_map = {
-                            'Addis Ababa Branch 1': 'Addis Ababa 1',
-                            'Addis Ababa Branch 2': 'Addis Ababa 2',
-                            'Adama Branch': 'Adama',
-                            'Bahir Dar Branch': 'Bahir Dar',
-                            'Mekelle Branch': 'Mekelle',
-                            'Hawassa Branch': 'Hawassa',
-                            'Dire Dawa Branch': 'Dire Dawa',
-                            'Jimma Branch': 'Jimma',
-                            'Gondar Branch': 'Gondar',
-                            'Dessie Branch': 'Dessie'
-                        }
-
-                        min_cols = min(len(gh_cols), len(cf_cols))
-
-                        for i in range(min_cols):
-                            gh_col = gh_cols[i]
-                            cf_col = cf_cols[i]
-
-                            display_col_name = gh_col
-                            for full_name, short_name in branch_name_map.items():
-                                if full_name in gh_col:
-                                    display_col_name = short_name
-                                    break
-
-                            gh_values = pd.to_numeric(merged_df[f"{gh_col}_gh"], errors='coerce')
-                            cf_values = pd.to_numeric(merged_df[f"{cf_col}_cf"], errors='coerce')
-
-                            with np.errstate(divide='ignore', invalid='ignore'):
-                                division_result = np.where(
-                                    cf_values != 0,
-                                    gh_values / cf_values,
-                                    np.nan
-                                )
-
-                            division_data[display_col_name] = division_result
-
-                        division_df = pd.DataFrame(division_data)
-                        division_df = division_df.replace([np.inf, -np.inf], np.nan).round(2)
-
-                        # Calculate Coefficient of Variation for each material
-                        if division_df.shape[1] > 1:
-                            branch_cols = [col for col in division_df.columns if col != 'Material Description']
-                            division_df['CV (%)'] = division_df[branch_cols].apply(
-                                lambda row: calculate_coefficient_of_variation(row), axis=1
-                            )
-                            division_df['CV (%)'] = division_df['CV (%)'].round(1)
-
-                            # Reorder columns to put CV after Material Description
-                            cols = ['Material Description', 'CV (%)'] + branch_cols
-                            division_df = division_df[cols]
-
-                            # Categorize CV values
-                            def categorize_cv(cv_value):
-                                if pd.isna(cv_value):
-                                    return "Unknown"
-                                elif cv_value < 50:
-                                    return "Low variation"
-                                elif cv_value <= 100:
-                                    return "Moderate variation"
-                                else:
-                                    return "High variation"
-
-                            division_df['CV Category'] = division_df['CV (%)'].apply(categorize_cv)
-
-                            # Count materials in each category
-                            cv_counts = division_df['CV Category'].value_counts()
-
-                            # Display metrics in columns
-                            col1, col2, col3, col4 = st.columns(4)
-
-                            with col1:
-                                total_materials = len(division_df)
-                                st.metric("Total Materials", total_materials)
-
-                            if 'Low variation' in cv_counts:
-                                with col2:
-                                    low_count = cv_counts['Low variation']
-                                    low_pct = (low_count / total_materials * 100) if total_materials > 0 else 0
-                                    st.metric("Low Variation (<50%)", f"{low_count} ({low_pct:.1f}%)")
-
-                            if 'Moderate variation' in cv_counts:
-                                with col3:
-                                    mod_count = cv_counts['Moderate variation']
-                                    mod_pct = (mod_count / total_materials * 100) if total_materials > 0 else 0
-                                    st.metric("Moderate Variation (50-100%)", f"{mod_count} ({mod_pct:.1f}%)")
-
-                            if 'High variation' in cv_counts:
-                                with col4:
-                                    high_count = cv_counts['High variation']
-                                    high_pct = (high_count / total_materials * 100) if total_materials > 0 else 0
-                                    st.metric("High Variation (>100%)", f"{high_count} ({high_pct:.1f}%)")
-
-                            # HEATMAP
-                            if division_df.shape[1] > 2:
-                                branch_cols = [col for col in division_df.columns if col not in ['Material Description', 'CV (%)', 'CV Category']]
-
-                                heatmap_df = division_df.copy()
-                                heatmap_df = heatmap_df.sort_values('Material Description')
-
-                                heatmap_df_indexed = heatmap_df.set_index('Material Description')
-                                heatmap_df_indexed = heatmap_df_indexed[branch_cols]
-                                heatmap_df_transposed = heatmap_df_indexed.T
-
-                                total_materials = len(heatmap_df_transposed.columns)
-                                materials_per_page = 11
-
-                                if total_materials > materials_per_page:
-                                    total_pages = (total_materials + materials_per_page - 1) // materials_per_page
-
-                                    col1, col2, col3 = st.columns([1, 3, 1])
-                                    with col1:
-                                        if st.button("◀ Previous", key="heatmap_prev"):
-                                            if st.session_state.heatmap_page > 1:
-                                                st.session_state.heatmap_page -= 1
-                                                st.rerun()
-                                    with col2:
-                                        st.markdown(f"<h5 style='text-align: center; font-family: Times New Roman;'>Page {st.session_state.heatmap_page} of {total_pages}</h5>", unsafe_allow_html=True)
-                                    with col3:
-                                        if st.button("Next ▶", key="heatmap_next"):
-                                            if st.session_state.heatmap_page < total_pages:
-                                                st.session_state.heatmap_page += 1
-                                                st.rerun()
-
-                                    start_idx = (st.session_state.heatmap_page - 1) * materials_per_page
-                                    end_idx = min(start_idx + materials_per_page, total_materials)
-
-                                    page_materials = heatmap_df_transposed.columns[start_idx:end_idx]
-                                    heatmap_page_df = heatmap_df_transposed[page_materials]
-
-                                    st.info(f"Showing materials {start_idx + 1} to {end_idx} of {total_materials}")
-                                else:
-                                    heatmap_page_df = heatmap_df_transposed
-
-                                fig = go.Figure(data=go.Heatmap(
-                                    z=heatmap_page_df.values,
-                                    y=heatmap_page_df.index,
-                                    x=heatmap_page_df.columns,
-                                    colorscale=[
-                                        [0.0, 'red'],
-                                        [0.0625, 'red'],
-                                        [0.125, 'yellow'],
-                                        [0.25, 'yellow'],
-                                        [0.5, 'green'],
-                                        [0.75, 'green'],
-                                        [1.0, 'skyblue']
-                                    ],
-                                    zmin=0,
-                                    zmax=8,
-                                    text=heatmap_page_df.values.round(1),
-                                    texttemplate='%{text}',
-                                    textfont={"size": 12},
-                                    colorbar=dict(
-                                        title="MOS",
-                                        tickvals=[0.5, 1, 2, 4, 6, 8],
-                                        ticktext=['0.5', '1', '2', '4', '6', '8+']
-                                    ),
-                                    hovertemplate='<b>Material:</b> %{x}<br>' +
-                                                '<b>Branch:</b> %{y}<br>' +
-                                                '<b>MOS:</b> %{z:.2f} months<br>' +
-                                                '<extra></extra>'
-                                ))
-
-                                fig.update_layout(
-                                    xaxis={
-                                        'title': 'Material Description',
-                                        'tickangle': -45,
-                                        'tickfont': {'size': 10}
-                                    },
-                                    yaxis={
-                                        'title': 'Branches',
-                                        'tickfont': {'size': 10}
-                                    },
-                                    height=650,
-                                    margin=dict(l=120, r=120, t=50, b=200)
-                                )
-
-                                st.plotly_chart(fig, use_container_width=True)
-
-                                st.markdown("#### MOS Thresholds:")
-                                col1, col2, col3, col4 = st.columns(4)
-                                with col1:
-                                    st.markdown("🔴 **< 0.5** : Stock Out")
-                                with col2:
-                                    st.markdown("🟡 **0.5 - 1** : Understock")
-                                with col3:
-                                    st.markdown("🟢 **1 - 4** : Normal Stock")
-                                with col4:
-                                    st.markdown("🔵 **> 4** : Overstock")
-
-                        st.markdown("---")
-                        st.markdown("<h5 style='font-size: 20px; font-weight: bold; font-family: Times New Roman;'>Full Branch MOS Data with CV</h5>", unsafe_allow_html=True)
-
-                        # Create a display version with formatted CV
-                        display_division_df = division_df.copy()
-                        display_division_df['CV (%)'] = display_division_df['CV (%)'].apply(lambda x: f"{x:.1f}%" if pd.notna(x) else "")
-
-                        st.dataframe(
-                            display_division_df,
-                            use_container_width=True,
-                            height=400,
-                            hide_index=True
-                        )
-                        st.caption(f"**Rows:** {division_df.shape[0]} | **Columns:** {division_df.shape[1]}")
-
-                        st.download_button(
-                            label="Download Hubs MOS with CV",
-                            data=division_df.to_csv(index=False),
-                            file_name="hubs_mos_distribution_with_cv.csv",
-                            mime="text/csv"
-                        )
-
-                        st.markdown("---")
-                        st.markdown("<h5 style='font-size: 20px; font-weight: bold; font-family: Times New Roman;'>EPSS Hubs SOH</h5>", unsafe_allow_html=True)
-                        st.dataframe(
-                            gh,
-                            use_container_width=True,
-                            height=400,
-                            hide_index=True
-                        )
-                        st.caption(f"**Rows:** {gh.shape[0]} | **Columns:** {gh.shape[1]}")
-
-                        st.markdown("---")
-                        st.markdown("<h5 style='font-size: 20px; font-weight: bold; font-family: Times New Roman;'>EPSS Hubs AMC Data</h5>", unsafe_allow_html=True)
-                        st.dataframe(
-                            cf,
-                            use_container_width=True,
-                            height=400,
-                            hide_index=True
-                        )
-                        st.caption(f"**Rows:** {cf.shape[0]} | **Columns:** {cf.shape[1]}")
-                    else:
-                        st.warning("No matching Material Description found between the two files")
-                elif cf is None or cf.empty:
-                    st.info("Branch AMC data is available for administrators only. Please contact admin if you need access.")
-
-                    # Show available data as fallback for non-admin users
-                    if not df.empty and 'Material Description' in df.columns:
-                        branch_cols = [col for col in df.columns if 'Branch' in col or col == 'Material Description']
-                        gh = df[branch_cols].copy() if branch_cols else df[['Material Description']].copy()
-                        st.markdown("<h5 style='font-size: 20px; font-weight: bold; font-family: Times New Roman;'>Available Hubs SOH Data</h5>", unsafe_allow_html=True)
-                        st.dataframe(
-                            gh,
-                            use_container_width=True,
-                            height=400,
-                            hide_index=True
-                        )
-                else:
-                    st.error("'Material Description' column not found in one or both dataframes")
-            else:
-                # Non-admin users - show only basic hub data without AMC
-                st.info("Branch AMC data is available for administrators only.")
-                if not df.empty and 'Material Description' in df.columns:
-                    branch_cols = [col for col in df.columns if 'Branch' in col or col == 'Material Description']
-                    gh = df[branch_cols].copy() if branch_cols else df[['Material Description']].copy()
-                    st.markdown("<h5 style='font-size: 20px; font-weight: bold; font-family: Times New Roman;'>EPSS Hubs SOH Data</h5>", unsafe_allow_html=True)
+                    st.markdown("---")
+                    st.markdown("<h5 style='font-size: 20px; font-weight: bold; font-family: Times New Roman;'>EPSS Hubs SOH</h5>", unsafe_allow_html=True)
                     st.dataframe(
                         gh,
                         use_container_width=True,
@@ -1585,6 +1537,34 @@ with tab4:
                         hide_index=True
                     )
                     st.caption(f"**Rows:** {gh.shape[0]} | **Columns:** {gh.shape[1]}")
+
+                    st.markdown("---")
+                    st.markdown("<h5 style='font-size: 20px; font-weight: bold; font-family: Times New Roman;'>EPSS Hubs AMC Data (from GitHub)</h5>", unsafe_allow_html=True)
+                    st.dataframe(
+                        cf,
+                        use_container_width=True,
+                        height=400,
+                        hide_index=True
+                    )
+                    st.caption(f"**Rows:** {cf.shape[0]} | **Columns:** {cf.shape[1]}")
+                else:
+                    st.warning("No matching Material Description found between the two files")
+            elif cf is None or cf.empty:
+                st.info("Branch AMC data is currently unavailable. Please check GitHub connection.")
+
+                # Show available data as fallback
+                if not df.empty and 'Material Description' in df.columns:
+                    branch_cols = [col for col in df.columns if 'Branch' in col or col == 'Material Description']
+                    gh = df[branch_cols].copy() if branch_cols else df[['Material Description']].copy()
+                    st.markdown("<h5 style='font-size: 20px; font-weight: bold; font-family: Times New Roman;'>Available Hubs SOH Data</h5>", unsafe_allow_html=True)
+                    st.dataframe(
+                        gh,
+                        use_container_width=True,
+                        height=400,
+                        hide_index=True
+                    )
+            else:
+                st.error("'Material Description' column not found in one or both dataframes")
         else:
             st.warning("Main dataframe is empty.")
 
