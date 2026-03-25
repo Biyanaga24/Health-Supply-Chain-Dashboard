@@ -10,6 +10,7 @@ import time
 import requests
 from io import BytesIO
 from supabase import create_client
+import socket
 
 # Add the current directory to path
 sys.path.append(os.path.dirname(__file__))
@@ -61,6 +62,8 @@ if 'google_sheets_data' not in st.session_state:
     st.session_state.google_sheets_data = None
 if 'supabase_client' not in st.session_state:
     st.session_state.supabase_client = init_supabase()
+if 'branch_data' not in st.session_state:
+    st.session_state.branch_data = None
 
 # ---------------------------------------------------
 # Database Connection Functions
@@ -81,6 +84,10 @@ def load_national_data():
 
         # Convert to DataFrame
         df = pd.DataFrame(response.data)
+
+        # Remove 'id' column if it exists
+        if 'id' in df.columns:
+            df = df.drop(columns=['id'])
 
         # Create comprehensive column mapping from Supabase (lowercase_underscore) to original format
         column_mapping = {
@@ -132,11 +139,16 @@ def load_national_data():
 
 @st.cache_data(ttl=300)
 def load_branch_data():
-    """Load branch AMC data from GitHub"""
+    """Load branch AMC data from GitHub with fallback"""
     try:
+        # Try to load from GitHub first
         url = "https://raw.githubusercontent.com/Biyanaga24/Health-Supply-Chain-Dashboard/main/Branch_Health%20Program_AMC%20.xlsx"
 
-        response = requests.get(url, timeout=30)
+        # Set timeout and retry parameters
+        session = requests.Session()
+        session.trust_env = False  # Disable proxy if any
+
+        response = session.get(url, timeout=30)
         response.raise_for_status()
 
         df = pd.read_excel(BytesIO(response.content), header=0)
@@ -150,20 +162,39 @@ def load_branch_data():
             if df[col].dtype == 'object':
                 df[col] = df[col].fillna("")
 
+        # Store in session state
+        st.session_state.branch_data = df
         return df
+
     except Exception as e:
-        st.warning(f"Could not load branch data: {e}")
-        return None
+        st.warning(f"Could not load branch data from GitHub: {str(e)}")
+
+        # Try to load from local cache if available
+        if st.session_state.branch_data is not None:
+            st.info("Using cached branch data from previous session.")
+            return st.session_state.branch_data
+
+        # Create empty dataframe with expected columns if all else fails
+        st.info("Creating empty branch data structure. Some features may be limited.")
+        empty_df = pd.DataFrame(columns=['Material Description'])
+        return empty_df
 
 @st.cache_data(ttl=300)
 def load_google_sheets(sheet_id):
-    """Load Google Sheets data (AMC and pipeline data)"""
+    """Load Google Sheets data (AMC and pipeline data) with fallback"""
     url = f"https://docs.google.com/spreadsheets/d/{sheet_id}/export?format=xlsx"
 
     max_retries = 3
     for attempt in range(max_retries):
         try:
-            response = requests.get(url, timeout=45)
+            # Configure session with custom headers
+            session = requests.Session()
+            session.headers.update({
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+            })
+            session.trust_env = False
+
+            response = session.get(url, timeout=45)
             response.raise_for_status()
 
             content = response.content
@@ -188,8 +219,9 @@ def load_google_sheets(sheet_id):
                 time.sleep(2)
             else:
                 if st.session_state.google_sheets_data:
+                    st.warning(f"Using cached Google Sheets data. New data unavailable: {str(e)}")
                     return st.session_state.google_sheets_data
-                st.error(f"Error loading Google Sheets: {e}")
+                st.error(f"Error loading Google Sheets: {str(e)}")
                 return {}
     return {}
 
@@ -384,8 +416,8 @@ sheet_id = "14VvZ7IyOmpM4SZrY5_ArHDgLkeFN4inW"
 
 # Load data from different sources
 df_external = load_national_data()  # Real-time from Supabase (no cache)
-cf = load_branch_data()  # Cached for 5 minutes
-google_sheets = load_google_sheets(sheet_id)  # Cached for 5 minutes
+cf = load_branch_data()  # Cached for 5 minutes with fallback
+google_sheets = load_google_sheets(sheet_id)  # Cached for 5 minutes with fallback
 
 if df_external.empty:
     st.error("No data in Supabase. Please upload data through admin panel.")
@@ -401,6 +433,12 @@ with st.sidebar:
     # Show Supabase connection status for admin only
     if st.session_state['user']['role'] == 'admin' and st.session_state.supabase_client:
         st.success("✅ Connected to Supabase")
+
+    # Show branch data status
+    if cf is not None and not cf.empty and 'Material Description' in cf.columns:
+        st.success("✅ Branch data loaded")
+    else:
+        st.warning("⚠️ Branch data unavailable - some features limited")
 
 # ---------------------------------------------------
 # Program Selection
@@ -840,7 +878,7 @@ with tab2:
         with col4:
             st.plotly_chart(create_kpi_fig(avg_ho_pct, 50, "Avg Head Office %"), use_container_width=True)
 
-        # Pie Chart
+        # Pie Chart with total count
         try:
             if 'Stock Status' in df_filtered.columns:
                 status_counts = df_filtered['Stock Status'].replace("", np.nan).dropna().value_counts()
@@ -857,15 +895,28 @@ with tab2:
                             "Overstock": "skyblue"
                         },
                     )
-                    fig.update_traces(textposition='inside', textinfo='percent+value')
+                    fig.update_traces(
+                        textposition='inside', 
+                        textinfo='percent+value',
+                        textfont_size=12
+                    )
+                    total_count = len(df_filtered[df_filtered['Stock Status'] != ""])
                     fig.update_layout(
-                        title={'text': f"Stock Status - {sheet_name}", 'x': 0.5}
+                        title={
+                            'text': f"Stock Status - {sheet_name} (Total: {total_count} items)",
+                            'x': 0.5,
+                            'font': {'size': 16, 'weight': 'bold'}
+                        },
+                        annotations=[dict(
+                            text=f"Total<br>{total_count}",
+                            x=0.5, y=0.5, font_size=20, showarrow=False
+                        )]
                     )
                     st.plotly_chart(fig, use_container_width=True)
         except Exception as e:
             pass
 
-        # MOS Horizontal Bar Chart
+        # MOS Horizontal Bar Chart - sorted from lowest to highest NMOS
         try:
             if 'Material Description' in df_filtered.columns and 'NMOS' in df_filtered.columns:
                 mos_cols_chart = ['Material Description', 'NMOS', 'GIT_MOS', 'LC_MOS', 'WB_MOS', 'TMD_MOS', 'TMOS']
@@ -878,7 +929,8 @@ with tab2:
                         if c in mos_df.columns:
                             mos_df[c] = pd.to_numeric(mos_df[c], errors='coerce').fillna(0)
 
-                    mos_df = mos_df.sort_values('NMOS', ascending=True).reset_index(drop=True)
+                    # Sort by NMOS ascending (lowest first)
+                    mos_df = mos_df.sort_values('NMOS', ascending=False).reset_index(drop=True)
 
                     split_len = 40
                     mos_df['Material_split'] = mos_df['Material Description'].apply(
@@ -898,21 +950,23 @@ with tab2:
                             name='NMOS',
                             orientation='h',
                             marker=dict(color=df_chunk['NMOS_color']),
-                            text=df_chunk['NMOS'].apply(lambda x: f"{x:.1f}"),
-                            textposition='inside'
+                            text=df_chunk['NMOS'].apply(lambda x: f"{x:.1f}" if pd.notna(x) else ""),
+                            textposition='inside',
+                            textfont_size=12
                         ))
 
                         for col, color, label in [('GIT_MOS', 'cyan', 'GIT MOS'), ('LC_MOS', 'plum', 'LC MOS'),
                                                   ('WB_MOS', 'gray', 'WB MOS'), ('TMD_MOS', 'orange', 'TMD MOS')]:
-                            if col in df_chunk.columns:
+                            if col in df_chunk.columns and (df_chunk[col] > 0).any():
                                 fig.add_trace(go.Bar(
                                     y=df_chunk['Material_split'],
                                     x=df_chunk[col],
                                     name=label,
                                     orientation='h',
                                     marker_color=color,
-                                    text=df_chunk[col].apply(lambda x: f"{x:.1f}"),
-                                    textposition='inside'
+                                    text=df_chunk[col].apply(lambda x: f"{x:.1f}" if x > 0 else ""),
+                                    textposition='inside',
+                                    textfont_size=12
                                 ))
 
                         if 'TMOS' in df_chunk.columns:
@@ -920,9 +974,10 @@ with tab2:
                                 y=df_chunk['Material_split'],
                                 x=df_chunk['TMOS'],
                                 mode='text',
-                                text=df_chunk['TMOS'].apply(lambda x: f"TMOS: {x:.2f}"),
+                                text=df_chunk['TMOS'].apply(lambda x: f"TMOS: {x:.2f}" if x > 0 else ""),
                                 textposition='middle right',
-                                showlegend=False
+                                showlegend=False,
+                                textfont_size=12
                             ))
 
                         if sheet_name == "All":
@@ -935,7 +990,8 @@ with tab2:
                             title=chart_title,
                             xaxis_title='Months of Stock',
                             yaxis_title='Material Description',
-                            height=max(500, 35 * len(df_chunk))
+                            height=max(500, 35 * len(df_chunk)),
+                            xaxis=dict(gridcolor='lightgray', showgrid=True)
                         )
                         st.plotly_chart(fig, use_container_width=True)
         except Exception as e:
@@ -988,7 +1044,8 @@ with tab2:
                             orientation='h',
                             marker_color='skyblue',
                             text=df_chunk['Hubs%'].apply(lambda x: f"{x:.1f}%" if x > 0 else ""),
-                            textposition='inside'
+                            textposition='inside',
+                            textfont_size=12
                         ))
 
                         fig_bar.add_trace(go.Bar(
@@ -998,7 +1055,8 @@ with tab2:
                             orientation='h',
                             marker_color='orange',
                             text=df_chunk['Head Office%'].apply(lambda x: f"{x:.1f}%" if x > 0 else ""),
-                            textposition='inside'
+                            textposition='inside',
+                            textfont_size=12
                         ))
 
                         for idx, row in df_chunk.iterrows():
@@ -1009,7 +1067,7 @@ with tab2:
                                 y=row['Material_split'],
                                 text=f"NSOH: {row['NSOH_display']}",
                                 showarrow=False,
-                                font=dict(size=10),
+                                font=dict(size=12),
                                 xanchor='left',
                                 yanchor='middle'
                             )
@@ -1019,7 +1077,7 @@ with tab2:
                             title=f'Stock Distribution Hubs vs Head Office (Materials {i + 1}-{i + len(df_chunk)})',
                             xaxis_title='Percentage of NSOH (%)',
                             yaxis_title='Material Description',
-                            xaxis={'range': [0, 120]},
+                            xaxis={'range': [0, 120], 'gridcolor': 'lightgray'},
                             height=max(600, 40 * len(df_chunk)),
                             margin=dict(r=150)
                         )
@@ -1180,7 +1238,7 @@ with tab4:
         if not df.empty:
             main_df = df.copy()
 
-            if cf is not None and 'Material Description' in main_df.columns and 'Material Description' in cf.columns:
+            if cf is not None and 'Material Description' in main_df.columns and 'Material Description' in cf.columns and not cf.empty:
                 # Take Material Description plus branch columns
                 branch_cols = [col for col in main_df.columns if 'Branch' in col or col == 'Material Description']
                 gh = main_df[branch_cols].copy() if branch_cols else pd.DataFrame()
@@ -1352,7 +1410,7 @@ with tab4:
                                 zmax=8,
                                 text=heatmap_page_df.values.round(1),
                                 texttemplate='%{text}',
-                                textfont={"size": 10},
+                                textfont={"size": 12},
                                 colorbar=dict(
                                     title="MOS",
                                     tickvals=[0.5, 1, 2, 4, 6, 8],
@@ -1396,7 +1454,7 @@ with tab4:
 
                     # Create a display version with formatted CV
                     display_division_df = division_df.copy()
-                    display_division_df['CV (%)'] = display_division_df['CV (%)'].apply(lambda x: f"{x:.1f}%" if pd.notna(x) else "N/A")
+                    display_division_df['CV (%)'] = display_division_df['CV (%)'].apply(lambda x: f"{x:.1f}%" if pd.notna(x) else "")
 
                     st.dataframe(
                         display_division_df,
@@ -1434,8 +1492,9 @@ with tab4:
                     st.caption(f"**Rows:** {cf.shape[0]} | **Columns:** {cf.shape[1]}")
                 else:
                     st.warning("No matching Material Description found between the two files")
-            elif cf is None:
-                st.warning("Branch data file not available from GitHub.")
+            elif cf is None or cf.empty:
+                st.warning("Branch data file not available. Some features are limited.")
+                st.info("The dashboard will continue to work with available data. Branch-related visualizations are unavailable.")
 
                 # Show available data as fallback
                 if not df.empty and 'Material Description' in df.columns:
