@@ -1044,7 +1044,7 @@ with tab2:
                             ),
                             showlegend=True,
                             legend=dict(
-                                orientation="h",
+                                orientation="v",
                                 yanchor="bottom",
                                 y=1.02,
                                 xanchor="right",
