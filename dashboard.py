@@ -456,6 +456,9 @@ with st.sidebar:
 # ---------------------------------------------------
 # Program Selection
 # ---------------------------------------------------
+# ---------------------------------------------------
+# Program Selection
+# ---------------------------------------------------
 if google_sheets:
     program_list = ["All"] + list(google_sheets.keys())
 else:
@@ -466,10 +469,38 @@ sheet_name = st.sidebar.selectbox("Program", program_list, index=0, key="program
 if sheet_name == "All" and google_sheets:
     all_dfs = []
     for name, df_program in google_sheets.items():
-        all_dfs.append(df_program.copy())
-    df_google = pd.concat(all_dfs, ignore_index=True) if all_dfs else pd.DataFrame()
+        # Skip empty DataFrames
+        if df_program.empty:
+            continue
+
+        # Make a copy to avoid modifying original
+        df_copy = df_program.copy()
+
+        # Ensure all columns are strings to avoid type issues
+        df_copy.columns = df_copy.columns.astype(str)
+
+        # Remove any duplicate columns by keeping the first occurrence
+        if df_copy.columns.duplicated().any():
+            df_copy = df_copy.loc[:, ~df_copy.columns.duplicated()]
+
+        all_dfs.append(df_copy)
+
+    # Only concatenate if we have DataFrames
+    if all_dfs:
+        try:
+            df_google = pd.concat(all_dfs, ignore_index=True, sort=False)
+        except Exception as concat_error:
+            st.error(f"Error combining sheets: {concat_error}")
+            df_google = pd.DataFrame()
+    else:
+        df_google = pd.DataFrame()
 elif google_sheets and sheet_name in google_sheets:
-    df_google = google_sheets[sheet_name]
+    df_google = google_sheets[sheet_name].copy()
+
+    # Ensure columns are strings and handle duplicates
+    df_google.columns = df_google.columns.astype(str)
+    if df_google.columns.duplicated().any():
+        df_google = df_google.loc[:, ~df_google.columns.duplicated()]
 else:
     df_google = pd.DataFrame()
 
