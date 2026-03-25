@@ -202,13 +202,29 @@ def load_google_sheets(sheet_id):
 
             cleaned_sheets = {}
             for name, df in sheets.items():
+                # Skip if DataFrame is empty
+                if df.empty:
+                    cleaned_sheets[name] = df
+                    continue
+
                 df = df.loc[:, ~df.columns.str.contains("^Unnamed")]
                 df.columns = df.columns.str.strip()
 
-                # Fill NaN with empty string for object columns
+                # SAFE VERSION: Check if column exists and has data before accessing dtype
                 for col in df.columns:
-                    if df[col].dtype == 'object':
-                        df[col] = df[col].fillna("")
+                    try:
+                        # Only process if column exists and has values
+                        if col in df.columns and len(df) > 0:
+                            # Use pandas' built-in method to check if it's an object column
+                            if pd.api.types.is_object_dtype(df[col]):
+                                df[col] = df[col].fillna("")
+                            # Alternative: Check if it's string/object type safely
+                            elif df[col].dtype == 'object':
+                                df[col] = df[col].fillna("")
+                    except Exception as col_error:
+                        # If there's an error with this column, skip it
+                        print(f"Warning: Could not process column {col}: {col_error}")
+                        continue
 
                 cleaned_sheets[name] = df
 
@@ -224,6 +240,7 @@ def load_google_sheets(sheet_id):
                 st.error(f"Error loading Google Sheets: {str(e)}")
                 return {}
     return {}
+
 
 # ---------------------------------------------------
 # Admin Functions for Supabase
