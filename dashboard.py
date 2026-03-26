@@ -11,6 +11,7 @@ import requests
 from io import BytesIO
 from supabase import create_client
 import socket
+from openpyxl.utils import get_column_letter
 
 # Add the current directory to path
 sys.path.append(os.path.dirname(__file__))
@@ -64,6 +65,8 @@ if 'supabase_client' not in st.session_state:
     st.session_state.supabase_client = init_supabase()
 if 'branch_data' not in st.session_state:
     st.session_state.branch_data = None
+if 'search_query' not in st.session_state:
+    st.session_state.search_query = ""
 
 # ---------------------------------------------------
 # Database Connection Functions
@@ -456,9 +459,6 @@ with st.sidebar:
 # ---------------------------------------------------
 # Program Selection
 # ---------------------------------------------------
-# ---------------------------------------------------
-# Program Selection
-# ---------------------------------------------------
 if google_sheets:
     program_list = ["All"] + list(google_sheets.keys())
 else:
@@ -815,8 +815,8 @@ st.markdown("<h1 style='font-size: 32px; font-weight: bold; font-family: Times N
 # ---------------------------------------------------
 tab1, tab2, tab3, tab4 = st.tabs([
     "📊 **STOCK STATUS TABLE**", 
-    "📈 **STOCK STATUS KPI**", 
-    "⚠️ **DECISION BRIEFS**", 
+    "📈 **STOCK STATUS KP **", 
+    "⚠️ **DECISION BRIEFS For S&OP**", 
     "🗺️ **EPSS HUBS DISTRIBUTION PATTERN**"
 ])
 
@@ -827,8 +827,53 @@ with tab1:
     st.markdown("<h3 style='font-size: 28px; font-weight: bold; font-family: Times New Roman;'>Complete Stock Status Table</h3>", unsafe_allow_html=True)
 
     if not display_df_filtered.empty and 'Material Description' in display_df_filtered.columns:
+
+        # Create search input
+        search_query = st.text_input(
+            "Search by Material Description or any column value:",
+            value=st.session_state.search_query,
+            placeholder="Type to search... (e.g., 'artesunate', 'stock out', 'shipped')",
+            key="search_input"
+        )
+
+        # Update session state with search query
+        if search_query != st.session_state.search_query:
+            st.session_state.search_query = search_query
+            st.rerun()
+
+        # Apply search filter to the already filtered dataframe
+        search_df = display_df_filtered.copy()
+
+        if st.session_state.search_query:
+            # Convert search query to lowercase for case-insensitive search
+            search_term = st.session_state.search_query.lower()
+
+            # Search across all columns (convert everything to string for searching)
+            mask = pd.Series([False] * len(search_df))
+
+            for col in search_df.columns:
+                # Convert column to string and check if any value contains the search term
+                try:
+                    col_mask = search_df[col].astype(str).str.lower().str.contains(search_term, na=False, regex=False)
+                    mask = mask | col_mask
+                except Exception:
+                    # Skip columns that cause errors
+                    continue
+
+            search_df = search_df[mask]
+
+            # Show search results count
+            st.info(f"🔍 Found {len(search_df)} matching records for '{st.session_state.search_query}'")
+
+            # Add clear search button
+            if st.button("🗑️ Clear Search"):
+                st.session_state.search_query = ""
+                st.rerun()
+        else:
+            st.info(f"📊 Showing all {len(search_df)} records")
+
         # Reorder columns
-        cols = list(display_df_filtered.columns)
+        cols = list(search_df.columns)
         if 'Material Description' in cols:
             cols.remove('Material Description')
             cols.insert(0, 'Material Description')
@@ -841,8 +886,8 @@ with tab1:
             status_index = cols.index('Stock Status') if 'Stock Status' in cols else 0
             cols.insert(status_index + 1, 'Risk of Stock')
 
-        cols = [c for c in cols if c in display_df_filtered.columns]
-        display_df_filtered = display_df_filtered[cols]
+        cols = [c for c in cols if c in search_df.columns]
+        search_df = search_df[cols]
 
         def color_row(row):
             colors = {
@@ -858,7 +903,7 @@ with tab1:
                     break
             return styles
 
-        styled = display_df_filtered.style.apply(color_row, axis=1)
+        styled = search_df.style.apply(color_row, axis=1)
 
         column_config = {
             "Material Description": st.column_config.TextColumn(
@@ -873,8 +918,107 @@ with tab1:
             column_config=column_config,
             use_container_width=True,
             hide_index=True,
-            height=min(800, (len(display_df_filtered) + 1) * 35)
+            height=min(800, (len(search_df) + 1) * 35)
         )
+
+        # ---------------------------------------------------
+        # NEW: Downloadable Excel Report Below the Table
+        # ---------------------------------------------------
+        st.markdown("---")
+        st.markdown("<h4 style='font-size: 20px; font-weight: bold; font-family: Times New Roman;'>📥 Download Report</h4>", unsafe_allow_html=True)
+
+        # Create report from Material Description to TMOS
+        # Define columns from Material Description to TMOS
+        report_columns = []
+
+        # Start with Material Description
+        if 'Material Description' in df_filtered.columns:
+            report_columns.append('Material Description')
+
+        # Add all columns between Material Description and TMOS (excluding calculated columns after TMOS)
+        all_columns = list(df_filtered.columns)
+        if 'Material Description' in all_columns and 'TMOS' in all_columns:
+            mat_index = all_columns.index('Material Description')
+            tmos_index = all_columns.index('TMOS')
+            # Get columns from Material Description to TMOS inclusive
+            report_columns = all_columns[mat_index:tmos_index + 1]
+
+        # If TMOS not found, try to get up to TMOS or just Material Description
+        if 'TMOS' not in all_columns and len(report_columns) == 1:
+            # Try to get all columns up to the last numeric column
+            for col in all_columns:
+                if col not in ['Stock Status', 'Risk of Stock', 'Hubs%', 'Head Office%', 'CV (%)', 'CV Category']:
+                    report_columns.append(col)
+
+        # Ensure we have at least Material Description
+        if not report_columns:
+            report_columns = ['Material Description']
+
+        # Create report dataframe with original numeric values (not formatted)
+        report_df = df_filtered[report_columns].copy()
+
+        # Format numeric columns for Excel export
+        for col in report_df.columns:
+            if col in ['NMOS', 'GIT_MOS', 'LC_MOS', 'WB_MOS', 'TMD_MOS', 'TMOS']:
+                report_df[col] = report_df[col].apply(lambda x: round(x, 2) if pd.notna(x) else "")
+            elif col in ['NSOH', 'AMC', 'Hubs', 'Head Office']:
+                report_df[col] = report_df[col].apply(lambda x: f"{int(x):,}" if pd.notna(x) and x != "" else "" if x == "" else x)
+
+        # Create Excel file in memory
+        output = BytesIO()
+
+        try:
+            with pd.ExcelWriter(output, engine='openpyxl') as writer:
+                # Determine report title
+                if sheet_name == "All":
+                    report_title = "All Programs Medicines Monthly National and Pipeline Report"
+                else:
+                    report_title = f"{sheet_name} Medicines Monthly National and Pipeline Report"
+
+                # Write dataframe to Excel
+                report_df.to_excel(writer, sheet_name=report_title[:31], index=False)
+
+                # Get the worksheet
+                worksheet = writer.sheets[report_title[:31]]
+
+                # Adjust column widths safely using get_column_letter
+                for column in report_df.columns:
+                    column_length = max(report_df[column].astype(str).map(len).max(), len(column))
+                    column_length = min(column_length, 50)  # Cap at 50 characters
+                    col_idx = report_df.columns.get_loc(column)
+                    # Use get_column_letter to safely get the column letter
+                    col_letter = get_column_letter(col_idx + 1)
+                    worksheet.column_dimensions[col_letter].width = column_length + 2
+
+            # Prepare download button
+            output.seek(0)
+
+            # Create download button with the report
+            col1, col2, col3 = st.columns([1, 2, 1])
+            with col2:
+                st.download_button(
+                    label=f"📊 Download {sheet_name} Monthly National and Pipeline Report (Excel)",
+                    data=output,
+                    file_name=f"{sheet_name}_Monthly_National_Pipeline_Report_{datetime.now().strftime('%Y%m%d')}.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    use_container_width=True,
+                    type="primary"
+                )
+                st.caption(f"Report includes columns from Material Description to TMOS ({len(report_columns)} columns)")
+
+        except Exception as excel_error:
+            st.error(f"Error creating Excel file: {excel_error}")
+            # Fallback: Provide CSV download
+            st.warning("Excel export failed. Downloading CSV instead.")
+            csv_data = report_df.to_csv(index=False)
+            st.download_button(
+                label=f"📊 Download {sheet_name} Monthly National and Pipeline Report (CSV)",
+                data=csv_data,
+                file_name=f"{sheet_name}_Monthly_National_Pipeline_Report_{datetime.now().strftime('%Y%m%d')}.csv",
+                mime="text/csv",
+                use_container_width=True
+            )
+
     else:
         st.info("No data available or Material Description column missing.")
 
@@ -1625,7 +1769,7 @@ with tab4:
 if not display_df_filtered.empty and 'Material Description' in display_df_filtered.columns:
     st.divider()
     st.download_button(
-        label="Download Full Filtered Data",
+        label="Download Full Data",
         data=display_df_filtered.to_csv(index=False),
         file_name=f"full_stock_dashboard_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
         mime="text/csv"
