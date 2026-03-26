@@ -922,30 +922,46 @@ with tab1:
         )
 
         # ---------------------------------------------------
-        # NEW: Downloadable Excel Report Below the Table
+        # Downloadable Excel Report Below the Table
         # ---------------------------------------------------
         st.markdown("---")
         st.markdown("<h4 style='font-size: 20px; font-weight: bold; font-family: Times New Roman;'>📥 Download Report</h4>", unsafe_allow_html=True)
 
-        # Create report from Material Description to TMOS
-        # Define columns from Material Description to TMOS
+        # Create report from Material Description to TMOS with NMOS right after AMC
         report_columns = []
 
         # Start with Material Description
         if 'Material Description' in df_filtered.columns:
             report_columns.append('Material Description')
 
-        # Add all columns between Material Description and TMOS (excluding calculated columns after TMOS)
+        # Add all columns from Material Description to TMOS in proper order
         all_columns = list(df_filtered.columns)
+
         if 'Material Description' in all_columns and 'TMOS' in all_columns:
             mat_index = all_columns.index('Material Description')
             tmos_index = all_columns.index('TMOS')
-            # Get columns from Material Description to TMOS inclusive
-            report_columns = all_columns[mat_index:tmos_index + 1]
 
-        # If TMOS not found, try to get up to TMOS or just Material Description
-        if 'TMOS' not in all_columns and len(report_columns) == 1:
-            # Try to get all columns up to the last numeric column
+            # Get all columns from Material Description to TMOS
+            all_cols_between = all_columns[mat_index:tmos_index + 1]
+
+            # Ensure proper ordering: AMC then NMOS
+            # First, identify if AMC and NMOS are in the list
+            if 'AMC' in all_cols_between and 'NMOS' in all_cols_between:
+                # Create custom ordering
+                for col in all_cols_between:
+                    if col == 'NMOS':
+                        continue  # Skip adding NMOS now, will add after AMC
+                    report_columns.append(col)
+
+                # Insert NMOS right after AMC
+                if 'AMC' in report_columns:
+                    amc_pos = report_columns.index('AMC')
+                    report_columns.insert(amc_pos + 1, 'NMOS')
+            else:
+                # If AMC or NMOS not found, just use all columns
+                report_columns = all_cols_between
+        else:
+            # If TMOS not found, use all available columns
             for col in all_columns:
                 if col not in ['Stock Status', 'Risk of Stock', 'Hubs%', 'Head Office%', 'CV (%)', 'CV Category']:
                     report_columns.append(col)
@@ -953,6 +969,9 @@ with tab1:
         # Ensure we have at least Material Description
         if not report_columns:
             report_columns = ['Material Description']
+
+        # Remove duplicates while preserving order
+        report_columns = list(dict.fromkeys(report_columns))
 
         # Create report dataframe with original numeric values (not formatted)
         report_df = df_filtered[report_columns].copy()
