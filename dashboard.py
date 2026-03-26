@@ -44,9 +44,114 @@ if not st.session_state['auth']:
     st.stop()
 
 # ---------------------------------------------------
-# Page Setup
+# Page Setup with Custom CSS for Times New Roman and Hover Effects
 # ---------------------------------------------------
 st.set_page_config(page_title="Health Program Medicines Dashboard", layout="wide")
+
+# Custom CSS for Times New Roman font and hover effects
+st.markdown("""
+<style>
+    /* Global font settings */
+    * {
+        font-family: 'Times New Roman', Times, serif !important;
+    }
+
+    /* Headers styling */
+    h1, h2, h3, h4, h5, h6, .stMarkdown h1, .stMarkdown h2, .stMarkdown h3, .stMarkdown h4 {
+        font-family: 'Times New Roman', Times, serif !important;
+        font-weight: bold !important;
+    }
+
+    /* Sidebar text */
+    .css-1d391kg, .stSidebar .stMarkdown, .stSidebar .stText {
+        font-family: 'Times New Roman', Times, serif !important;
+    }
+
+    /* DataFrame and table text */
+    .stDataFrame, .dataframe, .stTable {
+        font-family: 'Times New Roman', Times, serif !important;
+    }
+
+    /* Button text */
+    .stButton button, .stDownloadButton button {
+        font-family: 'Times New Roman', Times, serif !important;
+        font-weight: 500 !important;
+    }
+
+    /* Input fields */
+    .stTextInput input, .stSelectbox select, .stTextArea textarea {
+        font-family: 'Times New Roman', Times, serif !important;
+    }
+
+    /* Metrics and KPI cards */
+    .stMetric, .stMetric label, .stMetric value {
+        font-family: 'Times New Roman', Times, serif !important;
+    }
+
+    /* Tab headers */
+    .stTabs [data-baseweb="tab-list"] button [data-testid="stMarkdownContainer"] p {
+        font-family: 'Times New Roman', Times, serif !important;
+        font-size: 16px !important;
+        font-weight: 600 !important;
+    }
+
+    /* Hover effect for table titles - vibration/movement */
+    @keyframes vibrate {
+        0% { transform: translateX(0); }
+        25% { transform: translateX(-2px); }
+        75% { transform: translateX(2px); }
+        100% { transform: translateX(0); }
+    }
+
+    /* Apply vibration to table headers on hover */
+    .stDataFrame thead tr th:hover,
+    .dataframe thead tr th:hover,
+    .stTable thead tr th:hover {
+        animation: vibrate 0.2s ease-in-out 0s 2;
+        cursor: pointer;
+        background-color: #f0f2f6 !important;
+    }
+
+    /* Apply vibration to tab titles on hover */
+    .stTabs [data-baseweb="tab"]:hover {
+        animation: vibrate 0.2s ease-in-out 0s 2;
+        cursor: pointer;
+    }
+
+    /* Apply vibration to section headers on hover */
+    h3:hover, h4:hover, .section-header:hover {
+        animation: vibrate 0.2s ease-in-out 0s 2;
+        cursor: pointer;
+        display: inline-block;
+    }
+
+    /* Apply vibration to metric cards on hover */
+    .stMetric:hover, .stMetric div:hover {
+        animation: vibrate 0.2s ease-in-out 0s 2;
+        cursor: pointer;
+    }
+
+    /* Apply vibration to download buttons on hover */
+    .stDownloadButton button:hover, .stButton button:hover {
+        animation: vibrate 0.2s ease-in-out 0s 2;
+    }
+
+    /* Apply vibration to select boxes on hover */
+    .stSelectbox:hover, .stTextInput:hover {
+        animation: vibrate 0.2s ease-in-out 0s 1;
+    }
+
+    /* Smooth transitions */
+    .stButton button, .stDownloadButton button, .stDataFrame thead tr th {
+        transition: all 0.2s ease;
+    }
+
+    /* Hide default label for search input */
+    .stTextInput label {
+        display: none !important;
+    }
+</style>
+""", unsafe_allow_html=True)
 
 # ---------------------------------------------------
 # Initialize session state
@@ -419,7 +524,9 @@ def calculate_risk(row):
         tmd_mos = row['TMD_MOS'] if pd.notna(row['TMD_MOS']) else 0
 
         if pd.notna(nmos) and nmos > 1:
-            if nmos < 4 and git_mos == 0:
+            if nmos < 2:
+                return "Risk of Stock out"
+            elif nmos < 4 and git_mos == 0:
                 return "Risk of Stock out"
             elif nmos < 6 and git_mos == 0 and lc_mos == 0 and wb_mos == 0:
                 return "Risk of Stock out"
@@ -815,7 +922,7 @@ st.markdown("<h1 style='font-size: 32px; font-weight: bold; font-family: Times N
 # ---------------------------------------------------
 tab1, tab2, tab3, tab4 = st.tabs([
     "📊 **STOCK STATUS TABLE**", 
-    "📈 **STOCK STATUS KP **", 
+    "📈 **STOCK STATUS KPIs and CHARTS**", 
     "⚠️ **DECISION BRIEFS For S&OP**", 
     "🗺️ **EPSS HUBS DISTRIBUTION PATTERN**"
 ])
@@ -824,17 +931,22 @@ tab1, tab2, tab3, tab4 = st.tabs([
 # TAB 1 - Stock Status Table
 # ---------------------------------------------------
 with tab1:
-    st.markdown("<h3 style='font-size: 28px; font-weight: bold; font-family: Times New Roman;'>Complete Stock Status Table</h3>", unsafe_allow_html=True)
+    st.markdown("<h3 style='font-size: 28px; font-weight: bold; font-family: Times New Roman;' class='section-header'>Complete Stock Status Table</h3>", unsafe_allow_html=True)
 
     if not display_df_filtered.empty and 'Material Description' in display_df_filtered.columns:
 
-        # Create search input
-        search_query = st.text_input(
-            "Search by Material Description or any column value:",
-            value=st.session_state.search_query,
-            placeholder="Type to search... (e.g., 'artesunate', 'stock out', 'shipped')",
-            key="search_input"
-        )
+        # Create search input with keyboard double arrow right symbol (no text label)
+        search_col1, search_col2 = st.columns([1, 20])
+        with search_col1:
+            st.markdown("<h4 style='margin: 0; padding-top: 8px;'>⇨</h4>", unsafe_allow_html=True)
+        with search_col2:
+            search_query = st.text_input(
+                "",
+                value=st.session_state.search_query,
+                placeholder="Type to search... (e.g., 'artesunate', 'stock out', 'shipped')",
+                key="search_input",
+                label_visibility="collapsed"
+            )
 
         # Update session state with search query
         if search_query != st.session_state.search_query:
@@ -925,7 +1037,7 @@ with tab1:
         # Downloadable Excel Report Below the Table
         # ---------------------------------------------------
         st.markdown("---")
-        st.markdown("<h4 style='font-size: 20px; font-weight: bold; font-family: Times New Roman;'>📥 Download Report</h4>", unsafe_allow_html=True)
+        st.markdown("<h4 style='font-size: 20px; font-weight: bold; font-family: Times New Roman;' class='section-header'>📥 Download Report</h4>", unsafe_allow_html=True)
 
         # Create report from Material Description to TMOS with NMOS right after AMC
         report_columns = []
@@ -1045,7 +1157,7 @@ with tab1:
 # TAB 2 - KPIs & Charts
 # ---------------------------------------------------
 with tab2:
-    st.markdown("<h3 style='font-size: 28px; font-weight: bold; font-family: Times New Roman;'>Key Performance Indicators</h3>", unsafe_allow_html=True)
+    st.markdown("<h3 style='font-size: 28px; font-weight: bold; font-family: Times New Roman;' class='section-header'>Key Performance Indicators</h3>", unsafe_allow_html=True)
 
     if not df_filtered.empty and 'NMOS' in df_filtered.columns:
         # KPI Gauges
@@ -1073,8 +1185,8 @@ with tab2:
             return go.Figure(go.Indicator(
                 mode="gauge+number",
                 value=value,
-                number={'suffix': suffix, 'font': {'size': 36, 'color': display_color}},
-                title={'text': f"<b>{title}</b>", 'font': {'size': 24}},
+                number={'suffix': suffix, 'font': {'size': 36, 'color': display_color, 'family': 'Times New Roman'}},
+                title={'text': f"<b>{title}</b>", 'font': {'size': 24, 'family': 'Times New Roman'}},
                 gauge={'axis': {'range': [0, 100]}, 'bar': {'color': 'skyblue'}}
             ))
 
@@ -1110,7 +1222,8 @@ with tab2:
                     fig.update_traces(
                         textposition='inside', 
                         textinfo='percent+value',
-                        textfont_size=16
+                        textfont_size=16,
+                        textfont_family='Times New Roman'
                     )
                     total_count = len(df_filtered[df_filtered['Stock Status'] != ""])
                     fig.update_layout(
@@ -1118,11 +1231,12 @@ with tab2:
                             'text': f"National Stock Status - {sheet_name} (Total: {total_count} items)",
                             'x': 0,
                             'xanchor': 'left',
-                            'font': {'size': 20, 'weight': 'bold'}
+                            'font': {'size': 20, 'weight': 'bold', 'family': 'Times New Roman'}
                         },
                         annotations=[dict(
                             text=f"Total<br>{total_count}",
-                            x=0.5, y=0.5, font_size=20, showarrow=False
+                            x=0.5, y=0.5, font_size=20, showarrow=False,
+                            font_family='Times New Roman'
                         )]
                     )
                     st.plotly_chart(fig, use_container_width=True)
@@ -1179,7 +1293,7 @@ with tab2:
                             marker=dict(color=df_chunk['NMOS_color']),
                             text=df_chunk['NMOS'].apply(lambda x: f"{x:.1f}" if pd.notna(x) else ""),
                             textposition='inside',
-                            textfont_size=12,
+                            textfont=dict(size=12, family='Times New Roman'),
                             hovertemplate='NMOS: %{x:.1f} months<extra></extra>'
                         ))
 
@@ -1201,7 +1315,7 @@ with tab2:
                                     marker_color=color,
                                     text=df_chunk[col].apply(lambda x: f"{x:.1f}" if x > 0 else ""),
                                     textposition='inside',
-                                    textfont_size=12,
+                                    textfont=dict(size=12, family='Times New Roman'),
                                     hovertemplate=f'{label}: %{{x:.1f}} months<extra></extra>'
                                 ))
 
@@ -1214,7 +1328,7 @@ with tab2:
                                 text=df_chunk['TMOS'].apply(lambda x: f"TMOS: {x:.2f}" if x > 0 else ""),
                                 textposition='middle right',
                                 showlegend=False,
-                                textfont_size=12
+                                textfont=dict(size=12, family='Times New Roman')
                             ))
 
                         # Calculate the actual range of medicine numbers for this chunk
@@ -1229,21 +1343,21 @@ with tab2:
                         # Update yaxis category order to show as is (since we already reversed)
                         fig.update_layout(
                             barmode='stack',
-                            title=chart_title,
-                            xaxis_title='Months of Stock',
-                            yaxis_title='Material Description',
+                            title=dict(text=chart_title, font=dict(size=14, family='Times New Roman')),
+                            xaxis_title=dict(text='Months of Stock', font=dict(size=12, family='Times New Roman')),
+                            yaxis_title=dict(text='Material Description', font=dict(size=12, family='Times New Roman')),
                             height=max(500, 35 * len(df_chunk)),
                             xaxis=dict(
                                 showgrid=False, 
                                 showline=False, 
                                 zeroline=False,
-                                title_font=dict(size=12)
+                                title_font=dict(size=12, family='Times New Roman')
                             ),
                             yaxis=dict(
                                 showgrid=False, 
                                 showline=False, 
                                 zeroline=False,
-                                title_font=dict(size=12),
+                                title_font=dict(size=12, family='Times New Roman'),
                                 automargin=True,
                                 categoryorder='array',
                                 categoryarray=df_chunk['Material_split'].tolist()
@@ -1254,7 +1368,8 @@ with tab2:
                                 yanchor="bottom",
                                 y=1.02,
                                 xanchor="right",
-                                x=1
+                                x=1,
+                                font=dict(family='Times New Roman')
                             ),
                             margin=dict(l=20, r=120, t=60, b=20)
                         )
@@ -1311,7 +1426,7 @@ with tab2:
                             marker_color='skyblue',
                             text=df_chunk['Hubs%'].apply(lambda x: f"{x:.1f}%" if x > 0 else ""),
                             textposition='inside',
-                            textfont_size=12
+                            textfont=dict(size=12, family='Times New Roman')
                         ))
 
                         fig_bar.add_trace(go.Bar(
@@ -1322,7 +1437,7 @@ with tab2:
                             marker_color='orange',
                             text=df_chunk['Head Office%'].apply(lambda x: f"{x:.1f}%" if x > 0 else ""),
                             textposition='inside',
-                            textfont_size=12
+                            textfont=dict(size=12, family='Times New Roman')
                         ))
 
                         for idx, row in df_chunk.iterrows():
@@ -1333,20 +1448,21 @@ with tab2:
                                 y=row['Material_split'],
                                 text=f"NSOH: {row['NSOH_display']}",
                                 showarrow=False,
-                                font=dict(size=12),
+                                font=dict(size=12, family='Times New Roman'),
                                 xanchor='left',
                                 yanchor='middle'
                             )
 
                         fig_bar.update_layout(
                             barmode='stack',
-                            title=f'Stock Distribution Hubs vs Head Office (Materials {i + 1}-{i + len(df_chunk)})',
-                            xaxis_title='Percentage of NSOH (%)',
-                            yaxis_title='Material Description',
+                            title=dict(text=f'Stock Distribution Hubs vs Head Office (Materials {i + 1}-{i + len(df_chunk)})', font=dict(family='Times New Roman')),
+                            xaxis_title=dict(text='Percentage of NSOH (%)', font=dict(family='Times New Roman')),
+                            yaxis_title=dict(text='Material Description', font=dict(family='Times New Roman')),
                             xaxis={'range': [0, 120], 'gridcolor': 'lightgray', 'showgrid': False, 'showline': False},
                             yaxis={'showgrid': False, 'showline': False},
                             height=max(600, 40 * len(df_chunk)),
-                            margin=dict(r=150)
+                            margin=dict(r=150),
+                            legend=dict(font=dict(family='Times New Roman'))
                         )
 
                         st.plotly_chart(fig_bar, use_container_width=True)
@@ -1362,12 +1478,12 @@ with tab2:
 # ---------------------------------------------------
 with tab3:
     if sheet_name == "All":
-        st.markdown("<h3 style='font-size: 28px; font-weight: bold; font-family: Times New Roman;'>All Programs - Medicines Needing Immediate Action</h3>", unsafe_allow_html=True)
+        st.markdown("<h3 style='font-size: 28px; font-weight: bold; font-family: Times New Roman;' class='section-header'>All Programs - Medicines Needing Immediate Action</h3>", unsafe_allow_html=True)
     else:
-        st.markdown(f"<h3 style='font-size: 28px; font-weight: bold; font-family: Times New Roman;'>{sheet_name} Medicines Needing Immediate Action</h3>", unsafe_allow_html=True)
+        st.markdown(f"<h3 style='font-size: 28px; font-weight: bold; font-family: Times New Roman;' class='section-header'>{sheet_name} Medicines Needing Immediate Action</h3>", unsafe_allow_html=True)
 
     if not df_filtered.empty and 'Material Description' in df_filtered.columns:
-        st.markdown("<h4 style='font-size: 24px; font-weight: bold; font-family: Times New Roman;'>Quick Summary</h4>", unsafe_allow_html=True)
+        st.markdown("<h4 style='font-size: 24px; font-weight: bold; font-family: Times New Roman;' class='section-header'>Quick Summary</h4>", unsafe_allow_html=True)
 
         decision_cols = ['Material Description', 'NSOH', 'Expiry', 'AMC', 'NMOS', 'Status']
         available_decision_cols = [col for col in decision_cols if col in df_filtered.columns]
@@ -1501,6 +1617,8 @@ with tab3:
 # TAB 4 - Hubs Distribution Pattern
 # ---------------------------------------------------
 with tab4:
+    st.markdown("<h4 style='font-size: 24px; font-weight: bold; font-family: Times New Roman;' class='section-header'>Stock Distribution Across Hubs by MOS</h4>", unsafe_allow_html=True)
+
     try:
         if not df.empty:
             main_df = df.copy()
@@ -1510,8 +1628,6 @@ with tab4:
                 # Take Material Description plus branch columns
                 branch_cols = [col for col in main_df.columns if 'Branch' in col or col == 'Material Description']
                 gh = main_df[branch_cols].copy() if branch_cols else pd.DataFrame()
-
-                st.markdown("<h4 style='font-size: 24px; font-weight: bold; font-family: Times New Roman;'>Stock Distribution Across Hubs by MOS</h4>", unsafe_allow_html=True)
 
                 merged_df = pd.merge(
                     gh,
@@ -1678,11 +1794,13 @@ with tab4:
                                 zmax=8,
                                 text=heatmap_page_df.values.round(1),
                                 texttemplate='%{text}',
-                                textfont={"size": 14},
+                                textfont={"size": 14, "family": "Times New Roman"},
                                 colorbar=dict(
                                     title="MOS",
                                     tickvals=[0.5, 1, 2, 4, 6, 8],
-                                    ticktext=['0.5', '1', '2', '4', '6', '8+']
+                                    ticktext=['0.5', '1', '2', '4', '6', '8+'],
+                                    title_font=dict(family='Times New Roman'),
+                                    tickfont=dict(family='Times New Roman')
                                 ),
                                 hovertemplate='<b>Material:</b> %{x}<br>' +
                                             '<b>Branch:</b> %{y}<br>' +
@@ -1694,11 +1812,13 @@ with tab4:
                                 xaxis={
                                     'title': 'Material Description',
                                     'tickangle': -45,
-                                    'tickfont': {'size': 12}
+                                    'tickfont': {'size': 12, 'family': 'Times New Roman'},
+                                    'title_font': {'family': 'Times New Roman'}
                                 },
                                 yaxis={
                                     'title': 'Branches',
-                                    'tickfont': {'size': 12}
+                                    'tickfont': {'size': 12, 'family': 'Times New Roman'},
+                                    'title_font': {'family': 'Times New Roman'}
                                 },
                                 height=650,
                                 margin=dict(l=120, r=120, t=50, b=200)
@@ -1718,7 +1838,7 @@ with tab4:
                                 st.markdown("🔵 **> 4** : Overstock")
 
                     st.markdown("---")
-                    st.markdown("<h5 style='font-size: 20px; font-weight: bold; font-family: Times New Roman;'>Full Branch MOS Data with CV</h5>", unsafe_allow_html=True)
+                    st.markdown("<h5 style='font-size: 20px; font-weight: bold; font-family: Times New Roman;' class='section-header'>Full Branch MOS Data with CV</h5>", unsafe_allow_html=True)
 
                     # Create a display version with formatted CV
                     display_division_df = division_df.copy()
@@ -1740,7 +1860,7 @@ with tab4:
                     )
 
                     st.markdown("---")
-                    st.markdown("<h5 style='font-size: 20px; font-weight: bold; font-family: Times New Roman;'>EPSS Hubs SOH</h5>", unsafe_allow_html=True)
+                    st.markdown("<h5 style='font-size: 20px; font-weight: bold; font-family: Times New Roman;' class='section-header'>EPSS Hubs SOH</h5>", unsafe_allow_html=True)
                     st.dataframe(
                         gh,
                         use_container_width=True,
@@ -1750,7 +1870,7 @@ with tab4:
                     st.caption(f"**Rows:** {gh.shape[0]} | **Columns:** {gh.shape[1]}")
 
                     st.markdown("---")
-                    st.markdown("<h5 style='font-size: 20px; font-weight: bold; font-family: Times New Roman;'>EPSS Hubs AMC Data (from GitHub)</h5>", unsafe_allow_html=True)
+                    st.markdown("<h5 style='font-size: 20px; font-weight: bold; font-family: Times New Roman;' class='section-header'>EPSS Hubs AMC Data (from GitHub)</h5>", unsafe_allow_html=True)
                     st.dataframe(
                         cf,
                         use_container_width=True,
@@ -1767,7 +1887,7 @@ with tab4:
                 if not df.empty and 'Material Description' in df.columns:
                     branch_cols = [col for col in df.columns if 'Branch' in col or col == 'Material Description']
                     gh = df[branch_cols].copy() if branch_cols else df[['Material Description']].copy()
-                    st.markdown("<h5 style='font-size: 20px; font-weight: bold; font-family: Times New Roman;'>Available Hubs SOH Data</h5>", unsafe_allow_html=True)
+                    st.markdown("<h5 style='font-size: 20px; font-weight: bold; font-family: Times New Roman;' class='section-header'>Available Hubs SOH Data</h5>", unsafe_allow_html=True)
                     st.dataframe(
                         gh,
                         use_container_width=True,
