@@ -5,6 +5,17 @@ import pandas as pd
 from datetime import datetime, timedelta
 import pickle
 import os
+import warnings
+import logging
+
+# Suppress all warnings and connection-related messages
+warnings.filterwarnings("ignore")
+logging.getLogger("urllib3").setLevel(logging.ERROR)
+logging.getLogger("requests").setLevel(logging.ERROR)
+logging.getLogger("googleapiclient").setLevel(logging.ERROR)
+
+# Suppress Streamlit ScriptRunContext warnings
+warnings.filterwarnings("ignore", message=".*missing ScriptRunContext.*")
 
 # Page config must be the first Streamlit command
 st.set_page_config(
@@ -52,7 +63,7 @@ def authenticate_user(email, password):
     c.execute("SELECT id, email, full_name, role, is_approved FROM users WHERE email = ? AND password = ?", (email, hashed))
     user = c.fetchone()
     conn.close()
-    
+
     if user:
         if user[4] == 0:  # Check if approved
             return {'error': 'not_approved'}
@@ -119,21 +130,21 @@ def delete_user(user_id):
     try:
         conn = sqlite3.connect('users.db')
         c = conn.cursor()
-        
+
         # First check if user exists
         c.execute("SELECT id, email, full_name FROM users WHERE id = ?", (user_id,))
         user = c.fetchone()
-        
+
         if not user:
             conn.close()
             return False, f"User with ID {user_id} not found"
-        
+
         # Delete the user
         c.execute("DELETE FROM users WHERE id = ?", (user_id,))
         conn.commit()
         affected_rows = c.rowcount
         conn.close()
-        
+
         if affected_rows > 0:
             return True, f"User {user[2]} deleted successfully"
         else:
@@ -141,31 +152,24 @@ def delete_user(user_id):
     except Exception as e:
         return False, str(e)
 
-# Initialize session state with persistence
+# Initialize session state with persistence (no auto-expiry)
 def init_session_state():
     """Initialize all session state variables with persistence check"""
-    
+
     # Check if we have a saved session in query params (for page refreshes)
     if 'auth' not in st.session_state:
         st.session_state['auth'] = False
-    
+
     if 'user' not in st.session_state:
         st.session_state['user'] = None
-    
+
     if 'login_time' not in st.session_state:
         st.session_state['login_time'] = None
 
 def check_session_validity():
-    """Check if the session is still valid (e.g., not expired)"""
-    if st.session_state.get('login_time'):
-        login_time = st.session_state['login_time']
-        # Session expires after 8 hours
-        if datetime.now() - login_time > timedelta(hours=8):
-            # Session expired
-            st.session_state['auth'] = False
-            st.session_state['user'] = None
-            st.session_state['login_time'] = None
-            return False
+    """Check if the session is still valid - now always returns True (no expiry)"""
+    # Removed the 8-hour expiry - session never expires automatically
+    # Only logout will clear the session
     return True
 
 # PAGE FUNCTIONS
@@ -182,24 +186,24 @@ def show_login_page():
         }
         </style>
     """, unsafe_allow_html=True)
-    
+
     st.markdown('<h1 class="main-title">🏥 Health Program Medicines Dashboard</h1>', unsafe_allow_html=True)
-    
+
     col1, col2, col3 = st.columns([1,2,1])
     with col2:
         # Create a card-like container
         with st.container():
-            st.markdown("### 🔐 Welcome Back")
+            st.markdown("### 🔐 Welcome Come")
             st.markdown("Please login to access the dashboard")
-            
+
             tab1, tab2 = st.tabs(["🔐 Login", "📝 Register"])
-            
+
             with tab1:
                 with st.form("login_form"):
                     email = st.text_input("Email", placeholder="Enter your email")
                     password = st.text_input("Password", type="password", placeholder="Enter your password")
                     submitted = st.form_submit_button("Login", use_container_width=True)
-                    
+
                     if submitted:
                         if email and password:
                             user = authenticate_user(email, password)
@@ -214,7 +218,7 @@ def show_login_page():
                                 st.error("Invalid email or password")
                         else:
                             st.warning("Please enter email and password")
-            
+
             with tab2:
                 with st.form("register_form"):
                     new_email = st.text_input("Email", placeholder="Enter your email")
@@ -222,7 +226,7 @@ def show_login_page():
                     new_password = st.text_input("Password", type="password", placeholder="Create a password")
                     confirm_password = st.text_input("Confirm Password", type="password", placeholder="Confirm your password")
                     submitted = st.form_submit_button("Register", use_container_width=True)
-                    
+
                     if submitted:
                         if not new_email or not new_full_name or not new_password:
                             st.warning("Please fill all fields")
@@ -241,7 +245,7 @@ def show_login_page():
 def show_profile_page():
     st.subheader("👤 User Profile")
     user = st.session_state['user']
-    
+
     # Profile card
     col1, col2 = st.columns([1, 2])
     with col1:
@@ -249,7 +253,7 @@ def show_profile_page():
     with col2:
         st.markdown(f"""
         ### {user['full_name']}
-        
+
         | | |
         |---|---|
         | **Email** | {user['email']} |
@@ -257,16 +261,16 @@ def show_profile_page():
         | **User ID** | {user['id']} |
         | **Status** | {"✅ Approved" if user.get('is_approved', 1) else "⏳ Pending Approval"} |
         """)
-    
+
     # Session info
     if st.session_state.get('login_time'):
         st.info(f"Logged in since: {st.session_state['login_time'].strftime('%Y-%m-%d %H:%M:%S')}")
 
 def show_admin_panel():
     st.subheader("👑 Admin Panel - User Management")
-    
+
     tab1, tab2, tab3 = st.tabs(["⏳ Pending Approvals", "📋 All Users", "🗑️ Delete User"])
-    
+
     # Tab 1: Pending Approvals
     with tab1:
         pending_df = get_pending_users()
@@ -292,7 +296,7 @@ def show_admin_panel():
                     st.divider()
         else:
             st.info("No pending approvals")
-    
+
     # Tab 2: All Users
     with tab2:
         users_df = get_all_users()
@@ -312,39 +316,39 @@ def show_admin_panel():
                     "status": "Status"
                 }
             )
-            
+
             # Show total count
             st.caption(f"Total users: {len(users_df)}")
         else:
             st.info("No users found")
-    
+
     # Tab 3: Delete User
     with tab3:
         st.subheader("Delete User")
         users_df = get_all_users()
-        
+
         if not users_df.empty:
             # Don't allow deleting yourself
             current_user_email = st.session_state['user']['email']
             other_users = users_df[users_df['email'] != current_user_email]
-            
+
             if not other_users.empty:
                 # Create a friendly display name for selection
                 other_users['display'] = other_users.apply(
                     lambda x: f"{x['full_name']} ({x['email']}) - ID: {x['id']}", axis=1
                 )
-                
+
                 # User selection
                 selected_display = st.selectbox(
                     "Select user to delete",
                     other_users['display'].tolist(),
                     key="delete_user_select"
                 )
-                
+
                 # Get the selected user's data
                 selected_user = other_users[other_users['display'] == selected_display].iloc[0]
                 user_id = int(selected_user['id'])
-                
+
                 # Show warning and user details
                 st.warning("⚠️ You are about to delete:")
                 col1, col2 = st.columns(2)
@@ -354,7 +358,7 @@ def show_admin_panel():
                 with col2:
                     st.write(f"**Role:** {selected_user['role']}")
                     st.write(f"**ID:** {user_id}")
-                
+
                 # Delete button with confirmation
                 delete_confirmation = st.checkbox("I understand this action cannot be undone")
                 if delete_confirmation:
@@ -374,14 +378,14 @@ def show_admin_panel():
 
 def show_dashboard():
     st.title("🏥 Dashboard")
-    
+
     # Welcome message
     st.markdown(f"""
     ### Welcome, {st.session_state['user']['full_name']}! 👋
-    
+
     You have successfully logged in to the Health Program Medicines Dashboard.
     """)
-    
+
     # Quick stats or info
     col1, col2, col3 = st.columns(3)
     with col1:
@@ -395,13 +399,11 @@ def show_dashboard():
 def main():
     # Initialize session state
     init_session_state()
-    
-    # Check session validity
+
+    # Check session validity - now always returns True (no expiry)
     if st.session_state['auth']:
-        if not check_session_validity():
-            st.warning("Your session has expired. Please login again.")
-            st.rerun()
-    
+        check_session_validity()  # Always returns True now
+
     # Custom CSS for better UI
     st.markdown("""
         <style>
@@ -417,7 +419,7 @@ def main():
         }
         </style>
     """, unsafe_allow_html=True)
-    
+
     # Sidebar (only show if authenticated)
     if st.session_state['auth']:
         with st.sidebar:
@@ -425,34 +427,35 @@ def main():
             ### 👋 Hello, {st.session_state['user']['full_name']}
             **Role:** {st.session_state['user']['role'].title()}
             """)
-            
+
             st.divider()
-            
+
             # Navigation
             if st.session_state['user']['role'] == 'admin':
                 pages = ["Dashboard", "Profile", "Admin Panel"]
             else:
                 pages = ["Dashboard", "Profile"]
-            
+
             page = st.radio(
                 "Navigation",
                 pages,
                 key="navigation"
             )
-            
+
             st.divider()
-            
-            # Session info
+
+            # Session info - showing persistent session
             if st.session_state.get('login_time'):
-                st.caption(f"Logged in: {st.session_state['login_time'].strftime('%H:%M:%S')}")
-            
+                st.caption(f"Logged in since: {st.session_state['login_time'].strftime('%Y-%m-%d %H:%M:%S')}")
+                st.caption("✨ Session never expires automatically")
+
             # Logout button
             if st.button("🚪 Logout", use_container_width=True):
                 # Clear all session state
                 for key in list(st.session_state.keys()):
                     del st.session_state[key]
                 st.rerun()
-        
+
         # Main content area
         if page == "Dashboard":
             show_dashboard()
