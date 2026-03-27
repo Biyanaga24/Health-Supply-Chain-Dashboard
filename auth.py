@@ -20,7 +20,7 @@ warnings.filterwarnings("ignore", message=".*missing ScriptRunContext.*")
 # Page config must be the first Streamlit command
 st.set_page_config(
     page_title="Health Program Medicines Dashboard",
-    page_icon="🏥",
+    page_icon=" ",
     layout="wide",
     initial_sidebar_state="expanded"
 )
@@ -187,13 +187,13 @@ def show_login_page():
         </style>
     """, unsafe_allow_html=True)
 
-    st.markdown('<h1 class="main-title">🏥 Health Program Medicines Dashboard</h1>', unsafe_allow_html=True)
+    st.markdown('<h1 class="main-title">Health Program Medicines Dashboard</h1>', unsafe_allow_html=True)
 
     col1, col2, col3 = st.columns([1,2,1])
     with col2:
         # Create a card-like container
         with st.container():
-            st.markdown("### 🔐 Welcome Come")
+            st.markdown("Welcome Come!")
             st.markdown("Please login to access the dashboard")
 
             tab1, tab2 = st.tabs(["🔐 Login", "📝 Register"])

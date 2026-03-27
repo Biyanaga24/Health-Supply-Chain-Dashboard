@@ -49,6 +49,140 @@ if not st.session_state['auth']:
 st.set_page_config(page_title="Health Program Medicines Dashboard", layout="wide")
 
 # ---------------------------------------------------
+# Add CSS for vibration effects
+# ---------------------------------------------------
+st.markdown("""
+<style>
+    /* Base shake animation */
+    @keyframes shake {
+        0%, 100% { transform: translateX(0); }
+        10%, 30%, 50%, 70%, 90% { transform: translateX(-2px); }
+        20%, 40%, 60%, 80% { transform: translateX(2px); }
+    }
+
+    @keyframes vertical-shake {
+        0%, 100% { transform: translateY(0); }
+        10%, 30%, 50%, 70%, 90% { transform: translateY(-2px); }
+        20%, 40%, 60%, 80% { transform: translateY(2px); }
+    }
+
+    @keyframes gentle-shake {
+        0%, 100% { transform: translateX(0); }
+        25%, 75% { transform: translateX(-1px); }
+        50% { transform: translateX(1px); }
+    }
+
+    /* Apply shake on hover to buttons and interactive elements */
+    .stButton button:hover {
+        animation: shake 0.5s ease-in-out;
+    }
+
+    /* Shake effect for metric cards on hover */
+    div[data-testid="stMetricValue"]:hover {
+        animation: gentle-shake 0.3s ease-in-out;
+    }
+
+    /* Shake for expanders on click/expand */
+    details:hover {
+        animation: gentle-shake 0.2s ease-in-out;
+    }
+
+    /* Shake for download buttons */
+    .stDownloadButton button:hover {
+        animation: shake 0.4s ease-in-out;
+    }
+
+    /* Shake for select boxes on focus */
+    div[data-baseweb="select"]:focus-within {
+        animation: gentle-shake 0.2s ease-in-out;
+    }
+
+    /* Shake for refresh button specifically */
+    button:has(> div:contains("Refresh Now")):hover {
+        animation: shake 0.5s ease-in-out !important;
+    }
+
+    /* Shake for logout button */
+    button:has(> div:contains("Logout")):hover {
+        animation: vertical-shake 0.4s ease-in-out !important;
+    }
+
+    /* Shake for tab headers on hover */
+    button[data-baseweb="tab"]:hover {
+        animation: gentle-shake 0.2s ease-in-out;
+    }
+
+    /* Shake for data editor cells on hover */
+    .cell:hover {
+        animation: gentle-shake 0.15s ease-in-out;
+    }
+
+    /* Shake for warning/info messages */
+    div[data-testid="stAlert"]:hover {
+        animation: gentle-shake 0.3s ease-in-out;
+    }
+
+    /* Shake for sidebar elements */
+    div[data-testid="stSidebar"] button:hover {
+        animation: shake 0.4s ease-in-out;
+    }
+
+    /* Shake for radio buttons */
+    div[data-testid="stRadio"] label:hover {
+        animation: gentle-shake 0.2s ease-in-out;
+        cursor: pointer;
+    }
+
+    /* Shake for checkbox */
+    div[data-testid="stCheckbox"]:hover {
+        animation: gentle-shake 0.2s ease-in-out;
+    }
+
+    /* Shake for number inputs */
+    div[data-testid="stNumberInput"]:focus-within {
+        animation: gentle-shake 0.2s ease-in-out;
+    }
+
+    /* Shake for slider */
+    div[data-testid="stSlider"]:hover {
+        animation: gentle-shake 0.2s ease-in-out;
+    }
+
+    /* Shake for KPI charts on hover */
+    .js-plotly-plot:hover {
+        animation: gentle-shake 0.2s ease-in-out;
+    }
+
+    /* Optional: Add shake for data refresh indicator */
+    @keyframes refresh-shake {
+        0% { transform: translateX(0); }
+        50% { transform: translateX(-3px) translateY(-1px); }
+        100% { transform: translateX(3px) translateY(1px); }
+    }
+
+    /* Subtle shake for data timestamp when hovered */
+    div:has(> div:contains("Data as of")):hover {
+        animation: refresh-shake 0.3s ease-in-out;
+    }
+
+    /* Shake for filter dropdowns */
+    div[data-testid="stSelectbox"]:hover {
+        animation: gentle-shake 0.2s ease-in-out;
+    }
+
+    /* Shake for search input */
+    input[type="text"]:focus {
+        animation: gentle-shake 0.2s ease-in-out;
+    }
+
+    /* Shake for dataframes rows on hover */
+    .stDataFrame tbody tr:hover {
+        animation: gentle-shake 0.1s ease-in-out;
+    }
+</style>
+""", unsafe_allow_html=True)
+
+# ---------------------------------------------------
 # Initialize session state
 # ---------------------------------------------------
 if 'data_timestamp' not in st.session_state:
