@@ -948,10 +948,10 @@ st.markdown("<h1 style='font-size: 32px; font-weight: bold; font-family: Times N
 # Tabs
 # ---------------------------------------------------
 tab1, tab2, tab3, tab4 = st.tabs([
-    "📊 **STOCK STATUS TABLE**", 
-    "📈 **STOCK STATUS KP **", 
-    "⚠️ **DECISION BRIEFS For S&OP**", 
-    "🗺️ **EPSS HUBS DISTRIBUTION PATTERN**"
+    "**SS TABLE and MONTHLY REPORT**", 
+    "**KPIs and CHARTs**", 
+    "**DECISION BRIEFS For S&OP**", 
+    "**HUBS STOCK DISTRIBUTION**"
 ])
 
 # ---------------------------------------------------
