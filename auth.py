@@ -7,6 +7,7 @@ import pickle
 import os
 import warnings
 import logging
+import random
 
 # Suppress all warnings and connection-related messages
 warnings.filterwarnings("ignore")
@@ -20,7 +21,7 @@ warnings.filterwarnings("ignore", message=".*missing ScriptRunContext.*")
 # Page config must be the first Streamlit command
 st.set_page_config(
     page_title="Health Program Medicines Dashboard",
-    page_icon=" ",
+    page_icon="💊",
     layout="wide",
     initial_sidebar_state="expanded"
 )
@@ -37,7 +38,8 @@ c.execute('''
         password TEXT NOT NULL,
         full_name TEXT NOT NULL,
         role TEXT DEFAULT 'user',
-        is_approved INTEGER DEFAULT 0
+        is_approved INTEGER DEFAULT 0,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )
 ''')
 
@@ -59,13 +61,12 @@ def authenticate_user(email, password):
     conn = sqlite3.connect('users.db')
     c = conn.cursor()
     hashed = hashlib.sha256(password.encode()).hexdigest()
-    # Only allow login if approved
     c.execute("SELECT id, email, full_name, role, is_approved FROM users WHERE email = ? AND password = ?", (email, hashed))
     user = c.fetchone()
     conn.close()
 
     if user:
-        if user[4] == 0:  # Check if approved
+        if user[4] == 0:
             return {'error': 'not_approved'}
         return {
             'id': user[0],
@@ -81,7 +82,6 @@ def create_user(email, password, full_name):
         conn = sqlite3.connect('users.db')
         c = conn.cursor()
         hashed = hashlib.sha256(password.encode()).hexdigest()
-        # New users start with is_approved = 0
         c.execute("INSERT INTO users (email, password, full_name, role, is_approved) VALUES (?, ?, ?, ?, ?)",
                   (email, hashed, full_name, 'user', 0))
         conn.commit()
@@ -94,13 +94,13 @@ def create_user(email, password, full_name):
 
 def get_pending_users():
     conn = sqlite3.connect('users.db')
-    df = pd.read_sql_query("SELECT id, email, full_name FROM users WHERE is_approved = 0", conn)
+    df = pd.read_sql_query("SELECT id, email, full_name, created_at FROM users WHERE is_approved = 0", conn)
     conn.close()
     return df
 
 def get_all_users():
     conn = sqlite3.connect('users.db')
-    df = pd.read_sql_query("SELECT id, email, full_name, role, is_approved FROM users", conn)
+    df = pd.read_sql_query("SELECT id, email, full_name, role, is_approved, created_at FROM users", conn)
     conn.close()
     return df
 
@@ -130,8 +130,6 @@ def delete_user(user_id):
     try:
         conn = sqlite3.connect('users.db')
         c = conn.cursor()
-
-        # First check if user exists
         c.execute("SELECT id, email, full_name FROM users WHERE id = ?", (user_id,))
         user = c.fetchone()
 
@@ -139,7 +137,6 @@ def delete_user(user_id):
             conn.close()
             return False, f"User with ID {user_id} not found"
 
-        # Delete the user
         c.execute("DELETE FROM users WHERE id = ?", (user_id,))
         conn.commit()
         affected_rows = c.rowcount
@@ -152,60 +149,227 @@ def delete_user(user_id):
     except Exception as e:
         return False, str(e)
 
-# Initialize session state with persistence (no auto-expiry)
 def init_session_state():
-    """Initialize all session state variables with persistence check"""
-
-    # Check if we have a saved session in query params (for page refreshes)
+    """Initialize all session state variables"""
     if 'auth' not in st.session_state:
         st.session_state['auth'] = False
-
     if 'user' not in st.session_state:
         st.session_state['user'] = None
-
     if 'login_time' not in st.session_state:
         st.session_state['login_time'] = None
 
 def check_session_validity():
-    """Check if the session is still valid - now always returns True (no expiry)"""
-    # Removed the 8-hour expiry - session never expires automatically
-    # Only logout will clear the session
     return True
 
 # PAGE FUNCTIONS
 def show_login_page():
+    # Enhanced CSS for login page with Times New Roman font
     st.markdown("""
-        <style>
-        .main-title {
-            text-align: center;
-            padding: 2rem;
-            background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);
-            color: white;
-            border-radius: 10px;
-            margin-bottom: 2rem;
+    <style>
+    * {
+        font-family: 'Times New Roman', Times, serif !important;
+    }
+
+    .stApp {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    }
+
+    .main-title {
+        text-align: center;
+        padding: 1.5rem;
+        background: linear-gradient(135deg, rgba(255,255,255,0.2) 0%, rgba(255,255,255,0.1) 100%);
+        backdrop-filter: blur(10px);
+        border-radius: 20px;
+        margin-bottom: 2rem;
+        color: white;
+        animation: fadeInDown 0.8s ease-out;
+    }
+
+    @keyframes fadeInDown {
+        from {
+            opacity: 0;
+            transform: translateY(-30px);
         }
-        </style>
+        to {
+            opacity: 1;
+            transform: translateY(0);
+        }
+    }
+
+    @keyframes fadeInUp {
+        from {
+            opacity: 0;
+            transform: translateY(30px);
+        }
+        to {
+            opacity: 1;
+            transform: translateY(0);
+        }
+    }
+
+    .login-container {
+        background: rgba(255, 255, 255, 0.95);
+        border-radius: 20px;
+        padding: 2rem;
+        box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+        animation: fadeInUp 0.8s ease-out;
+    }
+
+    .welcome-text {
+        text-align: center;
+        font-size: 1.3rem;
+        color: #667eea;
+        margin-bottom: 1.5rem;
+        font-weight: 600;
+        padding-bottom: 0.5rem;
+        border-bottom: 2px solid #667eea;
+        font-family: 'Times New Roman', Times, serif !important;
+    }
+
+    .feature-card {
+        background: white;
+        border-radius: 15px;
+        padding: 1.5rem;
+        text-align: center;
+        transition: transform 0.3s ease, box-shadow 0.3s ease;
+        cursor: pointer;
+    }
+
+    .feature-card:hover {
+        transform: translateY(-5px);
+        box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+    }
+
+    .feature-icon {
+        font-size: 2.5rem;
+        margin-bottom: 1rem;
+    }
+
+    .feature-title {
+        font-weight: 600;
+        color: #333;
+        margin-bottom: 0.5rem;
+        font-family: 'Times New Roman', Times, serif !important;
+    }
+
+    .feature-desc {
+        font-size: 0.85rem;
+        color: #666;
+        font-family: 'Times New Roman', Times, serif !important;
+    }
+
+    .stButton > button {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        color: white;
+        border: none;
+        border-radius: 10px;
+        padding: 0.5rem 1rem;
+        font-weight: 600;
+        transition: all 0.3s ease;
+        font-family: 'Times New Roman', Times, serif !important;
+        font-size: 14px;
+    }
+
+    .stButton > button:hover {
+        transform: scale(1.02);
+        box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
+    }
+
+    div[data-testid="stTabs"] {
+        background: transparent;
+    }
+
+    div[data-testid="stTabs"] button {
+        font-weight: 600;
+        font-size: 1rem;
+        font-family: 'Times New Roman', Times, serif !important;
+    }
+
+    .stTextInput > div > div > input {
+        border-radius: 10px;
+        border: 1px solid #ddd;
+        padding: 0.5rem 1rem;
+        font-family: 'Times New Roman', Times, serif !important;
+    }
+
+    .stTextInput > div > div > input:focus {
+        border-color: #667eea;
+        box-shadow: 0 0 0 2px rgba(102, 126, 234, 0.2);
+    }
+
+    label {
+        font-family: 'Times New Roman', Times, serif !important;
+    }
+
+    h1, h2, h3, h4, h5, h6, p, span, div {
+        font-family: 'Times New Roman', Times, serif !important;
+    }
+    </style>
     """, unsafe_allow_html=True)
 
-    st.markdown('<h1 class="main-title">Health Program Medicines Dashboard</h1>', unsafe_allow_html=True)
+    # Main title with icon
+    st.markdown("""
+    <div class="main-title">
+        <h1 style="font-size: 2.5rem; margin: 0; font-family: 'Times New Roman', Times, serif;">💊 Health Program Medicines Dashboard</h1>
+        <p style="margin-top: 0.5rem; opacity: 0.9; font-family: 'Times New Roman', Times, serif;">Comprehensive Stock Management & Analytics Platform</p>
+    </div>
+    """, unsafe_allow_html=True)
 
-    col1, col2, col3 = st.columns([1,2,1])
+    col1, col2 = st.columns([1, 1.5])
+
+    with col1:
+        # Features section
+        st.markdown("""
+        <div class="login-container" style="background: rgba(255,255,255,0.95);">
+            <h3 style="text-align: center; color: #667eea; font-family: 'Times New Roman', Times, serif;">✨ Key Features</h3>
+        </div>
+        """, unsafe_allow_html=True)
+
+        features = [
+            ("📊", "Real-time Analytics", "Monitor stock levels and KPIs instantly"),
+            ("🚚", "Pipeline Tracking", "Track GIT, LC, WB, and TMD orders"),
+            ("📍", "Hub Distribution", "Visualize stock across all branches"),
+            ("📋", "Decision Support", "Get actionable insights and recommendations"),
+            ("🔐", "Secure Access", "Role-based access control"),
+            ("📈", "Performance Metrics", "Track availability and SAP achievements")
+        ]
+
+        for i in range(0, len(features), 2):
+            cols = st.columns(2)
+            for j in range(2):
+                if i + j < len(features):
+                    icon, title, desc = features[i + j]
+                    cols[j].markdown(f"""
+                    <div class="feature-card">
+                        <div class="feature-icon">{icon}</div>
+                        <div class="feature-title">{title}</div>
+                        <div class="feature-desc">{desc}</div>
+                    </div>
+                    """, unsafe_allow_html=True)
+
     with col2:
-        # Create a card-like container
-        with st.container():
-            st.markdown("Welcome Come!")
-            st.markdown("Please login to access the dashboard")
+        # Login/Register container with welcome message INSIDE the card
+        st.markdown('<div class="login-container">', unsafe_allow_html=True)
 
-            tab1, tab2 = st.tabs(["🔐 Login", "📝 Register"])
+        # Welcome message - INSIDE THE CARD
+        st.markdown("""
+        <div class="welcome-text">
+            👋 Welcome! Please login to access the dashboard
+        </div>
+        """, unsafe_allow_html=True)
 
-            with tab1:
-                with st.form("login_form"):
-                    email = st.text_input("Email", placeholder="Enter your email")
-                    password = st.text_input("Password", type="password", placeholder="Enter your password")
-                    submitted = st.form_submit_button("Login", use_container_width=True)
+        tab1, tab2 = st.tabs(["🔐 **Login**", "📝 **Register**"])
 
-                    if submitted:
-                        if email and password:
+        with tab1:
+            with st.form("login_form", clear_on_submit=False):
+                email = st.text_input("📧 Email", placeholder="Enter your email", help="Enter your registered email")
+                password = st.text_input("🔒 Password", type="password", placeholder="Enter your password", help="Enter your password")
+
+                submitted = st.form_submit_button("🚪 Login", use_container_width=True, type="primary")
+
+                if submitted:
+                    if email and password:
+                        with st.spinner("Authenticating..."):
                             user = authenticate_user(email, password)
                             if user and 'error' in user:
                                 st.error("⏳ Your account is pending admin approval. Please wait.")
@@ -213,156 +377,288 @@ def show_login_page():
                                 st.session_state['auth'] = True
                                 st.session_state['user'] = user
                                 st.session_state['login_time'] = datetime.now()
+                                st.success("✅ Login successful! Redirecting...")
+                                st.balloons()
                                 st.rerun()
                             else:
-                                st.error("Invalid email or password")
-                        else:
-                            st.warning("Please enter email and password")
+                                st.error("❌ Invalid email or password")
+                    else:
+                        st.warning("⚠️ Please enter both email and password")
 
-            with tab2:
-                with st.form("register_form"):
-                    new_email = st.text_input("Email", placeholder="Enter your email")
-                    new_full_name = st.text_input("Full Name", placeholder="Enter your full name")
-                    new_password = st.text_input("Password", type="password", placeholder="Create a password")
-                    confirm_password = st.text_input("Confirm Password", type="password", placeholder="Confirm your password")
-                    submitted = st.form_submit_button("Register", use_container_width=True)
+        with tab2:
+            with st.form("register_form", clear_on_submit=False):
+                new_email = st.text_input("📧 Email", placeholder="you@example.com", help="Use a valid email address")
+                new_full_name = st.text_input("👤 Full Name", placeholder="Enter your full name", help="Your full name as you want it displayed")
+                new_password = st.text_input("🔒 Password", type="password", placeholder="Create a password (min 6 characters)", help="Minimum 6 characters")
+                confirm_password = st.text_input("✓ Confirm Password", type="password", placeholder="Confirm your password", help="Must match the password above")
 
-                    if submitted:
-                        if not new_email or not new_full_name or not new_password:
-                            st.warning("Please fill all fields")
-                        elif new_password != confirm_password:
-                            st.error("Passwords do not match")
-                        elif len(new_password) < 6:
-                            st.error("Password must be at least 6 characters")
-                        else:
+                submitted = st.form_submit_button("📝 Register", use_container_width=True, type="primary")
+
+                if submitted:
+                    if not new_email or not new_full_name or not new_password:
+                        st.warning("⚠️ Please fill all fields")
+                    elif new_password != confirm_password:
+                        st.error("❌ Passwords do not match")
+                    elif len(new_password) < 6:
+                        st.error("❌ Password must be at least 6 characters")
+                    else:
+                        with st.spinner("Creating your account..."):
                             success, message = create_user(new_email, new_password, new_full_name)
                             if success:
-                                st.success(message)
+                                st.success(f"✅ {message}")
                                 st.balloons()
+                                st.info("📧 You will be notified once your account is approved by an administrator.")
                             else:
-                                st.error(message)
+                                st.error(f"❌ {message}")
+
+        st.markdown('</div>', unsafe_allow_html=True)
 
 def show_profile_page():
-    st.subheader("👤 User Profile")
+    st.markdown("""
+    <style>
+    * {
+        font-family: 'Times New Roman', Times, serif !important;
+    }
+    .profile-header {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        padding: 2rem;
+        border-radius: 20px;
+        color: white;
+        margin-bottom: 2rem;
+    }
+    .profile-card {
+        background: white;
+        border-radius: 15px;
+        padding: 1.5rem;
+        box-shadow: 0 5px 15px rgba(0,0,0,0.1);
+    }
+    .stat-card {
+        background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+        border-radius: 15px;
+        padding: 1rem;
+        text-align: center;
+    }
+    </style>
+    """, unsafe_allow_html=True)
+
     user = st.session_state['user']
 
-    # Profile card
+    # Profile header
+    st.markdown(f"""
+    <div class="profile-header">
+        <h1 style="margin: 0; font-family: 'Times New Roman', Times, serif;">👤 User Profile</h1>
+        <p style="margin: 0.5rem 0 0 0; opacity: 0.9; font-family: 'Times New Roman', Times, serif;">Manage your account settings and preferences</p>
+    </div>
+    """, unsafe_allow_html=True)
+
     col1, col2 = st.columns([1, 2])
+
     with col1:
-        st.image("https://via.placeholder.com/150", caption=user['full_name'])
+        # Avatar based on user name
+        initials = ''.join([word[0].upper() for word in user['full_name'].split()[:2]])
+        st.markdown(f"""
+        <div class="profile-card" style="text-align: center;">
+            <div style="width: 120px; height: 120px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); 
+                        border-radius: 60px; display: flex; align-items: center; justify-content: center; 
+                        margin: 0 auto 1rem auto;">
+                <span style="font-size: 48px; color: white; font-weight: bold; font-family: 'Times New Roman', Times, serif;">{initials}</span>
+            </div>
+            <h3 style="margin: 0; font-family: 'Times New Roman', Times, serif;">{user['full_name']}</h3>
+            <p style="color: #666; font-family: 'Times New Roman', Times, serif;">{user['role'].title()} User</p>
+        </div>
+        """, unsafe_allow_html=True)
+
     with col2:
         st.markdown(f"""
-        ### {user['full_name']}
-
-        | | |
-        |---|---|
-        | **Email** | {user['email']} |
-        | **Role** | {user['role']} |
-        | **User ID** | {user['id']} |
-        | **Status** | {"✅ Approved" if user.get('is_approved', 1) else "⏳ Pending Approval"} |
-        """)
+        <div class="profile-card">
+            <h3 style="font-family: 'Times New Roman', Times, serif;">📋 Account Information</h3>
+            <table style="width: 100%;">
+                <tr>
+                    <td style="padding: 8px 0; font-family: 'Times New Roman', Times, serif;"><strong>📧 Email</strong></td>
+                    <td style="padding: 8px 0; font-family: 'Times New Roman', Times, serif;">{user['email']}</td>
+                </tr>
+                <tr>
+                    <td style="padding: 8px 0; font-family: 'Times New Roman', Times, serif;"><strong>👤 Full Name</strong></td>
+                    <td style="padding: 8px 0; font-family: 'Times New Roman', Times, serif;">{user['full_name']}</td>
+                </tr>
+                <tr>
+                    <td style="padding: 8px 0; font-family: 'Times New Roman', Times, serif;"><strong>🔑 Role</strong></td>
+                    <td style="padding: 8px 0; font-family: 'Times New Roman', Times, serif;"><span style="background: {'#4CAF50' if user['role'] == 'admin' else '#2196F3'}; color: white; padding: 2px 8px; border-radius: 20px;">{user['role'].title()}</span></td>
+                </tr>
+                <tr>
+                    <td style="padding: 8px 0; font-family: 'Times New Roman', Times, serif;"><strong>🆔 User ID</strong></td>
+                    <td style="padding: 8px 0; font-family: 'Times New Roman', Times, serif;">{user['id']}</td>
+                </tr>
+                <tr>
+                    <td style="padding: 8px 0; font-family: 'Times New Roman', Times, serif;"><strong>✅ Status</strong></td>
+                    <td style="padding: 8px 0; font-family: 'Times New Roman', Times, serif;"><span style="color: {'#4CAF50' if user.get('is_approved', 1) else '#ff9800'}; font-weight: bold;">{'Approved' if user.get('is_approved', 1) else 'Pending Approval'}</span></td>
+                </tr>
+            </table>
+        </div>
+        """, unsafe_allow_html=True)
 
     # Session info
     if st.session_state.get('login_time'):
-        st.info(f"Logged in since: {st.session_state['login_time'].strftime('%Y-%m-%d %H:%M:%S')}")
+        login_duration = datetime.now() - st.session_state['login_time']
+        hours = login_duration.seconds // 3600
+        minutes = (login_duration.seconds % 3600) // 60
+
+        st.markdown("---")
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.markdown(f"""
+            <div class="stat-card">
+                <div style="font-size: 2rem;">🕐</div>
+                <div style="font-size: 1.5rem; font-weight: bold; font-family: 'Times New Roman', Times, serif;">{st.session_state['login_time'].strftime('%H:%M:%S')}</div>
+                <div style="font-family: 'Times New Roman', Times, serif;">Login Time</div>
+            </div>
+            """, unsafe_allow_html=True)
+        with col2:
+            st.markdown(f"""
+            <div class="stat-card">
+                <div style="font-size: 2rem;">📅</div>
+                <div style="font-size: 1.5rem; font-weight: bold; font-family: 'Times New Roman', Times, serif;">{st.session_state['login_time'].strftime('%b %d, %Y')}</div>
+                <div style="font-family: 'Times New Roman', Times, serif;">Login Date</div>
+            </div>
+            """, unsafe_allow_html=True)
+        with col3:
+            st.markdown(f"""
+            <div class="stat-card">
+                <div style="font-size: 2rem;">⏱️</div>
+                <div style="font-size: 1.5rem; font-weight: bold; font-family: 'Times New Roman', Times, serif;">{hours}h {minutes}m</div>
+                <div style="font-family: 'Times New Roman', Times, serif;">Session Duration</div>
+            </div>
+            """, unsafe_allow_html=True)
 
 def show_admin_panel():
-    st.subheader("👑 Admin Panel - User Management")
+    st.markdown("""
+    <style>
+    * {
+        font-family: 'Times New Roman', Times, serif !important;
+    }
+    .admin-header {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        padding: 2rem;
+        border-radius: 20px;
+        color: white;
+        margin-bottom: 2rem;
+    }
+    </style>
+    """, unsafe_allow_html=True)
 
-    tab1, tab2, tab3 = st.tabs(["⏳ Pending Approvals", "📋 All Users", "🗑️ Delete User"])
+    st.markdown("""
+    <div class="admin-header">
+        <h1 style="margin: 0; font-family: 'Times New Roman', Times, serif;">👑 Admin Control Panel</h1>
+        <p style="margin: 0.5rem 0 0 0; opacity: 0.9; font-family: 'Times New Roman', Times, serif;">Manage users, approvals, and system settings</p>
+    </div>
+    """, unsafe_allow_html=True)
 
-    # Tab 1: Pending Approvals
+    # Stats
+    all_users = get_all_users()
+    pending_df = get_pending_users()
+
+    col1, col2, col3, col4 = st.columns(4)
+    with col1:
+        st.metric("👥 Total Users", len(all_users), delta=None)
+    with col2:
+        st.metric("⏳ Pending Approvals", len(pending_df), delta=None, delta_color="inverse")
+    with col3:
+        st.metric("👑 Admins", len(all_users[all_users['role'] == 'admin']) if not all_users.empty else 0, delta=None)
+    with col4:
+        st.metric("✅ Approved Users", len(all_users[all_users['is_approved'] == 1]) if not all_users.empty else 0, delta=None)
+
+    st.markdown("---")
+
+    tab1, tab2, tab3 = st.tabs(["⏳ **Pending Approvals**", "📋 **All Users**", "🗑️ **Delete User**"])
+
     with tab1:
-        pending_df = get_pending_users()
         if not pending_df.empty:
-            st.success(f"**{len(pending_df)} users waiting for approval**")
+            st.success(f"✨ **{len(pending_df)} users waiting for approval**")
             for idx, row in pending_df.iterrows():
                 with st.container():
-                    col1, col2, col3, col4 = st.columns([3, 3, 1, 1])
+                    col1, col2, col3, col4, col5 = st.columns([2, 2, 1, 1, 1])
                     with col1:
-                        st.write(f"**{row['full_name']}**")
+                        st.markdown(f"**👤 {row['full_name']}**")
                     with col2:
-                        st.write(row['email'])
+                        st.markdown(f"📧 {row['email']}")
                     with col3:
-                        if st.button("✅ Approve", key=f"approve_{row['id']}"):
-                            if approve_user(row['id']):
-                                st.success(f"Approved {row['full_name']}")
-                                st.rerun()
+                        if 'created_at' in row:
+                            st.caption(f"📅 {row['created_at'][:10]}")
                     with col4:
-                        if st.button("❌ Reject", key=f"reject_{row['id']}"):
+                        if st.button("✅ Approve", key=f"approve_{row['id']}", use_container_width=True):
+                            if approve_user(row['id']):
+                                st.success(f"✅ Approved {row['full_name']}")
+                                st.balloons()
+                                st.rerun()
+                    with col5:
+                        if st.button("❌ Reject", key=f"reject_{row['id']}", use_container_width=True):
                             if reject_user(row['id']):
-                                st.success(f"Rejected {row['full_name']}")
+                                st.warning(f"❌ Rejected {row['full_name']}")
                                 st.rerun()
                     st.divider()
         else:
-            st.info("No pending approvals")
+            st.info("🎉 No pending approvals! All users are approved.")
 
-    # Tab 2: All Users
     with tab2:
-        users_df = get_all_users()
-        if not users_df.empty:
-            # Show users table
-            display_df = users_df.copy()
+        if not all_users.empty:
+            display_df = all_users.copy()
             display_df['status'] = display_df['is_approved'].apply(lambda x: "✅ Approved" if x == 1 else "⏳ Pending")
+            display_df['role'] = display_df['role'].apply(lambda x: "👑 Admin" if x == 'admin' else "👤 User")
+
             st.dataframe(
-                display_df[['id', 'email', 'full_name', 'role', 'status']],
+                display_df[['id', 'email', 'full_name', 'role', 'status', 'created_at']],
                 use_container_width=True,
                 hide_index=True,
                 column_config={
-                    "id": "ID",
-                    "email": "Email",
-                    "full_name": "Full Name",
-                    "role": "Role",
-                    "status": "Status"
+                    "id": st.column_config.NumberColumn("ID", width="small"),
+                    "email": st.column_config.TextColumn("Email", width="medium"),
+                    "full_name": st.column_config.TextColumn("Full Name", width="medium"),
+                    "role": st.column_config.TextColumn("Role", width="small"),
+                    "status": st.column_config.TextColumn("Status", width="small"),
+                    "created_at": st.column_config.TextColumn("Registered", width="medium")
                 }
             )
-
-            # Show total count
-            st.caption(f"Total users: {len(users_df)}")
+            st.caption(f"📊 Total users: {len(all_users)}")
         else:
-            st.info("No users found")
+            st.info("No users found in database")
 
-    # Tab 3: Delete User
     with tab3:
-        st.subheader("Delete User")
+        st.subheader("🗑️ Delete User")
         users_df = get_all_users()
 
         if not users_df.empty:
-            # Don't allow deleting yourself
             current_user_email = st.session_state['user']['email']
             other_users = users_df[users_df['email'] != current_user_email]
 
             if not other_users.empty:
-                # Create a friendly display name for selection
                 other_users['display'] = other_users.apply(
-                    lambda x: f"{x['full_name']} ({x['email']}) - ID: {x['id']}", axis=1
+                    lambda x: f"{x['full_name']} ({x['email']})", axis=1
                 )
 
-                # User selection
                 selected_display = st.selectbox(
-                    "Select user to delete",
+                    "👤 Select user to delete",
                     other_users['display'].tolist(),
                     key="delete_user_select"
                 )
 
-                # Get the selected user's data
                 selected_user = other_users[other_users['display'] == selected_display].iloc[0]
                 user_id = int(selected_user['id'])
 
-                # Show warning and user details
-                st.warning("⚠️ You are about to delete:")
+                st.warning("⚠️ **Warning: This action cannot be undone!**")
+
                 col1, col2 = st.columns(2)
                 with col1:
-                    st.write(f"**Name:** {selected_user['full_name']}")
-                    st.write(f"**Email:** {selected_user['email']}")
-                with col2:
-                    st.write(f"**Role:** {selected_user['role']}")
-                    st.write(f"**ID:** {user_id}")
+                    st.info(f"""
+                    **User Details:**
+                    - **Name:** {selected_user['full_name']}
+                    - **Email:** {selected_user['email']}
+                    - **Role:** {selected_user['role']}
+                    - **ID:** {user_id}
+                    """)
 
-                # Delete button with confirmation
-                delete_confirmation = st.checkbox("I understand this action cannot be undone")
+                delete_confirmation = st.checkbox("✓ I understand this action cannot be undone")
                 if delete_confirmation:
-                    if st.button("🗑️ Confirm Delete", type="primary", use_container_width=True):
+                    if st.button("🗑️ **Confirm Delete**", use_container_width=True, type="primary"):
                         with st.spinner("Deleting user..."):
                             success, message = delete_user(user_id)
                             if success:
@@ -372,99 +668,208 @@ def show_admin_panel():
                             else:
                                 st.error(f"❌ Delete failed: {message}")
             else:
-                st.info("No other users to delete (you are the only user)")
+                st.info("ℹ️ No other users to delete (you are the only user)")
         else:
             st.info("No users found in database")
 
 def show_dashboard():
-    st.title("🏥 Dashboard")
+    st.markdown("""
+    <style>
+    * {
+        font-family: 'Times New Roman', Times, serif !important;
+    }
+    .welcome-header {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        padding: 2rem;
+        border-radius: 20px;
+        color: white;
+        margin-bottom: 2rem;
+    }
+    .quick-stat {
+        background: white;
+        border-radius: 15px;
+        padding: 1.5rem;
+        text-align: center;
+        transition: transform 0.3s ease;
+    }
+    .quick-stat:hover {
+        transform: translateY(-5px);
+    }
+    </style>
+    """, unsafe_allow_html=True)
 
-    # Welcome message
+    user = st.session_state['user']
+
     st.markdown(f"""
-    ### Welcome, {st.session_state['user']['full_name']}! 👋
+    <div class="welcome-header">
+        <h1 style="margin: 0; font-family: 'Times New Roman', Times, serif;">👋 Welcome, {user['full_name']}!</h1>
+        <p style="margin: 0.5rem 0 0 0; opacity: 0.9; font-family: 'Times New Roman', Times, serif;">You have successfully logged in to the Health Program Medicines Dashboard</p>
+    </div>
+    """, unsafe_allow_html=True)
 
-    You have successfully logged in to the Health Program Medicines Dashboard.
-    """)
+    # Quick stats
+    all_users = get_all_users()
+    pending_users = get_pending_users()
 
-    # Quick stats or info
     col1, col2, col3 = st.columns(3)
     with col1:
-        st.metric("Total Users", len(get_all_users()))
+        st.markdown(f"""
+        <div class="quick-stat">
+            <div style="font-size: 2.5rem;">👥</div>
+            <div style="font-size: 1.8rem; font-weight: bold; font-family: 'Times New Roman', Times, serif;">{len(all_users)}</div>
+            <div style="font-family: 'Times New Roman', Times, serif;">Total Users</div>
+        </div>
+        """, unsafe_allow_html=True)
     with col2:
-        st.metric("Pending Approvals", len(get_pending_users()))
+        st.markdown(f"""
+        <div class="quick-stat">
+            <div style="font-size: 2.5rem;">⏳</div>
+            <div style="font-size: 1.8rem; font-weight: bold; font-family: 'Times New Roman', Times, serif;">{len(pending_users)}</div>
+            <div style="font-family: 'Times New Roman', Times, serif;">Pending Approvals</div>
+        </div>
+        """, unsafe_allow_html=True)
     with col3:
-        st.metric("Your Role", st.session_state['user']['role'].title())
+        st.markdown(f"""
+        <div class="quick-stat">
+            <div style="font-size: 2.5rem;">🔑</div>
+            <div style="font-size: 1.8rem; font-weight: bold; font-family: 'Times New Roman', Times, serif;">{user['role'].title()}</div>
+            <div style="font-family: 'Times New Roman', Times, serif;">Your Role</div>
+        </div>
+        """, unsafe_allow_html=True)
+
+    st.markdown("---")
+
+    # Getting started guide
+    with st.expander("🚀 **Getting Started Guide**", expanded=True):
+        col1, col2 = st.columns(2)
+        with col1:
+            st.markdown("""
+            ### 📋 Quick Tips
+            1. Use the sidebar to navigate between sections
+            2. Select a program from the dropdown to filter data
+            3. Use search to find specific medicines
+            4. Toggle between Table View and Card View
+            """)
+        with col2:
+            st.markdown("""
+            ### 💡 Pro Tips
+            - 📊 Monitor KPIs in the Analytics tab
+            - 🚚 Track pipeline orders in real-time
+            - 📍 Check hub distribution patterns
+            - 📥 Download reports for offline analysis
+            """)
 
 # Main app logic
 def main():
-    # Initialize session state
     init_session_state()
 
-    # Check session validity - now always returns True (no expiry)
     if st.session_state['auth']:
-        check_session_validity()  # Always returns True now
+        check_session_validity()
 
-    # Custom CSS for better UI
     st.markdown("""
-        <style>
-        .stButton > button {
-            width: 100%;
-        }
-        .st-emotion-cache-1y4p8pa {
-            padding-top: 2rem;
-        }
-        div[data-testid="stSidebar"] {
-            background-color: #f0f2f6;
-            padding: 2rem 1rem;
-        }
-        </style>
+    <style>
+    /* Sidebar styling */
+    [data-testid="stSidebar"] {
+        background: linear-gradient(180deg, #667eea 0%, #764ba2 100%);
+    }
+
+    [data-testid="stSidebar"] * {
+        color: white !important;
+        font-family: 'Times New Roman', Times, serif !important;
+    }
+
+    [data-testid="stSidebar"] .stSelectbox label,
+    [data-testid="stSidebar"] .stRadio label {
+        color: white !important;
+        font-weight: bold;
+        font-family: 'Times New Roman', Times, serif !important;
+    }
+
+    [data-testid="stSidebar"] .stButton button {
+        background: rgba(255,255,255,0.2);
+        border: 1px solid rgba(255,255,255,0.3);
+        font-family: 'Times New Roman', Times, serif !important;
+    }
+
+    [data-testid="stSidebar"] .stButton button:hover {
+        background: rgba(255,255,255,0.3);
+    }
+
+    /* Main content area */
+    .stApp {
+        background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+    }
+
+    /* Tab styling */
+    button[data-baseweb="tab"] {
+        font-size: 16px;
+        font-weight: 600;
+        transition: all 0.3s ease;
+        font-family: 'Times New Roman', Times, serif !important;
+    }
+
+    button[data-baseweb="tab"]:hover {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        color: white !important;
+    }
+
+    /* All text elements */
+    .stMarkdown, .stText, .stCaption, label, .stMetric {
+        font-family: 'Times New Roman', Times, serif !important;
+    }
+    </style>
     """, unsafe_allow_html=True)
 
-    # Sidebar (only show if authenticated)
     if st.session_state['auth']:
         with st.sidebar:
+            # User avatar
+            user = st.session_state['user']
+            initials = ''.join([word[0].upper() for word in user['full_name'].split()[:2]])
             st.markdown(f"""
-            ### 👋 Hello, {st.session_state['user']['full_name']}
-            **Role:** {st.session_state['user']['role'].title()}
-            """)
+            <div style="text-align: center; margin-bottom: 2rem;">
+                <div style="width: 60px; height: 60px; background: rgba(255,255,255,0.2); 
+                            border-radius: 30px; display: flex; align-items: center; justify-content: center; 
+                            margin: 0 auto 0.5rem auto;">
+                    <span style="font-size: 24px; color: white; font-weight: bold; font-family: 'Times New Roman', Times, serif;">{initials}</span>
+                </div>
+                <h3 style="margin: 0; color: white; font-family: 'Times New Roman', Times, serif;">{user['full_name']}</h3>
+                <p style="margin: 0; opacity: 0.8; font-family: 'Times New Roman', Times, serif;">{user['role'].title()}</p>
+            </div>
+            """, unsafe_allow_html=True)
 
             st.divider()
 
-            # Navigation
             if st.session_state['user']['role'] == 'admin':
-                pages = ["Dashboard", "Profile", "Admin Panel"]
+                pages = ["📊 Dashboard", "👤 Profile", "👑 Admin Panel"]
             else:
-                pages = ["Dashboard", "Profile"]
+                pages = ["📊 Dashboard", "👤 Profile"]
 
             page = st.radio(
                 "Navigation",
                 pages,
-                key="navigation"
+                key="navigation",
+                label_visibility="collapsed"
             )
 
             st.divider()
 
-            # Session info - showing persistent session
             if st.session_state.get('login_time'):
-                st.caption(f"Logged in since: {st.session_state['login_time'].strftime('%Y-%m-%d %H:%M:%S')}")
-                st.caption("✨ Session never expires automatically")
+                st.caption(f"🕐 Logged in: {st.session_state['login_time'].strftime('%Y-%m-%d %H:%M:%S')}")
+                st.caption("✨ Session never expires")
 
-            # Logout button
             if st.button("🚪 Logout", use_container_width=True):
-                # Clear all session state
                 for key in list(st.session_state.keys()):
                     del st.session_state[key]
                 st.rerun()
 
-        # Main content area
-        if page == "Dashboard":
+        # Main content
+        if page == "📊 Dashboard":
             show_dashboard()
-        elif page == "Profile":
+        elif page == "👤 Profile":
             show_profile_page()
-        elif page == "Admin Panel" and st.session_state['user']['role'] == 'admin':
+        elif page == "👑 Admin Panel" and st.session_state['user']['role'] == 'admin':
             show_admin_panel()
     else:
-        # Show login page
         show_login_page()
 
 if __name__ == "__main__":
