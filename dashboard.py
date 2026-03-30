@@ -8,6 +8,7 @@ import sys
 import os
 import time
 import requests
+import re
 from io import BytesIO
 from supabase import create_client
 import socket
@@ -26,7 +27,6 @@ from auth import show_login_page, show_profile_page, show_admin_panel
 def init_supabase():
     """Initialize Supabase client"""
     try:
-        # Get credentials from secrets
         supabase_url = st.secrets["SUPABASE_URL"]
         supabase_key = st.secrets["SUPABASE_KEY"]
         supabase = create_client(supabase_url, supabase_key)
@@ -39,7 +39,6 @@ def check_supabase_connection():
     """Check Supabase connection health"""
     try:
         if st.session_state.supabase_client:
-            # Try a simple query
             response = st.session_state.supabase_client.table("health_data").select("*").limit(1).execute()
             return True
     except Exception:
@@ -60,16 +59,14 @@ if not st.session_state['auth']:
 st.set_page_config(page_title="Health Program Medicines Dashboard", layout="wide")
 
 # ---------------------------------------------------
-# Add CSS for enhanced styling and animations (from enhanced version)
+# CSS Styling
 # ---------------------------------------------------
 st.markdown("""
 <style>
-    /* Professional gradient background - FROM ENHANCED VERSION */
     .stApp {
         background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
     }
 
-    /* Card hover effects - FROM ENHANCED VERSION */
     div[data-testid="stMetric"] {
         background: white;
         border-radius: 15px;
@@ -84,13 +81,6 @@ st.markdown("""
         background: linear-gradient(135deg, #ffffff 0%, #f8f9fa 100%);
     }
 
-    /* Pulse animation for critical alerts - FROM ENHANCED VERSION */
-    @keyframes pulse {
-        0%, 100% { opacity: 1; }
-        50% { opacity: 0.5; }
-    }
-
-    /* Shake animations - FROM ENHANCED VERSION */
     @keyframes shake {
         0%, 100% { transform: translateX(0); }
         10%, 30%, 50%, 70%, 90% { transform: translateX(-2px); }
@@ -109,51 +99,26 @@ st.markdown("""
         50% { transform: translateX(1px); }
     }
 
-    /* Apply shake on hover to buttons - FROM ENHANCED VERSION */
     .stButton button:hover {
         animation: shake 0.5s ease-in-out;
         transform: scale(1.02);
         transition: all 0.3s ease;
     }
 
-    /* Shake effect for metric cards on hover - FROM ENHANCED VERSION */
     div[data-testid="stMetricValue"]:hover {
         animation: gentle-shake 0.3s ease-in-out;
     }
 
-    /* Shake for download buttons - FROM ENHANCED VERSION */
     .stDownloadButton button:hover {
         animation: shake 0.4s ease-in-out;
     }
 
-    /* Shake for refresh button - FROM ENHANCED VERSION */
-    button:has(> div:contains("Refresh Now")):hover {
-        animation: shake 0.5s ease-in-out !important;
-    }
-
-    /* Shake for logout button - FROM ENHANCED VERSION */
-    button:has(> div:contains("Logout")):hover {
-        animation: vertical-shake 0.4s ease-in-out !important;
-    }
-
-    /* Shake for tab headers on hover - FROM ENHANCED VERSION */
     button[data-baseweb="tab"]:hover {
         animation: gentle-shake 0.2s ease-in-out;
         background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
         color: white !important;
     }
 
-    /* Shake for data editor cells on hover - FROM ENHANCED VERSION */
-    .cell:hover {
-        animation: gentle-shake 0.15s ease-in-out;
-    }
-
-    /* Shake for sidebar elements - FROM ENHANCED VERSION */
-    div[data-testid="stSidebar"] button:hover {
-        animation: shake 0.4s ease-in-out;
-    }
-
-    /* Card view styling - FROM ENHANCED VERSION */
     .stock-card {
         border: 1px solid #ddd;
         border-radius: 10px;
@@ -169,7 +134,6 @@ st.markdown("""
         box-shadow: 0 4px 8px rgba(0,0,0,0.15);
     }
 
-    /* Gradient text for headers - FROM ENHANCED VERSION */
     .gradient-text {
         background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
         -webkit-background-clip: text;
@@ -178,23 +142,11 @@ st.markdown("""
         font-weight: bold;
     }
 
-    /* NEW: Make tabs bold and increase size */
     button[data-baseweb="tab"] {
         font-size: 18px !important;
         font-weight: 700 !important;
         font-family: 'Times New Roman', sans-serif !important;
         padding: 10px 20px !important;
-    }
-
-    /* NEW: Minimize Display Settings */
-    .display-settings-mini {
-        font-size: 12px;
-    }
-    .display-settings-mini .stSelectbox label {
-        font-size: 12px !important;
-    }
-    .display-settings-mini .stSelectbox div {
-        font-size: 12px !important;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -226,6 +178,8 @@ if 'saved_recommendations' not in st.session_state:
     st.session_state.saved_recommendations = {}
 if 'view_mode' not in st.session_state:
     st.session_state.view_mode = "table"
+if 'risk_type_filter' not in st.session_state:
+    st.session_state.risk_type_filter = "All"
 
 # Check connection periodically
 if st.session_state.supabase_client and not check_supabase_connection():
@@ -233,10 +187,62 @@ if st.session_state.supabase_client and not check_supabase_connection():
     st.session_state.supabase_client = init_supabase()
 
 # ---------------------------------------------------
+# Expiry Risk Calculation Function
+# ---------------------------------------------------
+def parse_multiple_expiry_batches(expiry_str, amc):
+    """Parse multiple batches and determine expiry risk"""
+    try:
+        if pd.isna(expiry_str) or expiry_str == "" or expiry_str is None:
+            return False, ""
+
+        expiry_str = str(expiry_str)
+        pattern = r'(\d[\d,]*)\s*\(([A-Za-z]+)-(\d{4})\)'
+        matches = re.findall(pattern, expiry_str)
+
+        if not matches:
+            return False, ""
+
+        batches = []
+        month_map = {'Jan':1, 'Feb':2, 'Mar':3, 'Apr':4, 'May':5, 'Jun':6,
+                    'Jul':7, 'Aug':8, 'Sep':9, 'Oct':10, 'Nov':11, 'Dec':12}
+
+        for quantity_str, month, year in matches:
+            quantity = float(quantity_str.replace(',', ''))
+            month_num = month_map.get(month[:3], 1)
+            expiry_date = datetime(int(year), month_num, 1)
+            batches.append({'quantity': quantity, 'expiry_date': expiry_date})
+
+        batches.sort(key=lambda x: x['expiry_date'])
+
+        if pd.isna(amc) or amc <= 0:
+            return False, ""
+
+        cumulative_stock = 0
+        has_risk = False
+        risk_details = []
+
+        for batch in batches:
+            months_until_expiry = max(0, (batch['expiry_date'].year - datetime.now().year) * 12 + 
+                                      (batch['expiry_date'].month - datetime.now().month))
+            cumulative_stock += batch['quantity']
+            stock_needed = amc * months_until_expiry
+
+            if cumulative_stock > stock_needed:
+                excess = cumulative_stock - stock_needed
+                batch_risk = min(batch['quantity'], excess)
+                if batch_risk > 0:
+                    has_risk = True
+                    risk_details.append(f"{batch_risk:,.0f} units expiring {batch['expiry_date'].strftime('%b-%Y')}")
+
+        return has_risk, "; ".join(risk_details) if risk_details else ""
+    except Exception as e:
+        return False, f"Error: {e}"
+
+# ---------------------------------------------------
 # Database Connection Functions
 # ---------------------------------------------------
 def load_national_data():
-    """Load national_data from Supabase and map columns to original format (NO CACHING - REAL TIME)"""
+    """Load national_data from Supabase"""
     try:
         if st.session_state.supabase_client is None:
             st.error("Supabase client not initialized")
@@ -300,13 +306,10 @@ def load_branch_amc_from_google_sheets(sheet_id):
     """Load branch AMC data from Google Sheets"""
     url = f"https://docs.google.com/spreadsheets/d/{sheet_id}/export?format=xlsx"
 
-    max_retries = 1
-    for attempt in range(max_retries):
+    for attempt in range(1):
         try:
             session = requests.Session()
-            session.headers.update({
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-            })
+            session.headers.update({'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'})
             session.trust_env = False
 
             response = session.get(url, timeout=45)
@@ -324,30 +327,23 @@ def load_branch_amc_from_google_sheets(sheet_id):
 
             st.session_state.branch_amc_data = df
             return df
-
         except Exception as e:
-            if attempt < max_retries - 1:
-                time.sleep(2)
-            else:
-                if st.session_state.branch_amc_data is not None:
-                    st.warning(f"Using cached branch AMC data. New data unavailable: {str(e)}")
-                    return st.session_state.branch_amc_data
-                st.warning(f"Could not load branch AMC data from Google Sheets: {str(e)}")
-                return pd.DataFrame(columns=['Material Description'])
+            if st.session_state.branch_amc_data is not None:
+                st.warning(f"Using cached branch AMC data. New data unavailable: {str(e)}")
+                return st.session_state.branch_amc_data
+            st.warning(f"Could not load branch AMC data: {str(e)}")
+            return pd.DataFrame(columns=['Material Description'])
     return pd.DataFrame()
 
 @st.cache_data(ttl=300, show_spinner=False)
 def load_google_sheets(sheet_id):
-    """Load Google Sheets data (AMC and pipeline data) with fallback"""
+    """Load Google Sheets data (AMC and pipeline data)"""
     url = f"https://docs.google.com/spreadsheets/d/{sheet_id}/export?format=xlsx"
 
-    max_retries = 3
-    for attempt in range(max_retries):
+    for attempt in range(3):
         try:
             session = requests.Session()
-            session.headers.update({
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-            })
+            session.headers.update({'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'})
             session.trust_env = False
 
             response = session.get(url, timeout=45)
@@ -372,8 +368,7 @@ def load_google_sheets(sheet_id):
                                 df[col] = df[col].fillna("")
                             elif df[col].dtype == 'object':
                                 df[col] = df[col].fillna("")
-                    except Exception as col_error:
-                        print(f"Warning: Could not process column {col}: {col_error}")
+                    except Exception:
                         continue
 
                 cleaned_sheets[name] = df
@@ -381,7 +376,7 @@ def load_google_sheets(sheet_id):
             st.session_state.google_sheets_data = cleaned_sheets
             return cleaned_sheets
         except Exception as e:
-            if attempt < max_retries - 1:
+            if attempt < 2:
                 time.sleep(2)
             else:
                 if st.session_state.google_sheets_data:
@@ -410,7 +405,7 @@ def validate_upload_data(df):
 # Admin Functions for Supabase
 # ---------------------------------------------------
 def upload_to_supabase(df, table_name="health_data"):
-    """Upload DataFrame to Supabase (convert to lowercase with underscores)"""
+    """Upload DataFrame to Supabase"""
     try:
         if st.session_state.supabase_client is None:
             st.error("Supabase client not initialized")
@@ -482,11 +477,7 @@ def get_table_info():
 
         if response.data:
             df = pd.DataFrame(response.data)
-            return {
-                "rows": len(df),
-                "columns": len(df.columns),
-                "column_names": list(df.columns)
-            }
+            return {"rows": len(df), "columns": len(df.columns), "column_names": list(df.columns)}
         return None
     except Exception as e:
         st.error(f"Error getting table info: {e}")
@@ -496,7 +487,6 @@ def get_table_info():
 # Utility Functions
 # ---------------------------------------------------
 def format_number_with_commas(x):
-    """Format number with commas"""
     try:
         if pd.isna(x) or x == "" or x is None:
             return ""
@@ -514,7 +504,6 @@ def format_number_with_commas(x):
         return str(x) if x else ""
 
 def format_mos_with_decimals(x):
-    """Format MOS with 2 decimals"""
     try:
         if pd.isna(x) or x == "" or x is None:
             return ""
@@ -530,7 +519,6 @@ def format_mos_with_decimals(x):
         return str(x) if x else ""
 
 def categorize_stock(nmos):
-    """Categorize stock status"""
     try:
         if pd.isna(nmos) or nmos == "" or nmos is None:
             return ""
@@ -547,7 +535,6 @@ def categorize_stock(nmos):
         return ""
 
 def calculate_coefficient_of_variation(values):
-    """Calculate coefficient of variation"""
     try:
         values = pd.to_numeric(values, errors='coerce')
         values = values[values.notna() & (values > 0)]
@@ -561,7 +548,6 @@ def calculate_coefficient_of_variation(values):
         return np.nan
 
 def calculate_risk(row):
-    """Calculate risk of stock out"""
     try:
         nmos = row['NMOS'] if pd.notna(row['NMOS']) else np.nan
         git_mos = row['GIT_MOS'] if pd.notna(row['GIT_MOS']) else 0
@@ -595,7 +581,7 @@ if df_external.empty:
     st.stop()
 
 # ---------------------------------------------------
-# User Info in Sidebar - FIXED: Single welcome message with correct name
+# User Info in Sidebar
 # ---------------------------------------------------
 with st.sidebar:
     st.title(f"Welcome, {st.session_state['user']['full_name']}!")
@@ -720,28 +706,53 @@ if not df.empty:
         valid_mask = nsoh_vals.notna() & (nsoh_vals > 0)
         df['Hubs%'] = np.where(valid_mask, (hubs_vals / nsoh_vals * 100).round(1), np.nan)
         df['Head Office%'] = np.where(valid_mask, (ho_vals / nsoh_vals * 100).round(1), np.nan)
+        df['Avail Gap'] = df['Hubs%'] - df['Head Office%']
     else:
         df['Hubs%'] = np.nan
         df['Head Office%'] = np.nan
+        df['Avail Gap'] = np.nan
 
     if 'NMOS' in df.columns:
         df['Risk of Stock'] = df.apply(calculate_risk, axis=1)
     else:
         df['Risk of Stock'] = ""
 
+    # Calculate Expiry Risk
+    expiry_data = df.apply(lambda row: parse_multiple_expiry_batches(row.get('Expiry', ''), row.get('AMC', np.nan)), axis=1)
+    df['Has Expiry Risk'] = expiry_data.apply(lambda x: x[0])
+    df['Expiry Risk Details'] = expiry_data.apply(lambda x: x[1])
+
+    # Create Risk Type column
+    risk_types = []
+    for idx, row in df.iterrows():
+        risk_of_stock = row.get('Risk of Stock', '') == 'Risk of Stock out'
+        expiry_risk = row.get('Has Expiry Risk', False)
+
+        if risk_of_stock and expiry_risk:
+            risk_types.append("Critical Risk")
+        elif risk_of_stock:
+            risk_types.append("Risk of Stock out")
+        elif expiry_risk:
+            risk_types.append("Expiry Risk")
+        else:
+            risk_types.append("")
+    df['Risk Type'] = risk_types
+
     display_df = df.copy()
-    text_columns_to_preserve = ['Material Description', 'Stock Status', 'Risk of Stock', 'Status', 'Expiry', 'GIT_PO', 'LC_PO', 'WB_PO', 'TMD_PO']
+    text_columns_to_preserve = ['Material Description', 'Stock Status', 'Risk Type', 'Status', 'Expiry', 'GIT_PO', 'LC_PO', 'WB_PO', 'TMD_PO']
 
     if 'Hubs%' in display_df.columns:
         text_columns_to_preserve.append('Hubs%')
     if 'Head Office%' in display_df.columns:
         text_columns_to_preserve.append('Head Office%')
+    if 'Avail Gap' in display_df.columns:
+        text_columns_to_preserve.append('Avail Gap')
 
     for col in display_df.columns:
         if col not in text_columns_to_preserve:
             if col in ['NMOS', 'GIT_MOS', 'LC_MOS', 'WB_MOS', 'TMD_MOS', 'TMOS']:
                 display_df[col] = display_df[col].apply(format_mos_with_decimals)
-            elif col in ['Hubs%', 'Head Office%']:
+            elif col in ['Hubs%', 'Head Office%', 'Avail Gap']:
                 display_df[col] = display_df[col].apply(lambda x: f"{x:.1f}%" if pd.notna(x) else "")
             else:
                 display_df[col] = display_df[col].apply(format_number_with_commas)
@@ -749,11 +760,14 @@ if not df.empty:
     if 'Material Description' in df.columns:
         materials = ["All"] + sorted(df['Material Description'].astype(str).unique())
         statuses = ["All"] + sorted([s for s in df['Stock Status'].unique() if s != "" and pd.notna(s)]) if 'Stock Status' in df.columns else ["All"]
-        risk_filter_options = ["All", "Risk of Stock out"]
+
+        # Risk Type Filter
+        risk_type_options = ["All", "Risk of Stock out", "Expiry Risk", "Critical Risk"]
+        risk_type_filter = st.sidebar.selectbox("Risk Type", risk_type_options, index=risk_type_options.index(st.session_state.risk_type_filter) if st.session_state.risk_type_filter in risk_type_options else 0)
+        st.session_state.risk_type_filter = risk_type_filter
 
         material_filter = st.sidebar.selectbox("Material Description", materials)
         status_filter = st.sidebar.selectbox("Stock Status", statuses)
-        risk_filter = st.sidebar.selectbox("Risk of Stock", risk_filter_options)
 
         df_filtered = df.copy()
         display_df_filtered = display_df.copy()
@@ -764,9 +778,17 @@ if not df.empty:
         if status_filter != "All" and 'Stock Status' in df_filtered.columns:
             df_filtered = df_filtered[df_filtered['Stock Status'] == status_filter]
             display_df_filtered = display_df_filtered[display_df_filtered['Stock Status'] == status_filter]
-        if risk_filter != "All" and 'Risk of Stock' in df_filtered.columns:
-            df_filtered = df_filtered[df_filtered['Risk of Stock'] == risk_filter]
-            display_df_filtered = display_df_filtered[display_df_filtered['Risk of Stock'] == risk_filter]
+
+        # Apply Risk Type Filter using the Risk Type column
+        if risk_type_filter == "Risk of Stock out":
+            df_filtered = df_filtered[df_filtered['Risk Type'] == "Risk of Stock out"]
+            display_df_filtered = display_df_filtered[display_df_filtered['Risk Type'] == "Risk of Stock out"]
+        elif risk_type_filter == "Expiry Risk":
+            df_filtered = df_filtered[df_filtered['Risk Type'] == "Expiry Risk"]
+            display_df_filtered = display_df_filtered[display_df_filtered['Risk Type'] == "Expiry Risk"]
+        elif risk_type_filter == "Critical Risk":
+            df_filtered = df_filtered[df_filtered['Risk Type'] == "Critical Risk"]
+            display_df_filtered = display_df_filtered[display_df_filtered['Risk Type'] == "Critical Risk"]
     else:
         st.error("Material Description column not found in the data")
         df_filtered = pd.DataFrame()
@@ -893,13 +915,12 @@ elif page == "Admin Panel" and st.session_state['user']['role'] == 'admin':
     st.stop()
 
 # ---------------------------------------------------
-# MAIN DASHBOARD - Title with Display Settings on the right (MINIMIZED)
+# MAIN DASHBOARD
 # ---------------------------------------------------
 col1, col2 = st.columns([3, 1])
 with col1:
     st.markdown("<h1 style='font-size: 32px; font-weight: bold; font-family: Times New Roman;' class='gradient-text'>Health Program Medicines Dashboard</h1>", unsafe_allow_html=True)
 with col2:
-    # Display Settings - MINIMIZED SIZE
     st.markdown("<p style='font-size: 10px; color: #666; margin-bottom: 0;'>🎨 Display Settings</p>", unsafe_allow_html=True)
     view_mode = st.selectbox("View Mode", ["Table View", "Card View"], index=0 if st.session_state.view_mode == "table" else 1, label_visibility="collapsed")
     st.session_state.view_mode = "table" if view_mode == "Table View" else "card"
@@ -925,10 +946,10 @@ if not df_filtered.empty:
     with col4:
         st.metric("🟢 Normal Stock", normal, delta=f"+{normal}" if normal > 0 else "0", delta_color="normal")
     with col5:
-        st.metric("🔵 Overstock", overstock, delta=f"+{overstock}" if overstock > 0 else "0")
+        st.metric("🔵 Overstock", overstock, delta=f"-{overstock}" if overstock > 0 else "0", delta_color="inverse")
 
 # ---------------------------------------------------
-# Tabs - Using enhanced version names (BOLD and LARGER via CSS)
+# Tabs
 # ---------------------------------------------------
 tab1, tab2, tab3, tab4 = st.tabs([
     "📋 Stock Status Table", 
@@ -971,6 +992,7 @@ with tab1:
         else:
             st.info(f"📊 Showing all {len(search_df)} records")
 
+        # Reorder columns
         cols = list(search_df.columns)
         if 'Material Description' in cols:
             cols.remove('Material Description')
@@ -979,10 +1001,10 @@ with tab1:
             cols.remove('NMOS')
             amc_index = cols.index('AMC') if 'AMC' in cols else 0
             cols.insert(amc_index + 1, 'NMOS')
-        if 'Risk of Stock' in cols and 'Stock Status' in cols:
-            cols.remove('Risk of Stock')
+        if 'Risk Type' in cols and 'Stock Status' in cols:
+            cols.remove('Risk Type')
             status_index = cols.index('Stock Status') if 'Stock Status' in cols else 0
-            cols.insert(status_index + 1, 'Risk of Stock')
+            cols.insert(status_index + 1, 'Risk Type')
 
         cols = [c for c in cols if c in search_df.columns]
         search_df = search_df[cols]
@@ -1004,9 +1026,12 @@ with tab1:
                             "Overstock": "#2196F3"
                         }
                         border_color = color_map.get(status, "#ddd")
-
-                        # FIXED: Get Risk value from the original df_filtered to match Risk of Stock
-                        risk_value = df_filtered.iloc[idx].get('Risk of Stock', 'N/A') if idx < len(df_filtered) else 'N/A'
+                        risk_type_value = row.get('Risk Type', 'N/A')
+                        risk_color = {
+                            "Critical Risk": "#9b59b6",
+                            "Risk of Stock out": "#ffa500",
+                            "Expiry Risk": "#ffa500"
+                        }.get(risk_type_value, border_color)
 
                         with col:
                             st.markdown(f"""
@@ -1017,7 +1042,7 @@ with tab1:
                                 <p><strong>⏰ NMOS:</strong> <span style='color: {border_color}; font-weight: bold;'>{row.get('NMOS', 'N/A')}</span></p>
                                 <p><strong>📊 Status:</strong> {row.get('Stock Status', 'N/A')}</p>
                                 <p><strong>🔄 TMOS:</strong> {row.get('TMOS', 'N/A')}</p>
-                                <p><strong>⚠️ Risk:</strong> {risk_value}</p>
+                                <p><strong>⚠️ Risk Type:</strong> <span style='color: {risk_color}; font-weight: bold;'>{risk_type_value}</span></p>
                             </div>
                             """, unsafe_allow_html=True)
         else:
@@ -1037,30 +1062,38 @@ with tab1:
 
             styled = search_df.style.apply(color_row, axis=1)
 
+            def color_risk_type(val):
+                if val == "Critical Risk":
+                    return 'background-color: #9b59b6; color: white'
+                elif val == "Risk of Stock out":
+                    return 'background-color: #ffa500; color: white'
+                elif val == "Expiry Risk":
+                    return 'background-color: #ffa500; color: white'
+                return ''
+
+            styled = styled.map(color_risk_type, subset=['Risk Type'])
+
             column_config = {
-                "Material Description": st.column_config.TextColumn(
-                    "Material Description",
-                    width=300,
-                    pinned=True
-                )
+                "Material Description": st.column_config.TextColumn("Material Description", width=300, pinned=True),
+                "Risk Type": st.column_config.TextColumn("Risk Type", width=150)
             }
 
-            st.dataframe(
-                styled,
-                column_config=column_config,
-                use_container_width=True,
-                hide_index=True,
-                height=min(800, (len(search_df) + 1) * 35)
-            )
+            st.dataframe(styled, column_config=column_config, use_container_width=True, hide_index=True, height=min(800, (len(search_df) + 1) * 35))
 
+        # ---------------------------------------------------
+        # DOWNLOAD REPORT - ORIGINAL COMPREHENSIVE VERSION RESTORED
+        # ---------------------------------------------------
         st.markdown("---")
         st.markdown("<h4 style='font-size: 20px; font-weight: bold; font-family: Times New Roman;'>📥 Download Report</h4>", unsafe_allow_html=True)
 
+        # Create report from Material Description to TMOS
         report_columns = []
 
+        # Start with Material Description
         if 'Material Description' in df_filtered.columns:
             report_columns.append('Material Description')
 
+        # Add all columns from Material Description to TMOS in proper order
         all_columns = list(df_filtered.columns)
 
         if 'Material Description' in all_columns and 'TMOS' in all_columns:
@@ -1068,6 +1101,7 @@ with tab1:
             tmos_index = all_columns.index('TMOS')
             all_cols_between = all_columns[mat_index:tmos_index + 1]
 
+            # Ensure proper ordering: AMC then NMOS
             if 'AMC' in all_cols_between and 'NMOS' in all_cols_between:
                 for col in all_cols_between:
                     if col == 'NMOS':
@@ -1079,21 +1113,45 @@ with tab1:
             else:
                 report_columns = all_cols_between
         else:
+            # If TMOS not found, use all available columns
             for col in all_columns:
-                if col not in ['Stock Status', 'Risk of Stock', 'Hubs%', 'Head Office%', 'CV (%)', 'CV Category']:
+                if col not in ['Stock Status', 'Risk of Stock', 'Hubs%', 'Head Office%', 'Avail Gap', 'CV (%)', 'CV Category', 'Has Expiry Risk', 'Expiry Risk Details']:
                     report_columns.append(col)
 
+        # Ensure we have at least Material Description
         if not report_columns:
             report_columns = ['Material Description']
 
+        # Remove duplicates while preserving order
         report_columns = list(dict.fromkeys(report_columns))
+
+        # Create report dataframe with original numeric values (not formatted)
         report_df = df_filtered[report_columns].copy()
 
+        # Format numeric columns for Excel export
         for col in report_df.columns:
             if col in ['NMOS', 'GIT_MOS', 'LC_MOS', 'WB_MOS', 'TMD_MOS', 'TMOS']:
                 report_df[col] = report_df[col].apply(lambda x: round(x, 2) if pd.notna(x) else "")
             elif col in ['NSOH', 'AMC', 'Hubs', 'Head Office']:
                 report_df[col] = report_df[col].apply(lambda x: f"{int(x):,}" if pd.notna(x) and x != "" else "" if x == "" else x)
+
+        # Add Risk Type column to report
+        risk_types_report = []
+        for idx in range(len(report_df)):
+            row = df_filtered.iloc[idx]
+            risk_of_stock = row.get('Risk of Stock', '') == 'Risk of Stock out'
+            expiry_risk = row.get('Has Expiry Risk', False)
+
+            if risk_of_stock and expiry_risk:
+                risk_types_report.append("Critical Risk")
+            elif risk_of_stock:
+                risk_types_report.append("Risk of Stock out")
+            elif expiry_risk:
+                risk_types_report.append("Expiry Risk")
+            else:
+                risk_types_report.append("")
+
+        report_df['Risk Type'] = risk_types_report
 
         output = BytesIO()
 
@@ -1107,6 +1165,7 @@ with tab1:
                 report_df.to_excel(writer, sheet_name=report_title[:31], index=False)
                 worksheet = writer.sheets[report_title[:31]]
 
+                # Adjust column widths
                 for column in report_df.columns:
                     column_length = max(report_df[column].astype(str).map(len).max(), len(column))
                     column_length = min(column_length, 50)
@@ -1115,17 +1174,15 @@ with tab1:
                     worksheet.column_dimensions[col_letter].width = column_length + 2
 
             output.seek(0)
-            col1, col2, col3 = st.columns([1, 2, 1])
-            with col2:
-                st.download_button(
-                    label=f"📊 Download {sheet_name} Monthly National and Pipeline Report (Excel)",
-                    data=output,
-                    file_name=f"{sheet_name}_Monthly_National_Pipeline_Report_{datetime.now().strftime('%Y%m%d')}.xlsx",
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                    use_container_width=True,
-                    type="primary"
-                )
-                st.caption(f"Report includes columns from Material Description to TMOS ({len(report_columns)} columns)")
+            st.download_button(
+                label=f"📊 Download {sheet_name} Monthly National and Pipeline Report (Excel)",
+                data=output,
+                file_name=f"{sheet_name}_Monthly_National_Pipeline_Report_{datetime.now().strftime('%Y%m%d')}.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                use_container_width=True,
+                type="primary"
+            )
+            st.caption(f"Report includes columns from Material Description to TMOS ({len(report_columns)} columns)")
 
         except Exception as excel_error:
             st.error(f"Error creating Excel file: {excel_error}")
@@ -1138,7 +1195,7 @@ with tab1:
                 use_container_width=True
             )
     else:
-        st.info("No data available or Material Description column missing.")
+        st.info("No data available.")
 
 # ---------------------------------------------------
 # TAB 2 - KPIs & Analytics
@@ -1152,99 +1209,72 @@ with tab2:
         nmos_values = pd.to_numeric(df_filtered['NMOS'], errors='coerce').dropna()
         availability = (nmos_values > 1).mean() * 100 if len(nmos_values) > 0 else 0
         sap = ((nmos_values >= 6) & (nmos_values <= 18)).mean() * 100 if len(nmos_values) > 0 else 0
-        avg_nmos = nmos_values.mean() if len(nmos_values) > 0 else 0
-        stock_out_count = len(nmos_values[nmos_values < 1]) if len(nmos_values) > 0 else 0
 
-        col1, col2, col3, col4 = st.columns(4)
+        # Calculate Avail Gap
+        if 'Avail Gap' in df_filtered.columns:
+            avail_gap_values = pd.to_numeric(df_filtered['Avail Gap'], errors='coerce').dropna()
+            avg_avail_gap = avail_gap_values.mean() if len(avail_gap_values) > 0 else 0
+        else:
+            avg_avail_gap = 0
+
+        # Availability target is 100%
+        avail_delta = availability - 100
+
+        # Avail Gap target is between -5% and 5%
+        if -5 <= avg_avail_gap <= 5:
+            avail_gap_status = "✅ Within Target (-5% to 5%)"
+            avail_gap_delta = None
+        elif avg_avail_gap > 5:
+            avail_gap_status = f"⚠️ Above Target (+{avg_avail_gap - 5:.1f}% over)"
+            avail_gap_delta = f"+{avg_avail_gap - 5:.1f}%"
+        else:
+            avail_gap_status = f"⚠️ Below Target ({avg_avail_gap + 5:.1f}% under)"
+            avail_gap_delta = f"{avg_avail_gap + 5:.1f}%"
+
+        col1, col2, col3 = st.columns(3)
         with col1:
-            st.metric("📈 Availability", f"{availability:.1f}%", delta=f"{availability - 85:.1f}%")
+            st.metric("📈 Availability", f"{availability:.1f}%", delta=f"{avail_delta:+.1f}%", delta_color="inverse")
+            st.caption("Target: 100%")
         with col2:
             st.metric("🎯 SAP Achievement", f"{sap:.1f}%", delta=f"{sap - 65:.1f}%")
+            st.caption("Target: 65%")
         with col3:
-            st.metric("📊 Average NMOS", f"{avg_nmos:.1f}", delta="months")
-        with col4:
-            st.metric("⚠️ Stock Out Items", stock_out_count)
+            st.metric("📊 Avail. Gap (Hubs% - Head Office%)", f"{avg_avail_gap:.1f}%", delta=avail_gap_delta, delta_color="inverse" if avg_avail_gap > 5 or avg_avail_gap < -5 else "off")
+            st.caption(avail_gap_status)
 
         st.markdown("---")
 
-        availability_target = 100
-        sap_target = 65
-
-        if 'Hubs%' in df_filtered.columns:
-            hubs_pct_values = pd.to_numeric(df_filtered['Hubs%'], errors='coerce').dropna()
-            avg_hubs_pct = hubs_pct_values.mean() if len(hubs_pct_values) > 0 else 0
-        else:
-            avg_hubs_pct = 0
-
-        if 'Head Office%' in df_filtered.columns:
-            ho_pct_values = pd.to_numeric(df_filtered['Head Office%'], errors='coerce').dropna()
-            avg_ho_pct = ho_pct_values.mean() if len(ho_pct_values) > 0 else 0
-        else:
-            avg_ho_pct = 0
-
-        def create_kpi_fig(value, target, title, suffix="%"):
-            display_color = 'red' if value < target else 'black'
-            return go.Figure(go.Indicator(
-                mode="gauge+number",
-                value=value,
-                number={'suffix': suffix, 'font': {'size': 36, 'color': display_color}},
-                title={'text': f"<b>{title}</b>", 'font': {'size': 24}},
-                gauge={'axis': {'range': [0, 100]}, 'bar': {'color': 'skyblue'}}
-            ))
+        # Gauge Charts
+        def create_kpi_fig(value, target, title):
+            color = 'red' if value < target else 'black'
+            return go.Figure(go.Indicator(mode="gauge+number", value=value, number={'suffix': '%', 'font': {'size': 36, 'color': color}}, title={'text': f"<b>{title}</b>", 'font': {'size': 24}}, gauge={'axis': {'range': [0, 100]}, 'bar': {'color': 'skyblue'}}))
 
         col1, col2 = st.columns(2)
         with col1:
-            st.plotly_chart(create_kpi_fig(availability, availability_target, "Availability"), use_container_width=True)
+            st.plotly_chart(create_kpi_fig(availability, 100, "Availability"), use_container_width=True)
         with col2:
-            st.plotly_chart(create_kpi_fig(sap, sap_target, "SAP"), use_container_width=True)
+            st.plotly_chart(create_kpi_fig(sap, 65, "SAP"), use_container_width=True)
 
-        col3, col4 = st.columns(2)
-        with col3:
-            st.plotly_chart(create_kpi_fig(avg_hubs_pct, 50, "Avg Hubs %"), use_container_width=True)
-        with col4:
-            st.plotly_chart(create_kpi_fig(avg_ho_pct, 50, "Avg Head Office %"), use_container_width=True)
-
+        # Stock Status Pie Chart
         try:
             if 'Stock Status' in df_filtered.columns:
                 status_counts = df_filtered['Stock Status'].replace("", np.nan).dropna().value_counts()
                 if not status_counts.empty:
-                    fig = px.pie(
-                        values=status_counts.values,
-                        names=status_counts.index,
-                        hole=0.5,
-                        color=status_counts.index,
-                        color_discrete_map={
-                            "Stock Out": "red", 
-                            "Understock": "yellow", 
-                            "Normal Stock": "green", 
-                            "Overstock": "skyblue"
-                        },
-                    )
+                    fig = px.pie(values=status_counts.values, names=status_counts.index, hole=0.5, color=status_counts.index, color_discrete_map={"Stock Out": "red", "Understock": "yellow", "Normal Stock": "green", "Overstock": "skyblue"})
                     fig.update_traces(textposition='inside', textinfo='percent+value', textfont_size=16)
                     total_count = len(df_filtered[df_filtered['Stock Status'] != ""])
-                    fig.update_layout(
-                        title={'text': f"National Stock Status - {sheet_name} (Total: {total_count} items)", 'x': 0, 'xanchor': 'left', 'font': {'size': 20, 'weight': 'bold'}},
-                        annotations=[dict(text=f"Total<br>{total_count}", x=0.5, y=0.5, font_size=20, showarrow=False)]
-                    )
+                    fig.update_layout(title={'text': f"National Stock Status - {sheet_name} (Total: {total_count} items)", 'x': 0, 'xanchor': 'left', 'font': {'size': 20, 'weight': 'bold'}}, annotations=[dict(text=f"Total<br>{total_count}", x=0.5, y=0.5, font_size=20, showarrow=False)])
                     st.plotly_chart(fig, use_container_width=True)
         except Exception as e:
             pass
 
+        # Pipeline Status Analysis
         st.markdown("### 🚚 Pipeline Status Analysis")
-        pipeline_cols = []
-        for col in ['GIT_MOS', 'LC_MOS', 'WB_MOS', 'TMD_MOS']:
-            if col in df_filtered.columns:
-                pipeline_cols.append(col)
-
+        pipeline_cols = [col for col in ['GIT_MOS', 'LC_MOS', 'WB_MOS', 'TMD_MOS'] if col in df_filtered.columns]
         if pipeline_cols:
             pipeline_summary = df_filtered[pipeline_cols].sum()
             if pipeline_summary.sum() > 0:
-                fig_pipeline = px.pie(
-                    values=pipeline_summary.values,
-                    names=pipeline_summary.index,
-                    title="Pipeline MOS Distribution",
-                    color_discrete_sequence=px.colors.sequential.Blues_r
-                )
+                fig_pipeline = px.pie(values=pipeline_summary.values, names=pipeline_summary.index, title="Pipeline MOS Distribution", color_discrete_sequence=px.colors.sequential.Blues_r)
                 fig_pipeline.update_traces(textposition='inside', textinfo='percent+label')
                 st.plotly_chart(fig_pipeline, use_container_width=True)
             else:
@@ -1252,31 +1282,18 @@ with tab2:
         else:
             st.info("Pipeline MOS columns not available")
 
+        # Critical Items - Stock Out
         st.markdown("### ⚠️ Critical Items - Stock Out")
         stock_out_items = df_filtered[df_filtered['Stock Status'] == 'Stock Out'][['Material Description', 'NSOH', 'AMC', 'NMOS']].copy()
         if not stock_out_items.empty:
             stock_out_items = stock_out_items.sort_values('NMOS').head(10)
-            fig_stock_out = go.Figure(data=[
-                go.Bar(
-                    x=stock_out_items['Material Description'],
-                    y=stock_out_items['NMOS'],
-                    marker_color='red',
-                    text=stock_out_items['NMOS'].round(2),
-                    textposition='outside',
-                    name='NMOS'
-                )
-            ])
-            fig_stock_out.update_layout(
-                title="Top 10 Stock Out Items (Lowest NMOS)",
-                xaxis_title="Material Description",
-                yaxis_title="Months of Stock (NMOS)",
-                height=400,
-                xaxis_tickangle=-45
-            )
+            fig_stock_out = go.Figure(data=[go.Bar(x=stock_out_items['Material Description'], y=stock_out_items['NMOS'], marker_color='red', text=stock_out_items['NMOS'].round(2), textposition='outside', name='NMOS')])
+            fig_stock_out.update_layout(title="Top 10 Stock Out Items (Lowest NMOS)", xaxis_title="Material Description", yaxis_title="Months of Stock (NMOS)", height=400, xaxis_tickangle=-45)
             st.plotly_chart(fig_stock_out, use_container_width=True)
         else:
             st.success("✅ No stock out items found!")
 
+        # MOS Horizontal Bar Chart
         try:
             if 'Material Description' in df_filtered.columns and 'NMOS' in df_filtered.columns:
                 mos_cols_chart = ['Material Description', 'NMOS', 'GIT_MOS', 'LC_MOS', 'WB_MOS', 'TMD_MOS', 'TMOS']
@@ -1291,9 +1308,7 @@ with tab2:
 
                     mos_df = mos_df.sort_values('NMOS', ascending=True).reset_index(drop=True)
                     split_len = 40
-                    mos_df['Material_split'] = mos_df['Material Description'].apply(
-                        lambda x: '<br>'.join([str(x)[i:i + split_len] for i in range(0, len(str(x)), split_len)])
-                    )
+                    mos_df['Material_split'] = mos_df['Material Description'].apply(lambda x: '<br>'.join([str(x)[i:i + split_len] for i in range(0, len(str(x)), split_len)]))
                     mos_df['NMOS_color'] = mos_df['NMOS'].apply(lambda x: "red" if x < 1 else "yellow" if x < 6 else "green" if x <= 18 else "skyblue")
 
                     split_size = 10
@@ -1301,63 +1316,22 @@ with tab2:
                         df_chunk = mos_df.iloc[i:i + split_size].copy()
                         df_chunk = df_chunk.iloc[::-1].reset_index(drop=True)
                         fig = go.Figure()
-                        fig.add_trace(go.Bar(
-                            y=df_chunk['Material_split'],
-                            x=df_chunk['NMOS'],
-                            name='NMOS',
-                            orientation='h',
-                            marker=dict(color=df_chunk['NMOS_color']),
-                            text=df_chunk['NMOS'].apply(lambda x: f"{x:.1f}" if pd.notna(x) else ""),
-                            textposition='inside',
-                            textfont_size=12,
-                            hovertemplate='NMOS: %{x:.1f} months<extra></extra>'
-                        ))
+                        fig.add_trace(go.Bar(y=df_chunk['Material_split'], x=df_chunk['NMOS'], name='NMOS', orientation='h', marker=dict(color=df_chunk['NMOS_color']), text=df_chunk['NMOS'].apply(lambda x: f"{x:.1f}" if pd.notna(x) else ""), textposition='inside', textfont_size=12, hovertemplate='NMOS: %{x:.1f} months<extra></extra>'))
                         pipeline_traces = [('GIT_MOS', 'cyan', 'GIT MOS'), ('LC_MOS', 'plum', 'LC MOS'), ('WB_MOS', 'gray', 'WB MOS'), ('TMD_MOS', 'orange', 'TMD MOS')]
                         for col, color, label in pipeline_traces:
                             if col in df_chunk.columns and (df_chunk[col] > 0).any():
-                                fig.add_trace(go.Bar(
-                                    y=df_chunk['Material_split'],
-                                    x=df_chunk[col],
-                                    name=label,
-                                    orientation='h',
-                                    marker_color=color,
-                                    text=df_chunk[col].apply(lambda x: f"{x:.1f}" if x > 0 else ""),
-                                    textposition='inside',
-                                    textfont_size=12,
-                                    hovertemplate=f'{label}: %{{x:.1f}} months<extra></extra>'
-                                ))
+                                fig.add_trace(go.Bar(y=df_chunk['Material_split'], x=df_chunk[col], name=label, orientation='h', marker_color=color, text=df_chunk[col].apply(lambda x: f"{x:.1f}" if x > 0 else ""), textposition='inside', textfont_size=12, hovertemplate=f'{label}: %{{x:.1f}} months<extra></extra>'))
                         if 'TMOS' in df_chunk.columns:
-                            fig.add_trace(go.Scatter(
-                                y=df_chunk['Material_split'],
-                                x=df_chunk['TMOS'],
-                                mode='text',
-                                text=df_chunk['TMOS'].apply(lambda x: f"TMOS: {x:.2f}" if x > 0 else ""),
-                                textposition='middle right',
-                                showlegend=False,
-                                textfont_size=12
-                            ))
+                            fig.add_trace(go.Scatter(y=df_chunk['Material_split'], x=df_chunk['TMOS'], mode='text', text=df_chunk['TMOS'].apply(lambda x: f"TMOS: {x:.2f}" if x > 0 else ""), textposition='middle right', showlegend=False, textfont_size=12))
                         original_start = i + 1
                         original_end = i + len(df_chunk)
-                        if sheet_name == "All":
-                            chart_title = f'National and Pipeline Stock Status - All Programs (Medicines {original_start}-{original_end})'
-                        else:
-                            chart_title = f'National and Pipeline Stock Status - {sheet_name} (Medicines {original_start}-{original_end})'
-                        fig.update_layout(
-                            barmode='stack',
-                            title=chart_title,
-                            xaxis_title='Months of Stock',
-                            yaxis_title='Material Description',
-                            height=max(500, 35 * len(df_chunk)),
-                            xaxis=dict(showgrid=False, showline=False, zeroline=False, title_font=dict(size=12)),
-                            yaxis=dict(showgrid=False, showline=False, zeroline=False, title_font=dict(size=12), automargin=True, categoryorder='array', categoryarray=df_chunk['Material_split'].tolist()),
-                            showlegend=True,
-                            legend=dict(orientation="v", yanchor="bottom", y=1.02, xanchor="right", x=1),
-                            margin=dict(l=20, r=120, t=60, b=20)
-                        )
+                        chart_title = f'National and Pipeline Stock Status - {sheet_name if sheet_name != "All" else "All Programs"} (Medicines {original_start}-{original_end})'
+                        fig.update_layout(barmode='stack', title=chart_title, xaxis_title='Months of Stock', yaxis_title='Material Description', height=max(500, 35 * len(df_chunk)), showlegend=True, legend=dict(orientation="v", yanchor="bottom", y=1.02, xanchor="right", x=1), margin=dict(l=20, r=120, t=60, b=20))
                         st.plotly_chart(fig, use_container_width=True)
         except Exception as e:
             st.error(f"Error creating MOS chart: {e}")
 
+        # Hubs vs Head Office Stacked Bar Chart
         try:
             if all(col in df_filtered.columns for col in ['Hubs', 'Head Office', 'NSOH', 'Material Description']):
                 hubs_vals = pd.to_numeric(df_filtered['Hubs'], errors='coerce').fillna(0)
@@ -1383,9 +1357,8 @@ with tab2:
                         fig_bar.add_trace(go.Bar(y=df_chunk['Material_split'], x=df_chunk['Hubs%'], name='Hubs%', orientation='h', marker_color='skyblue', text=df_chunk['Hubs%'].apply(lambda x: f"{x:.1f}%" if x > 0 else ""), textposition='inside', textfont_size=12))
                         fig_bar.add_trace(go.Bar(y=df_chunk['Material_split'], x=df_chunk['Head Office%'], name='Head Office%', orientation='h', marker_color='orange', text=df_chunk['Head Office%'].apply(lambda x: f"{x:.1f}%" if x > 0 else ""), textposition='inside', textfont_size=12))
                         for idx, row in df_chunk.iterrows():
-                            total_pct = row['Hubs%'] + row['Head Office%']
-                            fig_bar.add_annotation(x=total_pct + 2, y=row['Material_split'], text=f"NSOH: {row['NSOH_display']}", showarrow=False, font=dict(size=12), xanchor='left', yanchor='middle')
-                        fig_bar.update_layout(barmode='stack', title=f'Stock Distribution Hubs vs Head Office (Materials {i + 1}-{i + len(df_chunk)})', xaxis_title='Percentage of NSOH (%)', yaxis_title='Material Description', xaxis={'range': [0, 120], 'gridcolor': 'lightgray', 'showgrid': False, 'showline': False}, yaxis={'showgrid': False, 'showline': False}, height=max(600, 40 * len(df_chunk)), margin=dict(r=150))
+                            fig_bar.add_annotation(x=row['Hubs%'] + row['Head Office%'] + 2, y=row['Material_split'], text=f"NSOH: {row['NSOH_display']}", showarrow=False, font=dict(size=12), xanchor='left', yanchor='middle')
+                        fig_bar.update_layout(barmode='stack', title=f'Stock Distribution Hubs vs Head Office (Materials {i + 1}-{i + len(df_chunk)})', xaxis_title='Percentage of NSOH (%)', yaxis_title='Material Description', xaxis={'range': [0, 120]}, height=max(600, 40 * len(df_chunk)), margin=dict(r=150))
                         st.plotly_chart(fig_bar, use_container_width=True)
                 else:
                     st.info("No materials with valid NSOH (>0) to display.")
@@ -1395,7 +1368,7 @@ with tab2:
         st.info("No data available for KPI calculations.")
 
 # ---------------------------------------------------
-# TAB 3 - Decision Briefs (NO "Items Needing Attention" header)
+# TAB 3 - Decision Briefs
 # ---------------------------------------------------
 with tab3:
     if sheet_name == "All":
@@ -1404,111 +1377,79 @@ with tab3:
         st.markdown(f"<h3 style='font-size: 28px; font-weight: bold; font-family: Times New Roman;'>{sheet_name} Medicines Needing Immediate Action</h3>", unsafe_allow_html=True)
 
     if not df_filtered.empty and 'Material Description' in df_filtered.columns:
-        st.markdown("<h4 style='font-size: 24px; font-weight: bold; font-family: Times New Roman;'>Quick Summary</h4>", unsafe_allow_html=True)
 
-        decision_cols = ['Material Description', 'NSOH', 'Expiry', 'AMC', 'NMOS', 'Status']
-        available_decision_cols = [col for col in decision_cols if col in df_filtered.columns]
+        decision_df = df_filtered[['Material Description', 'NSOH', 'Expiry', 'AMC', 'NMOS', 'Status', 'Risk Type']].copy()
+        decision_df['Identified Problems'] = decision_df['Risk Type']
+        decision_df = decision_df[decision_df['Identified Problems'] != ''].copy()
 
-        if available_decision_cols:
-            decision_df = df_filtered[available_decision_cols].copy()
-            decision_df['Identified Problems'] = ''
+        if len(decision_df) > 0:
+            for col in ['NSOH', 'AMC']:
+                if col in decision_df.columns:
+                    decision_df[col] = decision_df[col].apply(format_number_with_commas)
+            if 'NMOS' in decision_df.columns:
+                decision_df['NMOS'] = decision_df['NMOS'].apply(format_mos_with_decimals)
 
-            for idx, row in df_filtered.iterrows():
-                problems = []
-                if row['Stock Status'] == 'Stock Out':
-                    problems.append('Stock Out')
-                if row['Risk of Stock'] == 'Risk of Stock out':
-                    problems.append('Risk of Stock out')
-                if problems:
-                    decision_df.at[idx, 'Identified Problems'] = ', '.join(problems)
+            # Quick Summary
+            st.markdown("<h4 style='font-size: 24px; font-weight: bold; font-family: Times New Roman;'>Quick Summary</h4>", unsafe_allow_html=True)
+            col1, col2, col3, col4 = st.columns(4)
+            with col1:
+                st.metric("Items with Problems", len(decision_df))
+            with col2:
+                st.metric("Stock Out Items", len(decision_df[decision_df['Identified Problems'] == 'Stock Out']))
+            with col3:
+                st.metric("At Risk of Stock Out", len(decision_df[decision_df['Identified Problems'] == 'Risk of Stock out']))
+            with col4:
+                st.metric("At Risk of Expiry", len(decision_df[decision_df['Identified Problems'] == 'Expiry Risk']) + len(decision_df[decision_df['Identified Problems'] == 'Critical Risk']))
 
-            decision_df = decision_df[decision_df['Identified Problems'] != ''].copy()
+            st.markdown("---")
 
-            if len(decision_df) > 0:
-                for col in ['NSOH', 'AMC']:
-                    if col in decision_df.columns:
-                        decision_df[col] = decision_df[col].apply(format_number_with_commas)
-                if 'NMOS' in decision_df.columns:
-                    decision_df['NMOS'] = decision_df['NMOS'].apply(format_mos_with_decimals)
+            # Sales and Operational Planning
+            st.markdown("### ✏️ Sales and Operational Planning")
+            decision_df['Recommendation'] = ''
 
-                decision_df['Priority'] = decision_df['Identified Problems'].apply(lambda x: 1 if 'Stock Out' in x else 2)
-                decision_df = decision_df.sort_values('Priority').drop(columns=['Priority'])
-                decision_df = decision_df.reset_index(drop=True)
+            edited_result = st.data_editor(
+                decision_df[['Material Description', 'NSOH', 'Expiry', 'AMC', 'NMOS', 'Status', 'Identified Problems', 'Recommendation']],
+                column_config={"Material Description": st.column_config.TextColumn("Material", width=300, disabled=True, pinned=True), "Recommendation": st.column_config.TextColumn("Recommendation", width=350)},
+                use_container_width=True, hide_index=True, height=min(400, (len(decision_df) + 1) * 35), num_rows="fixed"
+            )
 
-                col1, col2, col3 = st.columns(3)
-                with col1:
-                    items_with_problems = len(decision_df)
-                    st.metric("Items with Problems", items_with_problems)
-                with col2:
-                    stock_out_count = len(decision_df[decision_df['Identified Problems'].str.contains(r'\bStock Out\b', na=False, regex=True)])
-                    st.metric("Stock Out Items", stock_out_count)
-                with col3:
-                    risk_count = len(decision_df[decision_df['Identified Problems'].str.contains(r'\bRisk of Stock out\b', na=False, regex=True)])
-                    st.metric("Items at Risk of Stock Out", risk_count)
+            for idx, row in edited_result.iterrows():
+                st.session_state.saved_recommendations[row['Material Description']] = row['Recommendation']
 
-                st.markdown("---")
+            st.download_button(label="Download Decision Briefs", data=edited_result.to_csv(index=False), file_name=f"{sheet_name}_decision_briefs.csv".replace(" ", "_"), mime="text/csv")
+            if st.button("Clear All Recommendations"):
+                st.session_state.saved_recommendations = {}
+                st.rerun()
 
-                # Card view - NO "Items Needing Attention" header
-                for idx, row in decision_df.iterrows():
-                    status_color = "#ff4444" if "Stock Out" in row['Identified Problems'] else "#ffa500"
-                    st.markdown(f"""
-                    <div class="stock-card" style='border-left: 4px solid {status_color}; margin-bottom: 15px;'>
-                        <h4 style='color: {status_color}; margin-bottom: 10px;'>{row['Material Description']}</h4>
-                        <p><strong>📦 NSOH:</strong> {row.get('NSOH', 'N/A')}</p>
-                        <p><strong>📅 Expiry:</strong> {row.get('Expiry', 'N/A')}</p>
-                        <p><strong>📈 AMC:</strong> {row.get('AMC', 'N/A')}</p>
-                        <p><strong>⏰ NMOS:</strong> <span style='color: {status_color}; font-weight: bold;'>{row.get('NMOS', 'N/A')}</span></p>
-                        <p><strong>📊 Status:</strong> {row.get('Status', 'N/A')}</p>
-                    </div>
-                    """, unsafe_allow_html=True)
+            st.markdown("---")
 
-                st.markdown("### ✏️ Sales and Operational Planning")
-
-                decision_df['Recommendation'] = ''
-
-                column_config = {
-                    "Material Description": st.column_config.TextColumn("Material Description", width=300, disabled=True, pinned=True),
-                    "NSOH": st.column_config.TextColumn("NSOH", width=100, disabled=True),
-                    "Expiry": st.column_config.TextColumn("Expiry", width=100, disabled=True),
-                    "AMC": st.column_config.TextColumn("AMC", width=100, disabled=True),
-                    "NMOS": st.column_config.TextColumn("NMOS", width=100, disabled=True),
-                    "Status": st.column_config.TextColumn("Status", width=120, disabled=True),
-                    "Identified Problems": st.column_config.TextColumn("Identified Problems", width=250, disabled=True),
-                    "Recommendation": st.column_config.TextColumn("Recommendation", width=350, required=False)
-                }
-
-                edited_result = st.data_editor(
-                    decision_df,
-                    column_config=column_config,
-                    use_container_width=False,
-                    hide_index=True,
-                    height=min(600, (len(decision_df) + 1) * 35),
-                    num_rows="fixed"
-                )
-
-                for idx, row in edited_result.iterrows():
-                    material = row['Material Description']
-                    st.session_state.saved_recommendations[material] = row['Recommendation']
-
-                st.download_button(
-                    label="Download Decision Briefs with Recommendations",
-                    data=edited_result.to_csv(index=False),
-                    file_name=f"{sheet_name}_decision_briefs.csv".replace(" ", "_"),
-                    mime="text/csv"
-                )
-
-                if st.button("Clear All Recommendations"):
-                    st.session_state.saved_recommendations = {}
-                    st.rerun()
-            else:
-                if sheet_name == "All":
-                    st.info("No medicines with identified problems across all programs.")
+            # Card View
+            for idx, row in decision_df.iterrows():
+                risk_type = row['Identified Problems']
+                if risk_type == "Critical Risk":
+                    status_color = "#9b59b6"
+                elif risk_type == "Stock Out":
+                    status_color = "#ff4444"
+                elif risk_type in ["Risk of Stock out", "Expiry Risk"]:
+                    status_color = "#ffa500"
                 else:
-                    st.info(f"No {sheet_name} medicines with identified problems to display.")
+                    status_color = "#ffa500"
+
+                st.markdown(f"""
+                <div class="stock-card" style='border-left: 4px solid {status_color}; margin-bottom: 15px;'>
+                    <h4 style='color: {status_color}; margin-bottom: 10px;'>{row['Material Description']}</h4>
+                    <p><strong>📦 NSOH:</strong> {row.get('NSOH', 'N/A')}</p>
+                    <p><strong>📅 Expiry:</strong> {row.get('Expiry', 'N/A')}</p>
+                    <p><strong>📈 AMC:</strong> {row.get('AMC', 'N/A')}</p>
+                    <p><strong>⏰ NMOS:</strong> <span style='color: {status_color}; font-weight: bold;'>{row.get('NMOS', 'N/A')}</span></p>
+                    <p><strong>📊 Status:</strong> {row.get('Status', 'N/A')}</p>
+                    <p><strong>⚠️ Risk Type:</strong> <span style='color: {status_color}; font-weight: bold;'>{risk_type}</span></p>
+                </div>
+                """, unsafe_allow_html=True)
         else:
-            st.warning("Required columns for Decision Briefs not found in the data.")
+            st.info("No medicines with identified problems.")
     else:
-        st.info("No data available for decision briefs.")
+        st.info("No data available.")
 
 # ---------------------------------------------------
 # TAB 4 - Hubs Distribution
@@ -1516,11 +1457,9 @@ with tab3:
 with tab4:
     try:
         if not df.empty:
-            main_df = df.copy()
-
-            if branch_amc_data is not None and 'Material Description' in main_df.columns and 'Material Description' in branch_amc_data.columns and not branch_amc_data.empty:
-                branch_cols = [col for col in main_df.columns if 'Branch' in col or col == 'Material Description']
-                gh = main_df[branch_cols].copy() if branch_cols else pd.DataFrame()
+            if branch_amc_data is not None and 'Material Description' in df.columns and 'Material Description' in branch_amc_data.columns and not branch_amc_data.empty:
+                branch_cols = [col for col in df.columns if 'Branch' in col or col == 'Material Description']
+                gh = df[branch_cols].copy() if branch_cols else pd.DataFrame()
 
                 st.markdown("<h4 style='font-size: 24px; font-weight: bold; font-family: Times New Roman;'>Stock Distribution Across Hubs by MOS</h4>", unsafe_allow_html=True)
 
@@ -1582,22 +1521,21 @@ with tab4:
 
                         col1, col2, col3, col4 = st.columns(4)
                         with col1:
-                            total_materials = len(division_df)
-                            st.metric("Total Materials", total_materials)
+                            st.metric("Total Materials", len(division_df))
                         if 'Low variation' in cv_counts:
                             with col2:
                                 low_count = cv_counts['Low variation']
-                                low_pct = (low_count / total_materials * 100) if total_materials > 0 else 0
+                                low_pct = (low_count / len(division_df) * 100) if len(division_df) > 0 else 0
                                 st.metric("Low Variation (<50%)", f"{low_count} ({low_pct:.1f}%)")
                         if 'Moderate variation' in cv_counts:
                             with col3:
                                 mod_count = cv_counts['Moderate variation']
-                                mod_pct = (mod_count / total_materials * 100) if total_materials > 0 else 0
+                                mod_pct = (mod_count / len(division_df) * 100) if len(division_df) > 0 else 0
                                 st.metric("Moderate Variation (50-100%)", f"{mod_count} ({mod_pct:.1f}%)")
                         if 'High variation' in cv_counts:
                             with col4:
                                 high_count = cv_counts['High variation']
-                                high_pct = (high_count / total_materials * 100) if total_materials > 0 else 0
+                                high_pct = (high_count / len(division_df) * 100) if len(division_df) > 0 else 0
                                 st.metric("High Variation (>100%)", f"{high_count} ({high_pct:.1f}%)")
 
                         if division_df.shape[1] > 2:
@@ -1619,7 +1557,7 @@ with tab4:
                                             st.session_state.heatmap_page -= 1
                                             st.rerun()
                                 with col2:
-                                    st.markdown(f"<h5 style='text-align: center; font-family: Times New Roman;'>Page {st.session_state.heatmap_page} of {total_pages}</h5>", unsafe_allow_html=True)
+                                    st.markdown(f"<h5 style='text-align: center;'>Page {st.session_state.heatmap_page} of {total_pages}</h5>", unsafe_allow_html=True)
                                 with col3:
                                     if st.button("Next ▶", key="heatmap_next"):
                                         if st.session_state.heatmap_page < total_pages:
@@ -1634,23 +1572,13 @@ with tab4:
                                 heatmap_page_df = heatmap_df_transposed
 
                             fig = go.Figure(data=go.Heatmap(
-                                z=heatmap_page_df.values,
-                                y=heatmap_page_df.index,
-                                x=heatmap_page_df.columns,
-                                colorscale=[[0.0, 'red'], [0.0625, 'red'], [0.125, 'yellow'], [0.25, 'yellow'], [0.5, 'green'], [0.75, 'green'], [1.0, 'skyblue']],
-                                zmin=0, zmax=8,
-                                text=heatmap_page_df.values.round(1),
-                                texttemplate='%{text}',
-                                textfont={"size": 14},
+                                z=heatmap_page_df.values, y=heatmap_page_df.index, x=heatmap_page_df.columns,
+                                colorscale=[[0.0, 'red'], [0.125, 'yellow'], [0.5, 'green'], [1.0, 'skyblue']],
+                                zmin=0, zmax=8, text=heatmap_page_df.values.round(1), texttemplate='%{text}', textfont={"size": 14},
                                 colorbar=dict(title="MOS", tickvals=[0.5, 1, 2, 4, 6, 8], ticktext=['0.5', '1', '2', '4', '6', '8+']),
                                 hovertemplate='<b>Material:</b> %{x}<br><b>Branch:</b> %{y}<br><b>MOS:</b> %{z:.2f} months<br><extra></extra>'
                             ))
-                            fig.update_layout(
-                                xaxis={'title': 'Material Description', 'tickangle': -45, 'tickfont': {'size': 12}},
-                                yaxis={'title': 'Branches', 'tickfont': {'size': 12}},
-                                height=650,
-                                margin=dict(l=120, r=120, t=50, b=200)
-                            )
+                            fig.update_layout(xaxis={'title': 'Material Description', 'tickangle': -45, 'tickfont': {'size': 12}}, yaxis={'title': 'Branches', 'tickfont': {'size': 12}}, height=650, margin=dict(l=120, r=120, t=50, b=200))
                             st.plotly_chart(fig, use_container_width=True)
 
                             st.markdown("#### MOS Thresholds:")
@@ -1665,33 +1593,29 @@ with tab4:
                                 st.markdown("🔵 **> 4** : Overstock")
 
                     st.markdown("---")
-                    st.markdown("<h5 style='font-size: 20px; font-weight: bold; font-family: Times New Roman;'>Full Branch MOS Data with CV</h5>", unsafe_allow_html=True)
+                    st.markdown("<h5 style='font-size: 20px; font-weight: bold;'>Full Branch MOS Data with CV</h5>", unsafe_allow_html=True)
                     display_division_df = division_df.copy()
                     display_division_df['CV (%)'] = display_division_df['CV (%)'].apply(lambda x: f"{x:.1f}%" if pd.notna(x) else "")
                     st.dataframe(display_division_df, use_container_width=True, height=400, hide_index=True)
-                    st.caption(f"**Rows:** {division_df.shape[0]} | **Columns:** {division_df.shape[1]}")
                     st.download_button(label="Download Hubs MOS with CV", data=division_df.to_csv(index=False), file_name="hubs_mos_distribution_with_cv.csv", mime="text/csv")
 
                     st.markdown("---")
-                    st.markdown("<h5 style='font-size: 20px; font-weight: bold; font-family: Times New Roman;'>EPSS Hubs SOH</h5>", unsafe_allow_html=True)
+                    st.markdown("<h5 style='font-size: 20px; font-weight: bold;'>EPSS Hubs SOH</h5>", unsafe_allow_html=True)
                     st.dataframe(gh, use_container_width=True, height=400, hide_index=True)
-                    st.caption(f"**Rows:** {gh.shape[0]} | **Columns:** {gh.shape[1]}")
 
                     st.markdown("---")
-                    st.markdown("<h5 style='font-size: 20px; font-weight: bold; font-family: Times New Roman;'>EPSS Hubs AMC Data (from Google Sheets)</h5>", unsafe_allow_html=True)
+                    st.markdown("<h5 style='font-size: 20px; font-weight: bold;'>EPSS Hubs AMC Data (from Google Sheets)</h5>", unsafe_allow_html=True)
                     st.dataframe(branch_amc_data, use_container_width=True, height=400, hide_index=True)
-                    st.caption(f"**Rows:** {branch_amc_data.shape[0]} | **Columns:** {branch_amc_data.shape[1]}")
                 else:
-                    st.warning("No matching Material Description found between the two files")
+                    st.warning("No matching Material Description found")
             elif branch_amc_data is None or branch_amc_data.empty:
-                st.info("Branch AMC data is currently unavailable. Please check Google Sheets connection.")
+                st.info("Branch AMC data is currently unavailable.")
                 if not df.empty and 'Material Description' in df.columns:
                     branch_cols = [col for col in df.columns if 'Branch' in col or col == 'Material Description']
                     gh = df[branch_cols].copy() if branch_cols else df[['Material Description']].copy()
-                    st.markdown("<h5 style='font-size: 20px; font-weight: bold; font-family: Times New Roman;'>Available Hubs SOH Data</h5>", unsafe_allow_html=True)
                     st.dataframe(gh, use_container_width=True, height=400, hide_index=True)
             else:
-                st.error("'Material Description' column not found in one or both dataframes")
+                st.error("'Material Description' column not found")
         else:
             st.warning("Main dataframe is empty.")
     except Exception as e:
@@ -1702,9 +1626,4 @@ with tab4:
 # ---------------------------------------------------
 if not display_df_filtered.empty and 'Material Description' in display_df_filtered.columns:
     st.divider()
-    st.download_button(
-        label="Download Full Data",
-        data=display_df_filtered.to_csv(index=False),
-        file_name=f"full_stock_dashboard_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
-        mime="text/csv"
-    )
+    st.download_button(label="Download Full Data", data=display_df_filtered.to_csv(index=False), file_name=f"full_stock_dashboard_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv", mime="text/csv")
