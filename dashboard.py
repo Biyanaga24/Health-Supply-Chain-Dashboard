@@ -35,6 +35,17 @@ def init_supabase():
         st.error(f"Error connecting to Supabase: {e}")
         return None
 
+def check_supabase_connection():
+    """Check Supabase connection health"""
+    try:
+        if st.session_state.supabase_client:
+            # Try a simple query
+            response = st.session_state.supabase_client.table("health_data").select("*").limit(1).execute()
+            return True
+    except Exception:
+        return False
+    return False
+
 # Check authentication
 if 'auth' not in st.session_state:
     st.session_state['auth'] = False
@@ -195,12 +206,23 @@ if 'heatmap_page' not in st.session_state:
     st.session_state.heatmap_page = 1
 if 'google_sheets_data' not in st.session_state:
     st.session_state.google_sheets_data = None
+if 'branch_amc_data' not in st.session_state:
+    st.session_state.branch_amc_data = None
 if 'supabase_client' not in st.session_state:
     st.session_state.supabase_client = init_supabase()
 if 'branch_data' not in st.session_state:
     st.session_state.branch_data = None
 if 'search_query' not in st.session_state:
     st.session_state.search_query = ""
+if 'last_sheet_name' not in st.session_state:
+    st.session_state.last_sheet_name = ""
+if 'saved_recommendations' not in st.session_state:
+    st.session_state.saved_recommendations = {}
+
+# Check connection periodically
+if st.session_state.supabase_client and not check_supabase_connection():
+    st.warning("⚠️ Supabase connection lost. Attempting to reconnect...")
+    st.session_state.supabase_client = init_supabase()
 
 # ---------------------------------------------------
 # Database Connection Functions
@@ -226,7 +248,7 @@ def load_national_data():
         if 'id' in df.columns:
             df = df.drop(columns=['id'])
 
-        # Create comprehensive column mapping from Supabase (lowercase_underscore) to original format
+        # Complete column mapping from Supabase to original format
         column_mapping = {
             'material_description': 'Material Description',
             'adama_branch': 'Adama Branch',
@@ -254,10 +276,8 @@ def load_national_data():
             'expiry': 'Expiry'
         }
 
-        # Only map columns that exist in the Supabase data
+        # Only map columns that exist
         existing_mapping = {k: v for k, v in column_mapping.items() if k in df.columns}
-
-        # Rename columns to original format
         df = df.rename(columns=existing_mapping)
 
         # Clean dataframe
@@ -274,49 +294,55 @@ def load_national_data():
         st.error(f"Error loading data from Supabase: {e}")
         return pd.DataFrame()
 
-@st.cache_data(ttl=300)
-def load_branch_data():
-    """Load branch AMC data from GitHub with fallback"""
-    try:
-        # Try to load from GitHub first
-        url = "https://raw.githubusercontent.com/Biyanaga24/Health-Supply-Chain-Dashboard/main/Branch_Health%20Program_AMC%20.xlsx"
+@st.cache_data(ttl=300, show_spinner=False)
+def load_branch_amc_from_google_sheets(sheet_id):
+    """Load branch AMC data from Google Sheets"""
+    url = f"https://docs.google.com/spreadsheets/d/{sheet_id}/export?format=xlsx"
 
-        # Set timeout and retry parameters
-        session = requests.Session()
-        session.trust_env = False  # Disable proxy if any
+    max_retries = 1
+    for attempt in range(max_retries):
+        try:
+            # Configure session with custom headers
+            session = requests.Session()
+            session.headers.update({
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+            })
+            session.trust_env = False
 
-        response = session.get(url, timeout=30)
-        response.raise_for_status()
+            response = session.get(url, timeout=45)
+            response.raise_for_status()
 
-        df = pd.read_excel(BytesIO(response.content), header=0)
+            content = response.content
 
-        # Clean dataframe
-        df = df.loc[:, ~df.columns.str.contains("^Unnamed")]
-        df.columns = df.columns.str.strip()
+            # Read the Excel file
+            df = pd.read_excel(BytesIO(content), header=0)
 
-        # Fill NaN with empty string for object columns
-        for col in df.columns:
-            if df[col].dtype == 'object':
-                df[col] = df[col].fillna("")
+            # Clean dataframe
+            df = df.loc[:, ~df.columns.str.contains("^Unnamed")]
+            df.columns = df.columns.str.strip()
 
-        # Store in session state
-        st.session_state.branch_data = df
-        return df
+            # Fill NaN with empty string for object columns
+            for col in df.columns:
+                if df[col].dtype == 'object':
+                    df[col] = df[col].fillna("")
 
-    except Exception as e:
-        st.warning(f"Could not load branch data from GitHub: {str(e)}")
+            # Store in session state
+            st.session_state.branch_amc_data = df
+            return df
 
-        # Try to load from local cache if available
-        if st.session_state.branch_data is not None:
-            st.info("Using cached branch data from previous session.")
-            return st.session_state.branch_data
+        except Exception as e:
+            if attempt < max_retries - 1:
+                time.sleep(2)
+            else:
+                if st.session_state.branch_amc_data is not None:
+                    st.warning(f"Using cached branch AMC data. New data unavailable: {str(e)}")
+                    return st.session_state.branch_amc_data
+                st.warning(f"Could not load branch AMC data from Google Sheets: {str(e)}")
+                # Return empty dataframe with expected columns
+                return pd.DataFrame(columns=['Material Description'])
+    return pd.DataFrame()
 
-        # Create empty dataframe with expected columns if all else fails
-        st.info("Creating empty branch data structure. Some features may be limited.")
-        empty_df = pd.DataFrame(columns=['Material Description'])
-        return empty_df
-
-@st.cache_data(ttl=300)
+@st.cache_data(ttl=300, show_spinner=False)
 def load_google_sheets(sheet_id):
     """Load Google Sheets data (AMC and pipeline data) with fallback"""
     url = f"https://docs.google.com/spreadsheets/d/{sheet_id}/export?format=xlsx"
@@ -378,6 +404,21 @@ def load_google_sheets(sheet_id):
                 return {}
     return {}
 
+def validate_upload_data(df):
+    """Validate data before uploading to Supabase"""
+    required_columns = ['Material Description', 'NSOH']
+    missing_columns = [col for col in required_columns if col not in df.columns]
+
+    if missing_columns:
+        st.error(f"Missing required columns: {', '.join(missing_columns)}")
+        return False
+
+    # Check for duplicate materials
+    if df['Material Description'].duplicated().any():
+        st.warning("Duplicate Material Descriptions found. Only first occurrence will be kept.")
+        df = df.drop_duplicates(subset=['Material Description'], keep='first')
+
+    return True
 
 # ---------------------------------------------------
 # Admin Functions for Supabase
@@ -566,12 +607,13 @@ def calculate_risk(row):
 # ---------------------------------------------------
 # Load ALL data
 # ---------------------------------------------------
-sheet_id = "14VvZ7IyOmpM4SZrY5_ArHDgLkeFN4inW"
+amc_pipeline_sheet_id = "14VvZ7IyOmpM4SZrY5_ArHDgLkeFN4inW"
+branch_amc_sheet_id = "12Z5xqX32QIzjoN6tNvGbjutMheXx5US1"
 
 # Load data from different sources
 df_external = load_national_data()  # Real-time from Supabase (no cache)
-cf = load_branch_data()  # Cached for 5 minutes with fallback - AVAILABLE TO ALL USERS
-google_sheets = load_google_sheets(sheet_id)  # Cached for 5 minutes with fallback
+branch_amc_data = load_branch_amc_from_google_sheets(branch_amc_sheet_id)
+google_sheets = load_google_sheets(amc_pipeline_sheet_id)
 
 if df_external.empty:
     st.error("No data in Supabase. Please upload data through admin panel.")
@@ -588,8 +630,6 @@ with st.sidebar:
     if st.session_state['user']['role'] == 'admin' and st.session_state.supabase_client:
         st.success("✅ Connected to Supabase")
 
-    # Branch data status message removed - no longer displayed to any users
-
 # ---------------------------------------------------
 # Program Selection
 # ---------------------------------------------------
@@ -599,6 +639,11 @@ else:
     program_list = ["All"]
 
 sheet_name = st.sidebar.selectbox("Program", program_list, index=0, key="program_selector")
+
+# Reset heatmap page when program changes
+if sheet_name != st.session_state.last_sheet_name:
+    st.session_state.heatmap_page = 1
+    st.session_state.last_sheet_name = sheet_name
 
 if sheet_name == "All" and google_sheets:
     all_dfs = []
@@ -675,45 +720,44 @@ if not df_google.empty and not df_external.empty:
 else:
     df = df_external.copy()
 
+# ---------------------------------------------------
+# Data Processing
+# ---------------------------------------------------
 if not df.empty:
     # Remove S/N column if it exists
     if 'S/N' in df.columns:
         df = df.drop(columns=['S/N'])
 
-    # Define text columns that should remain as strings
+    # Define columns that should remain as text
     text_columns = ['Status', 'Expiry', 'GIT_PO', 'LC_PO', 'WB_PO', 'TMD_PO']
 
-    # Store text values before any conversion
-    text_values = {}
-    for col in text_columns:
-        if col in df.columns:
-            text_values[col] = df[col].copy()
+    # Define columns that should be numeric
+    numeric_columns = [col for col in df.columns if col not in text_columns + ['Material Description']]
 
-    # Convert numeric columns (excluding text columns and Material Description)
-    for col in df.columns:
-        if col not in text_columns and col != 'Material Description':
+    # Convert numeric columns safely
+    for col in numeric_columns:
+        if col in df.columns:
             try:
                 df[col] = pd.to_numeric(df[col], errors='coerce')
-            except:
-                pass
+            except Exception:
+                continue
 
-    # Restore text columns and handle None/NaN values
-    for col, values in text_values.items():
+    # Ensure text columns are strings
+    for col in text_columns:
         if col in df.columns:
-            # Replace NaN with empty string for text columns
-            df[col] = values.fillna("")
-            # Replace None with empty string
-            df[col] = df[col].replace({None: ""})
-            # Ensure strings
-            df[col] = df[col].astype(str).replace("nan", "").replace("None", "")
+            df[col] = df[col].fillna("").astype(str)
 
-    # Calculate NMOS using NSOH (from Supabase) and AMC (from Google Sheets)
+    # Calculate NMOS using NSOH and AMC with better error handling
     if 'NSOH' in df.columns and 'AMC' in df.columns:
         nsoh = pd.to_numeric(df['NSOH'], errors='coerce')
         amc = pd.to_numeric(df['AMC'], errors='coerce')
-        # Avoid division by zero
-        nmos = np.where(amc != 0, nsoh / amc, np.nan)
-        df['NMOS'] = nmos
+
+        # Handle zero or negative AMC
+        amc = amc.replace(0, np.nan)
+
+        nmos = nsoh / amc
+        nmos = nmos.replace([np.inf, -np.inf], np.nan)
+        df['NMOS'] = nmos.round(2)
 
     # Calculate TMOS
     mos_cols = ['NMOS', 'GIT_MOS', 'LC_MOS', 'WB_MOS', 'TMD_MOS']
@@ -836,7 +880,7 @@ st.sidebar.caption(f"📅 Data as of: {st.session_state.data_timestamp.strftime(
 
 # Show data source info for admin only
 if st.session_state['user']['role'] == 'admin':
-    st.sidebar.info("📊 Data Sources:\n- Supabase: Real-time\n- Google Sheets: Cached 5 min\n- Branch AMC: Cached 5 min")
+    st.sidebar.info("📊 Data Sources:\n- Supabase: Real-time\n- Google Sheets (AMC/Pipeline): Cached 5 min\n- Google Sheets (Branch AMC): Cached 5 min")
 
 # Auto-refresh option
 auto_refresh = st.sidebar.checkbox("Auto-refresh every 5 minutes", value=st.session_state.auto_refresh)
@@ -898,13 +942,14 @@ if st.session_state['user']['role'] == 'admin':
                 col1, col2 = st.columns(2)
                 with col1:
                     if st.button("📤 Upload to Supabase", use_container_width=True, type="primary"):
-                        with st.spinner("Uploading to Supabase..."):
-                            if upload_to_supabase(df_upload):
-                                st.cache_data.clear()
-                                st.session_state.data_timestamp = datetime.now()
-                                st.success("Upload successful! Refreshing...")
-                                time.sleep(1)
-                                st.rerun()
+                        with st.spinner("Validating and uploading..."):
+                            if validate_upload_data(df_upload):
+                                if upload_to_supabase(df_upload):
+                                    st.cache_data.clear()
+                                    st.session_state.data_timestamp = datetime.now()
+                                    st.success("Upload successful! Refreshing...")
+                                    time.sleep(1)
+                                    st.rerun()
                 with col2:
                     if st.button("⚠️ Clear All Data", use_container_width=True):
                         with st.spinner("Clearing Supabase data..."):
@@ -979,20 +1024,15 @@ with tab1:
         search_df = display_df_filtered.copy()
 
         if st.session_state.search_query:
-            # Convert search query to lowercase for case-insensitive search
             search_term = st.session_state.search_query.lower()
 
-            # Search across all columns (convert everything to string for searching)
-            mask = pd.Series([False] * len(search_df))
+            # More efficient search implementation
+            string_df = search_df.astype(str)
 
-            for col in search_df.columns:
-                # Convert column to string and check if any value contains the search term
-                try:
-                    col_mask = search_df[col].astype(str).str.lower().str.contains(search_term, na=False, regex=False)
-                    mask = mask | col_mask
-                except Exception:
-                    # Skip columns that cause errors
-                    continue
+            # Use vectorized string operations
+            mask = string_df.apply(
+                lambda col: col.str.lower().str.contains(search_term, na=False, regex=False)
+            ).any(axis=1)
 
             search_df = search_df[mask]
 
@@ -1604,9 +1644,6 @@ with tab3:
                     num_rows="fixed"
                 )
 
-                if 'saved_recommendations' not in st.session_state:
-                    st.session_state.saved_recommendations = {}
-
                 for idx, row in edited_result.iterrows():
                     material = row['Material Description']
                     st.session_state.saved_recommendations[material] = row['Recommendation']
@@ -1639,8 +1676,8 @@ with tab4:
         if not df.empty:
             main_df = df.copy()
 
-            # Branch AMC data from GitHub is available to all users
-            if cf is not None and 'Material Description' in main_df.columns and 'Material Description' in cf.columns and not cf.empty:
+            # Branch AMC data from Google Sheets is available to all users
+            if branch_amc_data is not None and 'Material Description' in main_df.columns and 'Material Description' in branch_amc_data.columns and not branch_amc_data.empty:
                 # Take Material Description plus branch columns
                 branch_cols = [col for col in main_df.columns if 'Branch' in col or col == 'Material Description']
                 gh = main_df[branch_cols].copy() if branch_cols else pd.DataFrame()
@@ -1649,7 +1686,7 @@ with tab4:
 
                 merged_df = pd.merge(
                     gh,
-                    cf,
+                    branch_amc_data,
                     on='Material Description',
                     how='inner',
                     suffixes=('_gh', '_cf')
@@ -1657,21 +1694,32 @@ with tab4:
 
                 if not merged_df.empty:
                     gh_cols = [col for col in gh.columns if col != 'Material Description']
-                    cf_cols = [col for col in cf.columns if col != 'Material Description']
+                    cf_cols = [col for col in branch_amc_data.columns if col != 'Material Description']
 
                     division_data = {'Material Description': merged_df['Material Description']}
 
+                    # Complete branch name mapping
                     branch_name_map = {
                         'Addis Ababa Branch 1': 'Addis Ababa 1',
                         'Addis Ababa Branch 2': 'Addis Ababa 2',
                         'Adama Branch': 'Adama',
                         'Bahir Dar Branch': 'Bahir Dar',
+                        'Mekele Branch': 'Mekelle',
                         'Mekelle Branch': 'Mekelle',
                         'Hawassa Branch': 'Hawassa',
                         'Dire Dawa Branch': 'Dire Dawa',
                         'Jimma Branch': 'Jimma',
                         'Gondar Branch': 'Gondar',
-                        'Dessie Branch': 'Dessie'
+                        'Dessie Branch': 'Dessie',
+                        'Arba Minch Branch': 'Arba Minch',
+                        'Assosa Branch': 'Assosa',
+                        'Gambela Branch': 'Gambela',
+                        'Jigjiga Branch': 'Jigjiga',
+                        'Kebridahar Branch': 'Kebridahar',
+                        'Negele Borena Branch': 'Negele Borena',
+                        'Nekemte Branch': 'Nekemte',
+                        'Semera Branch': 'Semera',
+                        'Shire Branch': 'Shire'
                     }
 
                     min_cols = min(len(gh_cols), len(cf_cols))
@@ -1703,14 +1751,14 @@ with tab4:
 
                     # Calculate Coefficient of Variation for each material
                     if division_df.shape[1] > 1:
-                        branch_cols = [col for col in division_df.columns if col != 'Material Description']
-                        division_df['CV (%)'] = division_df[branch_cols].apply(
+                        branch_cols_list = [col for col in division_df.columns if col != 'Material Description']
+                        division_df['CV (%)'] = division_df[branch_cols_list].apply(
                             lambda row: calculate_coefficient_of_variation(row), axis=1
                         )
                         division_df['CV (%)'] = division_df['CV (%)'].round(1)
 
                         # Reorder columns to put CV after Material Description
-                        cols = ['Material Description', 'CV (%)'] + branch_cols
+                        cols = ['Material Description', 'CV (%)'] + branch_cols_list
                         division_df = division_df[cols]
 
                         # Categorize CV values
@@ -1756,13 +1804,13 @@ with tab4:
 
                         # HEATMAP
                         if division_df.shape[1] > 2:
-                            branch_cols = [col for col in division_df.columns if col not in ['Material Description', 'CV (%)', 'CV Category']]
+                            branch_cols_list = [col for col in division_df.columns if col not in ['Material Description', 'CV (%)', 'CV Category']]
 
                             heatmap_df = division_df.copy()
                             heatmap_df = heatmap_df.sort_values('Material Description')
 
                             heatmap_df_indexed = heatmap_df.set_index('Material Description')
-                            heatmap_df_indexed = heatmap_df_indexed[branch_cols]
+                            heatmap_df_indexed = heatmap_df_indexed[branch_cols_list]
                             heatmap_df_transposed = heatmap_df_indexed.T
 
                             total_materials = len(heatmap_df_transposed.columns)
@@ -1884,18 +1932,18 @@ with tab4:
                     st.caption(f"**Rows:** {gh.shape[0]} | **Columns:** {gh.shape[1]}")
 
                     st.markdown("---")
-                    st.markdown("<h5 style='font-size: 20px; font-weight: bold; font-family: Times New Roman;'>EPSS Hubs AMC Data (from GitHub)</h5>", unsafe_allow_html=True)
+                    st.markdown("<h5 style='font-size: 20px; font-weight: bold; font-family: Times New Roman;'>EPSS Hubs AMC Data (from Google Sheets)</h5>", unsafe_allow_html=True)
                     st.dataframe(
-                        cf,
+                        branch_amc_data,
                         use_container_width=True,
                         height=400,
                         hide_index=True
                     )
-                    st.caption(f"**Rows:** {cf.shape[0]} | **Columns:** {cf.shape[1]}")
+                    st.caption(f"**Rows:** {branch_amc_data.shape[0]} | **Columns:** {branch_amc_data.shape[1]}")
                 else:
                     st.warning("No matching Material Description found between the two files")
-            elif cf is None or cf.empty:
-                st.info("Branch AMC data is currently unavailable. Please check GitHub connection.")
+            elif branch_amc_data is None or branch_amc_data.empty:
+                st.info("Branch AMC data is currently unavailable. Please check Google Sheets connection.")
 
                 # Show available data as fallback
                 if not df.empty and 'Material Description' in df.columns:
