@@ -148,6 +148,32 @@ st.markdown("""
         font-family: 'Times New Roman', sans-serif !important;
         padding: 10px 20px !important;
     }
+
+    .legend-box {
+        margin: 10px 0 20px 0;
+        padding: 15px;
+        background-color: #f8f9fa;
+        border-radius: 10px;
+        border: 1px solid #dee2e6;
+    }
+
+    .legend-title {
+        margin: 0 0 10px 0;
+        font-size: 16px;
+        font-weight: bold;
+    }
+
+    .legend-item {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+    }
+
+    .legend-color {
+        width: 20px;
+        height: 20px;
+        border-radius: 3px;
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -699,6 +725,7 @@ if not df.empty:
     else:
         df['Stock Status'] = ""
 
+    # Calculate percentages with proper rounding
     if 'Hubs' in df.columns and 'Head Office' in df.columns and 'NSOH' in df.columns:
         hubs_vals = pd.to_numeric(df['Hubs'], errors='coerce').fillna(0)
         ho_vals = pd.to_numeric(df['Head Office'], errors='coerce').fillna(0)
@@ -706,7 +733,7 @@ if not df.empty:
         valid_mask = nsoh_vals.notna() & (nsoh_vals > 0)
         df['Hubs%'] = np.where(valid_mask, (hubs_vals / nsoh_vals * 100).round(1), np.nan)
         df['Head Office%'] = np.where(valid_mask, (ho_vals / nsoh_vals * 100).round(1), np.nan)
-        df['Avail Gap'] = df['Hubs%'] - df['Head Office%']
+        df['Avail Gap'] = np.where(valid_mask, (df['Hubs%'] - df['Head Office%']).round(1), np.nan)
     else:
         df['Hubs%'] = np.nan
         df['Head Office%'] = np.nan
@@ -1080,8 +1107,41 @@ with tab1:
 
             st.dataframe(styled, column_config=column_config, use_container_width=True, hide_index=True, height=min(800, (len(search_df) + 1) * 35))
 
+            # Add color legend after table
+            st.markdown("""
+            <div class="legend-box">
+                <h5 class="legend-title">📊 Color Legend - Stock Status:</h5>
+                <div style="display: flex; gap: 20px; flex-wrap: wrap;">
+                    <div class="legend-item">
+                        <div class="legend-color" style="background-color: red;"></div>
+                        <span><strong>Red</strong> = Stock Out (NMOS &lt; 1)</span>
+                    </div>
+                    <div class="legend-item">
+                        <div class="legend-color" style="background-color: yellow;"></div>
+                        <span><strong>Yellow</strong> = Understock (1 ≤ NMOS &lt; 6)</span>
+                    </div>
+                    <div class="legend-item">
+                        <div class="legend-color" style="background-color: green;"></div>
+                        <span><strong>Green</strong> = Normal Stock (6 ≤ NMOS ≤ 18)</span>
+                    </div>
+                    <div class="legend-item">
+                        <div class="legend-color" style="background-color: skyblue;"></div>
+                        <span><strong>Blue</strong> = Overstock (NMOS > 18)</span>
+                    </div>
+                    <div class="legend-item">
+                        <div class="legend-color" style="background-color: #9b59b6;"></div>
+                        <span><strong>Purple</strong> = Critical Risk (Both Stock Out Risk & Expiry Risk)</span>
+                    </div>
+                    <div class="legend-item">
+                        <div class="legend-color" style="background-color: #ffa500;"></div>
+                        <span><strong>Orange</strong> = Risk of Stock out or Expiry Risk</span>
+                    </div>
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
+
         # ---------------------------------------------------
-        # DOWNLOAD REPORT - ORIGINAL COMPREHENSIVE VERSION RESTORED
+        # DOWNLOAD REPORT
         # ---------------------------------------------------
         st.markdown("---")
         st.markdown("<h4 style='font-size: 20px; font-weight: bold; font-family: Times New Roman;'>📥 Download Report</h4>", unsafe_allow_html=True)
@@ -1378,8 +1438,22 @@ with tab3:
 
     if not df_filtered.empty and 'Material Description' in df_filtered.columns:
 
-        decision_df = df_filtered[['Material Description', 'NSOH', 'Expiry', 'AMC', 'NMOS', 'Status', 'Risk Type']].copy()
-        decision_df['Identified Problems'] = decision_df['Risk Type']
+        decision_df = df_filtered[['Material Description', 'NSOH', 'Expiry', 'AMC', 'NMOS', 'Status', 'Risk Type', 'Stock Status']].copy()
+
+        # Create Identified Problems column combining Risk Type and Stock Status
+        def get_identified_problems(row):
+            # Check for Stock Out first (most critical)
+            if row.get('Stock Status') == 'Stock Out':
+                return "Stock Out"
+            # Then check Risk Type
+            risk = row.get('Risk Type', '')
+            if risk and risk != '':
+                return risk
+            return ''
+
+        decision_df['Identified Problems'] = decision_df.apply(get_identified_problems, axis=1)
+
+        # Filter to show only items with problems
         decision_df = decision_df[decision_df['Identified Problems'] != ''].copy()
 
         if len(decision_df) > 0:
@@ -1407,16 +1481,31 @@ with tab3:
             st.markdown("### ✏️ Sales and Operational Planning")
             decision_df['Recommendation'] = ''
 
+            # Ensure all needed columns exist for display
+            display_columns = ['Material Description', 'NSOH', 'Expiry', 'AMC', 'NMOS', 'Status', 'Identified Problems', 'Recommendation']
+            available_display_columns = [col for col in display_columns if col in decision_df.columns]
+
             edited_result = st.data_editor(
-                decision_df[['Material Description', 'NSOH', 'Expiry', 'AMC', 'NMOS', 'Status', 'Identified Problems', 'Recommendation']],
-                column_config={"Material Description": st.column_config.TextColumn("Material", width=300, disabled=True, pinned=True), "Recommendation": st.column_config.TextColumn("Recommendation", width=350)},
-                use_container_width=True, hide_index=True, height=min(400, (len(decision_df) + 1) * 35), num_rows="fixed"
+                decision_df[available_display_columns],
+                column_config={
+                    "Material Description": st.column_config.TextColumn("Material", width=300, disabled=True, pinned=True),
+                    "Recommendation": st.column_config.TextColumn("Recommendation", width=350)
+                },
+                use_container_width=True, 
+                hide_index=True, 
+                height=min(400, (len(decision_df) + 1) * 35), 
+                num_rows="fixed"
             )
 
             for idx, row in edited_result.iterrows():
                 st.session_state.saved_recommendations[row['Material Description']] = row['Recommendation']
 
-            st.download_button(label="Download Decision Briefs", data=edited_result.to_csv(index=False), file_name=f"{sheet_name}_decision_briefs.csv".replace(" ", "_"), mime="text/csv")
+            st.download_button(
+                label="Download Decision Briefs", 
+                data=edited_result.to_csv(index=False), 
+                file_name=f"{sheet_name}_decision_briefs.csv".replace(" ", "_"), 
+                mime="text/csv"
+            )
             if st.button("Clear All Recommendations"):
                 st.session_state.saved_recommendations = {}
                 st.rerun()
