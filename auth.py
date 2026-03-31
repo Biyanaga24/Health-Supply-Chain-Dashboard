@@ -8,6 +8,9 @@ import os
 import warnings
 import logging
 import random
+import smtplib
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
 
 # Suppress all warnings and connection-related messages
 warnings.filterwarnings("ignore")
@@ -25,6 +28,272 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="expanded"
 )
+
+# ---------------------------------------------------
+# Email Notification Functions
+# ---------------------------------------------------
+
+def get_smtp_config():
+    """Get SMTP configuration from secrets"""
+    try:
+        # Try to get from secrets
+        smtp_server = st.secrets.get("SMTP_SERVER", "smtp.gmail.com")
+        smtp_port = st.secrets.get("SMTP_PORT", 587)
+        sender_email = st.secrets.get("SENDER_EMAIL", "")
+        sender_password = st.secrets.get("SENDER_PASSWORD", "")
+        admin_email = st.secrets.get("ADMIN_EMAIL", "admin@health.gov.et")
+
+        return {
+            'server': smtp_server,
+            'port': smtp_port,
+            'sender': sender_email,
+            'password': sender_password,
+            'admin_email': admin_email
+        }
+    except:
+        # Return default values if secrets not available
+        return {
+            'server': "smtp.gmail.com",
+            'port': 587,
+            'sender': "",
+            'password': "",
+            'admin_email': "admin@health.gov.et"
+        }
+
+def send_email_notification(subject, body, to_email):
+    """Send email notification"""
+    config = get_smtp_config()
+
+    if not config['sender'] or not config['password']:
+        print("Email credentials not configured. Skipping email notification.")
+        return False
+
+    try:
+        msg = MIMEMultipart('alternative')
+        msg['From'] = config['sender']
+        msg['To'] = to_email if to_email != "admin" else config['admin_email']
+        msg['Subject'] = subject
+
+        # Attach HTML body
+        msg.attach(MIMEText(body, 'html'))
+
+        # Send email
+        server = smtplib.SMTP(config['server'], config['port'])
+        server.starttls()
+        server.login(config['sender'], config['password'])
+        server.send_message(msg)
+        server.quit()
+
+        return True
+    except Exception as e:
+        print(f"Email notification failed: {e}")
+        return False
+
+def notify_admin_new_user_registration(user_data):
+    """Send notification to admin when a new user registers"""
+    subject = "🔔 New User Registration - Health Dashboard"
+
+    body = f"""
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <style>
+            body {{ font-family: 'Times New Roman', Times, serif; }}
+            .container {{ max-width: 600px; margin: 0 auto; padding: 20px; }}
+            .header {{ background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); 
+                      color: white; padding: 20px; text-align: center; border-radius: 10px 10px 0 0; }}
+            .content {{ background: #f8f9fa; padding: 20px; border-radius: 0 0 10px 10px; }}
+            .info-row {{ margin: 10px 0; padding: 10px; background: white; border-radius: 5px; }}
+            .label {{ font-weight: bold; color: #667eea; }}
+            .footer {{ text-align: center; margin-top: 20px; padding: 10px; font-size: 12px; color: #666; }}
+            .button {{ background: #667eea; color: white; padding: 10px 20px; text-decoration: none; 
+                      border-radius: 5px; display: inline-block; margin-top: 15px; }}
+        </style>
+    </head>
+    <body>
+        <div class="container">
+            <div class="header">
+                <h2>🔔 New User Registration</h2>
+            </div>
+            <div class="content">
+                <p>Hello Administrator,</p>
+                <p>A new user has registered for the Health Program Medicines Dashboard. Please review their details below:</p>
+
+                <div class="info-row">
+                    <div><span class="label">📧 Email:</span> {user_data.get('email', 'N/A')}</div>
+                </div>
+                <div class="info-row">
+                    <div><span class="label">👤 Full Name:</span> {user_data.get('full_name', 'N/A')}</div>
+                </div>
+                <div class="info-row">
+                    <div><span class="label">🔑 Role:</span> {user_data.get('role', 'user').title()}</div>
+                </div>
+                <div class="info-row">
+                    <div><span class="label">📅 Registered at:</span> {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</div>
+                </div>
+                <div class="info-row">
+                    <div><span class="label">🆔 User ID:</span> {user_data.get('id', 'N/A')}</div>
+                </div>
+
+                <div style="text-align: center;">
+                    <a href="#" style="background: #667eea; color: white; padding: 10px 20px; text-decoration: none; 
+                       border-radius: 5px; display: inline-block; margin-top: 15px;">
+                        Go to Admin Panel
+                    </a>
+                </div>
+
+                <p style="margin-top: 20px;">Please review and approve this user account in the admin panel.</p>
+                <hr>
+                <p style="font-size: 12px; color: #666;">This is an automated notification from Health Program Medicines Dashboard.</p>
+            </div>
+        </div>
+    </body>
+    </html>
+    """
+
+    return send_email_notification(subject, body, "admin")
+
+def notify_admin_account_removal(user_data, removed_by):
+    """Send notification to admin when a user account is removed"""
+    subject = "⚠️ User Account Removed - Health Dashboard"
+
+    body = f"""
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <style>
+            body {{ font-family: 'Times New Roman', Times, serif; }}
+            .container {{ max-width: 600px; margin: 0 auto; padding: 20px; }}
+            .header {{ background: linear-gradient(135deg, #e74c3c 0%, #c0392b 100%); 
+                      color: white; padding: 20px; text-align: center; border-radius: 10px 10px 0 0; }}
+            .content {{ background: #f8f9fa; padding: 20px; border-radius: 0 0 10px 10px; }}
+            .info-row {{ margin: 10px 0; padding: 10px; background: white; border-radius: 5px; }}
+            .label {{ font-weight: bold; color: #e74c3c; }}
+            .footer {{ text-align: center; margin-top: 20px; padding: 10px; font-size: 12px; color: #666; }}
+        </style>
+    </head>
+    <body>
+        <div class="container">
+            <div class="header">
+                <h2>⚠️ User Account Removed</h2>
+            </div>
+            <div class="content">
+                <p>Hello Administrator,</p>
+                <p>The following user account has been removed from the system:</p>
+
+                <div class="info-row">
+                    <div><span class="label">📧 Email:</span> {user_data.get('email', 'N/A')}</div>
+                </div>
+                <div class="info-row">
+                    <div><span class="label">👤 Full Name:</span> {user_data.get('full_name', 'N/A')}</div>
+                </div>
+                <div class="info-row">
+                    <div><span class="label">🔑 Role:</span> {user_data.get('role', 'N/A').title()}</div>
+                </div>
+                <div class="info-row">
+                    <div><span class="label">🗑️ Removed by:</span> {removed_by}</div>
+                </div>
+                <div class="info-row">
+                    <div><span class="label">📅 Removed at:</span> {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</div>
+                </div>
+                <div class="info-row">
+                    <div><span class="label">🆔 User ID:</span> {user_data.get('id', 'N/A')}</div>
+                </div>
+
+                <hr>
+                <p style="font-size: 12px; color: #666;">This is an automated notification from Health Program Medicines Dashboard.</p>
+            </div>
+        </div>
+    </body>
+    </html>
+    """
+
+    return send_email_notification(subject, body, "admin")
+
+def notify_user_account_approved(user_email, user_name):
+    """Notify user that their account has been approved"""
+    subject = "✅ Account Approved - Health Program Medicines Dashboard"
+
+    body = f"""
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <style>
+            body {{ font-family: 'Times New Roman', Times, serif; }}
+            .container {{ max-width: 600px; margin: 0 auto; padding: 20px; }}
+            .header {{ background: linear-gradient(135deg, #27ae60 0%, #2ecc71 100%); 
+                      color: white; padding: 20px; text-align: center; border-radius: 10px 10px 0 0; }}
+            .content {{ background: #f8f9fa; padding: 20px; border-radius: 0 0 10px 10px; }}
+            .footer {{ text-align: center; margin-top: 20px; padding: 10px; font-size: 12px; color: #666; }}
+        </style>
+    </head>
+    <body>
+        <div class="container">
+            <div class="header">
+                <h2>✅ Account Approved!</h2>
+            </div>
+            <div class="content">
+                <p>Dear {user_name},</p>
+                <p>We are pleased to inform you that your account has been approved by the administrator.</p>
+                <p>You can now access the Health Program Medicines Dashboard with full privileges.</p>
+
+                <div style="text-align: center;">
+                    <a href="#" style="background: #27ae60; color: white; padding: 10px 20px; text-decoration: none; 
+                       border-radius: 5px; display: inline-block; margin-top: 15px;">
+                        Access Dashboard
+                    </a>
+                </div>
+
+                <p style="margin-top: 20px;">If you have any questions, please contact the system administrator.</p>
+                <hr>
+                <p style="font-size: 12px; color: #666;">This is an automated notification from Health Program Medicines Dashboard.</p>
+            </div>
+        </div>
+    </body>
+    </html>
+    """
+
+    return send_email_notification(subject, body, user_email)
+
+def notify_admin_test_connection():
+    """Test email configuration"""
+    subject = "✅ Health Dashboard - Email Test"
+
+    body = """
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <style>
+            body { font-family: 'Times New Roman', Times, serif; }
+            .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+            .header { background: linear-gradient(135deg, #27ae60 0%, #2ecc71 100%); 
+                      color: white; padding: 20px; text-align: center; border-radius: 10px 10px 0 0; }
+            .content { background: #f8f9fa; padding: 20px; border-radius: 0 0 10px 10px; }
+        </style>
+    </head>
+    <body>
+        <div class="container">
+            <div class="header">
+                <h2>✅ Email Test Successful!</h2>
+            </div>
+            <div class="content">
+                <p>Your email notification system is configured correctly.</p>
+                <p>You will receive notifications for:</p>
+                <ul>
+                    <li>New user registrations</li>
+                    <li>Account removals</li>
+                    <li>Account approvals</li>
+                </ul>
+                <hr>
+                <p style="font-size: 12px; color: #666;">This is a test notification from Health Program Medicines Dashboard.</p>
+            </div>
+        </div>
+    </body>
+    </html>
+    """
+
+    config = get_smtp_config()
+    return send_email_notification(subject, body, config['admin_email'])
 
 # CREATE DATABASE AND TABLES
 conn = sqlite3.connect('users.db')
@@ -84,9 +353,23 @@ def create_user(email, password, full_name):
         hashed = hashlib.sha256(password.encode()).hexdigest()
         c.execute("INSERT INTO users (email, password, full_name, role, is_approved) VALUES (?, ?, ?, ?, ?)",
                   (email, hashed, full_name, 'user', 0))
+
+        # Get the inserted user ID
+        user_id = c.lastrowid
+
         conn.commit()
+
+        # Send notification to admin about new registration
+        user_data = {
+            'id': user_id,
+            'email': email,
+            'full_name': full_name,
+            'role': 'user'
+        }
+        notify_admin_new_user_registration(user_data)
+
         conn.close()
-        return True, "Registration successful! Your account is pending admin approval."
+        return True, "Registration successful! Your account is pending admin approval. You will receive an email when approved."
     except sqlite3.IntegrityError:
         return False, "Email already exists. Please use a different email."
     except Exception as e:
@@ -108,9 +391,19 @@ def approve_user(user_id):
     try:
         conn = sqlite3.connect('users.db')
         c = conn.cursor()
+
+        # Get user details before approving
+        c.execute("SELECT email, full_name FROM users WHERE id = ?", (user_id,))
+        user = c.fetchone()
+
         c.execute("UPDATE users SET is_approved = 1 WHERE id = ?", (user_id,))
         conn.commit()
         conn.close()
+
+        # Send approval notification to user
+        if user:
+            notify_user_account_approved(user[0], user[1])
+
         return True
     except Exception as e:
         return False
@@ -119,9 +412,19 @@ def reject_user(user_id):
     try:
         conn = sqlite3.connect('users.db')
         c = conn.cursor()
+
+        # Get user details before rejecting
+        c.execute("SELECT email, full_name FROM users WHERE id = ?", (user_id,))
+        user = c.fetchone()
+
         c.execute("DELETE FROM users WHERE id = ?", (user_id,))
         conn.commit()
         conn.close()
+
+        # Optionally send rejection notification
+        # if user:
+        #     notify_user_account_rejected(user[0], user[1])
+
         return True
     except Exception as e:
         return False
@@ -130,7 +433,9 @@ def delete_user(user_id):
     try:
         conn = sqlite3.connect('users.db')
         c = conn.cursor()
-        c.execute("SELECT id, email, full_name FROM users WHERE id = ?", (user_id,))
+
+        # Get user details before deletion
+        c.execute("SELECT id, email, full_name, role FROM users WHERE id = ?", (user_id,))
         user = c.fetchone()
 
         if not user:
@@ -143,6 +448,17 @@ def delete_user(user_id):
         conn.close()
 
         if affected_rows > 0:
+            # Send notification to admin about account removal
+            user_data = {
+                'id': user[0],
+                'email': user[1],
+                'full_name': user[2],
+                'role': user[3]
+            }
+            # Get current user email from session state if available
+            removed_by = st.session_state.get('user', {}).get('email', 'System Administrator')
+            notify_admin_account_removal(user_data, removed_by)
+
             return True, f"User {user[2]} deleted successfully"
         else:
             return False, "No rows were deleted"
@@ -553,6 +869,36 @@ def show_admin_panel():
     </div>
     """, unsafe_allow_html=True)
 
+    # Email Test Section
+    with st.expander("📧 Email Notification Settings", expanded=False):
+        st.markdown("""
+        ### Email Configuration
+        Configure email notifications for:
+        - New user registrations
+        - Account approvals
+        - Account removals
+        """)
+
+        config = get_smtp_config()
+        if config['sender'] and config['password']:
+            st.success("✅ Email credentials configured")
+
+            if st.button("📧 Test Email Notification", use_container_width=True):
+                with st.spinner("Sending test email..."):
+                    if notify_admin_test_connection():
+                        st.success("✅ Test email sent successfully!")
+                    else:
+                        st.error("❌ Failed to send test email. Please check your email configuration.")
+        else:
+            st.warning("⚠️ Email credentials not configured. Add to `.streamlit/secrets.toml`:")
+            st.code("""
+SMTP_SERVER = "smtp.gmail.com"
+SMTP_PORT = 587
+SENDER_EMAIL = "your-email@gmail.com"
+SENDER_PASSWORD = "your-app-password"
+ADMIN_EMAIL = "admin@health.gov.et"
+            """, language="toml")
+
     # Stats
     all_users = get_all_users()
     pending_df = get_pending_users()
@@ -587,7 +933,7 @@ def show_admin_panel():
                     with col4:
                         if st.button("✅ Approve", key=f"approve_{row['id']}", use_container_width=True):
                             if approve_user(row['id']):
-                                st.success(f"✅ Approved {row['full_name']}")
+                                st.success(f"✅ Approved {row['full_name']} - Email notification sent")
                                 st.balloons()
                                 st.rerun()
                     with col5:
@@ -624,6 +970,8 @@ def show_admin_panel():
 
     with tab3:
         st.subheader("🗑️ Delete User")
+        st.warning("⚠️ **Note:** When you delete a user, an email notification will be sent to the admin.")
+
         users_df = get_all_users()
 
         if not users_df.empty:
@@ -644,17 +992,13 @@ def show_admin_panel():
                 selected_user = other_users[other_users['display'] == selected_display].iloc[0]
                 user_id = int(selected_user['id'])
 
-                st.warning("⚠️ **Warning: This action cannot be undone!**")
-
-                col1, col2 = st.columns(2)
-                with col1:
-                    st.info(f"""
-                    **User Details:**
-                    - **Name:** {selected_user['full_name']}
-                    - **Email:** {selected_user['email']}
-                    - **Role:** {selected_user['role']}
-                    - **ID:** {user_id}
-                    """)
+                st.info(f"""
+                **User Details:**
+                - **Name:** {selected_user['full_name']}
+                - **Email:** {selected_user['email']}
+                - **Role:** {selected_user['role']}
+                - **ID:** {user_id}
+                """)
 
                 delete_confirmation = st.checkbox("✓ I understand this action cannot be undone")
                 if delete_confirmation:
