@@ -218,7 +218,7 @@ if st.session_state.supabase_client and not check_supabase_connection():
 # Program Hierarchy Configuration
 # ---------------------------------------------------
 PROGRAM_HIERARCHY = {
-    "OI & Hepatitis": {
+    "OI and Hepatitis": {  # Exact match from Google Sheets
         "subcategories": ["AHD", "Hepatitis", "OI", "STI"],
         "is_parent": True
     },
@@ -236,10 +236,6 @@ def assign_subcategories_to_materials(df, subcategory_list):
     subcategory_mapping = {}
     current_subcategory = None
 
-    # Debug info
-    debug_messages = []
-    debug_messages.append(f"Looking for subcategories: {subcategory_list}")
-
     for idx in range(len(df)):
         material_desc = str(df.iloc[idx]['Material Description']).strip()
 
@@ -249,18 +245,13 @@ def assign_subcategories_to_materials(df, subcategory_list):
             if material_desc == subcat:
                 current_subcategory = subcat
                 is_subcategory = True
-                debug_messages.append(f"Found subcategory header at row {idx}: '{material_desc}' -> {subcat}")
                 break
 
         # If not a subcategory header and we have a current subcategory, assign it
         if not is_subcategory and current_subcategory is not None:
             subcategory_mapping[material_desc] = current_subcategory
 
-    debug_messages.append(f"Assigned {len(subcategory_mapping)} materials to subcategories")
-    if len(subcategory_mapping) > 0:
-        debug_messages.append(f"Sample assignments: {list(subcategory_mapping.items())[:5]}")
-
-    return subcategory_mapping, debug_messages
+    return subcategory_mapping
 
 # ---------------------------------------------------
 # Expiry Risk Calculation Function
@@ -941,30 +932,16 @@ if not df.empty:
         df['CV Category'] = "Unknown"
 
     # Assign subcategories based on sequential order for parent programs
-    debug_info = []
     if sheet_name in PROGRAM_HIERARCHY:
         subcategory_list = PROGRAM_HIERARCHY[sheet_name]["subcategories"]
-        subcategory_mapping, debug_info = assign_subcategories_to_materials(df, subcategory_list)
-
-        # Show debug info in sidebar
-        with st.sidebar.expander("🔍 Subcategory Debug Info", expanded=False):
-            for msg in debug_info:
-                st.write(msg)
+        subcategory_mapping = assign_subcategories_to_materials(df, subcategory_list)
 
         # Add Assigned Subcategory column
         df['Assigned Subcategory'] = df['Material Description'].map(subcategory_mapping)
 
-        # Show unique subcategories assigned
-        if 'Assigned Subcategory' in df.columns:
-            unique_assigned = df['Assigned Subcategory'].dropna().unique()
-            st.sidebar.write(f"Unique subcategories assigned: {unique_assigned}")
-            st.sidebar.write(f"Number of items with subcategories: {df['Assigned Subcategory'].notna().sum()}")
-
         # Apply subcategory filter if selected
         if subcategory_filter != "All":
-            before_count = len(df)
             df = df[df['Assigned Subcategory'] == subcategory_filter]
-            st.sidebar.write(f"Filtered '{subcategory_filter}': {before_count} -> {len(df)} items")
     else:
         # For non-parent programs, no subcategory assignment needed
         df['Assigned Subcategory'] = None
