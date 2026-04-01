@@ -615,7 +615,7 @@ def calculate_coefficient_of_variation(values):
         return np.nan
 
 def calculate_risk(row):
-    """Calculate risk of stock out - ADDED NMOS < 2 condition to existing logic"""
+    """Calculate risk of stock out - ONLY for NMOS >= 1 (Stock Out is separate)"""
     try:
         nmos = row['NMOS'] if pd.notna(row['NMOS']) else np.nan
         git_mos = row['GIT_MOS'] if pd.notna(row['GIT_MOS']) else 0
@@ -623,20 +623,26 @@ def calculate_risk(row):
         wb_mos = row['WB_MOS'] if pd.notna(row['WB_MOS']) else 0
         tmd_mos = row['TMD_MOS'] if pd.notna(row['TMD_MOS']) else 0
 
-        # NEW CONDITION: Risk of Stock out if NMOS < 2 (regardless of pipeline)
-        if pd.notna(nmos) and nmos < 2:
+        # Only calculate risk for NMOS >= 1 (NMOS < 1 is Stock Out in Stock Status)
+        if pd.isna(nmos) or nmos < 1:
+            return ""
+
+        # Condition 1: 1 <= NMOS < 2 always risk
+        if 1 <= nmos < 2:
             return "Risk of Stock out"
 
-        # EXISTING CONDITIONS: Keep all original logic
-        if pd.notna(nmos) and nmos > 1:
-            if nmos < 2:
-                return "Risk of Stock out"
-            if nmos < 4 and git_mos == 0:
-                return "Risk of Stock out"
-            elif nmos < 6 and git_mos == 0 and lc_mos == 0 and wb_mos == 0:
-                return "Risk of Stock out"
-            elif nmos < 7 and git_mos == 0 and lc_mos == 0 and wb_mos == 0 and tmd_mos == 0:
-                return "Risk of Stock out"
+        # Condition 2: 2 <= NMOS < 4 and GIT_MOS == 0
+        if 2 <= nmos < 4 and git_mos == 0:
+            return "Risk of Stock out"
+
+        # Condition 3: 4 <= NMOS < 6 and no GIT, LC, or WB
+        if 4 <= nmos < 6 and git_mos == 0 and lc_mos == 0 and wb_mos == 0:
+            return "Risk of Stock out"
+
+        # Condition 4: 6 <= NMOS < 7 and no pipeline at all
+        if 6 <= nmos < 7 and git_mos == 0 and lc_mos == 0 and wb_mos == 0 and tmd_mos == 0:
+            return "Risk of Stock out"
+
         return ""
     except:
         return ""
