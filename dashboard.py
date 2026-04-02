@@ -56,10 +56,10 @@ if not st.session_state['auth']:
 # ---------------------------------------------------
 # Page Setup
 # ---------------------------------------------------
-st.set_page_config(page_title="Health Program Medicines Dashboard", layout="wide")
+st.set_page_config(page_title="Health Program Medicines Dashboard", layout="wide", initial_sidebar_state="expanded")
 
 # ---------------------------------------------------
-# CSS Styling
+# CSS Styling with Mobile Responsiveness
 # ---------------------------------------------------
 st.markdown("""
 <style>
@@ -174,6 +174,57 @@ st.markdown("""
         height: 20px;
         border-radius: 3px;
     }
+
+    /* Mobile Responsive Styles */
+    @media only screen and (max-width: 768px) {
+        .stApp {
+            padding: 0.5rem;
+        }
+
+        div[data-testid="stMetric"] {
+            margin-bottom: 10px;
+            padding: 10px;
+        }
+
+        h1 {
+            font-size: 24px !important;
+        }
+
+        h3 {
+            font-size: 20px !important;
+        }
+
+        button[data-baseweb="tab"] {
+            font-size: 14px !important;
+            padding: 8px 12px !important;
+            white-space: nowrap;
+        }
+
+        .stock-card {
+            padding: 10px;
+            margin: 5px 0;
+        }
+
+        .legend-box {
+            padding: 10px;
+        }
+
+        .legend-item {
+            font-size: 12px;
+        }
+
+        .stDataFrame {
+            overflow-x: auto;
+        }
+
+        div[data-testid="stMetricValue"] {
+            font-size: 24px !important;
+        }
+
+        div[data-testid="stMetricLabel"] {
+            font-size: 14px !important;
+        }
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -208,6 +259,10 @@ if 'risk_type_filter' not in st.session_state:
     st.session_state.risk_type_filter = "All"
 if 'subcategory_filter' not in st.session_state:
     st.session_state.subcategory_filter = "All"
+if 'previous_nsoh_data' not in st.session_state:
+    st.session_state.previous_nsoh_data = None
+if 'nsoh_changes' not in st.session_state:
+    st.session_state.nsoh_changes = None
 
 # Check connection periodically
 if st.session_state.supabase_client and not check_supabase_connection():
@@ -218,7 +273,7 @@ if st.session_state.supabase_client and not check_supabase_connection():
 # Program Hierarchy Configuration
 # ---------------------------------------------------
 PROGRAM_HIERARCHY = {
-    "OI and Hepatitis": {  # Exact match from Google Sheets
+    "OI and Hepatitis": {
         "subcategories": ["AHD", "Hepatitis", "OI", "STI"],
         "is_parent": True
     },
@@ -239,7 +294,6 @@ def assign_subcategories_to_materials(df, subcategory_list):
     for idx in range(len(df)):
         material_desc = str(df.iloc[idx]['Material Description']).strip()
 
-        # Check if this row is a subcategory header (exact match)
         is_subcategory = False
         for subcat in subcategory_list:
             if material_desc == subcat:
@@ -247,7 +301,6 @@ def assign_subcategories_to_materials(df, subcategory_list):
                 is_subcategory = True
                 break
 
-        # If not a subcategory header and we have a current subcategory, assign it
         if not is_subcategory and current_subcategory is not None:
             subcategory_mapping[material_desc] = current_subcategory
 
@@ -551,6 +604,59 @@ def get_table_info():
         return None
 
 # ---------------------------------------------------
+# NSOH Change Tracking Function
+# ---------------------------------------------------
+def calculate_nsoh_changes(current_df, previous_df):
+    """Calculate NSOH changes between current and previous data"""
+    if previous_df is None or previous_df.empty:
+        return None
+
+    # Get NSOH data for comparison
+    current_nsoh = current_df[['Material Description', 'NSOH']].copy()
+    previous_nsoh = previous_df[['Material Description', 'NSOH']].copy()
+
+    # Clean and convert NSOH to numeric (remove commas)
+    for df_nsoh in [current_nsoh, previous_nsoh]:
+        # Convert to string and remove commas
+        df_nsoh['NSOH'] = df_nsoh['NSOH'].astype(str).str.replace(',', '', regex=False)
+        # Remove any other non-numeric characters except decimal point
+        df_nsoh['NSOH'] = df_nsoh['NSOH'].str.replace('[^0-9.-]', '', regex=True)
+        # Replace empty strings with '0'
+        df_nsoh['NSOH'] = df_nsoh['NSOH'].replace('', '0').replace('nan', '0').replace('NaN', '0')
+        # Convert to numeric
+        df_nsoh['NSOH'] = pd.to_numeric(df_nsoh['NSOH'], errors='coerce')
+        # Fill any remaining NaN with 0
+        df_nsoh['NSOH'] = df_nsoh['NSOH'].fillna(0)
+
+    # Merge to compare
+    merged = current_nsoh.merge(previous_nsoh, on='Material Description', suffixes=('_now', '_previous'), how='inner')
+
+    # Calculate change
+    merged['Change'] = merged['NSOH_now'] - merged['NSOH_previous']
+
+    # Filter only positive changes (increase in stock)
+    positive_changes = merged[merged['Change'] > 0].copy()
+
+    if not positive_changes.empty:
+        # Sort by change amount (largest increase first)
+        positive_changes = positive_changes.sort_values('Change', ascending=False)
+
+        # Format numbers with commas for display
+        positive_changes['NSOH_previous'] = positive_changes['NSOH_previous'].apply(
+            lambda x: f"{int(x):,}" if pd.notna(x) else "0"
+        )
+        positive_changes['NSOH_now'] = positive_changes['NSOH_now'].apply(
+            lambda x: f"{int(x):,}" if pd.notna(x) else "0"
+        )
+        positive_changes['Change'] = positive_changes['Change'].apply(
+            lambda x: f"+{int(x):,}" if pd.notna(x) else "0"
+        )
+
+        return positive_changes[['Material Description', 'NSOH_previous', 'NSOH_now', 'Change']]
+
+    return None
+
+# ---------------------------------------------------
 # Utility Functions
 # ---------------------------------------------------
 def format_number_with_commas(x):
@@ -623,23 +729,18 @@ def calculate_risk(row):
         wb_mos = row['WB_MOS'] if pd.notna(row['WB_MOS']) else 0
         tmd_mos = row['TMD_MOS'] if pd.notna(row['TMD_MOS']) else 0
 
-        # Only calculate risk for NMOS >= 1 (NMOS < 1 is Stock Out in Stock Status)
         if pd.isna(nmos) or nmos < 1:
             return ""
 
-        # Condition 1: 1 <= NMOS < 2 always risk
         if 1 <= nmos < 2:
             return "Risk of Stock out"
 
-        # Condition 2: 2 <= NMOS < 4 and GIT_MOS == 0
         if 2 <= nmos < 4 and git_mos == 0:
             return "Risk of Stock out"
 
-        # Condition 3: 4 <= NMOS < 6 and no GIT, LC, or WB
         if 4 <= nmos < 6 and git_mos == 0 and lc_mos == 0 and wb_mos == 0:
             return "Risk of Stock out"
 
-        # Condition 4: 6 <= NMOS < 7 and no pipeline at all
         if 6 <= nmos < 7 and git_mos == 0 and lc_mos == 0 and wb_mos == 0 and tmd_mos == 0:
             return "Risk of Stock out"
 
@@ -659,13 +760,11 @@ def get_stock_out_recommendation(row):
         wb_po = row.get('WB_PO', '')
         tmd_po = row.get('TMD_PO', '')
 
-        # Convert to numeric
         git_mos = pd.to_numeric(git_mos, errors='coerce') if not isinstance(git_mos, (int, float)) else git_mos
         lc_mos = pd.to_numeric(lc_mos, errors='coerce') if not isinstance(lc_mos, (int, float)) else lc_mos
         wb_mos = pd.to_numeric(wb_mos, errors='coerce') if not isinstance(wb_mos, (int, float)) else wb_mos
         tmd_mos = pd.to_numeric(tmd_mos, errors='coerce') if not isinstance(tmd_mos, (int, float)) else tmd_mos
 
-        # Fill NaN with 0
         git_mos = git_mos if pd.notna(git_mos) else 0
         lc_mos = lc_mos if pd.notna(lc_mos) else 0
         wb_mos = wb_mos if pd.notna(wb_mos) else 0
@@ -691,7 +790,6 @@ def get_stock_out_recommendation(row):
 def get_expiry_risk_recommendation(row, cv_category=None):
     """Generate recommendation for Expiry Risk based on CV and distribution, including expiry quantity"""
     try:
-        # Get CV Category if not provided
         if cv_category is None:
             cv_category = row.get('CV Category', 'Unknown')
 
@@ -699,24 +797,17 @@ def get_expiry_risk_recommendation(row, cv_category=None):
         ho_pct = row.get('Head Office%', 0)
         expiry_details = row.get('Expiry Risk Details', '')
 
-        # Convert to numeric
         hubs_pct = pd.to_numeric(hubs_pct, errors='coerce') if not isinstance(hubs_pct, (int, float)) else hubs_pct
         ho_pct = pd.to_numeric(ho_pct, errors='coerce') if not isinstance(ho_pct, (int, float)) else ho_pct
         hubs_pct = hubs_pct if pd.notna(hubs_pct) else 0
         ho_pct = ho_pct if pd.notna(ho_pct) else 0
 
-        # Get expiry quantity info
         expiry_info = f" [Expiry: {expiry_details}]" if expiry_details and expiry_details != "" else ""
 
-        # Recommendation 1: Redistribution if High variation
         if cv_category == 'High variation':
             return f"🔄 Redistribution required - high variation across hubs{expiry_info}"
-
-        # Recommendation 2: Push to hubs if Hubs% < Head Office%
         elif hubs_pct < ho_pct:
             return f"📦 Push stock to hubs - hubs have lower stock than head office{expiry_info}"
-
-        # Recommendation 3: Donate to other countries (all other cases)
         else:
             return f"🌍 Donate to other countries - excess stock for donation{expiry_info}"
 
@@ -732,6 +823,19 @@ branch_amc_sheet_id = "12Z5xqX32QIzjoN6tNvGbjutMheXx5US1"
 df_external = load_national_data()
 branch_amc_data = load_branch_amc_from_google_sheets(branch_amc_sheet_id)
 google_sheets = load_google_sheets(amc_pipeline_sheet_id)
+
+# Track NSOH changes
+if not df_external.empty:
+    if st.session_state.previous_nsoh_data is not None:
+        nsoh_changes = calculate_nsoh_changes(df_external, st.session_state.previous_nsoh_data)
+        if nsoh_changes is not None:
+            st.session_state.nsoh_changes = nsoh_changes
+        else:
+            st.session_state.nsoh_changes = None
+    else:
+        st.session_state.nsoh_changes = None
+
+    st.session_state.previous_nsoh_data = df_external.copy()
 
 if df_external.empty:
     st.error("No data in Supabase. Please upload data through admin panel.")
@@ -757,7 +861,6 @@ else:
 
 sheet_name = st.sidebar.selectbox("Program", program_list, index=0, key="program_selector")
 
-# Add subcategory filter for parent programs
 subcategory_options = ["All"]
 if sheet_name in PROGRAM_HIERARCHY and PROGRAM_HIERARCHY[sheet_name]["is_parent"]:
     subcategory_options = ["All"] + PROGRAM_HIERARCHY[sheet_name]["subcategories"]
@@ -865,7 +968,6 @@ if not df.empty:
     else:
         df['Stock Status'] = ""
 
-    # Calculate percentages with proper rounding to 1 decimal
     if 'Hubs' in df.columns and 'Head Office' in df.columns and 'NSOH' in df.columns:
         hubs_vals = pd.to_numeric(df['Hubs'], errors='coerce').fillna(0)
         ho_vals = pd.to_numeric(df['Head Office'], errors='coerce').fillna(0)
@@ -879,26 +981,17 @@ if not df.empty:
         df['Head Office%'] = np.nan
         df['Avail Gap'] = np.nan
 
-    # Calculate CV Category for expiry risk recommendations
     if not branch_amc_data.empty and 'Material Description' in branch_amc_data.columns:
-        # Get branch columns from main data
         branch_cols = [col for col in df.columns if 'Branch' in col or col == 'Material Description']
-        if len(branch_cols) > 1:  # Has branch data
-            # Create a dataframe with branch stock data
+        if len(branch_cols) > 1:
             stock_data = df[branch_cols].copy()
-
-            # Merge with branch AMC data
             merged_cv = pd.merge(stock_data, branch_amc_data, on='Material Description', how='inner', suffixes=('_stock', '_amc'))
 
             if not merged_cv.empty:
-                # Calculate MOS for each branch
                 branch_cols_list = [col for col in stock_data.columns if col != 'Material Description']
                 amc_cols = [col for col in branch_amc_data.columns if col != 'Material Description']
-
-                # Create CV calculation dataframe
                 cv_calc_data = {'Material Description': merged_cv['Material Description']}
 
-                # Calculate MOS for each branch
                 for i in range(min(len(branch_cols_list), len(amc_cols))):
                     stock_col = branch_cols_list[i]
                     amc_col = amc_cols[i]
@@ -909,13 +1002,10 @@ if not df.empty:
                     cv_calc_data[stock_col] = mos_vals
 
                 cv_df = pd.DataFrame(cv_calc_data)
-
-                # Calculate CV for each material
                 mos_cols_for_cv = [col for col in cv_df.columns if col != 'Material Description']
                 cv_df['CV (%)'] = cv_df[mos_cols_for_cv].apply(lambda row: calculate_coefficient_of_variation(row), axis=1)
                 cv_df['CV (%)'] = cv_df['CV (%)'].round(1)
 
-                # Categorize CV
                 def categorize_cv(cv_value):
                     if pd.isna(cv_value):
                         return "Unknown"
@@ -927,8 +1017,6 @@ if not df.empty:
                         return "High variation"
 
                 cv_df['CV Category'] = cv_df['CV (%)'].apply(categorize_cv)
-
-                # Merge CV Category back to main dataframe
                 df = df.merge(cv_df[['Material Description', 'CV Category']], on='Material Description', how='left')
             else:
                 df['CV Category'] = "Unknown"
@@ -937,19 +1025,14 @@ if not df.empty:
     else:
         df['CV Category'] = "Unknown"
 
-    # Assign subcategories based on sequential order for parent programs
     if sheet_name in PROGRAM_HIERARCHY:
         subcategory_list = PROGRAM_HIERARCHY[sheet_name]["subcategories"]
         subcategory_mapping = assign_subcategories_to_materials(df, subcategory_list)
-
-        # Add Assigned Subcategory column
         df['Assigned Subcategory'] = df['Material Description'].map(subcategory_mapping)
 
-        # Apply subcategory filter if selected
         if subcategory_filter != "All":
             df = df[df['Assigned Subcategory'] == subcategory_filter]
     else:
-        # For non-parent programs, no subcategory assignment needed
         df['Assigned Subcategory'] = None
 
     if 'NMOS' in df.columns:
@@ -957,12 +1040,10 @@ if not df.empty:
     else:
         df['Risk of Stock'] = ""
 
-    # Calculate Expiry Risk
     expiry_data = df.apply(lambda row: parse_multiple_expiry_batches(row.get('Expiry', ''), row.get('AMC', np.nan)), axis=1)
     df['Has Expiry Risk'] = expiry_data.apply(lambda x: x[0])
     df['Expiry Risk Details'] = expiry_data.apply(lambda x: x[1])
 
-    # Create Risk Type column
     risk_types = []
     for idx, row in df.iterrows():
         risk_of_stock = row.get('Risk of Stock', '') == 'Risk of Stock out'
@@ -1001,7 +1082,6 @@ if not df.empty:
         materials = ["All"] + sorted(df['Material Description'].astype(str).unique())
         statuses = ["All"] + sorted([s for s in df['Stock Status'].unique() if s != "" and pd.notna(s)]) if 'Stock Status' in df.columns else ["All"]
 
-        # Risk Type Filter
         risk_type_options = ["All", "Risk of Stock out", "Expiry Risk", "Critical Risk"]
         risk_type_filter = st.sidebar.selectbox("Risk Type", risk_type_options, index=risk_type_options.index(st.session_state.risk_type_filter) if st.session_state.risk_type_filter in risk_type_options else 0)
         st.session_state.risk_type_filter = risk_type_filter
@@ -1019,7 +1099,6 @@ if not df.empty:
             df_filtered = df_filtered[df_filtered['Stock Status'] == status_filter]
             display_df_filtered = display_df_filtered[display_df_filtered['Stock Status'] == status_filter]
 
-        # Apply Risk Type Filter using the Risk Type column
         if risk_type_filter == "Risk of Stock out":
             df_filtered = df_filtered[df_filtered['Risk Type'] == "Risk of Stock out"]
             display_df_filtered = display_df_filtered[display_df_filtered['Risk Type'] == "Risk of Stock out"]
@@ -1177,7 +1256,6 @@ if not df_filtered.empty:
     normal = len(df_filtered[df_filtered['Stock Status'] == 'Normal Stock']) if 'Stock Status' in df_filtered.columns else 0
     overstock = len(df_filtered[df_filtered['Stock Status'] == 'Overstock']) if 'Stock Status' in df_filtered.columns else 0
 
-    # Get program name for metrics
     if sheet_name == "All":
         program_display = "All Programs"
     elif subcategory_filter != "All":
@@ -1240,7 +1318,6 @@ with tab1:
         else:
             st.info(f"📊 Showing all {len(search_df)} records")
 
-        # Reorder columns
         cols = list(search_df.columns)
         if 'Material Description' in cols:
             cols.remove('Material Description')
@@ -1328,7 +1405,6 @@ with tab1:
 
             st.dataframe(styled, column_config=column_config, use_container_width=True, hide_index=True, height=min(800, (len(search_df) + 1) * 35))
 
-            # Add color legend after table
             st.markdown("""
             <div class="legend-box">
                 <h5 class="legend-title">📊 Color Legend - Stock Status:</h5>
@@ -1367,14 +1443,11 @@ with tab1:
         st.markdown("---")
         st.markdown("<h4 style='font-size: 20px; font-weight: bold; font-family: Times New Roman;'>📥 Download Report</h4>", unsafe_allow_html=True)
 
-        # Create report from Material Description to TMOS
         report_columns = []
 
-        # Start with Material Description
         if 'Material Description' in df_filtered.columns:
             report_columns.append('Material Description')
 
-        # Add all columns from Material Description to TMOS in proper order
         all_columns = list(df_filtered.columns)
 
         if 'Material Description' in all_columns and 'TMOS' in all_columns:
@@ -1382,7 +1455,6 @@ with tab1:
             tmos_index = all_columns.index('TMOS')
             all_cols_between = all_columns[mat_index:tmos_index + 1]
 
-            # Ensure proper ordering: AMC then NMOS
             if 'AMC' in all_cols_between and 'NMOS' in all_cols_between:
                 for col in all_cols_between:
                     if col == 'NMOS':
@@ -1394,29 +1466,23 @@ with tab1:
             else:
                 report_columns = all_cols_between
         else:
-            # If TMOS not found, use all available columns
             for col in all_columns:
                 if col not in ['Stock Status', 'Risk of Stock', 'Hubs%', 'Head Office%', 'Avail Gap', 'CV (%)', 'CV Category', 'Has Expiry Risk', 'Expiry Risk Details', 'Assigned Subcategory']:
                     report_columns.append(col)
 
-        # Ensure we have at least Material Description
         if not report_columns:
             report_columns = ['Material Description']
 
-        # Remove duplicates while preserving order
         report_columns = list(dict.fromkeys(report_columns))
 
-        # Create report dataframe with original numeric values (not formatted)
         report_df = df_filtered[report_columns].copy()
 
-        # Format numeric columns for Excel export
         for col in report_df.columns:
             if col in ['NMOS', 'GIT_MOS', 'LC_MOS', 'WB_MOS', 'TMD_MOS', 'TMOS']:
                 report_df[col] = report_df[col].apply(lambda x: round(x, 2) if pd.notna(x) else "")
             elif col in ['NSOH', 'AMC', 'Hubs', 'Head Office']:
                 report_df[col] = report_df[col].apply(lambda x: f"{int(x):,}" if pd.notna(x) and x != "" else "" if x == "" else x)
 
-        # Add Risk Type column to report
         risk_types_report = []
         for idx in range(len(report_df)):
             row = df_filtered.iloc[idx]
@@ -1446,7 +1512,6 @@ with tab1:
                 report_df.to_excel(writer, sheet_name=report_title[:31], index=False)
                 worksheet = writer.sheets[report_title[:31]]
 
-                # Adjust column widths
                 for column in report_df.columns:
                     column_length = max(report_df[column].astype(str).map(len).max(), len(column))
                     column_length = min(column_length, 50)
@@ -1475,6 +1540,40 @@ with tab1:
                 mime="text/csv",
                 use_container_width=True
             )
+
+        # ---------------------------------------------------
+        # NSOH CHANGES TABLE
+        # ---------------------------------------------------
+        st.markdown("---")
+        st.markdown("<h4 style='font-size: 20px; font-weight: bold; font-family: Times New Roman;'>📈 NSOH Changes Since Last Update</h4>", unsafe_allow_html=True)
+
+        if st.session_state.nsoh_changes is not None and not st.session_state.nsoh_changes.empty:
+            st.info("📊 Materials that received new stock (positive NSOH change):")
+
+            st.dataframe(
+                st.session_state.nsoh_changes,
+                column_config={
+                    "Material Description": st.column_config.TextColumn("Material", width=300),
+                    "NSOH_previous": st.column_config.TextColumn("Previous NSOH", width=120),
+                    "NSOH_now": st.column_config.TextColumn("Current NSOH", width=120),
+                    "Change": st.column_config.TextColumn("Increase (+)", width=100)
+                },
+                use_container_width=True,
+                hide_index=True
+            )
+
+            changes_csv = st.session_state.nsoh_changes.to_csv(index=False)
+            st.download_button(
+                label="📥 Download NSOH Changes (CSV)",
+                data=changes_csv,
+                file_name=f"nsoh_changes_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                mime="text/csv",
+                use_container_width=True
+            )
+        elif st.session_state.previous_nsoh_data is not None:
+            st.success("✅ No NSOH increases detected since last update. All stock levels remained the same or decreased.")
+        else:
+            st.info("ℹ️ NSOH change tracking will appear after the next Supabase data update. This is the first data load.")
     else:
         st.info("No data available.")
 
@@ -1482,7 +1581,6 @@ with tab1:
 # TAB 2 - KPIs & Analytics
 # ---------------------------------------------------
 with tab2:
-    # Get program name for metrics
     if sheet_name == "All":
         program_display = "All Programs"
     elif subcategory_filter != "All":
@@ -1498,17 +1596,14 @@ with tab2:
         availability = (nmos_values > 1).mean() * 100 if len(nmos_values) > 0 else 0
         sap = ((nmos_values >= 6) & (nmos_values <= 18)).mean() * 100 if len(nmos_values) > 0 else 0
 
-        # Calculate Avail Gap
         if 'Avail Gap' in df_filtered.columns:
             avail_gap_values = pd.to_numeric(df_filtered['Avail Gap'], errors='coerce').dropna()
             avg_avail_gap = avail_gap_values.mean() if len(avail_gap_values) > 0 else 0
         else:
             avg_avail_gap = 0
 
-        # Availability target is 100%
         avail_delta = availability - 100
 
-        # Avail Gap target is between -5% and 5%
         if -5 <= avg_avail_gap <= 5:
             avail_gap_status = "✅ Within Target (-5% to 5%)"
             avail_gap_delta = None
@@ -1532,7 +1627,6 @@ with tab2:
 
         st.markdown("---")
 
-        # Gauge Charts
         def create_kpi_fig(value, target, title):
             color = 'red' if value < target else 'black'
             return go.Figure(go.Indicator(mode="gauge+number", value=value, number={'suffix': '%', 'font': {'size': 36, 'color': color}}, title={'text': f"<b>{title}</b>", 'font': {'size': 24}}, gauge={'axis': {'range': [0, 100]}, 'bar': {'color': 'skyblue'}}))
@@ -1543,7 +1637,6 @@ with tab2:
         with col2:
             st.plotly_chart(create_kpi_fig(sap, 65, "SAP"), use_container_width=True)
 
-        # Stock Status Pie Chart
         try:
             if 'Stock Status' in df_filtered.columns:
                 status_counts = df_filtered['Stock Status'].replace("", np.nan).dropna().value_counts()
@@ -1556,7 +1649,6 @@ with tab2:
         except Exception as e:
             pass
 
-        # Pipeline Status Analysis
         st.markdown("### 🚚 Pipeline Status Analysis")
         pipeline_cols = [col for col in ['GIT_MOS', 'LC_MOS', 'WB_MOS', 'TMD_MOS'] if col in df_filtered.columns]
         if pipeline_cols:
@@ -1570,7 +1662,6 @@ with tab2:
         else:
             st.info("Pipeline MOS columns not available")
 
-        # Critical Items - Stock Out
         st.markdown("### ⚠️ Critical Items - Stock Out")
         stock_out_items = df_filtered[df_filtered['Stock Status'] == 'Stock Out'][['Material Description', 'NSOH', 'AMC', 'NMOS']].copy()
         if not stock_out_items.empty:
@@ -1581,7 +1672,6 @@ with tab2:
         else:
             st.success("✅ No stock out items found!")
 
-        # MOS Horizontal Bar Chart
         try:
             if 'Material Description' in df_filtered.columns and 'NMOS' in df_filtered.columns:
                 mos_cols_chart = ['Material Description', 'NMOS', 'GIT_MOS', 'LC_MOS', 'WB_MOS', 'TMD_MOS', 'TMOS']
@@ -1619,7 +1709,6 @@ with tab2:
         except Exception as e:
             st.error(f"Error creating MOS chart: {e}")
 
-        # Hubs vs Head Office Stacked Bar Chart
         try:
             if all(col in df_filtered.columns for col in ['Hubs', 'Head Office', 'NSOH', 'Material Description']):
                 hubs_vals = pd.to_numeric(df_filtered['Hubs'], errors='coerce').fillna(0)
@@ -1669,12 +1758,9 @@ with tab3:
         decision_df = df_filtered[['Material Description', 'NSOH', 'Expiry', 'AMC', 'NMOS', 'Status', 'Risk Type', 'Stock Status', 'Expiry Risk Details', 
                                    'GIT_MOS', 'LC_MOS', 'WB_MOS', 'TMD_MOS', 'GIT_PO', 'LC_PO', 'WB_PO', 'TMD_PO', 'Hubs%', 'Head Office%', 'CV Category']].copy()
 
-        # Create Identified Problems column
         def get_identified_problems(row):
-            # Check for Stock Out first (most critical)
             if row.get('Stock Status') == 'Stock Out':
                 return "Stock Out"
-            # Then check Risk Type
             risk = row.get('Risk Type', '')
             if risk and risk != '':
                 return risk
@@ -1682,15 +1768,12 @@ with tab3:
 
         decision_df['Identified Problems'] = decision_df.apply(get_identified_problems, axis=1)
 
-        # Create Recommendation column with automated recommendations (no separate Detail column)
         def get_automated_recommendation(row):
             problem = row.get('Identified Problems', '')
             if problem == 'Expiry Risk':
-                # Get CV Category directly from the row
                 cv_cat = row.get('CV Category', 'Unknown')
                 return get_expiry_risk_recommendation(row, cv_cat)
             elif problem == 'Critical Risk':
-                # For critical risk, combine both recommendations
                 stock_rec = get_stock_out_recommendation(row)
                 cv_cat = row.get('CV Category', 'Unknown')
                 expiry_rec = get_expiry_risk_recommendation(row, cv_cat)
@@ -1701,11 +1784,9 @@ with tab3:
 
         decision_df['Recommendation'] = decision_df.apply(get_automated_recommendation, axis=1)
 
-        # Filter to show only items with problems
         decision_df = decision_df[decision_df['Identified Problems'] != ''].copy()
 
         if len(decision_df) > 0:
-            # Format numeric columns for display
             for col in ['NSOH', 'AMC']:
                 if col in decision_df.columns:
                     decision_df[col] = decision_df[col].apply(format_number_with_commas)
@@ -1716,7 +1797,6 @@ with tab3:
             if 'Head Office%' in decision_df.columns:
                 decision_df['Head Office%'] = decision_df['Head Office%'].apply(lambda x: f"{x:.1f}%" if pd.notna(x) else "")
 
-            # Quick Summary
             st.markdown("<h4 style='font-size: 24px; font-weight: bold; font-family: Times New Roman;'>Quick Summary</h4>", unsafe_allow_html=True)
             col1, col2, col3, col4 = st.columns(4)
             with col1:
@@ -1730,15 +1810,12 @@ with tab3:
 
             st.markdown("---")
 
-            # Sales and Operational Planning
             st.markdown("### ✏️ Sales and Operational Planning")
             st.info("💡 Recommendations are auto-generated based on pipeline status (with PO numbers) and distribution patterns. You can edit them as needed.")
 
-            # Ensure all needed columns exist for display (no Detail column)
             display_columns = ['Material Description', 'NSOH', 'Expiry', 'AMC', 'NMOS', 'Status', 'CV Category', 'Identified Problems', 'Recommendation']
             available_display_columns = [col for col in display_columns if col in decision_df.columns]
 
-            # Create column config with editable Recommendation column
             column_config = {
                 "Material Description": st.column_config.TextColumn("Material", width=250, disabled=True, pinned=True),
                 "NSOH": st.column_config.TextColumn("NSOH", width=100, disabled=True),
@@ -1760,13 +1837,11 @@ with tab3:
                 num_rows="fixed"
             )
 
-            # Save recommendations
             for idx, row in edited_result.iterrows():
                 st.session_state.saved_recommendations[row['Material Description']] = {
                     'recommendation': row['Recommendation']
                 }
 
-            # Download button
             st.download_button(
                 label="📥 Download Decision Briefs (CSV)", 
                 data=edited_result.to_csv(index=False), 
@@ -1775,7 +1850,6 @@ with tab3:
                 use_container_width=True
             )
 
-            # Clear Recommendations button only (removed Summary Statistics button)
             if st.button("🗑️ Clear All Recommendations", use_container_width=True):
                 st.session_state.saved_recommendations = {}
                 st.rerun()
@@ -1783,7 +1857,6 @@ with tab3:
             st.markdown("---")
             st.markdown("### 📇 Card View with Recommendations")
 
-            # Card View with Recommendations (no separate Detail)
             for idx, row in decision_df.iterrows():
                 risk_type = row['Identified Problems']
                 if risk_type == "Critical Risk":
