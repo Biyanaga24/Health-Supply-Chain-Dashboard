@@ -1,15 +1,13 @@
+# auth.py
 import streamlit as st
 import hashlib
-import sqlite3
 import pandas as pd
 from datetime import datetime, timedelta
-import pickle
-import os
 import warnings
 import logging
-import random
+from supabase import create_client
 
-# Suppress all warnings and connection-related messages
+# Suppress warnings
 warnings.filterwarnings("ignore")
 logging.getLogger("urllib3").setLevel(logging.ERROR)
 logging.getLogger("requests").setLevel(logging.ERROR)
@@ -26,126 +24,102 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# CREATE DATABASE AND TABLES
-conn = sqlite3.connect('users.db')
-c = conn.cursor()
+# Initialize Supabase client using secrets
+@st.cache_resource
+def init_supabase():
+    return create_client(st.secrets["SUPABASE_URL"], st.secrets["SUPABASE_KEY"])
 
-# Create users table with is_approved column
-c.execute('''
-    CREATE TABLE IF NOT EXISTS users (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        email TEXT UNIQUE NOT NULL,
-        password TEXT NOT NULL,
-        full_name TEXT NOT NULL,
-        role TEXT DEFAULT 'user',
-        is_approved INTEGER DEFAULT 0,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-    )
-''')
+supabase = init_supabase()
 
-# Add admin user if not exists (auto-approved)
-admin_password = hashlib.sha256('Admin@123'.encode()).hexdigest()
-c.execute("INSERT OR IGNORE INTO users (email, password, full_name, role, is_approved) VALUES (?, ?, ?, ?, ?)",
-          ('admin@health.gov.et', admin_password, 'System Administrator', 'admin', 1))
-
-# Add test user if not exists (auto-approved for testing)
-test_password = hashlib.sha256('Test@123'.encode()).hexdigest()
-c.execute("INSERT OR IGNORE INTO users (email, password, full_name, role, is_approved) VALUES (?, ?, ?, ?, ?)",
-          ('test@health.gov.et', test_password, 'Test User', 'user', 1))
-
-conn.commit()
-conn.close()
-
-# DATABASE FUNCTIONS
+# DATABASE FUNCTIONS (Supabase version)
 def authenticate_user(email, password):
-    conn = sqlite3.connect('users.db')
-    c = conn.cursor()
+    """Authenticate user from Supabase"""
     hashed = hashlib.sha256(password.encode()).hexdigest()
-    c.execute("SELECT id, email, full_name, role, is_approved FROM users WHERE email = ? AND password = ?", (email, hashed))
-    user = c.fetchone()
-    conn.close()
+    response = supabase.table("users") \
+        .select("id, email, full_name, role, is_approved") \
+        .eq("email", email) \
+        .eq("password", hashed) \
+        .execute()
 
-    if user:
-        if user[4] == 0:
+    if response.data:
+        user = response.data[0]
+        if user['is_approved'] == 0:
             return {'error': 'not_approved'}
         return {
-            'id': user[0],
-            'email': user[1],
-            'full_name': user[2],
-            'role': user[3],
-            'is_approved': user[4]
+            'id': user['id'],
+            'email': user['email'],
+            'full_name': user['full_name'],
+            'role': user['role'],
+            'is_approved': user['is_approved']
         }
     return None
 
 def create_user(email, password, full_name):
+    """Create new user in Supabase"""
     try:
-        conn = sqlite3.connect('users.db')
-        c = conn.cursor()
         hashed = hashlib.sha256(password.encode()).hexdigest()
-        c.execute("INSERT INTO users (email, password, full_name, role, is_approved) VALUES (?, ?, ?, ?, ?)",
-                  (email, hashed, full_name, 'user', 0))
-        conn.commit()
-        conn.close()
+        supabase.table("users").insert({
+            "email": email,
+            "password": hashed,
+            "full_name": full_name,
+            "role": "user",
+            "is_approved": 0
+        }).execute()
         return True, "Registration successful! Your account is pending admin approval."
-    except sqlite3.IntegrityError:
-        return False, "Email already exists. Please use a different email."
     except Exception as e:
+        if "duplicate key" in str(e).lower() or "unique constraint" in str(e).lower():
+            return False, "Email already exists. Please use a different email."
         return False, f"Registration failed: {e}"
 
 def get_pending_users():
-    conn = sqlite3.connect('users.db')
-    df = pd.read_sql_query("SELECT id, email, full_name, created_at FROM users WHERE is_approved = 0", conn)
-    conn.close()
-    return df
+    """Get all pending users"""
+    response = supabase.table("users") \
+        .select("id, email, full_name, created_at") \
+        .eq("is_approved", 0) \
+        .execute()
+    return pd.DataFrame(response.data) if response.data else pd.DataFrame()
 
 def get_all_users():
-    conn = sqlite3.connect('users.db')
-    df = pd.read_sql_query("SELECT id, email, full_name, role, is_approved, created_at FROM users", conn)
-    conn.close()
-    return df
+    """Get all users"""
+    response = supabase.table("users") \
+        .select("id, email, full_name, role, is_approved, created_at") \
+        .execute()
+    return pd.DataFrame(response.data) if response.data else pd.DataFrame()
 
 def approve_user(user_id):
+    """Approve a user"""
     try:
-        conn = sqlite3.connect('users.db')
-        c = conn.cursor()
-        c.execute("UPDATE users SET is_approved = 1 WHERE id = ?", (user_id,))
-        conn.commit()
-        conn.close()
+        supabase.table("users") \
+            .update({"is_approved": 1}) \
+            .eq("id", user_id) \
+            .execute()
         return True
     except Exception as e:
         return False
 
 def reject_user(user_id):
+    """Reject/delete a user"""
     try:
-        conn = sqlite3.connect('users.db')
-        c = conn.cursor()
-        c.execute("DELETE FROM users WHERE id = ?", (user_id,))
-        conn.commit()
-        conn.close()
+        supabase.table("users").delete().eq("id", user_id).execute()
         return True
     except Exception as e:
         return False
 
 def delete_user(user_id):
+    """Delete a user"""
     try:
-        conn = sqlite3.connect('users.db')
-        c = conn.cursor()
-        c.execute("SELECT id, email, full_name FROM users WHERE id = ?", (user_id,))
-        user = c.fetchone()
+        # Get user info first
+        response = supabase.table("users") \
+            .select("id, email, full_name") \
+            .eq("id", user_id) \
+            .execute()
 
-        if not user:
-            conn.close()
+        if not response.data:
             return False, f"User with ID {user_id} not found"
 
-        c.execute("DELETE FROM users WHERE id = ?", (user_id,))
-        conn.commit()
-        affected_rows = c.rowcount
-        conn.close()
-
-        if affected_rows > 0:
-            return True, f"User {user[2]} deleted successfully"
-        else:
-            return False, "No rows were deleted"
+        user = response.data[0]
+        supabase.table("users").delete().eq("id", user_id).execute()
+        return True, f"User {user['full_name']} deleted successfully"
     except Exception as e:
         return False, str(e)
 
@@ -473,7 +447,7 @@ def show_profile_page():
         <div class="profile-card">
             <h3 style="font-family: 'Times New Roman', Times, serif;">📋 Account Information</h3>
             <table style="width: 100%;">
-                 <tr>
+                <tr>
                     <td style="padding: 8px 0; font-family: 'Times New Roman', Times, serif;"><strong>📧 Email</strong></td>
                     <td style="padding: 8px 0; font-family: 'Times New Roman', Times, serif;">{user['email']}</td>
                 </tr>
