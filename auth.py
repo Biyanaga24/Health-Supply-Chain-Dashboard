@@ -27,12 +27,13 @@ def init_supabase():
 supabase = init_supabase()
 
 # ============================================================
-# DATABASE FUNCTIONS (Supabase only - NO SQLite)
+# DATABASE FUNCTIONS
 # ============================================================
 
 def authenticate_user(email, password):
     """Authenticate user from Supabase"""
     hashed = hashlib.sha256(password.encode()).hexdigest()
+
     response = supabase.table("users") \
         .select("id, email, full_name, role, is_approved") \
         .eq("email", email) \
@@ -80,7 +81,7 @@ def get_pending_users():
 def get_all_users():
     """Get all users"""
     response = supabase.table("users") \
-        .select("id, email, full_name, role, is_approved, created_at") \
+        .select("*") \
         .execute()
     return pd.DataFrame(response.data) if response.data else pd.DataFrame()
 
@@ -106,7 +107,6 @@ def reject_user(user_id):
 def delete_user(user_id):
     """Delete a user"""
     try:
-        # Get user info first
         response = supabase.table("users") \
             .select("id, email, full_name") \
             .eq("id", user_id) \
@@ -134,18 +134,14 @@ def check_session_validity():
     return True
 
 # ============================================================
-# UI FUNCTIONS (Keep all your existing UI code below)
+# UI FUNCTIONS
 # ============================================================
 
 def show_login_page():
     st.markdown("""
     <style>
-    * {
-        font-family: 'Times New Roman', Times, serif !important;
-    }
-    .stApp {
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-    }
+    * { font-family: 'Times New Roman', Times, serif !important; }
+    .stApp { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); }
     .main-title {
         text-align: center;
         padding: 1.5rem;
@@ -327,10 +323,14 @@ def show_login_page():
 def show_profile_page():
     st.markdown("## 👤 User Profile")
     user = st.session_state['user']
-    st.write(f"**Email:** {user['email']}")
-    st.write(f"**Full Name:** {user['full_name']}")
-    st.write(f"**Role:** {user['role'].title()}")
-    st.write(f"**Status:** {'Approved' if user.get('is_approved', 1) else 'Pending Approval'}")
+
+    col1, col2 = st.columns(2)
+    with col1:
+        st.write(f"**📧 Email:** {user['email']}")
+        st.write(f"**👤 Full Name:** {user['full_name']}")
+    with col2:
+        st.write(f"**🔑 Role:** {user['role'].title()}")
+        st.write(f"**✅ Status:** {'Approved' if user.get('is_approved', 1) else 'Pending Approval'}")
 
 def show_admin_panel():
     st.markdown("## 👑 Admin Control Panel")
@@ -338,18 +338,21 @@ def show_admin_panel():
     pending_df = get_pending_users()
     all_users = get_all_users()
 
+    # Display metrics
     col1, col2, col3 = st.columns(3)
     with col1:
-        st.metric("Total Users", len(all_users))
+        st.metric("👥 Total Users", len(all_users))
     with col2:
-        st.metric("Pending Approvals", len(pending_df))
+        st.metric("⏳ Pending Approvals", len(pending_df))
     with col3:
-        st.metric("Approved Users", len(all_users[all_users['is_approved'] == 1]) if not all_users.empty else 0)
+        approved_count = len(all_users[all_users['is_approved'] == 1]) if not all_users.empty else 0
+        st.metric("✅ Approved Users", approved_count)
 
     st.markdown("---")
 
-    tab1, tab2 = st.tabs(["Pending Approvals", "All Users"])
+    tab1, tab2 = st.tabs(["⏳ Pending Approvals", "📋 All Users"])
 
+    # Tab 1: Pending Approvals
     with tab1:
         if not pending_df.empty:
             for idx, row in pending_df.iterrows():
@@ -370,13 +373,37 @@ def show_admin_panel():
                             st.rerun()
                 st.divider()
         else:
-            st.info("No pending approvals")
+            st.info("✅ No pending approvals")
+
+    # Tab 2: All Users
+    with tab2:
+        if not all_users.empty:
+            # Display all users in a clean table
+            display_df = all_users[['id', 'email', 'full_name', 'role', 'is_approved', 'created_at']].copy()
+            display_df['is_approved'] = display_df['is_approved'].apply(lambda x: "✅ Yes" if x == 1 else "⏳ No")
+
+            st.dataframe(
+                display_df,
+                use_container_width=True,
+                hide_index=True,
+                column_config={
+                    "id": st.column_config.NumberColumn("ID", width="small"),
+                    "email": st.column_config.TextColumn("Email", width="medium"),
+                    "full_name": st.column_config.TextColumn("Full Name", width="medium"),
+                    "role": st.column_config.TextColumn("Role", width="small"),
+                    "is_approved": st.column_config.TextColumn("Approved", width="small"),
+                    "created_at": st.column_config.TextColumn("Registered", width="medium")
+                }
+            )
+            st.caption(f"📊 Total: {len(all_users)} users")
+        else:
+            st.info("No users found")
 
 def show_dashboard():
     st.markdown("## 📊 Dashboard")
     user = st.session_state['user']
     st.markdown(f"### 👋 Welcome, {user['full_name']}!")
-    st.info("Your main dashboard content goes here...")
+    st.info("Your main dashboard will load your health data here...")
 
 def main():
     init_session_state()
