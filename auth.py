@@ -1,10 +1,12 @@
 import streamlit as st
 import hashlib
 import pandas as pd
-from datetime import datetime
+from datetime import datetime, timedelta
 import warnings
 import logging
 from supabase import create_client
+import time
+import uuid
 
 # Suppress warnings
 warnings.filterwarnings("ignore")
@@ -121,17 +123,94 @@ def delete_user(user_id):
     except Exception as e:
         return False, str(e)
 
+def update_user_session(user_id, session_id):
+    """Update user's last activity timestamp and session ID"""
+    try:
+        # Check if columns exist, if not, we'll just update last_active
+        supabase.table("users").update({
+            "last_active": datetime.now().isoformat(),
+            "session_id": session_id,
+            "is_online": True
+        }).eq("id", user_id).execute()
+        return True
+    except Exception as e:
+        # If columns don't exist, try without them
+        try:
+            supabase.table("users").update({
+                "last_active": datetime.now().isoformat()
+            }).eq("id", user_id).execute()
+            return True
+        except:
+            return False
+
+def get_online_users():
+    """Get list of users currently online (active in last 5 minutes)"""
+    try:
+        # Consider users active in the last 5 minutes as online
+        five_minutes_ago = (datetime.now() - timedelta(minutes=5)).isoformat()
+
+        response = supabase.table("users") \
+            .select("id, email, full_name, role, last_active, session_id") \
+            .eq("is_approved", 1) \
+            .gt("last_active", five_minutes_ago) \
+            .execute()
+
+        if response.data:
+            # Sort by last_active (most recent first)
+            online_users = sorted(response.data, key=lambda x: x.get('last_active', ''), reverse=True)
+            return online_users
+        return []
+    except Exception as e:
+        print(f"Error getting online users: {e}")
+        return []
+
+def set_user_offline(user_id):
+    """Set user as offline"""
+    try:
+        supabase.table("users").update({
+            "is_online": False,
+            "session_id": None
+        }).eq("id", user_id).execute()
+        return True
+    except Exception as e:
+        # If columns don't exist, just return True
+        return True
+
 def init_session_state():
     """Initialize all session state variables"""
+    # Initialize session_id FIRST before anything else
+    if 'session_id' not in st.session_state:
+        # Generate a unique session ID using uuid
+        st.session_state['session_id'] = str(uuid.uuid4())
+
     if 'auth' not in st.session_state:
         st.session_state['auth'] = False
     if 'user' not in st.session_state:
         st.session_state['user'] = None
     if 'login_time' not in st.session_state:
         st.session_state['login_time'] = None
+    if 'last_activity' not in st.session_state:
+        st.session_state['last_activity'] = datetime.now()
 
 def check_session_validity():
-    return True
+    """Check and update user's online status"""
+    if st.session_state.get('auth') and st.session_state.get('user'):
+        # Update last activity every 30 seconds
+        now = datetime.now()
+        if (now - st.session_state.get('last_activity', now)).seconds >= 30:
+            update_user_session(
+                st.session_state['user']['id'], 
+                st.session_state['session_id']
+            )
+            st.session_state['last_activity'] = now
+
+def logout_user():
+    """Handle user logout"""
+    if st.session_state.get('user'):
+        set_user_offline(st.session_state['user']['id'])
+    for key in list(st.session_state.keys()):
+        del st.session_state[key]
+    st.rerun()
 
 # ============================================================
 # UI FUNCTIONS
@@ -218,6 +297,35 @@ def show_login_page():
         border-color: #667eea;
         box-shadow: 0 0 0 2px rgba(102, 126, 234, 0.2);
     }
+    .online-user-card {
+        background: linear-gradient(135deg, #667eea15 0%, #764ba215 100%);
+        border-left: 4px solid #4caf50;
+        padding: 10px;
+        margin: 5px 0;
+        border-radius: 8px;
+        transition: transform 0.2s;
+    }
+    .online-user-card:hover {
+        transform: translateX(5px);
+    }
+    .online-indicator {
+        display: inline-block;
+        width: 10px;
+        height: 10px;
+        border-radius: 50%;
+        background-color: #4caf50;
+        animation: pulse 2s infinite;
+        margin-right: 8px;
+    }
+    @keyframes pulse {
+        0% { transform: scale(1); opacity: 1; }
+        50% { transform: scale(1.2); opacity: 0.7; }
+        100% { transform: scale(1); opacity: 1; }
+    }
+    .refresh-btn {
+        text-align: right;
+        margin-bottom: 10px;
+    }
     </style>
     """, unsafe_allow_html=True)
 
@@ -282,9 +390,16 @@ def show_login_page():
                             if user and 'error' in user:
                                 st.error("⏳ Your account is pending admin approval. Please wait.")
                             elif user:
+                                # Ensure session_id exists before using it
+                                if 'session_id' not in st.session_state:
+                                    st.session_state['session_id'] = str(uuid.uuid4())
+
                                 st.session_state['auth'] = True
                                 st.session_state['user'] = user
                                 st.session_state['login_time'] = datetime.now()
+                                st.session_state['last_activity'] = datetime.now()
+                                # Update user session
+                                update_user_session(user['id'], st.session_state['session_id'])
                                 st.success("✅ Login successful! Redirecting...")
                                 st.balloons()
                                 st.rerun()
@@ -332,14 +447,69 @@ def show_profile_page():
         st.write(f"**🔑 Role:** {user['role'].title()}")
         st.write(f"**✅ Status:** {'Approved' if user.get('is_approved', 1) else 'Pending Approval'}")
 
+def show_online_users():
+    """Display online users widget"""
+    st.markdown("### 🟢 Who's Online")
+
+    # Add manual refresh button
+    col1, col2 = st.columns([6, 1])
+    with col2:
+        if st.button("🔄 Refresh", key="refresh_online"):
+            st.rerun()
+
+    with col1:
+        online_users = get_online_users()
+
+        if online_users:
+            st.markdown(f"**{len(online_users)} user(s) currently online**")
+            st.markdown("---")
+
+            for user in online_users:
+                # Don't show current user as separate - they're included in the list
+                is_current = st.session_state['user']['id'] == user['id']
+                user_icon = "👤" if not is_current else "⭐"
+                user_name = f"{user_icon} **{user['full_name']}**" + (" (You)" if is_current else "")
+
+                # Calculate last active time
+                last_active = datetime.fromisoformat(user['last_active']) if user.get('last_active') else None
+                if last_active:
+                    time_diff = datetime.now() - last_active
+                    if time_diff.seconds < 60:
+                        active_text = f"Active {time_diff.seconds} seconds ago"
+                    else:
+                        active_text = f"Active {time_diff.seconds // 60} minutes ago"
+                else:
+                    active_text = "Just now"
+
+                st.markdown(f"""
+                <div class="online-user-card">
+                    <div style="display: flex; justify-content: space-between; align-items: center;">
+                        <div>
+                            <span class="online-indicator"></span>
+                            {user_name}
+                        </div>
+                        <small style="color: #666;">{active_text}</small>
+                    </div>
+                    <div style="margin-top: 5px; margin-left: 18px;">
+                        <small>📧 {user['email']} | 🔑 {user['role'].title()}</small>
+                    </div>
+                </div>
+                """, unsafe_allow_html=True)
+        else:
+            st.info("👻 No other users currently online")
+
+    # Show last updated time
+    st.caption(f"Last updated: {datetime.now().strftime('%H:%M:%S')}")
+
 def show_admin_panel():
     st.markdown("## 👑 Admin Control Panel")
 
     pending_df = get_pending_users()
     all_users = get_all_users()
+    online_users = get_online_users()
 
     # Display metrics
-    col1, col2, col3 = st.columns(3)
+    col1, col2, col3, col4 = st.columns(4)
     with col1:
         st.metric("👥 Total Users", len(all_users))
     with col2:
@@ -347,13 +517,35 @@ def show_admin_panel():
     with col3:
         approved_count = len(all_users[all_users['is_approved'] == 1]) if not all_users.empty else 0
         st.metric("✅ Approved Users", approved_count)
+    with col4:
+        st.metric("🟢 Online Now", len(online_users))
 
     st.markdown("---")
 
-    tab1, tab2 = st.tabs(["⏳ Pending Approvals", "📋 All Users"])
+    tab1, tab2, tab3 = st.tabs(["🟢 Online Users", "⏳ Pending Approvals", "📋 All Users"])
 
-    # Tab 1: Pending Approvals
+    # Tab 1: Online Users
     with tab1:
+        if online_users:
+            for user in online_users:
+                col1, col2, col3, col4 = st.columns([3, 3, 2, 1])
+                with col1:
+                    st.write(f"**{user['full_name']}**")
+                with col2:
+                    st.write(user['email'])
+                with col3:
+                    last_active = datetime.fromisoformat(user['last_active']) if user.get('last_active') else None
+                    if last_active:
+                        time_diff = datetime.now() - last_active
+                        st.write(f"🕐 {time_diff.seconds // 60} min ago")
+                with col4:
+                    st.write("🟢 Online")
+                st.divider()
+        else:
+            st.info("No users currently online")
+
+    # Tab 2: Pending Approvals
+    with tab2:
         if not pending_df.empty:
             for idx, row in pending_df.iterrows():
                 col1, col2, col3, col4 = st.columns([3, 3, 1, 1])
@@ -375,8 +567,8 @@ def show_admin_panel():
         else:
             st.info("✅ No pending approvals")
 
-    # Tab 2: All Users
-    with tab2:
+    # Tab 3: All Users
+    with tab3:
         if not all_users.empty:
             # Display all users in a clean table
             display_df = all_users[['id', 'email', 'full_name', 'role', 'is_approved', 'created_at']].copy()
@@ -403,9 +595,26 @@ def show_dashboard():
     st.markdown("## 📊 Dashboard")
     user = st.session_state['user']
     st.markdown(f"### 👋 Welcome, {user['full_name']}!")
-    st.info("Your main dashboard will load your health data here...")
+
+    # Create two columns for dashboard layout
+    col1, col2 = st.columns([2, 1])
+
+    with col1:
+        st.info("Your main dashboard will load your health data here...")
+        # Placeholder for main dashboard content
+        st.markdown("""
+        ### 📈 Key Metrics
+        - **Total Stock Value:** Loading...
+        - **Stock Availability:** Loading...
+        - **Active Shipments:** Loading...
+        """)
+
+    with col2:
+        # Show online users widget
+        show_online_users()
 
 def main():
+    # Initialize session state FIRST before anything else
     init_session_state()
 
     if st.session_state['auth']:
@@ -417,6 +626,10 @@ def main():
             st.title(f"Welcome, {user['full_name']}!")
             st.caption(f"Role: {user['role'].title()}")
 
+            # Show online status in sidebar
+            st.markdown("---")
+            st.markdown("🟢 **Status:** Online")
+
             if user['role'] == 'admin':
                 pages = ["📊 Dashboard", "👤 Profile", "👑 Admin Panel"]
             else:
@@ -424,10 +637,10 @@ def main():
 
             page = st.radio("Navigation", pages)
 
+            st.markdown("---")
+
             if st.button("🚪 Logout", use_container_width=True):
-                for key in list(st.session_state.keys()):
-                    del st.session_state[key]
-                st.rerun()
+                logout_user()
 
         if page == "📊 Dashboard":
             show_dashboard()

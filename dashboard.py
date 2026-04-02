@@ -263,6 +263,8 @@ if 'previous_nsoh_data' not in st.session_state:
     st.session_state.previous_nsoh_data = None
 if 'nsoh_changes' not in st.session_state:
     st.session_state.nsoh_changes = None
+if 'raw_previous_data' not in st.session_state:
+    st.session_state.raw_previous_data = None
 
 # Check connection periodically
 if st.session_state.supabase_client and not check_supabase_connection():
@@ -294,6 +296,7 @@ def assign_subcategories_to_materials(df, subcategory_list):
     for idx in range(len(df)):
         material_desc = str(df.iloc[idx]['Material Description']).strip()
 
+        # Check if this row is a subcategory header
         is_subcategory = False
         for subcat in subcategory_list:
             if material_desc == subcat:
@@ -301,10 +304,24 @@ def assign_subcategories_to_materials(df, subcategory_list):
                 is_subcategory = True
                 break
 
+        # If not a subcategory header and we have a current subcategory, assign it
         if not is_subcategory and current_subcategory is not None:
             subcategory_mapping[material_desc] = current_subcategory
 
     return subcategory_mapping
+
+def is_subcategory_header(material_desc, subcategory_list):
+    """Check if a material description is actually a subcategory header"""
+    return material_desc.strip() in subcategory_list
+
+def filter_out_subcategory_headers(df, subcategory_list):
+    """Remove subcategory header rows from the dataframe"""
+    if subcategory_list is None or not subcategory_list:
+        return df
+
+    # Create a mask to filter out rows where Material Description is a subcategory header
+    mask = ~df['Material Description'].astype(str).str.strip().isin(subcategory_list)
+    return df[mask].copy()
 
 # ---------------------------------------------------
 # Expiry Risk Calculation Function
@@ -604,55 +621,79 @@ def get_table_info():
         return None
 
 # ---------------------------------------------------
-# NSOH Change Tracking Function
+# Stock Change Tracking Function (Updated to use NMOS)
 # ---------------------------------------------------
-def calculate_nsoh_changes(current_df, previous_df):
-    """Calculate NSOH changes between current and previous data"""
+def calculate_stock_changes(current_df, previous_df):
+    """Calculate stock quantity changes based on NMOS differences"""
     if previous_df is None or previous_df.empty:
         return None
 
-    # Get NSOH data for comparison
-    current_nsoh = current_df[['Material Description', 'NSOH']].copy()
-    previous_nsoh = previous_df[['Material Description', 'NSOH']].copy()
+    # Check if required columns exist
+    if 'NMOS' not in current_df.columns or 'AMC' not in current_df.columns:
+        return None
+    if 'NMOS' not in previous_df.columns or 'AMC' not in previous_df.columns:
+        return None
 
-    # Clean and convert NSOH to numeric (remove commas)
-    for df_nsoh in [current_nsoh, previous_nsoh]:
-        # Convert to string and remove commas
-        df_nsoh['NSOH'] = df_nsoh['NSOH'].astype(str).str.replace(',', '', regex=False)
-        # Remove any other non-numeric characters except decimal point
-        df_nsoh['NSOH'] = df_nsoh['NSOH'].str.replace('[^0-9.-]', '', regex=True)
-        # Replace empty strings with '0'
-        df_nsoh['NSOH'] = df_nsoh['NSOH'].replace('', '0').replace('nan', '0').replace('NaN', '0')
-        # Convert to numeric
-        df_nsoh['NSOH'] = pd.to_numeric(df_nsoh['NSOH'], errors='coerce')
-        # Fill any remaining NaN with 0
-        df_nsoh['NSOH'] = df_nsoh['NSOH'].fillna(0)
+    # Get data for comparison
+    current_data = current_df[['Material Description', 'NMOS', 'AMC']].copy()
+    previous_data = previous_df[['Material Description', 'NMOS', 'AMC']].copy()
+
+    # Clean and convert NMOS to numeric
+    for df_data in [current_data, previous_data]:
+        df_data['NMOS'] = pd.to_numeric(df_data['NMOS'], errors='coerce')
+        df_data['AMC'] = pd.to_numeric(df_data['AMC'], errors='coerce')
+        df_data['NMOS'] = df_data['NMOS'].fillna(0)
+        df_data['AMC'] = df_data['AMC'].fillna(0)
 
     # Merge to compare
-    merged = current_nsoh.merge(previous_nsoh, on='Material Description', suffixes=('_now', '_previous'), how='inner')
+    merged = current_data.merge(
+        previous_data, 
+        on='Material Description', 
+        suffixes=('_now', '_previous'), 
+        how='inner'
+    )
 
-    # Calculate change
-    merged['Change'] = merged['NSOH_now'] - merged['NSOH_previous']
+    # Calculate NMOS difference
+    merged['NMOS_Difference'] = merged['NMOS_now'] - merged['NMOS_previous']
 
-    # Filter only positive changes (increase in stock)
-    positive_changes = merged[merged['Change'] > 0].copy()
+    # Calculate added quantity (difference * AMC from current data)
+    # Only calculate for positive NMOS differences (stock increase)
+    merged['Added_Quantity'] = np.where(
+        merged['NMOS_Difference'] > 0,
+        merged['NMOS_Difference'] * merged['AMC_now'],
+        0
+    )
+
+    # Filter only positive NMOS changes (increase in stock)
+    positive_changes = merged[merged['NMOS_Difference'] > 0].copy()
 
     if not positive_changes.empty:
-        # Sort by change amount (largest increase first)
-        positive_changes = positive_changes.sort_values('Change', ascending=False)
+        # Sort by NMOS difference (largest increase first)
+        positive_changes = positive_changes.sort_values('NMOS_Difference', ascending=False)
 
-        # Format numbers with commas for display
-        positive_changes['NSOH_previous'] = positive_changes['NSOH_previous'].apply(
-            lambda x: f"{int(x):,}" if pd.notna(x) else "0"
+        # Format numbers for display
+        positive_changes['NMOS_previous'] = positive_changes['NMOS_previous'].apply(
+            lambda x: f"{x:.2f}" if pd.notna(x) else "0.00"
         )
-        positive_changes['NSOH_now'] = positive_changes['NSOH_now'].apply(
-            lambda x: f"{int(x):,}" if pd.notna(x) else "0"
+        positive_changes['NMOS_now'] = positive_changes['NMOS_now'].apply(
+            lambda x: f"{x:.2f}" if pd.notna(x) else "0.00"
         )
-        positive_changes['Change'] = positive_changes['Change'].apply(
-            lambda x: f"+{int(x):,}" if pd.notna(x) else "0"
+        positive_changes['NMOS_Difference'] = positive_changes['NMOS_Difference'].apply(
+            lambda x: f"+{x:.2f}" if pd.notna(x) else "0.00"
+        )
+        positive_changes['Added_Quantity'] = positive_changes['Added_Quantity'].apply(
+            lambda x: f"{int(x):,}" if pd.notna(x) and x > 0 else "0"
         )
 
-        return positive_changes[['Material Description', 'NSOH_previous', 'NSOH_now', 'Change']]
+        # Return only relevant columns
+        return positive_changes[[
+            'Material Description', 
+            'NMOS_previous', 
+            'NMOS_now', 
+            'NMOS_Difference', 
+            'AMC_now',
+            'Added_Quantity'
+        ]].rename(columns={'AMC_now': 'AMC'})
 
     return None
 
@@ -823,19 +864,6 @@ branch_amc_sheet_id = "12Z5xqX32QIzjoN6tNvGbjutMheXx5US1"
 df_external = load_national_data()
 branch_amc_data = load_branch_amc_from_google_sheets(branch_amc_sheet_id)
 google_sheets = load_google_sheets(amc_pipeline_sheet_id)
-
-# Track NSOH changes
-if not df_external.empty:
-    if st.session_state.previous_nsoh_data is not None:
-        nsoh_changes = calculate_nsoh_changes(df_external, st.session_state.previous_nsoh_data)
-        if nsoh_changes is not None:
-            st.session_state.nsoh_changes = nsoh_changes
-        else:
-            st.session_state.nsoh_changes = None
-    else:
-        st.session_state.nsoh_changes = None
-
-    st.session_state.previous_nsoh_data = df_external.copy()
 
 if df_external.empty:
     st.error("No data in Supabase. Please upload data through admin panel.")
@@ -1025,11 +1053,18 @@ if not df.empty:
     else:
         df['CV Category'] = "Unknown"
 
+    # Handle subcategory filtering BEFORE other operations
     if sheet_name in PROGRAM_HIERARCHY:
         subcategory_list = PROGRAM_HIERARCHY[sheet_name]["subcategories"]
+
+        # Filter out subcategory headers from the dataframe
+        df = filter_out_subcategory_headers(df, subcategory_list)
+
+        # Assign subcategories to remaining materials
         subcategory_mapping = assign_subcategories_to_materials(df, subcategory_list)
         df['Assigned Subcategory'] = df['Material Description'].map(subcategory_mapping)
 
+        # Apply subcategory filter if selected
         if subcategory_filter != "All":
             df = df[df['Assigned Subcategory'] == subcategory_filter]
     else:
@@ -1058,6 +1093,21 @@ if not df.empty:
         else:
             risk_types.append("")
     df['Risk Type'] = risk_types
+
+    # ---------------------------------------------------
+    # Track stock changes AFTER NMOS is calculated
+    # ---------------------------------------------------
+    if st.session_state.raw_previous_data is not None:
+        stock_changes = calculate_stock_changes(df, st.session_state.raw_previous_data)
+        if stock_changes is not None:
+            st.session_state.nsoh_changes = stock_changes
+        else:
+            st.session_state.nsoh_changes = None
+    else:
+        st.session_state.nsoh_changes = None
+
+    # Store current data for next comparison
+    st.session_state.raw_previous_data = df.copy()
 
     display_df = df.copy()
     text_columns_to_preserve = ['Material Description', 'Stock Status', 'Risk Type', 'Status', 'Expiry', 'GIT_PO', 'LC_PO', 'WB_PO', 'TMD_PO', 'CV Category']
@@ -1542,38 +1592,52 @@ with tab1:
             )
 
         # ---------------------------------------------------
-        # NSOH CHANGES TABLE
+        # STOCK CHANGES TABLE (Updated to show NMOS-based changes)
         # ---------------------------------------------------
         st.markdown("---")
-        st.markdown("<h4 style='font-size: 20px; font-weight: bold; font-family: Times New Roman;'>📈 NSOH Changes Since Last Update</h4>", unsafe_allow_html=True)
+        st.markdown("<h4 style='font-size: 20px; font-weight: bold; font-family: Times New Roman;'>📈 Stock Changes Since Last Update (Based on NMOS)</h4>", unsafe_allow_html=True)
 
         if st.session_state.nsoh_changes is not None and not st.session_state.nsoh_changes.empty:
-            st.info("📊 Materials that received new stock (positive NSOH change):")
+            st.info("📊 Materials that received new stock (positive NMOS increase):")
+
+            # Calculate total added quantity
+            total_added = st.session_state.nsoh_changes['Added_Quantity'].astype(str).str.replace(',', '').astype(float).sum() if 'Added_Quantity' in st.session_state.nsoh_changes.columns else 0
+
+            # Show summary metric
+            col1, col2 = st.columns(2)
+            with col1:
+                st.metric("📦 Materials with Stock Increase", len(st.session_state.nsoh_changes))
+            with col2:
+                st.metric("➕ Total Added Quantity", f"{int(total_added):,}")
 
             st.dataframe(
                 st.session_state.nsoh_changes,
                 column_config={
                     "Material Description": st.column_config.TextColumn("Material", width=300),
-                    "NSOH_previous": st.column_config.TextColumn("Previous NSOH", width=120),
-                    "NSOH_now": st.column_config.TextColumn("Current NSOH", width=120),
-                    "Change": st.column_config.TextColumn("Increase (+)", width=100)
+                    "NMOS_previous": st.column_config.TextColumn("Previous NMOS", width=100, help="Months of Stock before update"),
+                    "NMOS_now": st.column_config.TextColumn("Current NMOS", width=100, help="Months of Stock after update"),
+                    "NMOS_Difference": st.column_config.TextColumn("NMOS Increase (+)", width=100),
+                    "AMC": st.column_config.TextColumn("AMC", width=100, help="Average Monthly Consumption used for calculation"),
+                    "Added_Quantity": st.column_config.TextColumn("Added Quantity", width=120, help="NMOS Difference × AMC = New stock received")
                 },
                 use_container_width=True,
                 hide_index=True
             )
 
+            st.caption("💡 **How Added Quantity is calculated:** (Current NMOS - Previous NMOS) × AMC = Quantity of new stock received")
+
             changes_csv = st.session_state.nsoh_changes.to_csv(index=False)
             st.download_button(
-                label="📥 Download NSOH Changes (CSV)",
+                label="📥 Download Stock Changes (CSV)",
                 data=changes_csv,
-                file_name=f"nsoh_changes_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                file_name=f"stock_changes_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
                 mime="text/csv",
                 use_container_width=True
             )
-        elif st.session_state.previous_nsoh_data is not None:
-            st.success("✅ No NSOH increases detected since last update. All stock levels remained the same or decreased.")
+        elif st.session_state.raw_previous_data is not None:
+            st.success("✅ No NMOS increases detected since last update. All stock levels remained the same or decreased.")
         else:
-            st.info("ℹ️ NSOH change tracking will appear after the next Supabase data update. This is the first data load.")
+            st.info("ℹ️ Stock change tracking will appear after the next Supabase data update. This is the first data load.")
     else:
         st.info("No data available.")
 
