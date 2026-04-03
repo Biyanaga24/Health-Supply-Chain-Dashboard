@@ -1562,12 +1562,24 @@ with tab1:
                 report_df.to_excel(writer, sheet_name=report_title[:31], index=False)
                 worksheet = writer.sheets[report_title[:31]]
 
+                # FIXED: Safely calculate column widths without len() error on floats
                 for column in report_df.columns:
-                    column_length = max(report_df[column].astype(str).map(len).max(), len(column))
-                    column_length = min(column_length, 50)
-                    col_idx = report_df.columns.get_loc(column)
-                    col_letter = get_column_letter(col_idx + 1)
-                    worksheet.column_dimensions[col_letter].width = column_length + 2
+                    try:
+                        # Convert column to string and handle NaN/None values safely
+                        str_values = report_df[column].astype(str).replace('nan', '').replace('None', '')
+                        if len(str_values) > 0:
+                            column_length = max(str_values.map(len).max(), len(column))
+                        else:
+                            column_length = len(column)
+                        column_length = min(column_length, 50)
+                        col_idx = report_df.columns.get_loc(column)
+                        col_letter = get_column_letter(col_idx + 1)
+                        worksheet.column_dimensions[col_letter].width = column_length + 2
+                    except Exception as col_error:
+                        # If there's an error with a specific column, use default width
+                        col_idx = report_df.columns.get_loc(column)
+                        col_letter = get_column_letter(col_idx + 1)
+                        worksheet.column_dimensions[col_letter].width = 15
 
             output.seek(0)
             st.download_button(
