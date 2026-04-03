@@ -1129,9 +1129,10 @@ if not df.empty:
                 display_df[col] = display_df[col].apply(format_number_with_commas)
 
     if 'Material Description' in df.columns:
-        # Filter out NaN/None values before sorting
+        # FIXED: Handle NaN values in Material Description for sorting
         unique_materials = df['Material Description'].dropna().astype(str).unique()
         materials = ["All"] + sorted(unique_materials)
+
         statuses = ["All"] + sorted([s for s in df['Stock Status'].unique() if s != "" and pd.notna(s)]) if 'Stock Status' in df.columns else ["All"]
 
         risk_type_options = ["All", "Risk of Stock out", "Expiry Risk", "Critical Risk"]
@@ -1519,7 +1520,7 @@ with tab1:
                 report_columns = all_cols_between
         else:
             for col in all_columns:
-                if col not in ['Stock Status', 'Risk of Stock', 'Hubs%', 'Head Office%', 'Avail Gap', 'CV (%)', 'CV Category', 'Has Expiry Risk', 'Expiry Risk Details', 'Assigned Subcategory']:
+                if col not in ['Stock Status', 'Risk of Stock', 'Hubs%', 'Head Office%', 'Avail Gap', 'CV (%)', 'CV Category', 'Has Expiry Risk', 'Expiry Risk Details', 'Assigned Subcategory', 'Risk Type']:
                     report_columns.append(col)
 
         if not report_columns:
@@ -1535,22 +1536,7 @@ with tab1:
             elif col in ['NSOH', 'AMC', 'Hubs', 'Head Office']:
                 report_df[col] = report_df[col].apply(lambda x: f"{int(x):,}" if pd.notna(x) and x != "" else "" if x == "" else x)
 
-        risk_types_report = []
-        for idx in range(len(report_df)):
-            row = df_filtered.iloc[idx]
-            risk_of_stock = row.get('Risk of Stock', '') == 'Risk of Stock out'
-            expiry_risk = row.get('Has Expiry Risk', False)
-
-            if risk_of_stock and expiry_risk:
-                risk_types_report.append("Critical Risk")
-            elif risk_of_stock:
-                risk_types_report.append("Risk of Stock out")
-            elif expiry_risk:
-                risk_types_report.append("Expiry Risk")
-            else:
-                risk_types_report.append("")
-
-        report_df['Risk Type'] = risk_types_report
+        # Risk Type is NOT added to the report - excluded intentionally
 
         output = BytesIO()
 
@@ -1564,12 +1550,24 @@ with tab1:
                 report_df.to_excel(writer, sheet_name=report_title[:31], index=False)
                 worksheet = writer.sheets[report_title[:31]]
 
+                # Safely calculate column widths without len() error on floats
                 for column in report_df.columns:
-                    column_length = max(report_df[column].astype(str).map(len).max(), len(column))
-                    column_length = min(column_length, 50)
-                    col_idx = report_df.columns.get_loc(column)
-                    col_letter = get_column_letter(col_idx + 1)
-                    worksheet.column_dimensions[col_letter].width = column_length + 2
+                    try:
+                        # Convert column to string and handle NaN/None values safely
+                        str_values = report_df[column].astype(str).replace('nan', '').replace('None', '')
+                        if len(str_values) > 0:
+                            column_length = max(str_values.map(len).max(), len(column))
+                        else:
+                            column_length = len(column)
+                        column_length = min(column_length, 50)
+                        col_idx = report_df.columns.get_loc(column)
+                        col_letter = get_column_letter(col_idx + 1)
+                        worksheet.column_dimensions[col_letter].width = column_length + 2
+                    except Exception as col_error:
+                        # If there's an error with a specific column, use default width
+                        col_idx = report_df.columns.get_loc(column)
+                        col_letter = get_column_letter(col_idx + 1)
+                        worksheet.column_dimensions[col_letter].width = 15
 
             output.seek(0)
             st.download_button(
