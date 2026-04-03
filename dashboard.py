@@ -1129,7 +1129,9 @@ if not df.empty:
                 display_df[col] = display_df[col].apply(format_number_with_commas)
 
     if 'Material Description' in df.columns:
-        materials = ["All"] + sorted(df['Material Description'].astype(str).unique())
+        # Filter out NaN/None values before sorting
+        unique_materials = df['Material Description'].dropna().astype(str).unique()
+        materials = ["All"] + sorted(unique_materials)
         statuses = ["All"] + sorted([s for s in df['Stock Status'].unique() if s != "" and pd.notna(s)]) if 'Stock Status' in df.columns else ["All"]
 
         risk_type_options = ["All", "Risk of Stock out", "Expiry Risk", "Critical Risk"]
