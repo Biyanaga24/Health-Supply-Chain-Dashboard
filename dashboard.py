@@ -57,17 +57,23 @@ if not st.session_state['auth']:
 # ---------------------------------------------------
 # Page Setup
 # ---------------------------------------------------
-st.set_page_config(page_title="Health Program Medicines Dashboard", layout="wide", initial_sidebar_state="expanded")
+st.set_page_config(
+    page_title="Health Program Medicines Dashboard", 
+    layout="wide", 
+    initial_sidebar_state="expanded"
+)
 
 # ---------------------------------------------------
-# CSS Styling with Mobile Responsiveness
+# CSS Styling with Mobile Responsiveness (ENHANCED)
 # ---------------------------------------------------
 st.markdown("""
 <style>
+    /* Main container */
     .stApp {
         background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
     }
 
+    /* Metric cards */
     div[data-testid="stMetric"] {
         background: white;
         border-radius: 15px;
@@ -82,6 +88,7 @@ st.markdown("""
         background: linear-gradient(135deg, #ffffff 0%, #f8f9fa 100%);
     }
 
+    /* Animations */
     @keyframes shake {
         0%, 100% { transform: translateX(0); }
         10%, 30%, 50%, 70%, 90% { transform: translateX(-2px); }
@@ -120,6 +127,7 @@ st.markdown("""
         color: white !important;
     }
 
+    /* Stock cards */
     .stock-card {
         border: 1px solid #ddd;
         border-radius: 10px;
@@ -143,6 +151,7 @@ st.markdown("""
         font-weight: bold;
     }
 
+    /* Tabs */
     button[data-baseweb="tab"] {
         font-size: 18px !important;
         font-weight: 700 !important;
@@ -150,6 +159,7 @@ st.markdown("""
         padding: 10px 20px !important;
     }
 
+    /* Legend box */
     .legend-box {
         margin: 10px 0 20px 0;
         padding: 15px;
@@ -176,54 +186,201 @@ st.markdown("""
         border-radius: 3px;
     }
 
-    /* Mobile Responsive Styles */
+    /* ============================================ */
+    /* MOBILE RESPONSIVE STYLES - ENHANCED */
+    /* ============================================ */
     @media only screen and (max-width: 768px) {
+        /* Main container padding */
         .stApp {
-            padding: 0.5rem;
+            padding: 0.5rem !important;
         }
 
+        /* Metric cards - full width on mobile */
         div[data-testid="stMetric"] {
-            margin-bottom: 10px;
-            padding: 10px;
+            margin-bottom: 10px !important;
+            padding: 10px !important;
         }
 
+        /* Headers */
         h1 {
-            font-size: 24px !important;
+            font-size: 22px !important;
+            text-align: center !important;
         }
 
         h3 {
-            font-size: 20px !important;
+            font-size: 18px !important;
         }
 
+        h4 {
+            font-size: 16px !important;
+        }
+
+        /* Tabs - scrollable on mobile */
         button[data-baseweb="tab"] {
-            font-size: 14px !important;
-            padding: 8px 12px !important;
-            white-space: nowrap;
+            font-size: 12px !important;
+            padding: 6px 10px !important;
+            white-space: nowrap !important;
         }
 
+        /* Tab container - horizontal scroll */
+        [data-testid="stTabs"] {
+            overflow-x: auto !important;
+            white-space: nowrap !important;
+            flex-wrap: nowrap !important;
+        }
+
+        [data-testid="stTabs"] button {
+            flex: 0 0 auto !important;
+        }
+
+        /* Stock cards */
         .stock-card {
-            padding: 10px;
-            margin: 5px 0;
+            padding: 8px !important;
+            margin: 5px 0 !important;
         }
 
+        .stock-card h4 {
+            font-size: 14px !important;
+        }
+
+        .stock-card p {
+            font-size: 12px !important;
+            margin: 5px 0 !important;
+        }
+
+        /* Legend box */
         .legend-box {
-            padding: 10px;
+            padding: 8px !important;
         }
 
         .legend-item {
-            font-size: 12px;
+            font-size: 10px !important;
         }
 
+        .legend-color {
+            width: 14px !important;
+            height: 14px !important;
+        }
+
+        /* Dataframes - horizontal scroll */
         .stDataFrame {
-            overflow-x: auto;
+            overflow-x: auto !important;
         }
 
+        div[data-testid="stDataFrame"] {
+            overflow-x: auto !important;
+        }
+
+        /* Metric values */
         div[data-testid="stMetricValue"] {
-            font-size: 24px !important;
+            font-size: 20px !important;
         }
 
         div[data-testid="stMetricLabel"] {
+            font-size: 12px !important;
+        }
+
+        /* Buttons */
+        .stButton button {
+            font-size: 12px !important;
+            padding: 6px 12px !important;
+        }
+
+        /* Sidebar */
+        [data-testid="stSidebar"] {
+            width: 280px !important;
+        }
+
+        [data-testid="stSidebar"] .stMarkdown {
+            font-size: 12px !important;
+        }
+
+        /* Columns - stack on mobile */
+        .row-widget.stHorizontal {
+            flex-wrap: wrap !important;
+        }
+
+        /* Expander */
+        details {
+            font-size: 12px !important;
+        }
+
+        /* Download button caption */
+        .stCaption {
+            font-size: 10px !important;
+        }
+
+        /* Chart containers */
+        .stPlotlyChart {
+            width: 100% !important;
+            overflow-x: auto !important;
+        }
+
+        /* Data editor */
+        .stDataEditor {
+            font-size: 11px !important;
+        }
+
+        /* Input fields */
+        .stTextInput input {
             font-size: 14px !important;
+            padding: 8px !important;
+        }
+
+        /* Select boxes */
+        .stSelectbox div {
+            font-size: 14px !important;
+        }
+
+        /* Info/Warning/Success messages */
+        .stAlert {
+            font-size: 12px !important;
+            padding: 8px !important;
+        }
+
+        /* Metric delta */
+        [data-testid="stMetricDelta"] {
+            font-size: 10px !important;
+        }
+    }
+
+    /* Extra small devices (phones below 480px) */
+    @media only screen and (max-width: 480px) {
+        h1 {
+            font-size: 18px !important;
+        }
+
+        button[data-baseweb="tab"] {
+            font-size: 10px !important;
+            padding: 4px 8px !important;
+        }
+
+        div[data-testid="stMetricValue"] {
+            font-size: 16px !important;
+        }
+
+        .stock-card h4 {
+            font-size: 12px !important;
+        }
+
+        .stock-card p {
+            font-size: 10px !important;
+        }
+    }
+
+    /* Tablets (landscape) */
+    @media only screen and (min-width: 769px) and (max-width: 1024px) {
+        button[data-baseweb="tab"] {
+            font-size: 14px !important;
+            padding: 8px 14px !important;
+        }
+
+        h1 {
+            font-size: 28px !important;
+        }
+
+        div[data-testid="stMetricValue"] {
+            font-size: 22px !important;
         }
     }
 </style>
@@ -1902,91 +2059,198 @@ elif page == "Advanced Analytics":
         else:
             st.info("Contact administrator to configure email settings")
 
-         # ========== TAB 10: Supply Planning (FINAL - with readable dates) ==========
+             # ========== TAB 10: Supply Planning (WITH ACTION PLAN) ==========
     with aa_tab10:
         st.markdown("<h3 style='font-size: 24px; font-weight: bold;'>Supply Planning - Procurement Requirements</h3>", unsafe_allow_html=True)
 
-        with st.expander("📖 Parameters & Instructions", expanded=False):
-            st.markdown("""
-            **Supply Planning Parameters:**
-            - Lead Time = 6 months (time from order placement to delivery)
-            - Safety Stock = 2 months (buffer stock)
-            - Maximum Stock Level = 18 months
-            - Reorder Point = Lead Time + Safety Stock = 8 months
+        # Create tabs within Supply Planning
+        sp_tab1, sp_tab2 = st.tabs(["📋 Order Quantity Plan", "📝 Action Plan"])
 
-            **Order Quantity Formula:**
-            - Order Quantity = (18 - TMOS) × AMC (ONLY if 18 - TMOS is POSITIVE)
-            - MOS Needed = 18 - TMOS (months of stock required to reach maximum)
+        # ========== TAB 1: Order Quantity Plan ==========
+        with sp_tab1:
+            with st.expander("📖 Parameters & Instructions", expanded=False):
+                st.markdown("""
+                **Supply Planning Parameters:**
+                - Lead Time = 6 months (time from order placement to delivery)
+                - Safety Stock = 2 months (buffer stock)
+                - Maximum Stock Level = 18 months
+                - Reorder Point = Lead Time + Safety Stock = 8 months
 
-            **TMOS = NMOS + Pipeline MOS** (GIT_MOS + LC_MOS + WB_MOS + TMD_MOS)
+                **Order Quantity Formula:**
+                - Order Quantity = (18 - TMOS) × AMC (ONLY if 18 - TMOS is POSITIVE)
+                - MOS Needed = 18 - TMOS (months of stock required to reach maximum)
 
-            **Action Guide:**
-            - If TMOS ≤ 8: 🔴 **CRITICAL** - Place this [Order Quantity] IMMEDIATELY
-            - If TMOS > 8: 🟡 **PLAN** - Place this [Order Quantity] by [calculated date]
-            """)
+                **TMOS = NMOS + Pipeline MOS** (GIT_MOS + LC_MOS + WB_MOS + TMD_MOS)
+                """)
 
-        if 'TMOS' in df_filtered.columns and 'AMC' in df_filtered.columns and 'NMOS' in df_filtered.columns:
-            supply_plan = []
-            current_date = datetime.now()
+            if 'TMOS' in df_filtered.columns and 'AMC' in df_filtered.columns and 'NMOS' in df_filtered.columns:
+                supply_plan = []
+                current_date = datetime.now()
 
-            def get_future_date(months_from_now):
-                """Calculate future date given months from now"""
-                target_date = current_date
-                # Add months
-                months_int = int(months_from_now)
-                months_remainder = months_from_now - months_int
+                def get_future_date(months_from_now):
+                    target_date = current_date
+                    months_int = int(months_from_now)
+                    new_year = target_date.year + ((target_date.month + months_int - 1) // 12)
+                    new_month = ((target_date.month + months_int - 1) % 12) + 1
+                    target_date = target_date.replace(year=new_year, month=new_month, day=1)
+                    return target_date
 
-                # Add years and months
-                new_year = target_date.year + ((target_date.month + months_int - 1) // 12)
-                new_month = ((target_date.month + months_int - 1) % 12) + 1
-                target_date = target_date.replace(year=new_year, month=new_month, day=1)
+                def get_readable_order_by(months_until_order):
+                    if months_until_order <= 0:
+                        return "Now"
+                    target_date = get_future_date(months_until_order)
+                    month_name = target_date.strftime('%B')
+                    year = target_date.year
+                    if target_date.day <= 15:
+                        period = "beginning"
+                    else:
+                        period = "end"
+                    if target_date.year == current_date.year:
+                        return f"{period} of {month_name}"
+                    else:
+                        return f"{period} of {month_name} {year}"
 
-                # Add remainder days (approx 30 days per month)
-                if months_remainder > 0:
-                    target_date = target_date + timedelta(days=int(months_remainder * 30))
+                for idx, row in df_filtered.iterrows():
+                    tmos = row.get('TMOS', 0)
+                    amc = row.get('AMC', 0)
+                    nmos = row.get('NMOS', 0)
+                    material = row['Material Description']
 
-                return target_date
+                    git_mos = row.get('GIT_MOS', 0)
+                    lc_mos = row.get('LC_MOS', 0)
+                    wb_mos = row.get('WB_MOS', 0)
+                    tmd_mos = row.get('TMD_MOS', 0)
 
-            def get_readable_order_by(months_until_order):
-                """Convert decimal months to readable date like 'beginning of April'"""
-                if months_until_order <= 0:
-                    return "Now"
+                    try:
+                        tmos = float(tmos) if pd.notna(tmos) else 0
+                        amc = float(amc) if pd.notna(amc) else 0
+                        nmos = float(nmos) if pd.notna(nmos) else 0
+                        git_mos = float(git_mos) if pd.notna(git_mos) else 0
+                        lc_mos = float(lc_mos) if pd.notna(lc_mos) else 0
+                        wb_mos = float(wb_mos) if pd.notna(wb_mos) else 0
+                        tmd_mos = float(tmd_mos) if pd.notna(tmd_mos) else 0
+                    except:
+                        continue
 
-                target_date = get_future_date(months_until_order)
+                    pipeline_mos = git_mos + lc_mos + wb_mos + tmd_mos
+                    mos_needed = 18 - tmos
 
-                # Get month name and year
-                month_name = target_date.strftime('%B')
-                year = target_date.year
+                    if mos_needed > 0 and amc > 0:
+                        order_quantity = int(mos_needed * amc)
 
-                # Determine if it's beginning or end of month
-                if target_date.day <= 15:
-                    period = "beginning"
+                        if tmos <= 8:
+                            urgency = "🔴 CRITICAL"
+                            action = f"Place this {order_quantity:,} units IMMEDIATELY"
+                            order_by = "Now"
+                            expected_delivery = get_future_date(6)
+                        else:
+                            months_until_order = round(tmos - 8, 1)
+                            urgency = "🟡 PLAN"
+                            order_by_readable = get_readable_order_by(months_until_order)
+                            action = f"Place this {order_quantity:,} units by {order_by_readable}"
+                            order_by = order_by_readable
+                            total_months_to_delivery = months_until_order + 6
+                            expected_delivery = get_future_date(total_months_to_delivery)
+
+                        pipeline_parts = []
+                        if git_mos > 0:
+                            pipeline_parts.append(f"GIT: {round(git_mos,1)}m")
+                        if lc_mos > 0:
+                            pipeline_parts.append(f"LC: {round(lc_mos,1)}m")
+                        if wb_mos > 0:
+                            pipeline_parts.append(f"WB: {round(wb_mos,1)}m")
+                        if tmd_mos > 0:
+                            pipeline_parts.append(f"TMD: {round(tmd_mos,1)}m")
+                        pipeline_status = ", ".join(pipeline_parts) if pipeline_parts else "No pipeline stock"
+
+                        supply_plan.append({
+                            'Material': material,
+                            'Current TMOS': round(tmos, 2),
+                            'NMOS': round(nmos, 2),
+                            'Pipeline': round(pipeline_mos, 2),
+                            'Pipeline Status': pipeline_status,
+                            'AMC': int(amc),
+                            'MOS Needed': round(mos_needed, 2),
+                            'Order Quantity': f"{order_quantity:,}",
+                            'Urgency': urgency,
+                            'Action': action,
+                            'Order By': order_by,
+                            'Expected Delivery': expected_delivery.strftime('%b %Y')
+                        })
+
+                if supply_plan:
+                    supply_df = pd.DataFrame(supply_plan).sort_values('Current TMOS', ascending=True)
+
+                    col1, col2, col3, col4, col5 = st.columns(5)
+                    with col1:
+                        st.metric("📋 Materials to Order", len(supply_df))
+                    with col2:
+                        critical = len([s for s in supply_plan if s['Urgency'] == '🔴 CRITICAL'])
+                        st.metric("🔴 Critical", critical, delta="Order Now")
+                    with col3:
+                        plan = len([s for s in supply_plan if s['Urgency'] == '🟡 PLAN'])
+                        st.metric("🟡 Plan", plan, delta="Future Order")
+                    with col4:
+                        total_quantity = sum([int(s['Order Quantity'].replace(',', '')) for s in supply_plan])
+                        st.metric("📦 Total Order Qty", f"{total_quantity:,} units")
+                    with col5:
+                        avg_mos_needed = supply_df['MOS Needed'].mean()
+                        st.metric("📊 Avg MOS Needed", f"{round(avg_mos_needed, 1)} months")
+
+                    st.dataframe(
+                        supply_df[['Material', 'Current TMOS', 'NMOS', 'Pipeline', 'AMC', 'MOS Needed', 'Order Quantity', 'Urgency', 'Action', 'Order By', 'Expected Delivery']],
+                        use_container_width=True,
+                        hide_index=True,
+                        column_config={
+                            'Current TMOS': st.column_config.NumberColumn('TMOS (months)', format="%.2f"),
+                            'NMOS': st.column_config.NumberColumn('NMOS (months)', format="%.2f"),
+                            'Pipeline': st.column_config.NumberColumn('Pipeline MOS', format="%.2f"),
+                            'MOS Needed': st.column_config.NumberColumn('MOS Needed', format="%.2f"),
+                            'Order Quantity': st.column_config.TextColumn('Order Qty'),
+                        }
+                    )
+
+                    st.download_button(
+                        label="📥 Download Order Quantity Plan (CSV)",
+                        data=supply_df.to_csv(index=False),
+                        file_name=f"order_quantity_plan_{datetime.now().strftime('%Y%m%d')}.csv",
+                        mime="text/csv",
+                        use_container_width=True
+                    )
                 else:
-                    period = "end"
+                    st.success("✅ No procurement needed. All materials have TMOS ≥ 18 months.")
+            else:
+                st.info("TMOS, NMOS, or AMC data not available for supply planning")
 
-                # Check if it's this year or next year
-                if target_date.year == current_date.year:
-                    return f"{period} of {month_name}"
-                else:
-                    return f"{period} of {month_name} {year}"
+                    # ========== TAB 2: Action Plan ==========
+        with sp_tab2:
+            st.markdown("<h3 style='font-size: 20px; font-weight: bold;'>Action Plan - Materials Requiring Attention</h3>", unsafe_allow_html=True)
+
+            action_plan = []
 
             for idx, row in df_filtered.iterrows():
-                tmos = row.get('TMOS', 0)
-                amc = row.get('AMC', 0)
-                nmos = row.get('NMOS', 0)
                 material = row['Material Description']
+                nmos = row.get('NMOS', 0)
+                tmos = row.get('TMOS', 0)
+                nsoh = row.get('NSOH', 0)
+                amc = row.get('AMC', 0)
+                stock_status = row.get('Stock Status', '')
+                risk_type = row.get('Risk Type', '')
+                has_expiry_risk = row.get('Has Expiry Risk', False)
+                risk_of_stock = row.get('Risk of Stock', '')
 
-                # Get pipeline components
+                # Get pipeline components for responsible body determination
                 git_mos = row.get('GIT_MOS', 0)
                 lc_mos = row.get('LC_MOS', 0)
                 wb_mos = row.get('WB_MOS', 0)
                 tmd_mos = row.get('TMD_MOS', 0)
 
-                # Convert to numeric, handle NaN
+                # Convert to numeric
                 try:
-                    tmos = float(tmos) if pd.notna(tmos) else 0
-                    amc = float(amc) if pd.notna(amc) else 0
                     nmos = float(nmos) if pd.notna(nmos) else 0
+                    tmos = float(tmos) if pd.notna(tmos) else 0
+                    nsoh = float(nsoh) if pd.notna(nsoh) else 0
+                    amc = float(amc) if pd.notna(amc) else 0
                     git_mos = float(git_mos) if pd.notna(git_mos) else 0
                     lc_mos = float(lc_mos) if pd.notna(lc_mos) else 0
                     wb_mos = float(wb_mos) if pd.notna(wb_mos) else 0
@@ -1994,112 +2258,232 @@ elif page == "Advanced Analytics":
                 except:
                     continue
 
-                # Calculate pipeline MOS
-                pipeline_mos = git_mos + lc_mos + wb_mos + tmd_mos
+                # Skip materials with no AMC unless they have Expiry Risk
+                if amc == 0 and not has_expiry_risk:
+                    continue
 
-                # Calculate gap to reach 18 months (MOS Needed)
-                mos_needed = 18 - tmos
+                # Track categories for summary metrics
+                is_stock_out = False
+                is_risk_of_stock = False
+                is_expiry_risk = False
+                is_below_minimum = False
+                is_pipeline_insufficient = False
 
-                # ONLY include if gap is POSITIVE (need to order)
-                if mos_needed > 0 and amc > 0:
-                    # Calculate order quantity
-                    order_quantity = int(mos_needed * amc)
+                # Determine Identified Problem
+                identified_problem = []
 
-                    # Determine action based on TMOS
-                    if tmos <= 8:
-                        urgency = "🔴 CRITICAL"
-                        action = f"Place this {order_quantity:,} units IMMEDIATELY"
-                        order_by = "Now"
-                        # Expected delivery is current date + 6 months
-                        expected_delivery = get_future_date(6)
+                # Check Stock Out
+                if stock_status == 'Stock Out':
+                    identified_problem.append("Stock Out")
+                    is_stock_out = True
+                # Check Risk of Stock Out
+                elif risk_of_stock == 'Risk of Stock out' or risk_type == 'Risk of Stock out':
+                    identified_problem.append("Risk of Stock Out")
+                    is_risk_of_stock = True
+                # Check Expiry Risk
+                elif has_expiry_risk or risk_type == 'Expiry Risk':
+                    identified_problem.append("Expiry Risk")
+                    is_expiry_risk = True
+                # Check Below minimum stock level (NMOS < 6)
+                elif nmos < 6 and amc > 0:
+                    identified_problem.append("Below minimum stock level")
+                    is_below_minimum = True
+                # Check Pipeline not enough to reach maximum (tmos < 18)
+                elif tmos < 18 and amc > 0:
+                    identified_problem.append("Stock on pipeline is not enough to reach maximum stock level")
+                    is_pipeline_insufficient = True
+
+                if identified_problem:
+                    problem_text = ", ".join(identified_problem)
+
+                    # Get Action Point
+                    if stock_status == 'Stock Out' or risk_of_stock == 'Risk of Stock out' or risk_type == 'Risk of Stock out':
+                        action_point = get_stock_out_recommendation(row)
+                    elif has_expiry_risk or risk_type == 'Expiry Risk':
+                        action_point = get_expiry_risk_recommendation(row)
+                    elif (nmos < 6 or tmos < 18) and amc > 0:
+                        order_qty = int((18 - tmos) * amc)
+                        action_point = f"Place order for {order_qty:,} units to reach maximum stock level"
                     else:
-                        # Calculate months until reorder point (TMOS - 8)
-                        months_until_order = round(tmos - 8, 1)
-                        urgency = "🟡 PLAN"
-                        order_by_readable = get_readable_order_by(months_until_order)
-                        action = f"Place this {order_quantity:,} units by {order_by_readable}"
-                        order_by = order_by_readable
-                        # Expected delivery = order_by (months) + 6 months lead time
-                        total_months_to_delivery = months_until_order + 6
-                        expected_delivery = get_future_date(total_months_to_delivery)
+                        action_point = "Monitor stock levels"
 
-                    # Pipeline status summary
-                    pipeline_parts = []
-                    if git_mos > 0:
-                        pipeline_parts.append(f"GIT: {round(git_mos,1)}m")
-                    if lc_mos > 0:
-                        pipeline_parts.append(f"LC: {round(lc_mos,1)}m")
-                    if wb_mos > 0:
-                        pipeline_parts.append(f"WB: {round(wb_mos,1)}m")
-                    if tmd_mos > 0:
-                        pipeline_parts.append(f"TMD: {round(tmd_mos,1)}m")
-                    pipeline_status = ", ".join(pipeline_parts) if pipeline_parts else "No pipeline stock"
+                    # Standardize "Initiate additional quantity - no pipeline stock" to "Place order"
+                    if "Initiate additional quantity" in action_point:
+                        order_qty = int((18 - tmos) * amc)
+                        action_point = f"Place order for {order_qty:,} units to reach maximum stock level"
 
-                    supply_plan.append({
+                    # ========== RESPONSIBLE BODY MAPPING ==========
+                    responsible_body = ""
+
+                    # 🚚 GIT (Goods in Transit) - Expedite shipment
+                    if "Expedite shipment" in action_point:
+                        responsible_body = "EPSS_CMD, EPSS_DMD"
+                    # 📄 LC (Letter of Credit) - Expedite L/C opening
+                    elif "Expedite L/C" in action_point:
+                        responsible_body = "EPSS_CMD, EPSS_DMD"
+                    # 📋 TMD (Tender) - Expedite tender process
+                    elif "Expedite tender" in action_point:
+                        responsible_body = "EPSS_PMD, EPSS_DMD"
+                    # 💰 WB (Warehouse/Budget) - Expedite budget transfer
+                    elif "Expedite budget" in action_point:
+                        responsible_body = "EPSS_Finance, MOH"
+                    # 🔄 Place order
+                    elif "Place order" in action_point:
+                        responsible_body = "MOH"
+                    # ⚠️ Expiry Risk
+                    elif has_expiry_risk or risk_type == 'Expiry Risk':
+                        responsible_body = "EPSS_DMD"
+                    # Default
+                    else:
+                        responsible_body = "EPSS_DMD"
+
+                    # Determine Due Date - convert to specific date
+                    current_date = datetime.now()
+                    current_month = current_date.month
+                    current_year = current_date.year
+
+                    def get_end_of_month_date(year, month):
+                        year_int = int(year)
+                        month_int = int(month)
+                        if month_int == 12:
+                            next_month = 1
+                            next_year = year_int + 1
+                        else:
+                            next_month = month_int + 1
+                            next_year = year_int
+                        last_day = (datetime(next_year, next_month, 1) - timedelta(days=1)).day
+                        return datetime(year_int, month_int, last_day)
+
+                    def get_beginning_of_month_date(year, month):
+                        return datetime(int(year), int(month), 1)
+
+                    if "Place order" in action_point:
+                        if tmos <= 8:
+                            # Immediate - end of current month
+                            end_of_month = get_end_of_month_date(current_year, current_month)
+                            due_date = end_of_month.strftime('Before %d %b %Y')
+                        else:
+                            months_until_order = tmos - 8
+                            # Calculate target month
+                            total_months = current_month + months_until_order
+                            target_year = current_year + int((total_months - 1) // 12)
+                            target_month = int(((total_months - 1) % 12) + 1)
+
+                            if months_until_order <= 1:
+                                # Beginning of next month
+                                beginning_date = get_beginning_of_month_date(target_year, target_month)
+                                due_date = beginning_date.strftime('Before %d %b %Y')
+                            else:
+                                # End of the target month
+                                end_of_month = get_end_of_month_date(target_year, target_month)
+                                due_date = end_of_month.strftime('Before %d %b %Y')
+                    elif has_expiry_risk or risk_type == 'Expiry Risk':
+                        due_date = "ASAP"
+                    elif "Expedite" in action_point:
+                        end_of_month = get_end_of_month_date(current_year, current_month)
+                        due_date = end_of_month.strftime('Before %d %b %Y')
+                    else:
+                        due_date = "Review and act"
+
+                    # Format NSOH with commas
+                    nsoh_formatted = f"{int(nsoh):,}" if nsoh > 0 else "0"
+                    amc_formatted = f"{int(amc):,}" if amc > 0 else "N/A"
+
+                    action_plan.append({
                         'Material': material,
-                        'Current TMOS': round(tmos, 2),
-                        'NMOS': round(nmos, 2),
-                        'Pipeline': round(pipeline_mos, 2),
-                        'Pipeline Status': pipeline_status,
-                        'AMC': int(amc),
-                        'MOS Needed': round(mos_needed, 2),
-                        'Order Quantity': f"{order_quantity:,}",
-                        'Urgency': urgency,
-                        'Action': action,
-                        'Order By': order_by,
-                        'Expected Delivery': expected_delivery.strftime('%b %Y')
+                        'NSOH': nsoh_formatted,
+                        'AMC': amc_formatted,
+                        'NMOS': round(nmos, 2) if amc > 0 else 0,
+                        'TMOS': round(tmos, 2),
+                        'Identified Problem': problem_text,
+                        'Action Point': action_point,
+                        'Responsible Body': responsible_body,
+                        'Due Date': due_date,
+                        # For summary metrics
+                        'is_stock_out': is_stock_out,
+                        'is_risk_of_stock': is_risk_of_stock,
+                        'is_expiry_risk': is_expiry_risk,
+                        'is_below_minimum': is_below_minimum,
+                        'is_pipeline_insufficient': is_pipeline_insufficient
                     })
 
-            if supply_plan:
-                # Sort by Current TMOS (lowest first - most urgent)
-                supply_df = pd.DataFrame(supply_plan).sort_values('Current TMOS', ascending=True)
+            if action_plan:
+                action_df = pd.DataFrame(action_plan)
 
-                # Summary metrics
-                col1, col2, col3, col4, col5 = st.columns(5)
+                # Summary metrics with all categories
+                total_items = len(action_df)
+                stock_out_count = sum(1 for a in action_plan if a['is_stock_out'])
+                risk_count = sum(1 for a in action_plan if a['is_risk_of_stock'])
+                expiry_count = sum(1 for a in action_plan if a['is_expiry_risk'])
+                below_minimum_count = sum(1 for a in action_plan if a['is_below_minimum'])
+                pipeline_insufficient_count = sum(1 for a in action_plan if a['is_pipeline_insufficient'])
+
+                # Summary metrics - Row 1
+                col1, col2, col3, col4 = st.columns(4)
                 with col1:
-                    total_orders = len(supply_df)
-                    st.metric("📋 Materials to Order", total_orders)
+                    st.metric("📋 Total Action Items", total_items)
                 with col2:
-                    critical = len([s for s in supply_plan if s['Urgency'] == '🔴 CRITICAL'])
-                    st.metric("🔴 Critical", critical, delta="Order Now")
+                    st.metric("🔴 Stock Out", stock_out_count)
                 with col3:
-                    plan = len([s for s in supply_plan if s['Urgency'] == '🟡 PLAN'])
-                    st.metric("🟡 Plan", plan, delta="Future Order")
+                    st.metric("🟡 Risk of Stock Out", risk_count)
                 with col4:
-                    total_quantity = sum([int(s['Order Quantity'].replace(',', '')) for s in supply_plan])
-                    st.metric("📦 Total Order Qty", f"{total_quantity:,} units")
-                with col5:
-                    avg_mos_needed = supply_df['MOS Needed'].mean()
-                    st.metric("📊 Avg MOS Needed", f"{round(avg_mos_needed, 1)} months")
+                    st.metric("⚠️ Expiry Risk", expiry_count)
 
-                # Display table
-                st.dataframe(
-                    supply_df[['Material', 'Current TMOS', 'NMOS', 'Pipeline', 'AMC', 'MOS Needed', 'Order Quantity', 'Urgency', 'Action', 'Order By', 'Expected Delivery']],
+                # Summary metrics - Row 2
+                col5, col6 = st.columns(2)
+                with col5:
+                    st.metric("📉 Below Minimum Stock Level", below_minimum_count)
+                with col6:
+                    st.metric("📦 Pipeline Insufficient (<18 Month)", pipeline_insufficient_count)
+
+                # Remove temporary columns before displaying
+                display_df = action_df.drop(columns=['is_stock_out', 'is_risk_of_stock', 'is_expiry_risk', 'is_below_minimum', 'is_pipeline_insufficient'])
+
+                # Editable data editor
+                st.markdown("---")
+                st.markdown("**✏️ Assign Responsible Body and Due Date (Editable fields below):**")
+
+                edited_result = st.data_editor(
+                    display_df,
+                    column_config={
+                        'Material': st.column_config.TextColumn('Material', width=200, disabled=True),
+                        'NSOH': st.column_config.TextColumn('NSOH', width=100, disabled=True),
+                        'AMC': st.column_config.TextColumn('AMC', width=80, disabled=True),
+                        'NMOS': st.column_config.NumberColumn('NMOS', width=80, disabled=True, format="%.2f"),
+                        'TMOS': st.column_config.NumberColumn('TMOS', width=80, disabled=True, format="%.2f"),
+                        'Identified Problem': st.column_config.TextColumn('Problem', width=180, disabled=True),
+                        'Action Point': st.column_config.TextColumn('Action Point', width=300),
+                        'Responsible Body': st.column_config.TextColumn('Responsible Body', width=180),
+                        'Due Date': st.column_config.TextColumn('Due Date', width=120)
+                    },
                     use_container_width=True,
                     hide_index=True,
-                    column_config={
-                        'Current TMOS': st.column_config.NumberColumn('TMOS (months)', format="%.2f"),
-                        'NMOS': st.column_config.NumberColumn('NMOS (months)', format="%.2f"),
-                        'Pipeline': st.column_config.NumberColumn('Pipeline MOS', format="%.2f"),
-                        'MOS Needed': st.column_config.NumberColumn('MOS Needed', format="%.2f"),
-                        'Order Quantity': st.column_config.TextColumn('Order Qty'),
-                    }
+                    height=min(600, (len(action_df) + 1) * 45),
+                    num_rows="fixed"
                 )
+
+                # Save button for assignments
+                if st.button("💾 Save Assignments", use_container_width=True):
+                    st.session_state.saved_assignments = edited_result.to_dict('records')
+                    st.success("✅ Assignments saved successfully!")
 
                 # Download button
                 st.download_button(
-                    label="📥 Download Supply Plan (CSV)",
-                    data=supply_df.to_csv(index=False),
-                    file_name=f"supply_plan_{datetime.now().strftime('%Y%m%d')}.csv",
+                    label="📥 Download Action Plan (CSV)",
+                    data=edited_result.to_csv(index=False),
+                    file_name=f"action_plan_{datetime.now().strftime('%Y%m%d')}.csv",
                     mime="text/csv",
                     use_container_width=True
                 )
 
+                # Display saved assignments if they exist
+                if 'saved_assignments' in st.session_state and st.session_state.saved_assignments:
+                    with st.expander("📋 Saved Assignments", expanded=False):
+                        st.dataframe(pd.DataFrame(st.session_state.saved_assignments), use_container_width=True, hide_index=True)
+
             else:
-                st.success("✅ No procurement needed. All materials have TMOS ≥ 18 months (MOS Needed is zero or negative).")
-        else:
-            st.info("TMOS, NMOS, or AMC data not available for supply planning")
-# ---------------------------------------------------
+                st.success("✅ No action items identified. All materials are within normal stock levels.")
+
 # MAIN DASHBOARD (Original - 4 Tabs - Completely Unchanged)
 # ---------------------------------------------------
 else:
