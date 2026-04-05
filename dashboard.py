@@ -1471,21 +1471,22 @@ elif page == "Admin Panel" and st.session_state['user']['role'] == 'admin':
     st.stop()
 elif page == "Advanced Analytics":
     # ===================================================
-    # ADVANCED ANALYTICS TAB - 5TH TAB (UPDATED)
+    # ADVANCED ANALYTICS PAGE (9 TABS - Supply Planning removed)
     # ===================================================
     st.markdown("<h1 style='font-size: 32px; font-weight: bold; font-family: Times New Roman;' class='gradient-text'>Advanced Analytics Dashboard</h1>", unsafe_allow_html=True)
 
-    # Create 10 sub-tabs within Advanced Analytics (added Supply Planning)
-    aa_tab1, aa_tab2, aa_tab3, aa_tab4, aa_tab5, aa_tab6, aa_tab7, aa_tab8, aa_tab9, aa_tab10 = st.tabs([
+    # Create 9 sub-tabs within Advanced Analytics (Supply Planning removed)
+    aa_tab1, aa_tab2, aa_tab3, aa_tab4, aa_tab5, aa_tab6, aa_tab7, aa_tab8, aa_tab9 = st.tabs([
         "🏆 Branch Ranking", "🔄 Redistribution", "📧 Critical Alerts", "⏰ Expiry Notifications",
         "📊 Program Comparison", "🗺️ Regional Map", "👁️ Popular Materials", "👥 User Analytics", 
-        "📅 Report Scheduling", "📦 Supply Planning"
+        "📅 Report Scheduling"
     ])
 
-    # ========== TAB 1: Branch Ranking (UPDATED: NMOS >= 0.5) ==========
+    # ========== TAB 1: Branch Ranking (WITH COMPOSITE SCORE) ==========
     with aa_tab1:
         st.markdown("<h3 style='font-size: 24px; font-weight: bold;'>Branch Ranking by Stock Availability</h3>", unsafe_allow_html=True)
         st.caption("Availability = materials with NMOS ≥ 0.5 (at least 2 weeks of stock)")
+        st.caption("Ranking based on: Availability (100%=1), Avg NMOS (2-4 months=1), Stock-out Materials (0=1)")
 
         if branch_amc_data is not None and not branch_amc_data.empty:
             branch_stock_cols = [col for col in df.columns if 'Branch' in col and col != 'Material Description']
@@ -1521,20 +1522,37 @@ elif page == "Advanced Analytics":
                             availability_score = (availability_count / total_materials * 100) if total_materials > 0 else 0
                             valid_nmos = branch_nmos[branch_nmos > 0]
                             avg_nmos = np.mean(valid_nmos) if len(valid_nmos) > 0 else 0
+                            stock_out_materials = total_materials - availability_count
 
                             rankings.append({
                                 'Branch': amc_branch,
                                 'Availability Score (%)': round(availability_score, 1),
                                 'Average NMOS': round(avg_nmos, 2),
-                                'Stock-out Materials': total_materials - availability_count,
+                                'Stock-out Materials': stock_out_materials,
                                 'Total Materials': total_materials
                             })
                     except Exception:
                         continue
 
             if rankings:
-                rankings_df = pd.DataFrame(rankings).sort_values('Availability Score (%)', ascending=False)
+                # Calculate composite score for ranking
+                for item in rankings:
+                    composite_score = 0
+                    # Availability score: 1 if 100%, else 0
+                    if item['Availability Score (%)'] == 100:
+                        composite_score += 1
+                    # Average NMOS score: 1 if between 2-4 months, else 0
+                    if 2 <= item['Average NMOS'] <= 4:
+                        composite_score += 1
+                    # Stock-out Materials score: 1 if 0, else 0
+                    if item['Stock-out Materials'] == 0:
+                        composite_score += 1
+                    item['Composite Score'] = composite_score
+
+                rankings_df = pd.DataFrame(rankings).sort_values(['Composite Score', 'Availability Score (%)'], ascending=[False, False])
                 rankings_df['Rank'] = range(1, len(rankings_df) + 1)
+                # Drop Composite Score column before display (keep table unchanged)
+                rankings_df = rankings_df.drop(columns=['Composite Score'])
 
                 col1, col2 = st.columns(2)
                 with col1:
@@ -1555,7 +1573,7 @@ elif page == "Advanced Analytics":
         else:
             st.info("Branch AMC data not available")
 
-    # ========== TAB 2: Redistribution Recommendations (UPDATED) ==========
+    # ========== TAB 2: Redistribution Recommendations ==========
     with aa_tab2:
         st.markdown("<h3 style='font-size: 24px; font-weight: bold;'>Stock Redistribution Recommendations</h3>", unsafe_allow_html=True)
         st.info("""
@@ -1783,9 +1801,10 @@ elif page == "Advanced Analytics":
         else:
             st.success("✅ No expiring stock detected in the next 12 months")
 
-    # ========== TAB 5: Program Comparison ==========
+    # ========== TAB 5: Program Comparison (WITH COMPOSITE SCORE) ==========
     with aa_tab5:
         st.markdown("<h3 style='font-size: 24px; font-weight: bold;'>Program Performance Comparison</h3>", unsafe_allow_html=True)
+        st.caption("Ranking based on: Availability (100%=1), SAP (≥65%=1), Stock-out Rate (0%=1), Overstock Rate (0%=1), Avg NMOS (6-18 months=1)")
 
         if google_sheets and len(google_sheets) > 0:
             program_metrics = []
@@ -1821,7 +1840,30 @@ elif page == "Advanced Analytics":
                     })
 
             if program_metrics:
-                comparison_df = pd.DataFrame(program_metrics).sort_values('Availability (%)', ascending=False)
+                # Calculate composite score for ranking
+                for item in program_metrics:
+                    composite_score = 0
+                    # Availability: 1 if 100%, else 0
+                    if item['Availability (%)'] == 100:
+                        composite_score += 1
+                    # SAP Achievement: 1 if >=65%, else 0
+                    if item['SAP Achievement (%)'] >= 65:
+                        composite_score += 1
+                    # Stock-out Rate: 1 if 0%, else 0
+                    if item['Stock-out Rate (%)'] == 0:
+                        composite_score += 1
+                    # Overstock Rate: 1 if 0%, else 0
+                    if item['Overstock Rate (%)'] == 0:
+                        composite_score += 1
+                    # Average NMOS: 1 if between 6-18 months, else 0
+                    if 6 <= item['Avg NMOS'] <= 18:
+                        composite_score += 1
+                    item['Composite Score'] = composite_score
+
+                comparison_df = pd.DataFrame(program_metrics).sort_values(['Composite Score', 'Availability (%)'], ascending=[False, False])
+                comparison_df['Rank'] = range(1, len(comparison_df) + 1)
+                # Drop Composite Score column before display (keep table unchanged)
+                comparison_df = comparison_df.drop(columns=['Composite Score'])
 
                 top_program = comparison_df.iloc[0]['Program']
                 top_availability = comparison_df.iloc[0]['Availability (%)']
@@ -2059,463 +2101,32 @@ elif page == "Advanced Analytics":
         else:
             st.info("Contact administrator to configure email settings")
 
-             # ========== TAB 10: Supply Planning (WITH ACTION PLAN) ==========
-    with aa_tab10:
-        st.markdown("<h3 style='font-size: 24px; font-weight: bold;'>Supply Planning - Procurement Requirements</h3>", unsafe_allow_html=True)
-
-        # Create tabs within Supply Planning
-        sp_tab1, sp_tab2 = st.tabs(["📋 Order Quantity Plan", "📝 Action Plan"])
-
-        # ========== TAB 1: Order Quantity Plan ==========
-        with sp_tab1:
-            with st.expander("📖 Parameters & Instructions", expanded=False):
-                st.markdown("""
-                **Supply Planning Parameters:**
-                - Lead Time = 6 months (time from order placement to delivery)
-                - Safety Stock = 2 months (buffer stock)
-                - Maximum Stock Level = 18 months
-                - Reorder Point = Lead Time + Safety Stock = 8 months
-
-                **Order Quantity Formula:**
-                - Order Quantity = (18 - TMOS) × AMC (ONLY if 18 - TMOS is POSITIVE)
-                - MOS Needed = 18 - TMOS (months of stock required to reach maximum)
-
-                **TMOS = NMOS + Pipeline MOS** (GIT_MOS + LC_MOS + WB_MOS + TMD_MOS)
-                """)
-
-            if 'TMOS' in df_filtered.columns and 'AMC' in df_filtered.columns and 'NMOS' in df_filtered.columns:
-                supply_plan = []
-                current_date = datetime.now()
-
-                def get_future_date(months_from_now):
-                    target_date = current_date
-                    months_int = int(months_from_now)
-                    new_year = target_date.year + ((target_date.month + months_int - 1) // 12)
-                    new_month = ((target_date.month + months_int - 1) % 12) + 1
-                    target_date = target_date.replace(year=new_year, month=new_month, day=1)
-                    return target_date
-
-                def get_readable_order_by(months_until_order):
-                    if months_until_order <= 0:
-                        return "Now"
-                    target_date = get_future_date(months_until_order)
-                    month_name = target_date.strftime('%B')
-                    year = target_date.year
-                    if target_date.day <= 15:
-                        period = "beginning"
-                    else:
-                        period = "end"
-                    if target_date.year == current_date.year:
-                        return f"{period} of {month_name}"
-                    else:
-                        return f"{period} of {month_name} {year}"
-
-                for idx, row in df_filtered.iterrows():
-                    tmos = row.get('TMOS', 0)
-                    amc = row.get('AMC', 0)
-                    nmos = row.get('NMOS', 0)
-                    material = row['Material Description']
-
-                    git_mos = row.get('GIT_MOS', 0)
-                    lc_mos = row.get('LC_MOS', 0)
-                    wb_mos = row.get('WB_MOS', 0)
-                    tmd_mos = row.get('TMD_MOS', 0)
-
-                    try:
-                        tmos = float(tmos) if pd.notna(tmos) else 0
-                        amc = float(amc) if pd.notna(amc) else 0
-                        nmos = float(nmos) if pd.notna(nmos) else 0
-                        git_mos = float(git_mos) if pd.notna(git_mos) else 0
-                        lc_mos = float(lc_mos) if pd.notna(lc_mos) else 0
-                        wb_mos = float(wb_mos) if pd.notna(wb_mos) else 0
-                        tmd_mos = float(tmd_mos) if pd.notna(tmd_mos) else 0
-                    except:
-                        continue
-
-                    pipeline_mos = git_mos + lc_mos + wb_mos + tmd_mos
-                    mos_needed = 18 - tmos
-
-                    if mos_needed > 0 and amc > 0:
-                        order_quantity = int(mos_needed * amc)
-
-                        if tmos <= 8:
-                            urgency = "🔴 CRITICAL"
-                            action = f"Place this {order_quantity:,} units IMMEDIATELY"
-                            order_by = "Now"
-                            expected_delivery = get_future_date(6)
-                        else:
-                            months_until_order = round(tmos - 8, 1)
-                            urgency = "🟡 PLAN"
-                            order_by_readable = get_readable_order_by(months_until_order)
-                            action = f"Place this {order_quantity:,} units by {order_by_readable}"
-                            order_by = order_by_readable
-                            total_months_to_delivery = months_until_order + 6
-                            expected_delivery = get_future_date(total_months_to_delivery)
-
-                        pipeline_parts = []
-                        if git_mos > 0:
-                            pipeline_parts.append(f"GIT: {round(git_mos,1)}m")
-                        if lc_mos > 0:
-                            pipeline_parts.append(f"LC: {round(lc_mos,1)}m")
-                        if wb_mos > 0:
-                            pipeline_parts.append(f"WB: {round(wb_mos,1)}m")
-                        if tmd_mos > 0:
-                            pipeline_parts.append(f"TMD: {round(tmd_mos,1)}m")
-                        pipeline_status = ", ".join(pipeline_parts) if pipeline_parts else "No pipeline stock"
-
-                        supply_plan.append({
-                            'Material': material,
-                            'Current TMOS': round(tmos, 2),
-                            'NMOS': round(nmos, 2),
-                            'Pipeline': round(pipeline_mos, 2),
-                            'Pipeline Status': pipeline_status,
-                            'AMC': int(amc),
-                            'MOS Needed': round(mos_needed, 2),
-                            'Order Quantity': f"{order_quantity:,}",
-                            'Urgency': urgency,
-                            'Action': action,
-                            'Order By': order_by,
-                            'Expected Delivery': expected_delivery.strftime('%b %Y')
-                        })
-
-                if supply_plan:
-                    supply_df = pd.DataFrame(supply_plan).sort_values('Current TMOS', ascending=True)
-
-                    col1, col2, col3, col4, col5 = st.columns(5)
-                    with col1:
-                        st.metric("📋 Materials to Order", len(supply_df))
-                    with col2:
-                        critical = len([s for s in supply_plan if s['Urgency'] == '🔴 CRITICAL'])
-                        st.metric("🔴 Critical", critical, delta="Order Now")
-                    with col3:
-                        plan = len([s for s in supply_plan if s['Urgency'] == '🟡 PLAN'])
-                        st.metric("🟡 Plan", plan, delta="Future Order")
-                    with col4:
-                        total_quantity = sum([int(s['Order Quantity'].replace(',', '')) for s in supply_plan])
-                        st.metric("📦 Total Order Qty", f"{total_quantity:,} units")
-                    with col5:
-                        avg_mos_needed = supply_df['MOS Needed'].mean()
-                        st.metric("📊 Avg MOS Needed", f"{round(avg_mos_needed, 1)} months")
-
-                    st.dataframe(
-                        supply_df[['Material', 'Current TMOS', 'NMOS', 'Pipeline', 'AMC', 'MOS Needed', 'Order Quantity', 'Urgency', 'Action', 'Order By', 'Expected Delivery']],
-                        use_container_width=True,
-                        hide_index=True,
-                        column_config={
-                            'Current TMOS': st.column_config.NumberColumn('TMOS (months)', format="%.2f"),
-                            'NMOS': st.column_config.NumberColumn('NMOS (months)', format="%.2f"),
-                            'Pipeline': st.column_config.NumberColumn('Pipeline MOS', format="%.2f"),
-                            'MOS Needed': st.column_config.NumberColumn('MOS Needed', format="%.2f"),
-                            'Order Quantity': st.column_config.TextColumn('Order Qty'),
-                        }
-                    )
-
-                    st.download_button(
-                        label="📥 Download Order Quantity Plan (CSV)",
-                        data=supply_df.to_csv(index=False),
-                        file_name=f"order_quantity_plan_{datetime.now().strftime('%Y%m%d')}.csv",
-                        mime="text/csv",
-                        use_container_width=True
-                    )
-                else:
-                    st.success("✅ No procurement needed. All materials have TMOS ≥ 18 months.")
-            else:
-                st.info("TMOS, NMOS, or AMC data not available for supply planning")
-
-                    # ========== TAB 2: Action Plan ==========
-        with sp_tab2:
-            st.markdown("<h3 style='font-size: 20px; font-weight: bold;'>Action Plan - Materials Requiring Attention</h3>", unsafe_allow_html=True)
-
-            action_plan = []
-
-            for idx, row in df_filtered.iterrows():
-                material = row['Material Description']
-                nmos = row.get('NMOS', 0)
-                tmos = row.get('TMOS', 0)
-                nsoh = row.get('NSOH', 0)
-                amc = row.get('AMC', 0)
-                stock_status = row.get('Stock Status', '')
-                risk_type = row.get('Risk Type', '')
-                has_expiry_risk = row.get('Has Expiry Risk', False)
-                risk_of_stock = row.get('Risk of Stock', '')
-
-                # Get pipeline components for responsible body determination
-                git_mos = row.get('GIT_MOS', 0)
-                lc_mos = row.get('LC_MOS', 0)
-                wb_mos = row.get('WB_MOS', 0)
-                tmd_mos = row.get('TMD_MOS', 0)
-
-                # Convert to numeric
-                try:
-                    nmos = float(nmos) if pd.notna(nmos) else 0
-                    tmos = float(tmos) if pd.notna(tmos) else 0
-                    nsoh = float(nsoh) if pd.notna(nsoh) else 0
-                    amc = float(amc) if pd.notna(amc) else 0
-                    git_mos = float(git_mos) if pd.notna(git_mos) else 0
-                    lc_mos = float(lc_mos) if pd.notna(lc_mos) else 0
-                    wb_mos = float(wb_mos) if pd.notna(wb_mos) else 0
-                    tmd_mos = float(tmd_mos) if pd.notna(tmd_mos) else 0
-                except:
-                    continue
-
-                # Skip materials with no AMC unless they have Expiry Risk
-                if amc == 0 and not has_expiry_risk:
-                    continue
-
-                # Track categories for summary metrics
-                is_stock_out = False
-                is_risk_of_stock = False
-                is_expiry_risk = False
-                is_below_minimum = False
-                is_pipeline_insufficient = False
-
-                # Determine Identified Problem
-                identified_problem = []
-
-                # Check Stock Out
-                if stock_status == 'Stock Out':
-                    identified_problem.append("Stock Out")
-                    is_stock_out = True
-                # Check Risk of Stock Out
-                elif risk_of_stock == 'Risk of Stock out' or risk_type == 'Risk of Stock out':
-                    identified_problem.append("Risk of Stock Out")
-                    is_risk_of_stock = True
-                # Check Expiry Risk
-                elif has_expiry_risk or risk_type == 'Expiry Risk':
-                    identified_problem.append("Expiry Risk")
-                    is_expiry_risk = True
-                # Check Below minimum stock level (NMOS < 6)
-                elif nmos < 6 and amc > 0:
-                    identified_problem.append("Below minimum stock level")
-                    is_below_minimum = True
-                # Check Pipeline not enough to reach maximum (tmos < 18)
-                elif tmos < 18 and amc > 0:
-                    identified_problem.append("Stock on pipeline is not enough to reach maximum stock level")
-                    is_pipeline_insufficient = True
-
-                if identified_problem:
-                    problem_text = ", ".join(identified_problem)
-
-                    # Get Action Point
-                    if stock_status == 'Stock Out' or risk_of_stock == 'Risk of Stock out' or risk_type == 'Risk of Stock out':
-                        action_point = get_stock_out_recommendation(row)
-                    elif has_expiry_risk or risk_type == 'Expiry Risk':
-                        action_point = get_expiry_risk_recommendation(row)
-                    elif (nmos < 6 or tmos < 18) and amc > 0:
-                        order_qty = int((18 - tmos) * amc)
-                        action_point = f"Place order for {order_qty:,} units to reach maximum stock level"
-                    else:
-                        action_point = "Monitor stock levels"
-
-                    # Standardize "Initiate additional quantity - no pipeline stock" to "Place order"
-                    if "Initiate additional quantity" in action_point:
-                        order_qty = int((18 - tmos) * amc)
-                        action_point = f"Place order for {order_qty:,} units to reach maximum stock level"
-
-                    # ========== RESPONSIBLE BODY MAPPING ==========
-                    responsible_body = ""
-
-                    # 🚚 GIT (Goods in Transit) - Expedite shipment
-                    if "Expedite shipment" in action_point:
-                        responsible_body = "EPSS_CMD, EPSS_DMD"
-                    # 📄 LC (Letter of Credit) - Expedite L/C opening
-                    elif "Expedite L/C" in action_point:
-                        responsible_body = "EPSS_CMD, EPSS_DMD"
-                    # 📋 TMD (Tender) - Expedite tender process
-                    elif "Expedite tender" in action_point:
-                        responsible_body = "EPSS_PMD, EPSS_DMD"
-                    # 💰 WB (Warehouse/Budget) - Expedite budget transfer
-                    elif "Expedite budget" in action_point:
-                        responsible_body = "EPSS_Finance, MOH"
-                    # 🔄 Place order
-                    elif "Place order" in action_point:
-                        responsible_body = "MOH"
-                    # ⚠️ Expiry Risk
-                    elif has_expiry_risk or risk_type == 'Expiry Risk':
-                        responsible_body = "EPSS_DMD"
-                    # Default
-                    else:
-                        responsible_body = "EPSS_DMD"
-
-                    # Determine Due Date - convert to specific date
-                    current_date = datetime.now()
-                    current_month = current_date.month
-                    current_year = current_date.year
-
-                    def get_end_of_month_date(year, month):
-                        year_int = int(year)
-                        month_int = int(month)
-                        if month_int == 12:
-                            next_month = 1
-                            next_year = year_int + 1
-                        else:
-                            next_month = month_int + 1
-                            next_year = year_int
-                        last_day = (datetime(next_year, next_month, 1) - timedelta(days=1)).day
-                        return datetime(year_int, month_int, last_day)
-
-                    def get_beginning_of_month_date(year, month):
-                        return datetime(int(year), int(month), 1)
-
-                    if "Place order" in action_point:
-                        if tmos <= 8:
-                            # Immediate - end of current month
-                            end_of_month = get_end_of_month_date(current_year, current_month)
-                            due_date = end_of_month.strftime('Before %d %b %Y')
-                        else:
-                            months_until_order = tmos - 8
-                            # Calculate target month
-                            total_months = current_month + months_until_order
-                            target_year = current_year + int((total_months - 1) // 12)
-                            target_month = int(((total_months - 1) % 12) + 1)
-
-                            if months_until_order <= 1:
-                                # Beginning of next month
-                                beginning_date = get_beginning_of_month_date(target_year, target_month)
-                                due_date = beginning_date.strftime('Before %d %b %Y')
-                            else:
-                                # End of the target month
-                                end_of_month = get_end_of_month_date(target_year, target_month)
-                                due_date = end_of_month.strftime('Before %d %b %Y')
-                    elif has_expiry_risk or risk_type == 'Expiry Risk':
-                        due_date = "ASAP"
-                    elif "Expedite" in action_point:
-                        end_of_month = get_end_of_month_date(current_year, current_month)
-                        due_date = end_of_month.strftime('Before %d %b %Y')
-                    else:
-                        due_date = "Review and act"
-
-                    # Format NSOH with commas
-                    nsoh_formatted = f"{int(nsoh):,}" if nsoh > 0 else "0"
-                    amc_formatted = f"{int(amc):,}" if amc > 0 else "N/A"
-
-                    action_plan.append({
-                        'Material': material,
-                        'NSOH': nsoh_formatted,
-                        'AMC': amc_formatted,
-                        'NMOS': round(nmos, 2) if amc > 0 else 0,
-                        'TMOS': round(tmos, 2),
-                        'Identified Problem': problem_text,
-                        'Action Point': action_point,
-                        'Responsible Body': responsible_body,
-                        'Due Date': due_date,
-                        # For summary metrics
-                        'is_stock_out': is_stock_out,
-                        'is_risk_of_stock': is_risk_of_stock,
-                        'is_expiry_risk': is_expiry_risk,
-                        'is_below_minimum': is_below_minimum,
-                        'is_pipeline_insufficient': is_pipeline_insufficient
-                    })
-
-            if action_plan:
-                action_df = pd.DataFrame(action_plan)
-
-                # Summary metrics with all categories
-                total_items = len(action_df)
-                stock_out_count = sum(1 for a in action_plan if a['is_stock_out'])
-                risk_count = sum(1 for a in action_plan if a['is_risk_of_stock'])
-                expiry_count = sum(1 for a in action_plan if a['is_expiry_risk'])
-                below_minimum_count = sum(1 for a in action_plan if a['is_below_minimum'])
-                pipeline_insufficient_count = sum(1 for a in action_plan if a['is_pipeline_insufficient'])
-
-                # Summary metrics - Row 1
-                col1, col2, col3, col4 = st.columns(4)
-                with col1:
-                    st.metric("📋 Total Action Items", total_items)
-                with col2:
-                    st.metric("🔴 Stock Out", stock_out_count)
-                with col3:
-                    st.metric("🟡 Risk of Stock Out", risk_count)
-                with col4:
-                    st.metric("⚠️ Expiry Risk", expiry_count)
-
-                # Summary metrics - Row 2
-                col5, col6 = st.columns(2)
-                with col5:
-                    st.metric("📉 Below Minimum Stock Level", below_minimum_count)
-                with col6:
-                    st.metric("📦 Pipeline Insufficient (<18 Month)", pipeline_insufficient_count)
-
-                # Remove temporary columns before displaying
-                display_df_action = action_df.drop(columns=['is_stock_out', 'is_risk_of_stock', 'is_expiry_risk', 'is_below_minimum', 'is_pipeline_insufficient'])
-
-                # Editable data editor
-                st.markdown("---")
-                st.markdown("**✏️ Assign Responsible Body and Due Date (Editable fields below):**")
-
-                edited_result = st.data_editor(
-                    display_df_action,
-                    column_config={
-                        'Material': st.column_config.TextColumn('Material', width=200, disabled=True),
-                        'NSOH': st.column_config.TextColumn('NSOH', width=100, disabled=True),
-                        'AMC': st.column_config.TextColumn('AMC', width=80, disabled=True),
-                        'NMOS': st.column_config.NumberColumn('NMOS', width=80, disabled=True, format="%.2f"),
-                        'TMOS': st.column_config.NumberColumn('TMOS', width=80, disabled=True, format="%.2f"),
-                        'Identified Problem': st.column_config.TextColumn('Problem', width=180, disabled=True),
-                        'Action Point': st.column_config.TextColumn('Action Point', width=300),
-                        'Responsible Body': st.column_config.TextColumn('Responsible Body', width=180),
-                        'Due Date': st.column_config.TextColumn('Due Date', width=120)
-                    },
-                    use_container_width=True,
-                    hide_index=True,
-                    height=min(600, (len(action_df) + 1) * 45),
-                    num_rows="fixed"
-                )
-
-                # Save button for assignments
-                if st.button("💾 Save Assignments", use_container_width=True):
-                    st.session_state.saved_assignments = edited_result.to_dict('records')
-                    st.success("✅ Assignments saved successfully!")
-
-                # Download button
-                st.download_button(
-                    label="📥 Download Action Plan (CSV)",
-                    data=edited_result.to_csv(index=False),
-                    file_name=f"action_plan_{datetime.now().strftime('%Y%m%d')}.csv",
-                    mime="text/csv",
-                    use_container_width=True
-                )
-
-                # Display saved assignments if they exist
-                if 'saved_assignments' in st.session_state and st.session_state.saved_assignments:
-                    with st.expander("📋 Saved Assignments", expanded=False):
-                        st.dataframe(pd.DataFrame(st.session_state.saved_assignments), use_container_width=True, hide_index=True)
-
-            else:
-                st.success("✅ No action items identified. All materials are within normal stock levels.")
-
     st.stop()
 
 elif page == "Executive Summary":
     # ===================================================
-    # EXECUTIVE SUMMARY PAGE
+    # EXECUTIVE SUMMARY PAGE (UPDATED)
     # ===================================================
     st.markdown("<h1 style='font-size: 36px; font-weight: bold; font-family: Times New Roman;' class='gradient-text'>📊 Executive Summary Dashboard</h1>", unsafe_allow_html=True)
     st.caption(f"Report Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} | Program: {sheet_name if sheet_name != 'All' else 'All Programs'}")
 
-    # SECTION 1: PERFORMANCE METRICS
+    # SECTION 1: PERFORMANCE METRICS (Colorful cards)
     st.markdown("---")
     st.markdown("<h2 style='font-size: 28px; font-weight: bold;'>🎯 1. Performance Metrics</h2>", unsafe_allow_html=True)
 
     if not df_filtered.empty and 'NMOS' in df_filtered.columns:
         nmos_values = pd.to_numeric(df_filtered['NMOS'], errors='coerce').dropna()
 
-        total_materials = len(df_filtered)
-        stock_out_count = len(df_filtered[df_filtered['Stock Status'] == 'Stock Out'])
-        understock_count = len(df_filtered[df_filtered['Stock Status'] == 'Understock'])
-        normal_count = len(df_filtered[df_filtered['Stock Status'] == 'Normal Stock'])
-        overstock_count = len(df_filtered[df_filtered['Stock Status'] == 'Overstock'])
-
         availability = (nmos_values > 1).mean() * 100 if len(nmos_values) > 0 else 0
         sap_achievement = ((nmos_values >= 6) & (nmos_values <= 18)).mean() * 100 if len(nmos_values) > 0 else 0
 
-        # Calculate Avail. Gap
         if 'Avail Gap' in df_filtered.columns:
             avail_gap_values = pd.to_numeric(df_filtered['Avail Gap'], errors='coerce').dropna()
             avg_avail_gap = avail_gap_values.mean() if len(avail_gap_values) > 0 else 0
         else:
             avg_avail_gap = 0
 
+        # Colorful metric cards
         col1, col2, col3 = st.columns(3)
         with col1:
             st.markdown(f"""
@@ -2544,7 +2155,15 @@ elif page == "Executive Summary":
 
         st.markdown("<br>", unsafe_allow_html=True)
 
-        # Quick Stats - 5 columns
+        # SECTION: STOCK STATUS (New title)
+        st.markdown("<h2 style='font-size: 28px; font-weight: bold;'>📊 Stock Status</h2>", unsafe_allow_html=True)
+
+        total_materials = len(df_filtered)
+        stock_out_count = len(df_filtered[df_filtered['Stock Status'] == 'Stock Out'])
+        understock_count = len(df_filtered[df_filtered['Stock Status'] == 'Understock'])
+        normal_count = len(df_filtered[df_filtered['Stock Status'] == 'Normal Stock'])
+        overstock_count = len(df_filtered[df_filtered['Stock Status'] == 'Overstock'])
+
         col1, col2, col3, col4, col5 = st.columns(5)
         with col1:
             st.metric("📦 Total Materials", total_materials)
@@ -2557,7 +2176,7 @@ elif page == "Executive Summary":
         with col5:
             st.metric("🔵 Overstock", overstock_count)
 
-        # SECTION 2: RISK SUMMARY (Markdown Table - 3 columns)
+        # SECTION 2: RISK SUMMARY (Colorful table)
         st.markdown("---")
         st.markdown("<h2 style='font-size: 28px; font-weight: bold;'>⚠️ 2. Risk Summary</h2>", unsafe_allow_html=True)
 
@@ -2585,7 +2204,7 @@ elif page == "Executive Summary":
         </table>
         """, unsafe_allow_html=True)
 
-        # SECTION 3: STOCK DISTRIBUTION ACROSS HUBS BY MOS
+        # SECTION 3: STOCK DISTRIBUTION ACROSS HUBS (unchanged)
         st.markdown("---")
         st.markdown("<h2 style='font-size: 28px; font-weight: bold;'>📍 3. Stock Distribution Across Hubs by MOS</h2>", unsafe_allow_html=True)
 
@@ -2613,7 +2232,7 @@ elif page == "Executive Summary":
         else:
             st.info("CV Category data not available")
 
-        # SECTION 4: BRANCH RANKING
+        # SECTION 4: BRANCH RANKING (Colorful gradient cards - name only)
         st.markdown("---")
         st.markdown("<h2 style='font-size: 28px; font-weight: bold;'>🏆 4. Branch Ranking by Stock Availability</h2>", unsafe_allow_html=True)
         st.caption("Availability = materials with NMOS ≥ 0.5 (at least 2 weeks of stock)")
@@ -2656,24 +2275,21 @@ elif page == "Executive Summary":
                 rankings_df = pd.DataFrame(rankings).sort_values('Score', ascending=False)
                 top_branch = rankings_df.iloc[0]['Branch']
                 bottom_branch = rankings_df.iloc[-1]['Branch']
-                top_score = rankings_df.iloc[0]['Score']
-                bottom_score = rankings_df.iloc[-1]['Score']
 
+                # Colorful gradient cards - name only
                 col1, col2 = st.columns(2)
                 with col1:
                     st.markdown(f"""
                     <div style='background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%); border-radius: 15px; padding: 20px; color: white; text-align: center;'>
-                        <h3 style='margin:0; font-size: 16px;'>🏆 TOP BRANCH</h3>
-                        <p style='font-size: 24px; font-weight: bold; margin: 10px 0;'>{top_branch}</p>
-                        <p style='margin:0; font-size: 14px;'>Availability: {top_score:.1f}%</p>
+                        <h3 style='margin:0; font-size: 16px; opacity:0.9'>🏆 TOP BRANCH</h3>
+                        <p style='font-size: 28px; font-weight: bold; margin: 10px 0;'>{top_branch}</p>
                     </div>
                     """, unsafe_allow_html=True)
                 with col2:
                     st.markdown(f"""
                     <div style='background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%); border-radius: 15px; padding: 20px; color: white; text-align: center;'>
-                        <h3 style='margin:0; font-size: 16px;'>📉 BOTTOM BRANCH</h3>
-                        <p style='font-size: 24px; font-weight: bold; margin: 10px 0;'>{bottom_branch}</p>
-                        <p style='margin:0; font-size: 14px;'>Availability: {bottom_score:.1f}%</p>
+                        <h3 style='margin:0; font-size: 16px; opacity:0.9'>📉 BOTTOM BRANCH</h3>
+                        <p style='font-size: 28px; font-weight: bold; margin: 10px 0;'>{bottom_branch}</p>
                     </div>
                     """, unsafe_allow_html=True)
             else:
@@ -2681,7 +2297,7 @@ elif page == "Executive Summary":
         else:
             st.info("Branch AMC data not available")
 
-        # SECTION 5: TOP AND BOTTOM PROGRAM
+        # SECTION 5: PROGRAM PERFORMANCE (Colorful gradient cards - name only)
         st.markdown("---")
         st.markdown("<h2 style='font-size: 28px; font-weight: bold;'>📊 5. Program Performance</h2>", unsafe_allow_html=True)
 
@@ -2697,34 +2313,49 @@ elif page == "Executive Summary":
                 nmos_values = pd.to_numeric(merged['NMOS'], errors='coerce').dropna()
 
                 if len(nmos_values) > 0:
+                    # Calculate composite score for ranking
                     availability_prog = (nmos_values > 1).mean() * 100
+                    sap_prog = ((nmos_values >= 6) & (nmos_values <= 18)).mean() * 100
+                    stock_out_rate = (nmos_values < 1).mean() * 100
+                    overstock_rate = (nmos_values > 18).mean() * 100
+                    avg_nmos_prog = nmos_values.mean()
+
+                    composite_score = 0
+                    if availability_prog == 100:
+                        composite_score += 1
+                    if sap_prog >= 65:
+                        composite_score += 1
+                    if stock_out_rate == 0:
+                        composite_score += 1
+                    if overstock_rate == 0:
+                        composite_score += 1
+                    if 6 <= avg_nmos_prog <= 18:
+                        composite_score += 1
+
                     program_metrics.append({
                         'Program': program_name,
-                        'Availability': availability_prog
+                        'Composite Score': composite_score
                     })
 
             if program_metrics:
-                prog_df = pd.DataFrame(program_metrics).sort_values('Availability', ascending=False)
+                prog_df = pd.DataFrame(program_metrics).sort_values('Composite Score', ascending=False)
                 top_program = prog_df.iloc[0]['Program']
-                top_availability = prog_df.iloc[0]['Availability']
                 bottom_program = prog_df.iloc[-1]['Program']
-                bottom_availability = prog_df.iloc[-1]['Availability']
 
+                # Colorful gradient cards - name only
                 col1, col2 = st.columns(2)
                 with col1:
                     st.markdown(f"""
                     <div style='background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%); border-radius: 15px; padding: 20px; color: white; text-align: center;'>
-                        <h3 style='margin:0; font-size: 16px;'>🥇 TOP PROGRAM</h3>
-                        <p style='font-size: 22px; font-weight: bold; margin: 10px 0;'>{top_program}</p>
-                        <p style='margin:0; font-size: 14px;'>Availability: {top_availability:.1f}%</p>
+                        <h3 style='margin:0; font-size: 16px; opacity:0.9'>🥇 TOP PROGRAM</h3>
+                        <p style='font-size: 28px; font-weight: bold; margin: 10px 0;'>{top_program}</p>
                     </div>
                     """, unsafe_allow_html=True)
                 with col2:
                     st.markdown(f"""
                     <div style='background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%); border-radius: 15px; padding: 20px; color: white; text-align: center;'>
-                        <h3 style='margin:0; font-size: 16px;'>📉 BOTTOM PROGRAM</h3>
-                        <p style='font-size: 22px; font-weight: bold; margin: 10px 0;'>{bottom_program}</p>
-                        <p style='margin:0; font-size: 14px;'>Availability: {bottom_availability:.1f}%</p>
+                        <h3 style='margin:0; font-size: 16px; opacity:0.9'>📉 BOTTOM PROGRAM</h3>
+                        <p style='font-size: 28px; font-weight: bold; margin: 10px 0;'>{bottom_program}</p>
                     </div>
                     """, unsafe_allow_html=True)
             else:
@@ -2735,57 +2366,42 @@ elif page == "Executive Summary":
     # Download button
     st.markdown("---")
 
-    # Create summary text for download
-    summary_lines = []
-    summary_lines.append("EXECUTIVE SUMMARY REPORT")
-    summary_lines.append(f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-    summary_lines.append(f"Program: {sheet_name if sheet_name != 'All' else 'All Programs'}")
-    summary_lines.append("")
-    summary_lines.append("PERFORMANCE METRICS")
+    summary_text = f"""
+EXECUTIVE SUMMARY REPORT
+Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
+Program: {sheet_name if sheet_name != 'All' else 'All Programs'}
 
-    if 'availability' in locals():
-        summary_lines.append(f"- Availability: {availability:.1f}% (Target: 100%)")
-        summary_lines.append(f"- SAP Achievement: {sap_achievement:.1f}% (Target: 65%)")
-        summary_lines.append(f"- Avail. Gap: {avg_avail_gap:.1f}% (Hubs% - Head Office%)")
-        summary_lines.append(f"- Total Materials: {total_materials}")
-        summary_lines.append(f"- Stock Out: {stock_out_count}")
-        summary_lines.append(f"- Understock: {understock_count}")
-        summary_lines.append(f"- Normal Stock: {normal_count}")
-        summary_lines.append(f"- Overstock: {overstock_count}")
-        summary_lines.append("")
-        summary_lines.append("RISK SUMMARY")
-        summary_lines.append(f"- Critical Risk: {critical_risk} materials require URGENT attention")
-        summary_lines.append(f"- Risk of Stock Out: {risk_stock_out} materials need expediting")
-        summary_lines.append(f"- Expiry Risk: {expiry_risk} materials approaching expiration")
-        summary_lines.append("")
-        summary_lines.append("STOCK DISTRIBUTION ACROSS HUBS")
-        summary_lines.append(f"- Total Materials: {total_cv_materials if 'total_cv_materials' in locals() else 0}")
+PERFORMANCE METRICS
+- Availability: {availability:.1f}% (Target: 100%)
+- SAP Achievement: {sap_achievement:.1f}% (Target: 65%)
+- Avail. Gap: {avg_avail_gap:.1f}%
 
-        if 'low_variation' in locals():
-            low_pct_val = low_pct if 'low_pct' in locals() else 0
-            mod_pct_val = mod_pct if 'mod_pct' in locals() else 0
-            high_pct_val = high_pct if 'high_pct' in locals() else 0
-            summary_lines.append(f"- Low Variation (<50%): {low_variation} ({low_pct_val:.1f}%)")
-            summary_lines.append(f"- Moderate Variation (50-100%): {moderate_variation} ({mod_pct_val:.1f}%)")
-            summary_lines.append(f"- High Variation (>100%): {high_variation} ({high_pct_val:.1f}%)")
+STOCK STATUS
+- Total Materials: {total_materials}
+- Stock Out: {stock_out_count}
+- Understock: {understock_count}
+- Normal Stock: {normal_count}
+- Overstock: {overstock_count}
 
-        summary_lines.append("")
-        summary_lines.append("BRANCH RANKING")
-        if 'top_branch' in locals():
-            summary_lines.append(f"- Top Branch: {top_branch} ({top_score:.1f}%)")
-            summary_lines.append(f"- Bottom Branch: {bottom_branch} ({bottom_score:.1f}%)")
-        else:
-            summary_lines.append("- No branch ranking data available")
+RISK SUMMARY
+- Critical Risk: {critical_risk}
+- Risk of Stock Out: {risk_stock_out}
+- Expiry Risk: {expiry_risk}
 
-        summary_lines.append("")
-        summary_lines.append("PROGRAM PERFORMANCE")
-        if 'top_program' in locals():
-            summary_lines.append(f"- Top Program: {top_program} ({top_availability:.1f}%)")
-            summary_lines.append(f"- Bottom Program: {bottom_program} ({bottom_availability:.1f}%)")
-        else:
-            summary_lines.append("- No program data available")
+STOCK DISTRIBUTION ACROSS HUBS
+- Total Materials: {total_cv_materials}
+- Low Variation: {low_variation} ({low_pct:.1f}%)
+- Moderate Variation: {moderate_variation} ({mod_pct:.1f}%)
+- High Variation: {high_variation} ({high_pct:.1f}%)
 
-    summary_text = "\n".join(summary_lines)
+BRANCH RANKING
+- Top Branch: {top_branch}
+- Bottom Branch: {bottom_branch}
+
+PROGRAM PERFORMANCE
+- Top Program: {top_program}
+- Bottom Program: {bottom_program}
+"""
 
     st.download_button(
         label="📥 Download Executive Summary Report",
@@ -2798,21 +2414,107 @@ elif page == "Executive Summary":
     st.stop()
 
 # ===================================================
-# MAIN DASHBOARD (Original - 4 Tabs - Completely Unchanged)
+# MAIN DASHBOARD (5 Tabs - including Supply Planning)
 # ===================================================
 else:
-    # MAIN DASHBOARD
-    col1, col2 = st.columns([3, 1])
-    with col1:
-        st.markdown("<h1 style='font-size: 32px; font-weight: bold; font-family: Times New Roman;' class='gradient-text'>Health Program Medicines Dashboard</h1>", unsafe_allow_html=True)
-    with col2:
-        st.markdown("<p style='font-size: 10px; color: #666; margin-bottom: 0;'>🎨 Display Settings</p>", unsafe_allow_html=True)
+    # ===================================================
+    # MAIN DASHBOARD WITH EPSS HEADER AND QUICK SUMMARY
+    # ===================================================
+
+    # Header Row: Logo, Title, and Display Settings
+    col_logo, col_title, col_settings = st.columns([1, 3, 1])
+
+    # Column 1: Logo
+    with col_logo:
+        if os.path.exists("epss_logo.png"):
+            st.image("epss_logo.png", width=60)
+        else:
+            try:
+                st.image("https://epss.gov.et/wp-content/uploads/2023/05/EPSS-Logo.png", width=60)
+            except:
+                st.markdown("""
+                <div style='background-color: #1a5276; border-radius: 15px; padding: 10px; text-align: center; width: 60px;'>
+                    <p style='color: white; font-weight: bold; margin: 0; font-size: 14px;'>EPSS</p>
+                    <p style='color: white; font-size: 8px; margin: 0;'>ETHIOPIA</p>
+                </div>
+                """, unsafe_allow_html=True)
+
+    # Column 2: Title
+    with col_title:
+        st.markdown("""
+        <div>
+            <p style='font-size: 18px; color: #1a5276; margin: 0; font-weight: bold;'>ETHIOPIAN PHARMACEUTICAL SUPPLY SERVICE</p>
+            <h1 style='font-size: 32px; font-weight: bold; font-family: Times New Roman; margin: 0;' class='gradient-text'>Health Program Medicines Dashboard</h1>
+        </div>
+        """, unsafe_allow_html=True)
+
+    # Column 3: Display Settings
+    with col_settings:
+        st.markdown("""
+        <div style='background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%); border-radius: 15px; padding: 10px; border: 1px solid #dee2e6;'>
+            <p style='margin: 0 0 5px 0; font-size: 12px; font-weight: bold; color: #1a5276; text-align: center;'>🎨 DISPLAY SETTINGS</p>
+        </div>
+        """, unsafe_allow_html=True)
         view_mode = st.selectbox("View Mode", ["Table View", "Card View"], index=0 if st.session_state.view_mode == "table" else 1, label_visibility="collapsed")
         st.session_state.view_mode = "table" if view_mode == "Table View" else "card"
 
-    # ---------------------------------------------------
-    # 5-COLUMN QUICK STATS
-    # ---------------------------------------------------
+    st.markdown("---")
+
+    # Quick Summary Section with Program Name
+    if not df_filtered.empty and 'NMOS' in df_filtered.columns:
+        nmos_values = pd.to_numeric(df_filtered['NMOS'], errors='coerce').dropna()
+
+        availability = (nmos_values > 1).mean() * 100 if len(nmos_values) > 0 else 0
+        sap = ((nmos_values >= 6) & (nmos_values <= 18)).mean() * 100 if len(nmos_values) > 0 else 0
+
+        if 'Avail Gap' in df_filtered.columns:
+            avail_gap_values = pd.to_numeric(df_filtered['Avail Gap'], errors='coerce').dropna()
+            avg_avail_gap = avail_gap_values.mean() if len(avail_gap_values) > 0 else 0
+        else:
+            avg_avail_gap = 0
+
+        # Determine program name for Quick Summary title
+        if sheet_name == "All":
+            program_name = "All Programs"
+        elif subcategory_filter != "All":
+            program_name = f"{sheet_name} - {subcategory_filter}"
+        else:
+            program_name = sheet_name
+
+        # Quick Summary Box with Program Name
+        st.markdown(f"""
+        <div style='background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%); border-radius: 15px; padding: 15px; border: 1px solid #dee2e6; margin-bottom: 15px;'>
+            <h4 style='margin: 0 0 10px 0; font-size: 16px; font-weight: bold; color: #1a5276;'>📊 {program_name} Quick Summary</h4>
+        </div>
+        """, unsafe_allow_html=True)
+
+        # Row: Availability, SAP, Avail.Gap
+        col_a, col_s, col_g = st.columns(3)
+        with col_a:
+            st.markdown(f"""
+            <div style='text-align: center; padding: 10px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-radius: 10px; margin: 5px;'>
+                <p style='margin: 0; font-size: 16px; color: white; opacity: 0.9'>AVAILABILITY</p>
+                <p style='margin: 0; font-size: 24px; font-weight: bold; color: white;'>{availability:.1f}%</p>
+            </div>
+            """, unsafe_allow_html=True)
+        with col_s:
+            st.markdown(f"""
+            <div style='text-align: center; padding: 10px; background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%); border-radius: 10px; margin: 5px;'>
+                <p style='margin: 0; font-size: 16px; color: white; opacity: 0.9'>SAP</p>
+                <p style='margin: 0; font-size: 24px; font-weight: bold; color: white;'>{sap:.1f}%</p>
+            </div>
+            """, unsafe_allow_html=True)
+        with col_g:
+            st.markdown(f"""
+            <div style='text-align: center; padding: 10px; background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%); border-radius: 10px; margin: 5px;'>
+                <p style='margin: 0; font-size: 16px; color: white; opacity: 0.9'>AVAIL. GAP</p>
+                <p style='margin: 0; font-size: 24px; font-weight: bold; color: white;'>{avg_avail_gap:.1f}%</p>
+            </div>
+            """, unsafe_allow_html=True)
+
+    st.markdown("---")
+
+    # Original 5-COLUMN QUICK STATS (keep as is)
     if not df_filtered.empty:
         col1, col2, col3, col4, col5 = st.columns(5)
 
@@ -2841,14 +2543,17 @@ else:
             st.metric("🔵 Overstock", overstock, delta=f"-{overstock}" if overstock > 0 else "0", delta_color="inverse")
 
     # ---------------------------------------------------
-    # Tabs
+    # Tabs (5 tabs including Supply Planning)
     # ---------------------------------------------------
-    tab1, tab2, tab3, tab4 = st.tabs([
+    tab1, tab2, tab3, tab4, tab5 = st.tabs([
         "📋 Stock Status Table", 
         "📈 KPIs & Analytics", 
         "💡 Decision Briefs", 
-        "📍 Hubs Distribution"
+        "📍 Hubs Distribution",
+        "📦 Supply Planning"
     ])
+
+    # ... REST OF YOUR TABS CODE CONTINUES HERE ...
 
     # ---------------------------------------------------
     # TAB 1 - Stock Status Table (ORIGINAL - UNCHANGED)
@@ -3434,7 +3139,7 @@ else:
             st.info("No data available.")
 
     # ---------------------------------------------------
-    # TAB 4 - Hubs Distribution (ORIGINAL - UNCHANGED - WITHOUT branch_name_map)
+    # TAB 4 - Hubs Distribution (ORIGINAL - UNCHANGED)
     # ---------------------------------------------------
     with tab4:
         try:
@@ -3457,7 +3162,6 @@ else:
                         for i in range(min_cols):
                             gh_col = gh_cols[i]
                             cf_col = cf_cols[i]
-                            # Use the original column name without renaming
                             display_col_name = gh_col
                             gh_values = pd.to_numeric(merged_df[f"{gh_col}_gh"], errors='coerce')
                             cf_values = pd.to_numeric(merged_df[f"{cf_col}_cf"], errors='coerce')
@@ -3591,6 +3295,330 @@ else:
                 st.warning("Main dataframe is empty.")
         except Exception as e:
             st.error(f"Error processing files: {e}")
+
+    # ---------------------------------------------------
+    # TAB 5 - Supply Planning (MOVED FROM ADVANCED ANALYTICS)
+    # ---------------------------------------------------
+    with tab5:
+        st.markdown("<h3 style='font-size: 24px; font-weight: bold;'>📦 Supply Planning - Procurement Requirements</h3>", unsafe_allow_html=True)
+
+        with st.expander("📖 Parameters & Instructions", expanded=False):
+            st.markdown("""
+            **Supply Planning Parameters:**
+            - Lead Time = 6 months (time from order placement to delivery)
+            - Safety Stock = 2 months (buffer stock)
+            - Maximum Stock Level = 18 months
+            - Reorder Point = Lead Time + Safety Stock = 8 months
+
+            **Order Quantity Formula:**
+            - Order Quantity = (18 - TMOS) × AMC (ONLY if 18 - TMOS is POSITIVE)
+            - MOS Needed = 18 - TMOS (months of stock required to reach maximum)
+
+            **TMOS = NMOS + Pipeline MOS** (GIT_MOS + LC_MOS + WB_MOS + TMD_MOS)
+            """)
+
+        if 'TMOS' in df_filtered.columns and 'AMC' in df_filtered.columns and 'NMOS' in df_filtered.columns:
+            supply_plan = []
+            current_date = datetime.now()
+
+            def get_future_date(months_from_now):
+                target_date = current_date
+                months_int = int(months_from_now)
+                new_year = target_date.year + ((target_date.month + months_int - 1) // 12)
+                new_month = ((target_date.month + months_int - 1) % 12) + 1
+                target_date = target_date.replace(year=new_year, month=new_month, day=1)
+                return target_date
+
+            def get_readable_order_by(months_until_order):
+                if months_until_order <= 0:
+                    return "Now"
+                target_date = get_future_date(months_until_order)
+                month_name = target_date.strftime('%B')
+                year = target_date.year
+                if target_date.day <= 15:
+                    period = "beginning"
+                else:
+                    period = "end"
+                if target_date.year == current_date.year:
+                    return f"{period} of {month_name}"
+                else:
+                    return f"{period} of {month_name} {year}"
+
+            for idx, row in df_filtered.iterrows():
+                tmos = row.get('TMOS', 0)
+                amc = row.get('AMC', 0)
+                nmos = row.get('NMOS', 0)
+                material = row['Material Description']
+
+                git_mos = row.get('GIT_MOS', 0)
+                lc_mos = row.get('LC_MOS', 0)
+                wb_mos = row.get('WB_MOS', 0)
+                tmd_mos = row.get('TMD_MOS', 0)
+
+                try:
+                    tmos = float(tmos) if pd.notna(tmos) else 0
+                    amc = float(amc) if pd.notna(amc) else 0
+                    nmos = float(nmos) if pd.notna(nmos) else 0
+                    git_mos = float(git_mos) if pd.notna(git_mos) else 0
+                    lc_mos = float(lc_mos) if pd.notna(lc_mos) else 0
+                    wb_mos = float(wb_mos) if pd.notna(wb_mos) else 0
+                    tmd_mos = float(tmd_mos) if pd.notna(tmd_mos) else 0
+                except:
+                    continue
+
+                pipeline_mos = git_mos + lc_mos + wb_mos + tmd_mos
+                mos_needed = 18 - tmos
+
+                if mos_needed > 0 and amc > 0:
+                    order_quantity = int(mos_needed * amc)
+
+                    if tmos <= 8:
+                        urgency = "🔴 CRITICAL"
+                        action = f"Place this {order_quantity:,} units IMMEDIATELY"
+                        order_by = "Now"
+                        expected_delivery = get_future_date(6)
+                    else:
+                        months_until_order = round(tmos - 8, 1)
+                        urgency = "🟡 PLAN"
+                        order_by_readable = get_readable_order_by(months_until_order)
+                        action = f"Place this {order_quantity:,} units by {order_by_readable}"
+                        order_by = order_by_readable
+                        total_months_to_delivery = months_until_order + 6
+                        expected_delivery = get_future_date(total_months_to_delivery)
+
+                    pipeline_parts = []
+                    if git_mos > 0:
+                        pipeline_parts.append(f"GIT: {round(git_mos,1)}m")
+                    if lc_mos > 0:
+                        pipeline_parts.append(f"LC: {round(lc_mos,1)}m")
+                    if wb_mos > 0:
+                        pipeline_parts.append(f"WB: {round(wb_mos,1)}m")
+                    if tmd_mos > 0:
+                        pipeline_parts.append(f"TMD: {round(tmd_mos,1)}m")
+                    pipeline_status = ", ".join(pipeline_parts) if pipeline_parts else "No pipeline stock"
+
+                    supply_plan.append({
+                        'Material': material,
+                        'Current TMOS': round(tmos, 2),
+                        'NMOS': round(nmos, 2),
+                        'Pipeline': round(pipeline_mos, 2),
+                        'Pipeline Status': pipeline_status,
+                        'AMC': int(amc),
+                        'MOS Needed': round(mos_needed, 2),
+                        'Order Quantity': f"{order_quantity:,}",
+                        'Urgency': urgency,
+                        'Action': action,
+                        'Order By': order_by,
+                        'Expected Delivery': expected_delivery.strftime('%b %Y')
+                    })
+
+            if supply_plan:
+                supply_df = pd.DataFrame(supply_plan).sort_values('Current TMOS', ascending=True)
+
+                col1, col2, col3, col4, col5 = st.columns(5)
+                with col1:
+                    st.metric("📋 Materials to Order", len(supply_df))
+                with col2:
+                    critical = len([s for s in supply_plan if s['Urgency'] == '🔴 CRITICAL'])
+                    st.metric("🔴 Critical", critical, delta="Order Now")
+                with col3:
+                    plan = len([s for s in supply_plan if s['Urgency'] == '🟡 PLAN'])
+                    st.metric("🟡 Plan", plan, delta="Future Order")
+                with col4:
+                    total_quantity = sum([int(s['Order Quantity'].replace(',', '')) for s in supply_plan])
+                    st.metric("📦 Total Order Qty", f"{total_quantity:,} units")
+                with col5:
+                    avg_mos_needed = supply_df['MOS Needed'].mean()
+                    st.metric("📊 Avg MOS Needed", f"{round(avg_mos_needed, 1)} months")
+
+                st.dataframe(
+                    supply_df[['Material', 'Current TMOS', 'NMOS', 'Pipeline', 'AMC', 'MOS Needed', 'Order Quantity', 'Urgency', 'Action', 'Order By', 'Expected Delivery']],
+                    use_container_width=True,
+                    hide_index=True
+                )
+
+                st.download_button(
+                    label="📥 Download Order Quantity Plan (CSV)",
+                    data=supply_df.to_csv(index=False),
+                    file_name=f"order_quantity_plan_{datetime.now().strftime('%Y%m%d')}.csv",
+                    mime="text/csv",
+                    use_container_width=True
+                )
+
+                # Action Plan Table
+                st.markdown("---")
+                st.markdown("<h4 style='font-size: 20px; font-weight: bold;'>📝 Action Plan - Materials Requiring Attention</h4>", unsafe_allow_html=True)
+
+                action_plan = []
+                for idx, row in df_filtered.iterrows():
+                    material = row['Material Description']
+                    nmos = row.get('NMOS', 0)
+                    tmos = row.get('TMOS', 0)
+                    nsoh = row.get('NSOH', 0)
+                    amc = row.get('AMC', 0)
+                    stock_status = row.get('Stock Status', '')
+                    risk_type = row.get('Risk Type', '')
+                    has_expiry_risk = row.get('Has Expiry Risk', False)
+                    risk_of_stock = row.get('Risk of Stock', '')
+
+                    git_mos = row.get('GIT_MOS', 0)
+                    lc_mos = row.get('LC_MOS', 0)
+                    wb_mos = row.get('WB_MOS', 0)
+                    tmd_mos = row.get('TMD_MOS', 0)
+
+                    try:
+                        nmos = float(nmos) if pd.notna(nmos) else 0
+                        tmos = float(tmos) if pd.notna(tmos) else 0
+                        nsoh = float(nsoh) if pd.notna(nsoh) else 0
+                        amc = float(amc) if pd.notna(amc) else 0
+                    except:
+                        continue
+
+                    if amc == 0 and not has_expiry_risk:
+                        continue
+
+                    identified_problem = []
+
+                    if stock_status == 'Stock Out':
+                        identified_problem.append("Stock Out")
+                    elif risk_of_stock == 'Risk of Stock out' or risk_type == 'Risk of Stock out':
+                        identified_problem.append("Risk of Stock Out")
+                    elif has_expiry_risk or risk_type == 'Expiry Risk':
+                        identified_problem.append("Expiry Risk")
+                    elif nmos < 6 and amc > 0:
+                        identified_problem.append("Below minimum stock level")
+                    elif tmos < 18 and amc > 0:
+                        identified_problem.append("Stock on pipeline is not enough to reach maximum stock level")
+
+                    if identified_problem:
+                        problem_text = ", ".join(identified_problem)
+
+                        if stock_status == 'Stock Out' or risk_of_stock == 'Risk of Stock out' or risk_type == 'Risk of Stock out':
+                            action_point = get_stock_out_recommendation(row)
+                        elif has_expiry_risk or risk_type == 'Expiry Risk':
+                            action_point = get_expiry_risk_recommendation(row)
+                        elif (nmos < 6 or tmos < 18) and amc > 0:
+                            order_qty = int((18 - tmos) * amc)
+                            action_point = f"Place order for {order_qty:,} units to reach maximum stock level"
+                        else:
+                            action_point = "Monitor stock levels"
+
+                        if "Initiate additional quantity" in action_point:
+                            order_qty = int((18 - tmos) * amc)
+                            action_point = f"Place order for {order_qty:,} units to reach maximum stock level"
+
+                        # Responsible Body Mapping
+                        responsible_body = ""
+                        if "Expedite shipment" in action_point:
+                            responsible_body = "EPSS_CMD, EPSS_DMD"
+                        elif "Expedite L/C" in action_point:
+                            responsible_body = "EPSS_CMD, EPSS_DMD"
+                        elif "Expedite tender" in action_point:
+                            responsible_body = "EPSS_PMD, EPSS_DMD"
+                        elif "Expedite budget" in action_point:
+                            responsible_body = "EPSS_Finance, MOH"
+                        elif "Place order" in action_point:
+                            responsible_body = "MOH"
+                        elif has_expiry_risk or risk_type == 'Expiry Risk':
+                            responsible_body = "EPSS_DMD"
+                        else:
+                            responsible_body = "EPSS_DMD"
+
+                        # Due Date
+                        current_date = datetime.now()
+                        current_month = current_date.month
+                        current_year = current_date.year
+
+                        def get_end_of_month_date(year, month):
+                            year_int = int(year)
+                            month_int = int(month)
+                            if month_int == 12:
+                                next_month = 1
+                                next_year = year_int + 1
+                            else:
+                                next_month = month_int + 1
+                                next_year = year_int
+                            last_day = (datetime(next_year, next_month, 1) - timedelta(days=1)).day
+                            return datetime(year_int, month_int, last_day)
+
+                        if "Place order" in action_point:
+                            if tmos <= 8:
+                                end_of_month = get_end_of_month_date(current_year, current_month)
+                                due_date = end_of_month.strftime('Before %d %b %Y')
+                            else:
+                                due_date = "Plan for next quarter"
+                        elif has_expiry_risk or risk_type == 'Expiry Risk':
+                            due_date = "ASAP"
+                        elif "Expedite" in action_point:
+                            end_of_month = get_end_of_month_date(current_year, current_month)
+                            due_date = end_of_month.strftime('Before %d %b %Y')
+                        else:
+                            due_date = "Review and act"
+
+                        nsoh_formatted = f"{int(nsoh):,}" if nsoh > 0 else "0"
+                        amc_formatted = f"{int(amc):,}" if amc > 0 else "N/A"
+
+                        action_plan.append({
+                            'Material': material,
+                            'NSOH': nsoh_formatted,
+                            'AMC': amc_formatted,
+                            'NMOS': round(nmos, 2) if amc > 0 else 0,
+                            'TMOS': round(tmos, 2),
+                            'Identified Problem': problem_text,
+                            'Action Point': action_point,
+                            'Responsible Body': responsible_body,
+                            'Due Date': due_date
+                        })
+
+                if action_plan:
+                    action_df = pd.DataFrame(action_plan)
+
+                    total_items = len(action_df)
+                    stock_out_count = len([a for a in action_plan if 'Stock Out' in a['Identified Problem']])
+                    risk_count = len([a for a in action_plan if 'Risk of Stock Out' in a['Identified Problem']])
+                    expiry_count = len([a for a in action_plan if 'Expiry Risk' in a['Identified Problem']])
+
+                    col1, col2, col3, col4 = st.columns(4)
+                    with col1:
+                        st.metric("📋 Total Action Items", total_items)
+                    with col2:
+                        st.metric("🔴 Stock Out", stock_out_count)
+                    with col3:
+                        st.metric("🟡 Risk of Stock Out", risk_count)
+                    with col4:
+                        st.metric("⚠️ Expiry Risk", expiry_count)
+
+                    st.dataframe(
+                        action_df,
+                        column_config={
+                            'Material': st.column_config.TextColumn('Material', width=200),
+                            'NSOH': st.column_config.TextColumn('NSOH', width=100),
+                            'AMC': st.column_config.TextColumn('AMC', width=80),
+                            'NMOS': st.column_config.NumberColumn('NMOS', width=80, format="%.2f"),
+                            'TMOS': st.column_config.NumberColumn('TMOS', width=80, format="%.2f"),
+                            'Identified Problem': st.column_config.TextColumn('Problem', width=180),
+                            'Action Point': st.column_config.TextColumn('Action Point', width=300),
+                            'Responsible Body': st.column_config.TextColumn('Responsible Body', width=180),
+                            'Due Date': st.column_config.TextColumn('Due Date', width=120)
+                        },
+                        use_container_width=True,
+                        hide_index=True,
+                        height=min(600, (len(action_df) + 1) * 45)
+                    )
+
+                    st.download_button(
+                        label="📥 Download Action Plan (CSV)",
+                        data=action_df.to_csv(index=False),
+                        file_name=f"action_plan_{datetime.now().strftime('%Y%m%d')}.csv",
+                        mime="text/csv",
+                        use_container_width=True
+                    )
+                else:
+                    st.success("✅ No action items identified")
+            else:
+                st.success("✅ No procurement needed. All materials have TMOS ≥ 18 months.")
+        else:
+            st.info("TMOS, NMOS, or AMC data not available for supply planning")
 
 # ---------------------------------------------------
 # Download Filtered Data
