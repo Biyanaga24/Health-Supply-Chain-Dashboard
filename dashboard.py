@@ -2551,6 +2551,7 @@ else:
             st.metric("🔵 Overstock", overstock, delta=f"-{overstock}" if overstock > 0 else "0", delta_color="inverse")
 
     # ---------------------------------------------------
+        # ---------------------------------------------------
     # Tabs (5 tabs including Supply Planning)
     # ---------------------------------------------------
     tab1, tab2, tab3, tab4, tab5 = st.tabs([
@@ -2561,10 +2562,8 @@ else:
         "📦 Supply Planning"
     ])
 
-    # ... REST OF YOUR TABS CODE CONTINUES HERE ...
-
     # ---------------------------------------------------
-    # TAB 1 - Stock Status Table (ORIGINAL - UNCHANGED)
+    # TAB 1 - Stock Status Table (FIXED CARD VIEW)
     # ---------------------------------------------------
     with tab1:
         st.markdown("<h3 style='font-size: 28px; font-weight: bold; font-family: Times New Roman;'>Complete Stock Status Table</h3>", unsafe_allow_html=True)
@@ -2637,10 +2636,17 @@ else:
                                 "Expiry Risk": "#ffa500"
                             }.get(risk_type_value, border_color)
 
+                            # FIXED: Safely get material description
+                            material_desc = row.get('Material Description', 'N/A')
+                            if pd.isna(material_desc) or material_desc is None:
+                                material_desc = 'N/A'
+                            else:
+                                material_desc = str(material_desc)[:60]
+
                             with col:
                                 st.markdown(f"""
                                 <div class="stock-card" style='border-left: 4px solid {border_color};'>
-                                    <h4 style='color: {border_color}; margin-bottom: 10px;'>{row['Material Description'][:60]}</h4>
+                                    <h4 style='color: {border_color}; margin-bottom: 10px;'>{material_desc}</h4>
                                     <p><strong>📦 NSOH:</strong> {row.get('NSOH', 'N/A')}</p>
                                     <p><strong>📈 AMC:</strong> {row.get('AMC', 'N/A')}</p>
                                     <p><strong>⏰ NMOS:</strong> <span style='color: {border_color}; font-weight: bold;'>{row.get('NMOS', 'N/A')}</span></p>
@@ -2837,7 +2843,7 @@ else:
             st.info("No data available.")
 
     # ---------------------------------------------------
-    # TAB 2 - KPIs & Analytics (ORIGINAL - UNCHANGED)
+    # TAB 2 - KPIs & Analytics
     # ---------------------------------------------------
     with tab2:
         if sheet_name == "All":
@@ -3003,8 +3009,7 @@ else:
             st.info("No data available for KPI calculations.")
 
     # ---------------------------------------------------
-        # ---------------------------------------------------
-    # TAB 3 - Decision Briefs (FIXED for Card View)
+    # TAB 3 - Decision Briefs (FIXED CARD VIEW)
     # ---------------------------------------------------
     with tab3:
         if sheet_name == "All":
@@ -3128,7 +3133,7 @@ else:
                     recommendation_text = row.get('Recommendation', '')
                     cv_category = row.get('CV Category', 'N/A')
 
-                    # FIXED: Safely get material description and handle NaN/None
+                    # FIXED: Safely get material description
                     material_desc = row.get('Material Description', 'N/A')
                     if pd.isna(material_desc) or material_desc is None:
                         material_desc = 'N/A'
@@ -3155,7 +3160,7 @@ else:
             st.info("No data available.")
 
     # ---------------------------------------------------
-    # TAB 4 - Hubs Distribution (ORIGINAL - UNCHANGED)
+    # TAB 4 - Hubs Distribution
     # ---------------------------------------------------
     with tab4:
         try:
@@ -3313,7 +3318,7 @@ else:
             st.error(f"Error processing files: {e}")
 
     # ---------------------------------------------------
-    # TAB 5 - Supply Planning (MOVED FROM ADVANCED ANALYTICS)
+    # TAB 5 - Supply Planning
     # ---------------------------------------------------
     with tab5:
         st.markdown("<h3 style='font-size: 24px; font-weight: bold;'>📦 Supply Planning - Procurement Requirements</h3>", unsafe_allow_html=True)
@@ -3461,7 +3466,7 @@ else:
                     use_container_width=True
                 )
 
-                                  # Action Plan Table
+                # Action Plan Table
                 st.markdown("---")
                 st.markdown("<h4 style='font-size: 20px; font-weight: bold;'>📝 Action Plan - Materials Requiring Attention</h4>", unsafe_allow_html=True)
 
@@ -3469,58 +3474,39 @@ else:
                 if 'action_plan_tab' not in st.session_state:
                     st.session_state.action_plan_tab = "📋 All Issues"
 
-                selected_tab = st.session_state.action_plan_tab
+                selected_tab_action = st.session_state.action_plan_tab
 
                 # Stylish filter buttons
-                st.markdown("""
-                <style>
-                .filter-btn {
-                    display: inline-block;
-                    padding: 8px 16px;
-                    margin: 0 5px;
-                    border-radius: 20px;
-                    font-weight: bold;
-                    cursor: pointer;
-                    transition: all 0.3s ease;
-                }
-                .filter-active {
-                    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-                    color: white;
-                    box-shadow: 0 2px 10px rgba(102,126,234,0.3);
-                }
-                </style>
-                """, unsafe_allow_html=True)
-
                 col_filter1, col_filter2, col_filter3, col_filter4, col_filter5, col_filter6 = st.columns(6)
 
                 with col_filter1:
-                    if st.button("📋 All Issues", use_container_width=True, type="primary" if selected_tab == "📋 All Issues" else "secondary"):
+                    if st.button("📋 All Issues", use_container_width=True, type="primary" if selected_tab_action == "📋 All Issues" else "secondary"):
                         st.session_state.action_plan_tab = "📋 All Issues"
                         st.rerun()
                 with col_filter2:
-                    if st.button("🔴 Stock Out", use_container_width=True, type="primary" if selected_tab == "🔴 Stock Out" else "secondary"):
+                    if st.button("🔴 Stock Out", use_container_width=True, type="primary" if selected_tab_action == "🔴 Stock Out" else "secondary"):
                         st.session_state.action_plan_tab = "🔴 Stock Out"
                         st.rerun()
                 with col_filter3:
-                    if st.button("🟡 Risk of SO", use_container_width=True, type="primary" if selected_tab == "🟡 Risk of Stock Out" else "secondary"):
+                    if st.button("🟡 Risk of SO", use_container_width=True, type="primary" if selected_tab_action == "🟡 Risk of Stock Out" else "secondary"):
                         st.session_state.action_plan_tab = "🟡 Risk of Stock Out"
                         st.rerun()
                 with col_filter4:
-                    if st.button("⚠️ Expiry Risk", use_container_width=True, type="primary" if selected_tab == "⚠️ Expiry Risk" else "secondary"):
+                    if st.button("⚠️ Expiry Risk", use_container_width=True, type="primary" if selected_tab_action == "⚠️ Expiry Risk" else "secondary"):
                         st.session_state.action_plan_tab = "⚠️ Expiry Risk"
                         st.rerun()
                 with col_filter5:
-                    if st.button("📉 Below Min", use_container_width=True, type="primary" if selected_tab == "📉 Below Min Stock" else "secondary"):
+                    if st.button("📉 Below Min", use_container_width=True, type="primary" if selected_tab_action == "📉 Below Min Stock" else "secondary"):
                         st.session_state.action_plan_tab = "📉 Below Min Stock"
                         st.rerun()
                 with col_filter6:
-                    if st.button("📦 Pipeline Insuff", use_container_width=True, type="primary" if selected_tab == "📦 Pipeline Insufficient" else "secondary"):
+                    if st.button("📦 Pipeline Insuff", use_container_width=True, type="primary" if selected_tab_action == "📦 Pipeline Insufficient" else "secondary"):
                         st.session_state.action_plan_tab = "📦 Pipeline Insufficient"
                         st.rerun()
 
                 st.markdown("---")
 
-                action_plan = []  # This will store rows with ONE problem per row (duplicated if multiple problems)
+                action_plan = []
 
                 for idx, row in df_filtered.iterrows():
                     material = row['Material Description']
@@ -3558,10 +3544,7 @@ else:
                     if amc == 0 and not has_expiry_risk:
                         continue
 
-                    # Calculate PMOS (Pipeline Months of Stock) - sum of all pipeline MOS
                     pmos = git_mos + lc_mos + wb_mos + tmd_mos
-
-                    # Store all problems for this material with their specific action points
                     problems_list = []
 
                     current_date = datetime.now()
@@ -3580,11 +3563,9 @@ else:
                         last_day = (datetime(next_year, next_month, 1) - timedelta(days=1)).day
                         return datetime(year_int, month_int, last_day)
 
-                    # Helper function to check if there is ANY pipeline PO (PMOS > 0)
                     def has_pipeline():
                         return pmos > 0
 
-                    # Helper function to get pipeline recommendation (only expedite, no new order)
                     def get_pipeline_recommendation():
                         recommendations = []
                         responsible = []
@@ -3606,7 +3587,7 @@ else:
                             return " | ".join(recommendations), ", ".join(set(responsible))
                         return "⚠️ Pipeline exists but no PO details available", "EPSS_DMD"
 
-                    # Check for STOCK OUT (NMOS < 1)
+                    # Check for STOCK OUT
                     if stock_status == 'Stock Out' or nmos < 1:
                         if has_pipeline():
                             action_point, responsible_body = get_pipeline_recommendation()
@@ -3657,7 +3638,7 @@ else:
                             'due_date': due_date
                         })
 
-                    # Check for BELOW MINIMUM STOCK LEVEL (NMOS < 6 but not stock out, no expiry risk)
+                    # Check for BELOW MINIMUM STOCK LEVEL
                     if nmos < 6 and nmos >= 1 and not has_expiry_risk and not (risk_of_stock == 'Risk of Stock out' or risk_type == 'Risk of Stock out'):
                         if has_pipeline():
                             action_point, responsible_body = get_pipeline_recommendation()
@@ -3676,7 +3657,7 @@ else:
                             'due_date': due_date
                         })
 
-                    # Check for PIPELINE INSUFFICIENT (TMOS < 18)
+                    # Check for PIPELINE INSUFFICIENT
                     if tmos < 18 and nmos >= 6 and not has_expiry_risk:
                         if has_pipeline():
                             action_point, responsible_body = get_pipeline_recommendation()
@@ -3694,7 +3675,6 @@ else:
                             'due_date': due_date
                         })
 
-                    # If no problems identified, skip this material
                     if not problems_list:
                         continue
 
@@ -3702,7 +3682,6 @@ else:
                     amc_formatted = f"{int(amc):,}" if amc > 0 else "N/A"
                     pmos_formatted = f"{round(pmos, 2)}" if pmos > 0 else "0"
 
-                    # Create a separate row for EACH problem (duplicate the material)
                     for problem_item in problems_list:
                         action_plan.append({
                             'Material': material,
@@ -3720,7 +3699,6 @@ else:
                 if action_plan:
                     action_df = pd.DataFrame(action_plan)
 
-                    # Summary metrics (counting rows, not unique materials)
                     total_items = len(action_df)
                     stock_out_count = len([a for a in action_plan if a['Identified Problem'] == '🔴 Stock Out'])
                     risk_count = len([a for a in action_plan if a['Identified Problem'] == '🟡 Risk of Stock Out'])
@@ -3728,7 +3706,7 @@ else:
                     below_min_count = len([a for a in action_plan if a['Identified Problem'] == '📉 Below Minimum Stock Level'])
                     pipeline_insufficient_count = len([a for a in action_plan if a['Identified Problem'] == '📦 Pipeline Insufficient - Cannot Reach Max Stock'])
 
-                    # Stylish metric cards
+                    # Metric cards
                     st.markdown("""
                     <style>
                     .metric-card {
@@ -3808,34 +3786,33 @@ else:
 
                     st.markdown("---")
 
-                    # APPLY FILTER BASED ON SELECTED TAB
-                    if selected_tab == "🔴 Stock Out":
+                    # APPLY FILTER
+                    if selected_tab_action == "🔴 Stock Out":
                         filtered_df = action_df[action_df['Identified Problem'] == '🔴 Stock Out']
                         st.info(f"📌 Showing {len(filtered_df)} items with STOCK OUT")
-                    elif selected_tab == "🟡 Risk of Stock Out":
+                    elif selected_tab_action == "🟡 Risk of Stock Out":
                         filtered_df = action_df[action_df['Identified Problem'] == '🟡 Risk of Stock Out']
                         st.info(f"📌 Showing {len(filtered_df)} items with RISK OF STOCK OUT")
-                    elif selected_tab == "⚠️ Expiry Risk":
+                    elif selected_tab_action == "⚠️ Expiry Risk":
                         filtered_df = action_df[action_df['Identified Problem'] == '⚠️ Expiry Risk']
                         st.info(f"📌 Showing {len(filtered_df)} items with EXPIRY RISK")
-                    elif selected_tab == "📉 Below Min Stock":
+                    elif selected_tab_action == "📉 Below Min Stock":
                         filtered_df = action_df[action_df['Identified Problem'] == '📉 Below Minimum Stock Level']
                         st.info(f"📌 Showing {len(filtered_df)} items with BELOW MINIMUM STOCK LEVEL")
-                    elif selected_tab == "📦 Pipeline Insufficient":
+                    elif selected_tab_action == "📦 Pipeline Insufficient":
                         filtered_df = action_df[action_df['Identified Problem'] == '📦 Pipeline Insufficient - Cannot Reach Max Stock']
                         st.info(f"📌 Showing {len(filtered_df)} items with PIPELINE INSUFFICIENT")
                     else:
                         filtered_df = action_df
                         st.info(f"📌 Showing all {len(filtered_df)} action items")
 
-                    # Display dataframe with PMOS column
                     st.dataframe(
                         filtered_df,
                         column_config={
                             'Material': st.column_config.TextColumn('Material', width=180),
                             'NSOH': st.column_config.TextColumn('NSOH', width=80),
                             'AMC': st.column_config.TextColumn('AMC', width=70),
-                            'PMOS': st.column_config.TextColumn('PMOS', width=70, help="Pipeline Months of Stock - Sum of GIT_MOS, LC_MOS, WB_MOS, TMD_MOS"),
+                            'PMOS': st.column_config.TextColumn('PMOS', width=70, help="Pipeline Months of Stock"),
                             'NMOS': st.column_config.NumberColumn('NMOS', width=70, format="%.2f"),
                             'TMOS': st.column_config.NumberColumn('TMOS', width=70, format="%.2f"),
                             'Identified Problem': st.column_config.TextColumn('Identified Problem', width=220),
@@ -3848,7 +3825,6 @@ else:
                         height=min(600, (len(filtered_df) + 1) * 45)
                     )
 
-                    # Download buttons
                     col_download1, col_download2 = st.columns(2)
                     with col_download1:
                         st.download_button(
@@ -3869,6 +3845,10 @@ else:
                 else:
                     st.success("✅ No action items identified")
                     st.balloons()
+            else:
+                st.success("✅ No procurement needed. All materials have TMOS ≥ 18 months.")
+        else:
+            st.info("TMOS, NMOS, or AMC data not available for supply planning")
 
 # ---------------------------------------------------
 # Download Filtered Data
