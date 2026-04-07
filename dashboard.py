@@ -3003,7 +3003,8 @@ else:
             st.info("No data available for KPI calculations.")
 
     # ---------------------------------------------------
-    # TAB 3 - Decision Briefs (ORIGINAL - UNCHANGED)
+        # ---------------------------------------------------
+    # TAB 3 - Decision Briefs (FIXED for Card View)
     # ---------------------------------------------------
     with tab3:
         if sheet_name == "All":
@@ -3127,9 +3128,16 @@ else:
                     recommendation_text = row.get('Recommendation', '')
                     cv_category = row.get('CV Category', 'N/A')
 
+                    # FIXED: Safely get material description and handle NaN/None
+                    material_desc = row.get('Material Description', 'N/A')
+                    if pd.isna(material_desc) or material_desc is None:
+                        material_desc = 'N/A'
+                    else:
+                        material_desc = str(material_desc)[:60]
+
                     st.markdown(f"""
                     <div class="stock-card" style='border-left: 4px solid {status_color}; margin-bottom: 15px;'>
-                        <h4 style='color: {status_color}; margin-bottom: 10px;'>{row['Material Description']}</h4>
+                        <h4 style='color: {status_color}; margin-bottom: 10px;'>{material_desc}</h4>
                         <p><strong>📦 NSOH:</strong> {row.get('NSOH', 'N/A')}</p>
                         <p><strong>📅 Expiry:</strong> {row.get('Expiry', 'N/A')}</p>
                         <p><strong>📈 AMC:</strong> {row.get('AMC', 'N/A')}</p>
