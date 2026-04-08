@@ -539,7 +539,6 @@ def parse_multiple_expiry_batches(expiry_str, amc):
     except Exception as e:
         return False, f"Error: {e}"
 
-# ---------------------------------------------------
 # Database Connection Functions
 # ---------------------------------------------------
 def load_national_data():
@@ -601,7 +600,31 @@ def load_national_data():
     except Exception as e:
         st.error(f"Error loading data from Supabase: {e}")
         return pd.DataFrame()
-
+@st.cache_data(ttl=300, show_spinner=False)
+def load_new_deliveries():
+    """Load new_deliveries data from Supabase"""
+    try:
+        if st.session_state.supabase_client is None:
+            return pd.DataFrame()
+        response = st.session_state.supabase_client.table("new_deliveries").select("*").execute()
+        if response.data:
+            df = pd.DataFrame(response.data)
+            if 'id' in df.columns:
+                df = df.drop(columns=['id'])
+            # Rename columns for display
+            column_rename = {
+                'material_description': 'Material Description',
+                'posting_date': 'Posting Date',
+                'purchase_order': 'PO Number',
+                'quantity': 'Quantity'
+            }
+            existing_rename = {k: v for k, v in column_rename.items() if k in df.columns}
+            df = df.rename(columns=existing_rename)
+            return df
+        return pd.DataFrame()
+    except Exception as e:
+        st.error(f"Error loading New_deliveries data: {e}")
+        return pd.DataFrame()
 @st.cache_data(ttl=300, show_spinner=False)
 def load_branch_amc_from_google_sheets(sheet_id):
     """Load branch AMC data from Google Sheets"""
@@ -1026,6 +1049,7 @@ amc_pipeline_sheet_id = "14VvZ7IyOmpM4SZrY5_ArHDgLkeFN4inW"
 branch_amc_sheet_id = "12Z5xqX32QIzjoN6tNvGbjutMheXx5US1"
 
 df_external = load_national_data()
+df_new_deliveries = load_new_deliveries()
 branch_amc_data = load_branch_amc_from_google_sheets(branch_amc_sheet_id)
 google_sheets = load_google_sheets(amc_pipeline_sheet_id)
 
@@ -1363,7 +1387,94 @@ if st.session_state['user']['role'] == 'admin':
     page = st.sidebar.radio("Navigation", ["Dashboard", "Advanced Analytics", "Executive Summary", "Admin Panel", "Profile"])
 else:
     page = st.sidebar.radio("Navigation", ["Dashboard", "Advanced Analytics", "Executive Summary", "Profile"])
+# ===================================================
+# TAB NAVIGATION DROPDOWNS FOR ALL PAGES (Auto-navigate)
+# ===================================================
+st.sidebar.markdown("---")
+st.sidebar.markdown("### 🗂️ Quick Tab Navigation")
 
+# Dashboard Tabs Dropdown
+if page == "Dashboard":
+    st.sidebar.markdown("#### 📊 Dashboard Tabs")
+    dashboard_tabs = {
+        "📋 Stock Status Table": 0,
+        "📈 KPIs & Analytics": 1,
+        "💡 Decision Briefs": 2,
+        "📍 Hubs Distribution": 3,
+        "📦 Supply Planning": 4,
+        "📋 Purchase Order Status": 5
+    }
+
+    selected_dashboard_tab = st.sidebar.selectbox(
+        "Select tab to navigate:",
+        list(dashboard_tabs.keys()),
+        key="dashboard_tab_nav"
+    )
+
+    # Auto-navigate when selection changes
+    if selected_dashboard_tab:
+        target_index = dashboard_tabs[selected_dashboard_tab]
+        if st.session_state.get('last_dashboard_tab') != target_index:
+            st.session_state.last_dashboard_tab = target_index
+            st.session_state.go_to_dashboard_tab = target_index
+            st.rerun()
+
+# Advanced Analytics Tabs Dropdown
+elif page == "Advanced Analytics":
+    st.sidebar.markdown("#### 📊 Advanced Analytics Tabs")
+    analytics_tabs = {
+        "🏆 Branch Ranking": 0,
+        "🔄 Redistribution": 1,
+        "📧 Critical Alerts": 2,
+        "⏰ Expiry Notifications": 3,
+        "📊 Program Comparison": 4,
+        "🗺️ Regional Map": 5,
+        "👁️ Popular Materials": 6,
+        "👥 User Analytics": 7,
+        "📅 Report Scheduling": 8
+    }
+
+    selected_analytics_tab = st.sidebar.selectbox(
+        "Select tab to navigate:",
+        list(analytics_tabs.keys()),
+        key="analytics_tab_nav"
+    )
+
+    # Auto-navigate when selection changes
+    if selected_analytics_tab:
+        target_index = analytics_tabs[selected_analytics_tab]
+        if st.session_state.get('last_analytics_tab') != target_index:
+            st.session_state.last_analytics_tab = target_index
+            st.session_state.go_to_analytics_tab = target_index
+            st.rerun()
+
+# Executive Summary Sections Dropdown
+elif page == "Executive Summary":
+    st.sidebar.markdown("#### 📑 Executive Summary Sections")
+    summary_sections = {
+        "🎯 Performance Metrics": 0,
+        "📊 Stock Status": 1,
+        "⚠️ Risk Summary": 2,
+        "📍 Hubs Distribution": 3,
+        "🏆 Branch Ranking": 4,
+        "📊 Program Performance": 5
+    }
+
+    selected_summary_section = st.sidebar.selectbox(
+        "Select section to navigate:",
+        list(summary_sections.keys()),
+        key="summary_tab_nav"
+    )
+
+    # Auto-navigate when selection changes
+    if selected_summary_section:
+        target_index = summary_sections[selected_summary_section]
+        if st.session_state.get('last_summary_section') != target_index:
+            st.session_state.last_summary_section = target_index
+            st.session_state.go_to_summary_section = target_index
+            st.rerun()
+
+st.sidebar.markdown("---")
 # ---------------------------------------------------
 # Data Refresh Controls
 # ---------------------------------------------------
@@ -1471,22 +1582,49 @@ elif page == "Admin Panel" and st.session_state['user']['role'] == 'admin':
     st.stop()
 elif page == "Advanced Analytics":
     # ===================================================
-    # ADVANCED ANALYTICS PAGE (9 TABS - Supply Planning removed)
+    # ADVANCED ANALYTICS PAGE (9 TABS - WITH HMOS CHANGES)
     # ===================================================
     st.markdown("<h1 style='font-size: 32px; font-weight: bold; font-family: Times New Roman;' class='gradient-text'>Advanced Analytics Dashboard</h1>", unsafe_allow_html=True)
+if 'go_to_dashboard_tab' not in st.session_state:
+    st.session_state.go_to_dashboard_tab = None
+if 'go_to_analytics_tab' not in st.session_state:
+    st.session_state.go_to_analytics_tab = None
+if 'go_to_summary_section' not in st.session_state:
+    st.session_state.go_to_summary_section = None
+if 'last_dashboard_tab' not in st.session_state:
+    st.session_state.last_dashboard_tab = None
+if 'last_analytics_tab' not in st.session_state:
+    st.session_state.last_analytics_tab = None
+if 'last_summary_section' not in st.session_state:
+    st.session_state.last_summary_section = None
 
-    # Create 9 sub-tabs within Advanced Analytics (Supply Planning removed)
+# Auto-navigate to selected analytics tab
+if st.session_state.go_to_analytics_tab is not None:
+    tab_index = st.session_state.go_to_analytics_tab
+    st.session_state.go_to_analytics_tab = None
+
+    st.components.v1.html(f"""
+    <script>
+        setTimeout(function() {{
+            var tabs = window.parent.document.querySelectorAll('button[data-baseweb="tab"]');
+            if (tabs && tabs[{tab_index}]) {{
+                tabs[{tab_index}].click();
+            }}
+        }}, 100);
+    </script>
+    """, height=0)
+    # Create 9 sub-tabs within Advanced Analytics
     aa_tab1, aa_tab2, aa_tab3, aa_tab4, aa_tab5, aa_tab6, aa_tab7, aa_tab8, aa_tab9 = st.tabs([
         "🏆 Branch Ranking", "🔄 Redistribution", "📧 Critical Alerts", "⏰ Expiry Notifications",
         "📊 Program Comparison", "🗺️ Regional Map", "👁️ Popular Materials", "👥 User Analytics", 
         "📅 Report Scheduling"
     ])
 
-    # ========== TAB 1: Branch Ranking (WITH COMPOSITE SCORE) ==========
+    # ========== TAB 1: Branch Ranking (WITH HMOS) ==========
     with aa_tab1:
-        st.markdown("<h3 style='font-size: 24px; font-weight: bold;'>Branch Ranking by Stock Availability</h3>", unsafe_allow_html=True)
-        st.caption("Availability = materials with NMOS ≥ 0.5 (at least 2 weeks of stock)")
-        st.caption("Ranking based on: Availability (100%=1), Avg NMOS (2-4 months=1), Stock-out Materials (0=1)")
+        st.markdown("<h3 style='font-size: 24px; font-weight: bold;'>Branch Ranking</h3>", unsafe_allow_html=True)
+        st.caption("Availability = materials with HMOS ≥ 0.5 (at least 2 weeks of stock)")
+        st.caption("Ranking based on: Availability (100%=1), Avg HMOS (2-4 months=1), Stock-out Materials (0=1)")
 
         if branch_amc_data is not None and not branch_amc_data.empty:
             branch_stock_cols = [col for col in df.columns if 'Branch' in col and col != 'Material Description']
@@ -1515,19 +1653,19 @@ elif page == "Advanced Analytics":
                             stock_values = pd.to_numeric(merged[stock_col + '_x'], errors='coerce').fillna(0)
                             amc_values = pd.to_numeric(merged[amc_branch + '_y'], errors='coerce').fillna(1)
                             amc_values = amc_values.replace(0, 1)
-                            branch_nmos = (stock_values / amc_values).values
+                            branch_hmos = (stock_values / amc_values).values
 
-                            availability_count = np.sum(branch_nmos >= 0.5)
-                            total_materials = len(branch_nmos)
+                            availability_count = np.sum(branch_hmos >= 0.5)
+                            total_materials = len(branch_hmos)
                             availability_score = (availability_count / total_materials * 100) if total_materials > 0 else 0
-                            valid_nmos = branch_nmos[branch_nmos > 0]
-                            avg_nmos = np.mean(valid_nmos) if len(valid_nmos) > 0 else 0
+                            valid_hmos = branch_hmos[branch_hmos > 0]
+                            avg_hmos = np.mean(valid_hmos) if len(valid_hmos) > 0 else 0
                             stock_out_materials = total_materials - availability_count
 
                             rankings.append({
                                 'Branch': amc_branch,
                                 'Availability Score (%)': round(availability_score, 1),
-                                'Average NMOS': round(avg_nmos, 2),
+                                'Average HMOS': round(avg_hmos, 2),
                                 'Stock-out Materials': stock_out_materials,
                                 'Total Materials': total_materials
                             })
@@ -1535,23 +1673,18 @@ elif page == "Advanced Analytics":
                         continue
 
             if rankings:
-                # Calculate composite score for ranking
                 for item in rankings:
                     composite_score = 0
-                    # Availability score: 1 if 100%, else 0
                     if item['Availability Score (%)'] == 100:
                         composite_score += 1
-                    # Average NMOS score: 1 if between 2-4 months, else 0
-                    if 2 <= item['Average NMOS'] <= 4:
+                    if 2 <= item['Average HMOS'] <= 4:
                         composite_score += 1
-                    # Stock-out Materials score: 1 if 0, else 0
                     if item['Stock-out Materials'] == 0:
                         composite_score += 1
                     item['Composite Score'] = composite_score
 
                 rankings_df = pd.DataFrame(rankings).sort_values(['Composite Score', 'Availability Score (%)'], ascending=[False, False])
                 rankings_df['Rank'] = range(1, len(rankings_df) + 1)
-                # Drop Composite Score column before display (keep table unchanged)
                 rankings_df = rankings_df.drop(columns=['Composite Score'])
 
                 col1, col2 = st.columns(2)
@@ -1565,7 +1698,7 @@ elif page == "Advanced Analytics":
                 st.dataframe(rankings_df, use_container_width=True, hide_index=True)
 
                 fig = px.bar(rankings_df, x='Branch', y='Availability Score (%)', color='Availability Score (%)',
-                            color_continuous_scale='RdYlGn', title='Branch Availability Scores (NMOS ≥ 0.5)')
+                            color_continuous_scale='RdYlGn', title='Branch Availability Scores (HMOS ≥ 0.5)')
                 fig.update_layout(height=500, xaxis_tickangle=-45)
                 st.plotly_chart(fig, use_container_width=True)
             else:
@@ -1573,15 +1706,15 @@ elif page == "Advanced Analytics":
         else:
             st.info("Branch AMC data not available")
 
-    # ========== TAB 2: Redistribution Recommendations ==========
+    # ========== TAB 2: Redistribution Recommendations (WITH HMOS) ==========
     with aa_tab2:
         st.markdown("<h3 style='font-size: 24px; font-weight: bold;'>Stock Redistribution Recommendations</h3>", unsafe_allow_html=True)
         st.info("""
         **Redistribution Criteria:**
-        - Trigger: Expiry Risk **OR** Understock (National NMOS < 6) **OR** Branch NMOS > 8
-        - Source Branch: NMOS > 8
-        - Target Branch: NMOS < 0.5
-        - Target NMOS after transfer: 5 months
+        - Trigger: Expiry Risk **OR** Understock (National NMOS < 6) **OR** Branch HMOS > 8
+        - Source Branch: HMOS > 8
+        - Target Branch: HMOS < 0.5
+        - Target HMOS after transfer: 5 months
         """)
 
         if branch_amc_data is not None and not branch_amc_data.empty:
@@ -1598,22 +1731,18 @@ elif page == "Advanced Analytics":
                 if material_row.empty:
                     continue
 
-                # Check trigger conditions
                 has_expiry_risk = material_row.iloc[0].get('Has Expiry Risk', False)
                 national_nmos = material_row.iloc[0].get('NMOS', 10)
                 if pd.isna(national_nmos):
                     national_nmos = 10
 
                 is_understock = national_nmos < 6
-
-                # Trigger: Expiry Risk OR Understock OR Branch NMOS > 8 (checked per branch)
                 trigger = has_expiry_risk or is_understock
 
                 if not trigger:
                     continue
 
-                # Calculate branch NMOS for this material
-                branch_nmos = {}
+                branch_hmos = {}
                 branch_stock = {}
                 branch_amc_val = {}
 
@@ -1632,22 +1761,21 @@ elif page == "Advanced Analytics":
                                 stock = 0
                             if pd.isna(amc) or amc <= 0:
                                 amc = 1
-                            nmos = stock / amc
-                            branch_nmos[amc_branch] = nmos
+                            hmos = stock / amc
+                            branch_hmos[amc_branch] = hmos
                             branch_stock[amc_branch] = stock
                             branch_amc_val[amc_branch] = amc
                         except Exception:
                             continue
 
-                # Find overstocked (NMOS > 8) and understocked (NMOS < 0.5)
-                overstocked = [b for b, nmos in branch_nmos.items() if nmos > 8]
-                understocked = [b for b, nmos in branch_nmos.items() if 0 < nmos < 0.5]
+                overstocked = [b for b, hmos in branch_hmos.items() if hmos > 8]
+                understocked = [b for b, hmos in branch_hmos.items() if 0 < hmos < 0.5]
 
                 for source in overstocked:
                     for target in understocked:
                         if source != target:
-                            excess = (branch_nmos[source] - 5) * branch_amc_val[source]
-                            deficit = (5 - branch_nmos[target]) * branch_amc_val[target]
+                            excess = (branch_hmos[source] - 5) * branch_amc_val[source]
+                            deficit = (5 - branch_hmos[target]) * branch_amc_val[target]
                             transfer_qty = min(max(0, excess), max(0, deficit))
 
                             if transfer_qty > 0 and transfer_qty >= branch_amc_val[target]:
@@ -1663,8 +1791,8 @@ elif page == "Advanced Analytics":
                                     'Trigger': ('Expiry Risk' if has_expiry_risk else '') + (' + Understock' if is_understock else ''),
                                     'Source Branch': source,
                                     'Target Branch': target,
-                                    'Source NMOS': round(branch_nmos[source], 2),
-                                    'Target NMOS': round(branch_nmos[target], 2),
+                                    'Source HMOS': round(branch_hmos[source], 2),
+                                    'Target HMOS': round(branch_hmos[target], 2),
                                     'Recommended Transfer Qty': int(transfer_qty),
                                     'Priority': priority
                                 })
@@ -1730,7 +1858,7 @@ elif page == "Advanced Analytics":
         else:
             st.success("✅ No critical stock-outs detected. All materials have adequate stock levels!")
 
-        # ========== TAB 4: Expiry Notifications ==========
+    # ========== TAB 4: Expiry Notifications (CORRECTED) ==========
     with aa_tab4:
         st.markdown("<h3 style='font-size: 24px; font-weight: bold;'>Expiring Stock Notifications</h3>", unsafe_allow_html=True)
 
@@ -1742,14 +1870,12 @@ elif page == "Advanced Analytics":
             if pd.isna(expiry_str) or expiry_str == '':
                 continue
 
-            # Get AMC for consumption calculation
             amc = row.get('AMC', 0)
             try:
                 amc = float(amc) if pd.notna(amc) else 0
             except:
                 amc = 0
 
-            # SKIP materials with NO AMC (cannot calculate expiry risk)
             if amc <= 0:
                 continue
 
@@ -1765,14 +1891,11 @@ elif page == "Advanced Analytics":
                     expiry_date = datetime(int(year), month_num, 1)
                     months_to_expiry = (expiry_date.year - current_date.year) * 12 + (expiry_date.month - current_date.month)
 
-                    # Calculate if stock can be consumed before expiry
                     months_of_stock_this_batch = qty / amc
 
-                    # Skip if stock can be consumed before expiry
                     if months_of_stock_this_batch <= months_to_expiry:
-                        continue  # This batch will be consumed before expiry - no notification
+                        continue
 
-                    # Only now check urgency based on expiry timeline
                     if months_to_expiry <= 3:
                         priority = "🔴 CRITICAL"
                     elif months_to_expiry <= 6:
@@ -1780,7 +1903,7 @@ elif page == "Advanced Analytics":
                     elif months_to_expiry <= 12:
                         priority = "🔵 MEDIUM"
                     else:
-                        continue  # More than 12 months away, no notification needed
+                        continue
 
                     rec = get_expiry_risk_recommendation(row)
 
@@ -1821,7 +1944,7 @@ elif page == "Advanced Analytics":
         else:
             st.success("✅ No expiring stock detected. All expiring batches can be consumed before their expiry date!")
 
-    # ========== TAB 5: Program Comparison (WITH COMPOSITE SCORE) ==========
+    # ========== TAB 5: Program Comparison ==========
     with aa_tab5:
         st.markdown("<h3 style='font-size: 24px; font-weight: bold;'>Program Performance Comparison</h3>", unsafe_allow_html=True)
         st.caption("Ranking based on: Availability (100%=1), SAP (≥65%=1), Stock-out Rate (0%=1), Overstock Rate (0%=1), Avg NMOS (6-18 months=1)")
@@ -1860,29 +1983,22 @@ elif page == "Advanced Analytics":
                     })
 
             if program_metrics:
-                # Calculate composite score for ranking
                 for item in program_metrics:
                     composite_score = 0
-                    # Availability: 1 if 100%, else 0
                     if item['Availability (%)'] == 100:
                         composite_score += 1
-                    # SAP Achievement: 1 if >=65%, else 0
                     if item['SAP Achievement (%)'] >= 65:
                         composite_score += 1
-                    # Stock-out Rate: 1 if 0%, else 0
                     if item['Stock-out Rate (%)'] == 0:
                         composite_score += 1
-                    # Overstock Rate: 1 if 0%, else 0
                     if item['Overstock Rate (%)'] == 0:
                         composite_score += 1
-                    # Average NMOS: 1 if between 6-18 months, else 0
                     if 6 <= item['Avg NMOS'] <= 18:
                         composite_score += 1
                     item['Composite Score'] = composite_score
 
                 comparison_df = pd.DataFrame(program_metrics).sort_values(['Composite Score', 'Availability (%)'], ascending=[False, False])
                 comparison_df['Rank'] = range(1, len(comparison_df) + 1)
-                # Drop Composite Score column before display (keep table unchanged)
                 comparison_df = comparison_df.drop(columns=['Composite Score'])
 
                 top_program = comparison_df.iloc[0]['Program']
@@ -1938,10 +2054,10 @@ elif page == "Advanced Analytics":
         else:
             st.info("Google Sheets data not available for program comparison")
 
-    # ========== TAB 6: Regional Map ==========
+    # ========== TAB 6: Regional Map (WITH HMOS) ==========
     with aa_tab6:
         st.markdown("<h3 style='font-size: 24px; font-weight: bold;'>Regional Stock Distribution Map</h3>", unsafe_allow_html=True)
-        st.caption("🔴 Red = NMOS < 2 (Understock) | 🟢 Green = NMOS 2-4 (Normal) | 🔵 Skyblue = NMOS > 4 (Overstock)")
+        st.caption("🔴 Red = HMOS < 2 (Understock) | 🟢 Green = HMOS 2-4 (Normal) | 🔵 Skyblue = HMOS > 4 (Overstock)")
 
         branch_coords = {
             'Adama Branch': [8.5483, 39.2696],
@@ -1978,14 +2094,14 @@ elif page == "Advanced Analytics":
                         stock_values = pd.to_numeric(merged[stock_col + '_x'], errors='coerce').fillna(0)
                         amc_values = pd.to_numeric(merged[stock_col + '_y'], errors='coerce').fillna(1)
                         amc_values = amc_values.replace(0, 1)
-                        nmos_values = (stock_values / amc_values).values
+                        hmos_values = (stock_values / amc_values).values
 
-                        valid_nmos = nmos_values[nmos_values > 0]
-                        avg_nmos = np.mean(valid_nmos) if len(valid_nmos) > 0 else 0
+                        valid_hmos = hmos_values[hmos_values > 0]
+                        avg_hmos = np.mean(valid_hmos) if len(valid_hmos) > 0 else 0
 
-                        if avg_nmos < 2:
+                        if avg_hmos < 2:
                             status = "Understock"
-                        elif avg_nmos <= 4:
+                        elif avg_hmos <= 4:
                             status = "Normal"
                         else:
                             status = "Overstock"
@@ -1996,7 +2112,7 @@ elif page == "Advanced Analytics":
                             'Branch': stock_col,
                             'Latitude': coords[0],
                             'Longitude': coords[1],
-                            'Average NMOS': round(avg_nmos, 2),
+                            'Average HMOS': round(avg_hmos, 2),
                             'Status': status
                         })
 
@@ -2004,17 +2120,17 @@ elif page == "Advanced Analytics":
                 map_df = pd.DataFrame(map_data)
 
                 fig = px.scatter_mapbox(map_df, lat='Latitude', lon='Longitude', 
-                                       size='Average NMOS', size_max=30,
+                                       size='Average HMOS', size_max=30,
                                        color='Status', hover_name='Branch', 
-                                       hover_data=['Average NMOS'],
+                                       hover_data=['Average HMOS'],
                                        color_discrete_map={'Understock': 'red', 'Normal': 'green', 'Overstock': 'skyblue'},
-                                       zoom=5, height=600, title='Branch Stock Distribution Map (Average NMOS)')
+                                       zoom=5, height=600, title='Branch Stock Distribution Map (Average HMOS)')
                 fig.update_layout(mapbox_style='open-street-map')
                 fig.update_layout(margin=dict(l=0, r=0, t=30, b=0))
                 st.plotly_chart(fig, use_container_width=True)
-                st.dataframe(map_df[['Branch', 'Average NMOS', 'Status']], use_container_width=True, hide_index=True)
+                st.dataframe(map_df[['Branch', 'Average HMOS', 'Status']], use_container_width=True, hide_index=True)
             else:
-                st.info("Map data not available. No NMOS values could be calculated for the branches.")
+                st.info("Map data not available. No HMOS values could be calculated for the branches.")
         else:
             st.info("Branch AMC data not available for map")
 
@@ -2254,7 +2370,7 @@ elif page == "Executive Summary":
 
         # SECTION 4: BRANCH RANKING (Colorful gradient cards - name only)
         st.markdown("---")
-        st.markdown("<h2 style='font-size: 28px; font-weight: bold;'>🏆 4. Branch Ranking by Stock Availability</h2>", unsafe_allow_html=True)
+        st.markdown("<h2 style='font-size: 28px; font-weight: bold;'>🏆 4. Top and Bottom Branch Ranking</h2>", unsafe_allow_html=True)
         st.caption("Availability = materials with NMOS ≥ 0.5 (at least 2 weeks of stock)")
 
         if branch_amc_data is not None and not branch_amc_data.empty:
@@ -2552,15 +2668,15 @@ else:
 
     # ---------------------------------------------------
         # ---------------------------------------------------
-    # Tabs (5 tabs including Supply Planning)
-    # ---------------------------------------------------
-    tab1, tab2, tab3, tab4, tab5 = st.tabs([
-        "📋 Stock Status Table", 
-        "📈 KPIs & Analytics", 
-        "💡 Decision Briefs", 
-        "📍 Hubs Distribution",
-        "📦 Supply Planning"
-    ])
+    tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
+    "📋 Stock Status Table", 
+    "📈 KPIs & Analytics", 
+    "💡 Decision Briefs", 
+    "📍 Hubs Distribution",
+    "📦 Supply Planning",
+    "📋 Purchase Order Status",
+    "🚚 New Deliveries"
+])
 
     # ---------------------------------------------------
     # TAB 1 - Stock Status Table (FIXED CARD VIEW)
@@ -3849,6 +3965,382 @@ else:
                 st.success("✅ No procurement needed. All materials have TMOS ≥ 18 months.")
         else:
             st.info("TMOS, NMOS, or AMC data not available for supply planning")
+
+# ---------------------------------------------------
+# TAB 6 - Purchase Order Status
+# ---------------------------------------------------
+with tab6:
+    st.markdown("<h3 style='font-size: 28px; font-weight: bold; font-family: Times New Roman;'>📋 Purchase Order Status Tracking</h3>", unsafe_allow_html=True)
+    st.caption("Pipeline Purchase Orders - Track all active POs with their status and pipeline months of stock")
+
+    if not df_filtered.empty:
+        po_records = []
+
+        for idx, row in df_filtered.iterrows():
+            material = row.get('Material Description', '')
+            if pd.isna(material) or material == '':
+                continue
+
+            # Get the actual Status from the Stock Status Table
+            actual_status = row.get('Status', '')
+            if pd.isna(actual_status) or actual_status == '':
+                actual_status = 'No Status'
+
+            # Get pipeline MOS values
+            git_mos = row.get('GIT_MOS', 0)
+            lc_mos = row.get('LC_MOS', 0)
+            wb_mos = row.get('WB_MOS', 0)
+            tmd_mos = row.get('TMD_MOS', 0)
+
+            # Get PO numbers
+            git_po = row.get('GIT_PO', '')
+            lc_po = row.get('LC_PO', '')
+            wb_po = row.get('WB_PO', '')
+            tmd_po = row.get('TMD_PO', '')
+
+            # Get quantities
+            git_qty = row.get('GIT_Qty', 0)
+            lc_qty = row.get('LC_Qty', 0)
+            wb_qty = row.get('WB_Qty', 0)
+            tmd_qty = row.get('TMD_Qty', 0)
+
+            # Convert to numeric
+            try:
+                git_mos = float(git_mos) if pd.notna(git_mos) else 0
+                lc_mos = float(lc_mos) if pd.notna(lc_mos) else 0
+                wb_mos = float(wb_mos) if pd.notna(wb_mos) else 0
+                tmd_mos = float(tmd_mos) if pd.notna(tmd_mos) else 0
+
+                git_qty = float(git_qty) if pd.notna(git_qty) else 0
+                lc_qty = float(lc_qty) if pd.notna(lc_qty) else 0
+                wb_qty = float(wb_qty) if pd.notna(wb_qty) else 0
+                tmd_qty = float(tmd_qty) if pd.notna(tmd_qty) else 0
+            except:
+                continue
+
+            # Process GIT PO
+            if git_mos > 0 and git_po != '' and str(git_po) != 'nan':
+                po_records.append({
+                    'Material Description': material,
+                    'PO Number': str(git_po),
+                    'Quantity': format_number_with_commas(git_qty) if git_qty > 0 else 'N/A',
+                    'PMOS': round(git_mos, 2),
+                    'Status': actual_status,  # CHANGED: Using actual Status from Stock Status Table
+                    'Status Type': 'GIT'
+                })
+
+            # Process LC PO
+            if lc_mos > 0 and lc_po != '' and str(lc_po) != 'nan':
+                po_records.append({
+                    'Material Description': material,
+                    'PO Number': str(lc_po),
+                    'Quantity': format_number_with_commas(lc_qty) if lc_qty > 0 else 'N/A',
+                    'PMOS': round(lc_mos, 2),
+                    'Status': actual_status,  # CHANGED: Using actual Status from Stock Status Table
+                    'Status Type': 'LC'
+                })
+
+            # Process WB PO
+            if wb_mos > 0 and wb_po != '' and str(wb_po) != 'nan':
+                po_records.append({
+                    'Material Description': material,
+                    'PO Number': str(wb_po),
+                    'Quantity': format_number_with_commas(wb_qty) if wb_qty > 0 else 'N/A',
+                    'PMOS': round(wb_mos, 2),
+                    'Status': actual_status,  # CHANGED: Using actual Status from Stock Status Table
+                    'Status Type': 'WB'
+                })
+
+            # Process TMD PO
+            if tmd_mos > 0 and tmd_po != '' and str(tmd_po) != 'nan':
+                po_records.append({
+                    'Material Description': material,
+                    'PO Number': str(tmd_po),
+                    'Quantity': format_number_with_commas(tmd_qty) if tmd_qty > 0 else 'N/A',
+                    'PMOS': round(tmd_mos, 2),
+                    'Status': actual_status,  # CHANGED: Using actual Status from Stock Status Table
+                    'Status Type': 'TMD'
+                })
+
+        if po_records:
+            po_df = pd.DataFrame(po_records)
+
+            # Summary metrics
+            col1, col2, col3, col4 = st.columns(4)
+            with col1:
+                st.metric("📋 Total POs", len(po_df))
+            with col2:
+                unique_materials = po_df['Material Description'].nunique()
+                st.metric("📦 Materials with POs", unique_materials)
+            with col3:
+                total_pmos = po_df['PMOS'].sum()
+                st.metric("📊 Total Pipeline MOS", f"{total_pmos:.2f}")
+            with col4:
+                status_counts = po_df['Status Type'].value_counts()
+                most_common = status_counts.index[0] if len(status_counts) > 0 else 'N/A'
+                st.metric("🔝 Most Common", most_common)
+
+            st.markdown("---")
+
+            # Status filter
+            status_options = ["All"] + sorted(po_df['Status'].unique().tolist())
+            po_status_filter = st.selectbox("Filter by Status", status_options, key="po_status_filter")
+
+            if po_status_filter != "All":
+                filtered_po_df = po_df[po_df['Status'] == po_status_filter]
+                st.info(f"Showing {len(filtered_po_df)} POs with status: {po_status_filter}")
+            else:
+                filtered_po_df = po_df
+                st.info(f"Showing all {len(filtered_po_df)} POs")
+
+            # Search box
+            po_search = st.text_input("🔍 Search by Material or PO Number", placeholder="e.g., 'artesunate' or 'PO-12345'")
+            if po_search:
+                search_mask = (
+                    filtered_po_df['Material Description'].str.contains(po_search, case=False, na=False) |
+                    filtered_po_df['PO Number'].str.contains(po_search, case=False, na=False)
+                )
+                filtered_po_df = filtered_po_df[search_mask]
+                st.info(f"Found {len(filtered_po_df)} matching POs")
+
+            # Display table
+            st.dataframe(
+                filtered_po_df,
+                column_config={
+                    'Material Description': st.column_config.TextColumn('Material Description', width=300),
+                    'PO Number': st.column_config.TextColumn('PO Number', width=150),
+                    'Quantity': st.column_config.TextColumn('Quantity', width=100),
+                    'PMOS': st.column_config.NumberColumn('PMOS (Months)', width=100, format="%.2f"),
+                    'Status': st.column_config.TextColumn('Status', width=200),
+                    'Status Type': st.column_config.TextColumn('Type', width=80)
+                },
+                use_container_width=True,
+                hide_index=True
+            )
+
+# ---------------------------------------------------
+# ---------------------------------------------------
+# ---------------------------------------------------
+# ---------------------------------------------------
+# TAB 7 - New Deliveries
+# ---------------------------------------------------
+with tab7:
+    # Filter by selected program
+    if not df_new_deliveries.empty and sheet_name != "All" and sheet_name in google_sheets:
+        program_materials = google_sheets[sheet_name]['Material Description'].dropna().tolist()
+        df_new_deliveries = df_new_deliveries[df_new_deliveries['Material Description'].isin(program_materials)]
+
+    st.markdown("<h3 style='font-size: 28px; font-weight: bold; font-family: Times New Roman;'>🚚 New Deliveries Tracking</h3>", unsafe_allow_html=True)
+    st.caption("Track incoming deliveries - Purchase Orders and Quantities")
+
+    if not df_new_deliveries.empty:
+        # Convert Posting Date to datetime
+        df_new_deliveries['Posting Date'] = pd.to_datetime(df_new_deliveries['Posting Date'], errors='coerce')
+
+        # Date range filter
+        st.markdown("#### 📅 Date Range Filter")
+        col_date1, col_date2 = st.columns(2)
+
+        # Get min and max dates from data
+        min_date = df_new_deliveries['Posting Date'].min().date() if not df_new_deliveries['Posting Date'].isna().all() else datetime.now().date()
+        max_date = df_new_deliveries['Posting Date'].max().date() if not df_new_deliveries['Posting Date'].isna().all() else datetime.now().date()
+
+        with col_date1:
+            start_date = st.date_input("From Date", value=min_date, min_value=min_date, max_value=max_date, key="start_date")
+        with col_date2:
+            end_date = st.date_input("To Date", value=max_date, min_value=min_date, max_value=max_date, key="end_date")
+
+        # Filter by date range
+        mask_date = (df_new_deliveries['Posting Date'].dt.date >= start_date) & (df_new_deliveries['Posting Date'].dt.date <= end_date)
+        filtered_delivery_df = df_new_deliveries[mask_date].copy()
+
+        st.markdown("---")
+
+        # Summary metrics - Total Deliveries, Unique POs, and Newest PO
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.metric("📦 Total Deliveries", len(filtered_delivery_df))
+        with col2:
+            unique_pos = filtered_delivery_df['PO Number'].nunique() if 'PO Number' in filtered_delivery_df.columns else 0
+            st.metric("📋 Unique POs", unique_pos)
+        with col3:
+            # Get newest PO (by Posting Date)
+            if not filtered_delivery_df.empty and 'Posting Date' in filtered_delivery_df.columns:
+                newest_row = filtered_delivery_df.loc[filtered_delivery_df['Posting Date'].idxmax()]
+                newest_po = newest_row.get('PO Number', 'N/A')
+                newest_date = newest_row.get('Posting Date', datetime.now()).strftime('%d/%m/%y')
+                st.metric("🆕 Newest PO", newest_po, delta=f"Date: {newest_date}")
+            else:
+                st.metric("🆕 Newest PO", "N/A")
+
+        st.markdown("---")
+
+        # Search filter
+        search_delivery = st.text_input("🔍 Search by Material, PO Number", placeholder="e.g., 'artesunate' or 'PO-12345'")
+
+        if search_delivery:
+            mask = filtered_delivery_df.astype(str).apply(
+                lambda col: col.str.contains(search_delivery, case=False, na=False)
+            ).any(axis=1)
+            filtered_delivery_df = filtered_delivery_df[mask]
+            st.info(f"Found {len(filtered_delivery_df)} matching deliveries")
+
+        # Format Quantity column for display
+        display_df = filtered_delivery_df.copy()
+        if 'Quantity' in display_df.columns:
+            display_df['Quantity'] = pd.to_numeric(display_df['Quantity'], errors='coerce')
+            display_df['Quantity_display'] = display_df['Quantity'].apply(format_number_with_commas)
+        else:
+            display_df['Quantity_display'] = 'N/A'
+
+        # Format Posting Date column
+        if 'Posting Date' in display_df.columns:
+            display_df['Posting Date'] = display_df['Posting Date'].dt.strftime('%Y-%m-%d')
+
+        # TABLE 1: Detailed View
+        st.markdown("### 📋 Table 1: Detailed Deliveries")
+
+        # Select columns for display
+        display_cols = ['Material Description', 'Posting Date', 'PO Number', 'Quantity_display']
+        display_cols = [col for col in display_cols if col in display_df.columns]
+        display_rename = {'Quantity_display': 'Quantity'}
+
+        st.dataframe(
+            display_df[display_cols].rename(columns=display_rename),
+            column_config={
+                'Material Description': st.column_config.TextColumn('Material Description', width=300),
+                'Posting Date': st.column_config.TextColumn('Posting Date', width=120),
+                'PO Number': st.column_config.TextColumn('PO Number', width=150),
+                'Quantity': st.column_config.TextColumn('Quantity', width=100)
+            },
+            use_container_width=True,
+            hide_index=True
+        )
+
+        # TABLE 2: Summarized View (Group by Material Description and PO Number)
+        st.markdown("---")
+        st.markdown("### 📊 Table 2: Summarized Deliveries (Same Material + PO Combined)")
+        st.caption("When the same Material Description and PO Number appear multiple times, quantities are summed up")
+
+        # Create summarized dataframe
+        summary_df = filtered_delivery_df.copy()
+        if 'Quantity' in summary_df.columns:
+            summary_df['Quantity'] = pd.to_numeric(summary_df['Quantity'], errors='coerce')
+
+        # Group by Material Description and PO Number
+        grouped_summary = summary_df.groupby(['Material Description', 'PO Number']).agg({
+            'Quantity': 'sum',
+            'Posting Date': 'count'
+        }).rename(columns={'Quantity': 'Total Quantity', 'Posting Date': 'Number of Deliveries'}).reset_index()
+
+        # Format Total Quantity
+        grouped_summary['Total Quantity'] = grouped_summary['Total Quantity'].apply(format_number_with_commas)
+
+        # Display summarized table
+        st.dataframe(
+            grouped_summary,
+            column_config={
+                'Material Description': st.column_config.TextColumn('Material Description', width=350),
+                'PO Number': st.column_config.TextColumn('PO Number', width=180),
+                'Total Quantity': st.column_config.TextColumn('Total Quantity', width=120),
+                'Number of Deliveries': st.column_config.NumberColumn('Number of Deliveries', width=120)
+            },
+            use_container_width=True,
+            hide_index=True
+        )
+
+        # TOP NEW DELIVERIES (Top 10 by Quantity)
+        st.markdown("---")
+        st.markdown("### 🏆 Top New Deliveries (Highest Quantity)")
+
+        # Create top deliveries dataframe
+        top_deliveries = filtered_delivery_df.copy()
+        if 'Quantity' in top_deliveries.columns:
+            top_deliveries['Quantity'] = pd.to_numeric(top_deliveries['Quantity'], errors='coerce')
+
+        # Group by Material Description and sum quantities
+        top_grouped = top_deliveries.groupby('Material Description').agg({
+            'Quantity': 'sum'
+        }).reset_index().sort_values('Quantity', ascending=False).head(10)
+
+        top_grouped['Quantity'] = top_grouped['Quantity'].apply(format_number_with_commas)
+
+        # Display top 10
+        col_top1, col_top2, col_top3, col_top4, col_top5 = st.columns(5)
+        for i, (idx, row) in enumerate(top_grouped.head(5).iterrows()):
+            with [col_top1, col_top2, col_top3, col_top4, col_top5][i]:
+                st.metric(f"#{i+1}", row['Material Description'][:30], delta=row['Quantity'])
+
+        st.dataframe(
+            top_grouped,
+            column_config={
+                'Material Description': st.column_config.TextColumn('Material Description', width=400),
+                'Quantity': st.column_config.TextColumn('Total Quantity', width=150)
+            },
+            use_container_width=True,
+            hide_index=True
+        )
+
+        # NEWEST POs Section
+        st.markdown("---")
+        st.markdown("### 🆕 Newest Purchase Orders (Last 10)")
+
+        # Get newest POs by Posting Date
+        newest_pos = filtered_delivery_df.copy()
+        if 'Posting Date' in newest_pos.columns:
+            newest_pos['Posting Date'] = pd.to_datetime(newest_pos['Posting Date'], errors='coerce')
+            newest_pos = newest_pos.sort_values('Posting Date', ascending=False).drop_duplicates(subset=['PO Number']).head(10)
+
+            # Format for display
+            newest_pos['Posting Date'] = newest_pos['Posting Date'].dt.strftime('%Y-%m-%d')
+            if 'Quantity' in newest_pos.columns:
+                newest_pos['Quantity'] = pd.to_numeric(newest_pos['Quantity'], errors='coerce')
+                newest_pos['Quantity'] = newest_pos['Quantity'].apply(format_number_with_commas)
+
+            # Select and display columns
+            newest_display_cols = ['PO Number', 'Posting Date', 'Material Description', 'Quantity']
+            newest_display_cols = [col for col in newest_display_cols if col in newest_pos.columns]
+
+            st.dataframe(
+                newest_pos[newest_display_cols],
+                column_config={
+                    'PO Number': st.column_config.TextColumn('PO Number', width=150),
+                    'Posting Date': st.column_config.TextColumn('Posting Date', width=120),
+                    'Material Description': st.column_config.TextColumn('Material Description', width=300),
+                    'Quantity': st.column_config.TextColumn('Quantity', width=100)
+                },
+                use_container_width=True,
+                hide_index=True
+            )
+        else:
+            st.info("No posting date data available to determine newest POs")
+
+        # Download buttons
+        st.markdown("---")
+        col_dl1, col_dl2 = st.columns(2)
+        with col_dl1:
+            st.download_button(
+                label="📥 Download Detailed View (CSV)",
+                data=display_df[display_cols].rename(columns=display_rename).to_csv(index=False),
+                file_name=f"new_deliveries_detailed_{start_date}_{end_date}.csv",
+                mime="text/csv",
+                use_container_width=True
+            )
+        with col_dl2:
+            st.download_button(
+                label="📥 Download Summarized View (CSV)",
+                data=grouped_summary.to_csv(index=False),
+                file_name=f"new_deliveries_summarized_{start_date}_{end_date}.csv",
+                mime="text/csv",
+                use_container_width=True
+            )
+
+        # Show combined info
+        if len(filtered_delivery_df) > len(grouped_summary):
+            st.info(f"📊 {len(filtered_delivery_df)} detailed records combined into {len(grouped_summary)} summarized records")
+    else:
+        st.info("No new deliveries data available. Please upload data to the New_deliveries table in Supabase.")
+        st.caption("Expected columns: material_description, posting_date, purchase_order, quantity")                      
 
 # ---------------------------------------------------
 # Download Filtered Data
