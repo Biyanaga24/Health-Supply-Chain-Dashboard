@@ -1246,12 +1246,12 @@ if not df.empty:
     else:
         df['CV Category'] = "Unknown"
 
-    # Handle subcategory filtering BEFORE other operations
+        # Handle subcategory filtering BEFORE other operations
     if sheet_name in PROGRAM_HIERARCHY:
         subcategory_list = PROGRAM_HIERARCHY[sheet_name]["subcategories"]
 
-        # Filter out subcategory headers from the dataframe
-        df = filter_out_subcategory_headers(df, subcategory_list)
+        # DO NOT filter out subcategory headers - keep them visible
+        # df = filter_out_subcategory_headers(df, subcategory_list)
 
         # Assign subcategories to remaining materials
         subcategory_mapping = assign_subcategories_to_materials(df, subcategory_list)
