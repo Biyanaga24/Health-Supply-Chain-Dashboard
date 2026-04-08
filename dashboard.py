@@ -1402,7 +1402,8 @@ if page == "Dashboard":
         "💡 Decision Briefs": 2,
         "📍 Hubs Distribution": 3,
         "📦 Supply Planning": 4,
-        "📋 Purchase Order Status": 5
+        "📋 Purchase Order Status": 5,
+        "🚚 New Deliveries": 6
     }
 
     selected_dashboard_tab = st.sidebar.selectbox(
@@ -1411,7 +1412,6 @@ if page == "Dashboard":
         key="dashboard_tab_nav"
     )
 
-    # Auto-navigate when selection changes
     if selected_dashboard_tab:
         target_index = dashboard_tabs[selected_dashboard_tab]
         if st.session_state.get('last_dashboard_tab') != target_index:
