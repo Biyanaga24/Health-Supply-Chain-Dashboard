@@ -2667,7 +2667,21 @@ else:
             st.metric("🔵 Overstock", overstock, delta=f"-{overstock}" if overstock > 0 else "0", delta_color="inverse")
 
     # ---------------------------------------------------
-        # ---------------------------------------------------
+        # Auto-navigate to selected dashboard tab
+    if st.session_state.get('go_to_dashboard_tab') is not None:
+        tab_index = st.session_state.go_to_dashboard_tab
+        st.session_state.go_to_dashboard_tab = None
+
+        st.components.v1.html(f"""
+        <script>
+            setTimeout(function() {{
+                var tabs = window.parent.document.querySelectorAll('button[data-baseweb="tab"]');
+                if (tabs && tabs[{tab_index}]) {{
+                    tabs[{tab_index}].click();
+                }}
+            }}, 200);
+        </script>
+        """, height=0)
     tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
     "📋 Stock Status Table", 
     "📈 KPIs & Analytics", 
