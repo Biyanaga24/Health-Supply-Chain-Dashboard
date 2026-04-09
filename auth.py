@@ -72,6 +72,32 @@ def create_user(email, password, full_name):
             return False, "Email already exists. Please use a different email."
         return False, f"Registration failed: {e}"
 
+def change_password(user_id, old_password, new_password):
+    """Change user password"""
+    try:
+        # First verify old password
+        hashed_old = hashlib.sha256(old_password.encode()).hexdigest()
+
+        response = supabase.table("users") \
+            .select("id") \
+            .eq("id", user_id) \
+            .eq("password", hashed_old) \
+            .execute()
+
+        if not response.data:
+            return False, "Current password is incorrect"
+
+        # Update to new password
+        hashed_new = hashlib.sha256(new_password.encode()).hexdigest()
+        supabase.table("users") \
+            .update({"password": hashed_new}) \
+            .eq("id", user_id) \
+            .execute()
+
+        return True, "Password changed successfully! Please login again."
+    except Exception as e:
+        return False, f"Failed to change password: {e}"
+
 def get_pending_users():
     """Get all pending users"""
     response = supabase.table("users") \
@@ -126,7 +152,6 @@ def delete_user(user_id):
 def update_user_session(user_id, session_id):
     """Update user's last activity timestamp and session ID"""
     try:
-        # Check if columns exist, if not, we'll just update last_active
         supabase.table("users").update({
             "last_active": datetime.now().isoformat(),
             "session_id": session_id,
@@ -146,7 +171,6 @@ def update_user_session(user_id, session_id):
 def get_online_users():
     """Get list of users currently online (active in last 5 minutes)"""
     try:
-        # Consider users active in the last 5 minutes as online
         five_minutes_ago = (datetime.now() - timedelta(minutes=5)).isoformat()
 
         response = supabase.table("users") \
@@ -156,7 +180,6 @@ def get_online_users():
             .execute()
 
         if response.data:
-            # Sort by last_active (most recent first)
             online_users = sorted(response.data, key=lambda x: x.get('last_active', ''), reverse=True)
             return online_users
         return []
@@ -173,14 +196,11 @@ def set_user_offline(user_id):
         }).eq("id", user_id).execute()
         return True
     except Exception as e:
-        # If columns don't exist, just return True
         return True
 
 def init_session_state():
     """Initialize all session state variables"""
-    # Initialize session_id FIRST before anything else
     if 'session_id' not in st.session_state:
-        # Generate a unique session ID using uuid
         st.session_state['session_id'] = str(uuid.uuid4())
 
     if 'auth' not in st.session_state:
@@ -195,7 +215,6 @@ def init_session_state():
 def check_session_validity():
     """Check and update user's online status"""
     if st.session_state.get('auth') and st.session_state.get('user'):
-        # Update last activity every 30 seconds
         now = datetime.now()
         if (now - st.session_state.get('last_activity', now)).seconds >= 30:
             update_user_session(
@@ -390,7 +409,6 @@ def show_login_page():
                             if user and 'error' in user:
                                 st.error("⏳ Your account is pending admin approval. Please wait.")
                             elif user:
-                                # Ensure session_id exists before using it
                                 if 'session_id' not in st.session_state:
                                     st.session_state['session_id'] = str(uuid.uuid4())
 
@@ -398,7 +416,6 @@ def show_login_page():
                                 st.session_state['user'] = user
                                 st.session_state['login_time'] = datetime.now()
                                 st.session_state['last_activity'] = datetime.now()
-                                # Update user session
                                 update_user_session(user['id'], st.session_state['session_id'])
                                 st.success("✅ Login successful! Redirecting...")
                                 st.balloons()
@@ -435,23 +452,68 @@ def show_login_page():
 
         st.markdown('</div>', unsafe_allow_html=True)
 
+def show_change_password():
+    """Show change password form"""
+    st.markdown("## 🔒 Change Password")
+
+    with st.form("change_password_form"):
+        old_password = st.text_input("Current Password", type="password", placeholder="Enter your current password")
+        new_password = st.text_input("New Password", type="password", placeholder="Enter new password (min 6 characters)")
+        confirm_password = st.text_input("Confirm New Password", type="password", placeholder="Confirm your new password")
+
+        col1, col2 = st.columns([1, 1])
+        with col1:
+            submitted = st.form_submit_button("Update Password", use_container_width=True, type="primary")
+        with col2:
+            if st.form_submit_button("Cancel", use_container_width=True):
+                st.rerun()
+
+        if submitted:
+            if not old_password or not new_password or not confirm_password:
+                st.error("⚠️ Please fill all fields")
+            elif new_password != confirm_password:
+                st.error("❌ New passwords do not match")
+            elif len(new_password) < 6:
+                st.error("❌ Password must be at least 6 characters")
+            elif new_password == old_password:
+                st.warning("⚠️ New password must be different from current password")
+            else:
+                with st.spinner("Changing password..."):
+                    success, message = change_password(
+                        st.session_state['user']['id'],
+                        old_password,
+                        new_password
+                    )
+                    if success:
+                        st.success(f"✅ {message}")
+                        st.info("You will be logged out in 3 seconds. Please login with your new password.")
+                        time.sleep(3)
+                        logout_user()
+                    else:
+                        st.error(f"❌ {message}")
+
 def show_profile_page():
     st.markdown("## 👤 User Profile")
     user = st.session_state['user']
 
+    # Display user info in columns
     col1, col2 = st.columns(2)
     with col1:
-        st.write(f"**📧 Email:** {user['email']}")
-        st.write(f"**👤 Full Name:** {user['full_name']}")
+        st.info(f"**📧 Email:** {user['email']}")
+        st.info(f"**👤 Full Name:** {user['full_name']}")
     with col2:
-        st.write(f"**🔑 Role:** {user['role'].title()}")
-        st.write(f"**✅ Status:** {'Approved' if user.get('is_approved', 1) else 'Pending Approval'}")
+        st.info(f"**🔑 Role:** {user['role'].title()}")
+        st.info(f"**✅ Status:** {'Approved' if user.get('is_approved', 1) else 'Pending Approval'}")
+
+    st.markdown("---")
+
+    # Add change password section
+    show_change_password()
 
 def show_online_users():
     """Display online users widget"""
     st.markdown("### 🟢 Who's Online")
 
-    # Add manual refresh button
     col1, col2 = st.columns([6, 1])
     with col2:
         if st.button("🔄 Refresh", key="refresh_online"):
@@ -465,12 +527,10 @@ def show_online_users():
             st.markdown("---")
 
             for user in online_users:
-                # Don't show current user as separate - they're included in the list
                 is_current = st.session_state['user']['id'] == user['id']
                 user_icon = "👤" if not is_current else "⭐"
                 user_name = f"{user_icon} **{user['full_name']}**" + (" (You)" if is_current else "")
 
-                # Calculate last active time
                 last_active = datetime.fromisoformat(user['last_active']) if user.get('last_active') else None
                 if last_active:
                     time_diff = datetime.now() - last_active
@@ -498,7 +558,6 @@ def show_online_users():
         else:
             st.info("👻 No other users currently online")
 
-    # Show last updated time
     st.caption(f"Last updated: {datetime.now().strftime('%H:%M:%S')}")
 
 def show_admin_panel():
@@ -508,7 +567,6 @@ def show_admin_panel():
     all_users = get_all_users()
     online_users = get_online_users()
 
-    # Display metrics
     col1, col2, col3, col4 = st.columns(4)
     with col1:
         st.metric("👥 Total Users", len(all_users))
@@ -524,7 +582,6 @@ def show_admin_panel():
 
     tab1, tab2, tab3 = st.tabs(["🟢 Online Users", "⏳ Pending Approvals", "📋 All Users"])
 
-    # Tab 1: Online Users
     with tab1:
         if online_users:
             for user in online_users:
@@ -544,7 +601,6 @@ def show_admin_panel():
         else:
             st.info("No users currently online")
 
-    # Tab 2: Pending Approvals
     with tab2:
         if not pending_df.empty:
             for idx, row in pending_df.iterrows():
@@ -567,10 +623,8 @@ def show_admin_panel():
         else:
             st.info("✅ No pending approvals")
 
-    # Tab 3: All Users
     with tab3:
         if not all_users.empty:
-            # Display all users in a clean table
             display_df = all_users[['id', 'email', 'full_name', 'role', 'is_approved', 'created_at']].copy()
             display_df['is_approved'] = display_df['is_approved'].apply(lambda x: "✅ Yes" if x == 1 else "⏳ No")
 
@@ -596,12 +650,10 @@ def show_dashboard():
     user = st.session_state['user']
     st.markdown(f"### 👋 Welcome, {user['full_name']}!")
 
-    # Create two columns for dashboard layout
     col1, col2 = st.columns([2, 1])
 
     with col1:
         st.info("Your main dashboard will load your health data here...")
-        # Placeholder for main dashboard content
         st.markdown("""
         ### 📈 Key Metrics
         - **Total Stock Value:** Loading...
@@ -610,11 +662,9 @@ def show_dashboard():
         """)
 
     with col2:
-        # Show online users widget
         show_online_users()
 
 def main():
-    # Initialize session state FIRST before anything else
     init_session_state()
 
     if st.session_state['auth']:
@@ -626,7 +676,6 @@ def main():
             st.title(f"Welcome, {user['full_name']}!")
             st.caption(f"Role: {user['role'].title()}")
 
-            # Show online status in sidebar
             st.markdown("---")
             st.markdown("🟢 **Status:** Online")
 

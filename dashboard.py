@@ -1321,60 +1321,71 @@ if not df.empty:
             else:
                 display_df[col] = display_df[col].apply(format_number_with_commas)
 
-    if 'Material Description' in df.columns:
-        # FIXED: Handle NaN values in Material Description for sorting
-        unique_materials = df['Material Description'].dropna().astype(str).unique()
-        materials = ["All"] + sorted(unique_materials)
+    # ========== MATERIAL FILTER SECTION ==========
+if 'Material Description' in df.columns:
+    # FIXED: Handle NaN values in Material Description for sorting
+    unique_materials = df['Material Description'].dropna().astype(str).unique()
 
-        statuses = ["All"] + sorted([s for s in df['Stock Status'].unique() if s != "" and pd.notna(s)]) if 'Stock Status' in df.columns else ["All"]
+    # Filter out subcategory headers from material list (dropdown only)
+    if sheet_name in PROGRAM_HIERARCHY:
+        subcategory_list = PROGRAM_HIERARCHY[sheet_name]["subcategories"]
+        unique_materials = [m for m in unique_materials if m not in subcategory_list]
 
-        risk_type_options = ["All", "Risk of Stock out", "Expiry Risk", "Critical Risk"]
-        risk_type_filter = st.sidebar.selectbox("Risk Type", risk_type_options, index=risk_type_options.index(st.session_state.risk_type_filter) if st.session_state.risk_type_filter in risk_type_options else 0)
-        st.session_state.risk_type_filter = risk_type_filter
+    materials = ["All"] + sorted(unique_materials)
 
-        material_filter = st.sidebar.selectbox("Material Description", materials)
-        status_filter = st.sidebar.selectbox("Stock Status", statuses)
+    statuses = ["All"] + sorted([s for s in df['Stock Status'].unique() if s != "" and pd.notna(s)]) if 'Stock Status' in df.columns else ["All"]
 
-        df_filtered = df.copy()
-        display_df_filtered = display_df.copy()
+    risk_type_options = ["All", "Risk of Stock out", "Expiry Risk", "Critical Risk"]
+    risk_type_filter = st.sidebar.selectbox("Risk Type", risk_type_options, index=risk_type_options.index(st.session_state.risk_type_filter) if st.session_state.risk_type_filter in risk_type_options else 0)
+    st.session_state.risk_type_filter = risk_type_filter
 
-        if material_filter != "All":
-            df_filtered = df_filtered[df_filtered['Material Description'] == material_filter]
-            display_df_filtered = display_df_filtered[display_df_filtered['Material Description'] == material_filter]
-            # Track material view for popular materials analytics
-            if material_filter not in st.session_state.material_views:
-                st.session_state.material_views[material_filter] = 0
-            st.session_state.material_views[material_filter] += 1
+    material_filter = st.sidebar.selectbox("Material Description", materials)
+    status_filter = st.sidebar.selectbox("Stock Status", statuses)
 
-            # Track user activity
-            if 'user' in st.session_state:
-                st.session_state.user_activity.append({
-                    'user': st.session_state['user']['email'],
-                    'role': st.session_state['user']['role'],
-                    'action': 'view_material',
-                    'material': material_filter,
-                    'timestamp': datetime.now().isoformat()
-                })
+    df_filtered = df.copy()
+    display_df_filtered = display_df.copy()
 
-        if status_filter != "All" and 'Stock Status' in df_filtered.columns:
-            df_filtered = df_filtered[df_filtered['Stock Status'] == status_filter]
-            display_df_filtered = display_df_filtered[display_df_filtered['Stock Status'] == status_filter]
+    # ========== REMOVE SUBCATEGORY HEADERS FROM DATA ==========
+    if sheet_name in PROGRAM_HIERARCHY:
+        subcategory_list = PROGRAM_HIERARCHY[sheet_name]["subcategories"]
+        mask = ~df_filtered['Material Description'].astype(str).str.strip().isin(subcategory_list)
+        df_filtered = df_filtered[mask].copy()
+        display_df_filtered = display_df_filtered[mask].copy()
+    # ========== END REMOVE SUBCATEGORY HEADERS ==========
 
-        if risk_type_filter == "Risk of Stock out":
-            df_filtered = df_filtered[df_filtered['Risk Type'] == "Risk of Stock out"]
-            display_df_filtered = display_df_filtered[display_df_filtered['Risk Type'] == "Risk of Stock out"]
-        elif risk_type_filter == "Expiry Risk":
-            df_filtered = df_filtered[df_filtered['Risk Type'] == "Expiry Risk"]
-            display_df_filtered = display_df_filtered[display_df_filtered['Risk Type'] == "Expiry Risk"]
-        elif risk_type_filter == "Critical Risk":
-            df_filtered = df_filtered[df_filtered['Risk Type'] == "Critical Risk"]
-            display_df_filtered = display_df_filtered[display_df_filtered['Risk Type'] == "Critical Risk"]
-    else:
-        st.error("Material Description column not found in the data")
-        df_filtered = pd.DataFrame()
-        display_df_filtered = pd.DataFrame()
+    if material_filter != "All":
+        df_filtered = df_filtered[df_filtered['Material Description'] == material_filter]
+        display_df_filtered = display_df_filtered[display_df_filtered['Material Description'] == material_filter]
+        # Track material view for popular materials analytics
+        if material_filter not in st.session_state.material_views:
+            st.session_state.material_views[material_filter] = 0
+        st.session_state.material_views[material_filter] += 1
+
+        # Track user activity
+        if 'user' in st.session_state:
+            st.session_state.user_activity.append({
+                'user': st.session_state['user']['email'],
+                'role': st.session_state['user']['role'],
+                'action': 'view_material',
+                'material': material_filter,
+                'timestamp': datetime.now().isoformat()
+            })
+
+    if status_filter != "All" and 'Stock Status' in df_filtered.columns:
+        df_filtered = df_filtered[df_filtered['Stock Status'] == status_filter]
+        display_df_filtered = display_df_filtered[display_df_filtered['Stock Status'] == status_filter]
+
+    if risk_type_filter == "Risk of Stock out":
+        df_filtered = df_filtered[df_filtered['Risk Type'] == "Risk of Stock out"]
+        display_df_filtered = display_df_filtered[display_df_filtered['Risk Type'] == "Risk of Stock out"]
+    elif risk_type_filter == "Expiry Risk":
+        df_filtered = df_filtered[df_filtered['Risk Type'] == "Expiry Risk"]
+        display_df_filtered = display_df_filtered[display_df_filtered['Risk Type'] == "Expiry Risk"]
+    elif risk_type_filter == "Critical Risk":
+        df_filtered = df_filtered[df_filtered['Risk Type'] == "Critical Risk"]
+        display_df_filtered = display_df_filtered[display_df_filtered['Risk Type'] == "Critical Risk"]
 else:
-    st.error("No data available.")
+    st.error("Material Description column not found in the data")
     df_filtered = pd.DataFrame()
     display_df_filtered = pd.DataFrame()
 
@@ -1944,7 +1955,7 @@ if st.session_state.go_to_analytics_tab is not None:
         else:
             st.success("✅ No expiring stock detected. All expiring batches can be consumed before their expiry date!")
 
-    # ========== TAB 5: Program Comparison ==========
+                # ========== TAB 5: Program Comparison ==========
     with aa_tab5:
         st.markdown("<h3 style='font-size: 24px; font-weight: bold;'>Program Performance Comparison</h3>", unsafe_allow_html=True)
         st.caption("Ranking based on: Availability (100%=1), SAP (≥65%=1), Stock-out Rate (0%=1), Overstock Rate (0%=1), Avg NMOS (6-18 months=1)")
@@ -2003,7 +2014,53 @@ if st.session_state.go_to_analytics_tab is not None:
 
                 top_program = comparison_df.iloc[0]['Program']
                 top_availability = comparison_df.iloc[0]['Availability (%)']
-                st.success(f"🏆 **Top Performing Program: {top_program}** (Availability: {top_availability}%)")
+                bottom_program = comparison_df.iloc[-1]['Program']
+                bottom_availability = comparison_df.iloc[-1]['Availability (%)']
+
+                # Side by side cards for TOP and BOTTOM programs
+                col_left, col_right = st.columns(2)
+
+                with col_left:
+                    st.markdown(f"""
+                    <div style='background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%); 
+                                border-radius: 15px; 
+                                padding: 15px; 
+                                text-align: center;
+                                box-shadow: 0 5px 15px rgba(0,0,0,0.1);
+                                animation: pulse 2s infinite;'>
+                        <div style='font-size: 32px; margin-bottom: 5px;'>🏆</div>
+                        <div style='font-size: 11px; text-transform: uppercase; letter-spacing: 1px; color: rgba(255,255,255,0.8);'>Top Program</div>
+                        <div style='font-size: 18px; font-weight: bold; color: white; margin: 5px 0;'>{top_program}</div>
+                        <div style='display: inline-block; background: rgba(255,255,255,0.2); border-radius: 50px; padding: 4px 12px;'>
+                            <span style='font-size: 18px; font-weight: bold; color: white;'>{top_availability}%</span>
+                            <span style='color: rgba(255,255,255,0.8); font-size: 11px;'> Availability</span>
+                        </div>
+                    </div>
+                    <style>
+                    @keyframes pulse {{
+                        0% {{ transform: scale(1); }}
+                        50% {{ transform: scale(1.02); }}
+                        100% {{ transform: scale(1); }}
+                    }}
+                    </style>
+                    """, unsafe_allow_html=True)
+
+                with col_right:
+                    st.markdown(f"""
+                    <div style='background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%); 
+                                border-radius: 15px; 
+                                padding: 15px; 
+                                text-align: center;
+                                box-shadow: 0 5px 15px rgba(0,0,0,0.1);'>
+                        <div style='font-size: 32px; margin-bottom: 5px;'>📉</div>
+                        <div style='font-size: 11px; text-transform: uppercase; letter-spacing: 1px; color: rgba(255,255,255,0.8);'>Bottom Program</div>
+                        <div style='font-size: 18px; font-weight: bold; color: white; margin: 5px 0;'>{bottom_program}</div>
+                        <div style='display: inline-block; background: rgba(255,255,255,0.2); border-radius: 50px; padding: 4px 12px;'>
+                            <span style='font-size: 18px; font-weight: bold; color: white;'>{bottom_availability}%</span>
+                            <span style='color: rgba(255,255,255,0.8); font-size: 11px;'> Availability</span>
+                        </div>
+                    </div>
+                    """, unsafe_allow_html=True)
 
                 st.dataframe(comparison_df, use_container_width=True, hide_index=True)
 
