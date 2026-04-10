@@ -542,19 +542,38 @@ def parse_multiple_expiry_batches(expiry_str, amc):
 # Database Connection Functions
 # ---------------------------------------------------
 def load_national_data():
-    """Load national_data from Supabase"""
+    """Load ALL national_data from Supabase with pagination"""
     try:
         if st.session_state.supabase_client is None:
             st.error("Supabase client not initialized")
             return pd.DataFrame()
 
-        response = st.session_state.supabase_client.table("health_data").select("*").execute()
+        # Pagination to get ALL rows
+        all_data = []
+        page = 0
+        page_size = 1000
 
-        if not response.data:
+        while True:
+            response = st.session_state.supabase_client.table("health_data") \
+                .select("*") \
+                .range(page * page_size, (page + 1) * page_size - 1) \
+                .execute()
+
+            if not response.data:
+                break
+
+            all_data.extend(response.data)
+
+            if len(response.data) < page_size:
+                break
+
+            page += 1
+
+        if not all_data:
             st.warning("No data found in Supabase")
             return pd.DataFrame()
 
-        df = pd.DataFrame(response.data)
+        df = pd.DataFrame(all_data)
 
         if 'id' in df.columns:
             df = df.drop(columns=['id'])
@@ -597,6 +616,7 @@ def load_national_data():
                 df[col] = df[col].fillna("")
 
         return df
+
     except Exception as e:
         st.error(f"Error loading data from Supabase: {e}")
         return pd.DataFrame()
