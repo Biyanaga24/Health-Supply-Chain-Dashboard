@@ -6,3 +6,12 @@ plotly
 requests
 openpyxl
 python-dotenv
+streamlit
+pandas
+numpy
+matplotlib
+seaborn
+statsmodels
+scikit-learn
+scipy
+openpyxl
