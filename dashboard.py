@@ -12,7 +12,6 @@ import requests
 import re
 from io import BytesIO
 from supabase import create_client
-import socket
 from openpyxl.utils import get_column_letter
 
 # Add the current directory to path
@@ -190,195 +189,100 @@ st.markdown("""
     /* MOBILE RESPONSIVE STYLES - ENHANCED */
     /* ============================================ */
     @media only screen and (max-width: 768px) {
-        /* Main container padding */
         .stApp {
             padding: 0.5rem !important;
         }
-
-        /* Metric cards - full width on mobile */
         div[data-testid="stMetric"] {
             margin-bottom: 10px !important;
             padding: 10px !important;
         }
-
-        /* Headers */
         h1 {
             font-size: 22px !important;
             text-align: center !important;
         }
-
         h3 {
             font-size: 18px !important;
         }
-
         h4 {
             font-size: 16px !important;
         }
-
-        /* Tabs - scrollable on mobile */
         button[data-baseweb="tab"] {
             font-size: 12px !important;
             padding: 6px 10px !important;
             white-space: nowrap !important;
         }
-
-        /* Tab container - horizontal scroll */
         [data-testid="stTabs"] {
             overflow-x: auto !important;
             white-space: nowrap !important;
             flex-wrap: nowrap !important;
         }
-
         [data-testid="stTabs"] button {
             flex: 0 0 auto !important;
         }
-
-        /* Stock cards */
         .stock-card {
             padding: 8px !important;
             margin: 5px 0 !important;
         }
-
         .stock-card h4 {
             font-size: 14px !important;
         }
-
         .stock-card p {
             font-size: 12px !important;
             margin: 5px 0 !important;
         }
-
-        /* Legend box */
         .legend-box {
             padding: 8px !important;
         }
-
         .legend-item {
             font-size: 10px !important;
         }
-
         .legend-color {
             width: 14px !important;
             height: 14px !important;
         }
-
-        /* Dataframes - horizontal scroll */
         .stDataFrame {
             overflow-x: auto !important;
         }
-
-        div[data-testid="stDataFrame"] {
-            overflow-x: auto !important;
-        }
-
-        /* Metric values */
         div[data-testid="stMetricValue"] {
             font-size: 20px !important;
         }
-
         div[data-testid="stMetricLabel"] {
             font-size: 12px !important;
         }
-
-        /* Buttons */
         .stButton button {
             font-size: 12px !important;
             padding: 6px 12px !important;
         }
-
-        /* Sidebar */
         [data-testid="stSidebar"] {
             width: 280px !important;
         }
-
-        [data-testid="stSidebar"] .stMarkdown {
-            font-size: 12px !important;
-        }
-
-        /* Columns - stack on mobile */
-        .row-widget.stHorizontal {
-            flex-wrap: wrap !important;
-        }
-
-        /* Expander */
-        details {
-            font-size: 12px !important;
-        }
-
-        /* Download button caption */
-        .stCaption {
-            font-size: 10px !important;
-        }
-
-        /* Chart containers */
         .stPlotlyChart {
             width: 100% !important;
             overflow-x: auto !important;
         }
-
-        /* Data editor */
-        .stDataEditor {
-            font-size: 11px !important;
-        }
-
-        /* Input fields */
-        .stTextInput input {
-            font-size: 14px !important;
-            padding: 8px !important;
-        }
-
-        /* Select boxes */
-        .stSelectbox div {
-            font-size: 14px !important;
-        }
-
-        /* Info/Warning/Success messages */
-        .stAlert {
-            font-size: 12px !important;
-            padding: 8px !important;
-        }
-
-        /* Metric delta */
-        [data-testid="stMetricDelta"] {
-            font-size: 10px !important;
-        }
     }
 
-    /* Extra small devices (phones below 480px) */
     @media only screen and (max-width: 480px) {
         h1 {
             font-size: 18px !important;
         }
-
         button[data-baseweb="tab"] {
             font-size: 10px !important;
             padding: 4px 8px !important;
         }
-
         div[data-testid="stMetricValue"] {
             font-size: 16px !important;
         }
-
-        .stock-card h4 {
-            font-size: 12px !important;
-        }
-
-        .stock-card p {
-            font-size: 10px !important;
-        }
     }
 
-    /* Tablets (landscape) */
     @media only screen and (min-width: 769px) and (max-width: 1024px) {
         button[data-baseweb="tab"] {
             font-size: 14px !important;
             padding: 8px 14px !important;
         }
-
         h1 {
             font-size: 28px !important;
         }
-
         div[data-testid="stMetricValue"] {
             font-size: 22px !important;
         }
@@ -397,6 +301,8 @@ if 'recommendations' not in st.session_state:
     st.session_state.recommendations = {}
 if 'heatmap_page' not in st.session_state:
     st.session_state.heatmap_page = 1
+if 'soh_heatmap_page' not in st.session_state:
+    st.session_state.soh_heatmap_page = 1
 if 'google_sheets_data' not in st.session_state:
     st.session_state.google_sheets_data = None
 if 'branch_amc_data' not in st.session_state:
@@ -430,7 +336,23 @@ if 'user_activity' not in st.session_state:
 if 'notifications' not in st.session_state:
     st.session_state.notifications = []
 if 'dos_tracking' not in st.session_state:
-    st.session_state.dos_tracking = {}  # Stores current DOS days for each material
+    st.session_state.dos_tracking = {}
+if 'previous_data_hash' not in st.session_state:
+    st.session_state.previous_data_hash = None
+if 'action_plan_tab' not in st.session_state:
+    st.session_state.action_plan_tab = "📋 All Issues"
+if 'go_to_dashboard_tab' not in st.session_state:
+    st.session_state.go_to_dashboard_tab = None
+if 'go_to_analytics_tab' not in st.session_state:
+    st.session_state.go_to_analytics_tab = None
+if 'go_to_summary_section' not in st.session_state:
+    st.session_state.go_to_summary_section = None
+if 'last_dashboard_tab' not in st.session_state:
+    st.session_state.last_dashboard_tab = None
+if 'last_analytics_tab' not in st.session_state:
+    st.session_state.last_analytics_tab = None
+if 'last_summary_section' not in st.session_state:
+    st.session_state.last_summary_section = None
 
 # Check connection periodically
 if st.session_state.supabase_client and not check_supabase_connection():
@@ -485,7 +407,6 @@ def filter_out_subcategory_headers(df, subcategory_list):
     if subcategory_list is None or not subcategory_list:
         return df
 
-    # Create a mask to filter out rows where Material Description is a subcategory header
     mask = ~df['Material Description'].astype(str).str.strip().isin(subcategory_list)
     return df[mask].copy()
 
@@ -541,6 +462,7 @@ def parse_multiple_expiry_batches(expiry_str, amc):
     except Exception as e:
         return False, f"Error: {e}"
 
+# ---------------------------------------------------
 # Database Connection Functions
 # ---------------------------------------------------
 def load_national_data():
@@ -550,7 +472,6 @@ def load_national_data():
             st.error("Supabase client not initialized")
             return pd.DataFrame()
 
-        # Pagination to get ALL rows
         all_data = []
         page = 0
         page_size = 1000
@@ -622,6 +543,7 @@ def load_national_data():
     except Exception as e:
         st.error(f"Error loading data from Supabase: {e}")
         return pd.DataFrame()
+
 @st.cache_data(ttl=300, show_spinner=False)
 def load_new_deliveries():
     """Load new_deliveries data from Supabase"""
@@ -633,7 +555,6 @@ def load_new_deliveries():
             df = pd.DataFrame(response.data)
             if 'id' in df.columns:
                 df = df.drop(columns=['id'])
-            # Rename columns for display
             column_rename = {
                 'material_description': 'Material Description',
                 'posting_date': 'Posting Date',
@@ -647,6 +568,7 @@ def load_new_deliveries():
     except Exception as e:
         st.error(f"Error loading New_deliveries data: {e}")
         return pd.DataFrame()
+
 @st.cache_data(ttl=300, show_spinner=False)
 def load_branch_amc_from_google_sheets(sheet_id):
     """Load branch AMC data from Google Sheets"""
@@ -830,53 +752,53 @@ def get_table_info():
         return None
 
 # ---------------------------------------------------
-# Stock Change Tracking Function (Updated to use NMOS)
+# SINGLE CORRECTED calculate_stock_changes FUNCTION
 # ---------------------------------------------------
 def calculate_stock_changes(current_df, previous_df):
-    """Calculate stock quantity changes based on NSOH and NMOS - shows ALL materials"""
+    """Calculate stock quantity changes - uses ONLY NSOH for comparison"""
 
     if previous_df is None or previous_df.empty:
         return None
 
-    # Get NSOH and NMOS from both dataframes
-    current_data = current_df[['Material Description', 'NSOH', 'NMOS']].copy()
-    previous_data = previous_df[['Material Description', 'NSOH', 'NMOS']].copy()
+    # Get NSOH from both dataframes
+    current_data = current_df[['Material Description', 'NSOH']].copy()
+    previous_data = previous_df[['Material Description', 'NSOH']].copy()
 
-    # Convert to numeric and round NSOH to whole numbers
-    for col in ['NSOH', 'NMOS']:
-        current_data[col] = pd.to_numeric(current_data[col], errors='coerce').fillna(0)
-        previous_data[col] = pd.to_numeric(previous_data[col], errors='coerce').fillna(0)
-
-    # Round NSOH to whole numbers
-    current_data['NSOH'] = current_data['NSOH'].round(0)
-    previous_data['NSOH'] = previous_data['NSOH'].round(0)
+    # Convert to numeric and round to whole numbers
+    for df in [current_data, previous_data]:
+        df['NSOH'] = pd.to_numeric(df['NSOH'], errors='coerce').fillna(0)
+        df['NSOH'] = df['NSOH'].round(0).astype(int)
 
     # Merge (use outer join to include all materials from both datasets)
     merged = current_data.merge(
         previous_data, 
         on='Material Description', 
         suffixes=('_now', '_previous'),
-        how='outer'  # This ensures ALL materials are included
+        how='outer'
     )
 
     # Fill NaN values with 0 for materials that only exist in one dataset
     merged['NSOH_now'] = merged['NSOH_now'].fillna(0)
     merged['NSOH_previous'] = merged['NSOH_previous'].fillna(0)
-    merged['NMOS_now'] = merged['NMOS_now'].fillna(0)
-    merged['NMOS_previous'] = merged['NMOS_previous'].fillna(0)
+
+    # Convert to int for proper comparison
+    merged['NSOH_now'] = merged['NSOH_now'].astype(int)
+    merged['NSOH_previous'] = merged['NSOH_previous'].astype(int)
 
     # Calculate changes
     merged['NSOH_Change'] = merged['NSOH_now'] - merged['NSOH_previous']
-    merged['NMOS_Change'] = merged['NMOS_now'] - merged['NMOS_previous']
 
-    # Calculate percentage change for NSOH
+    # Calculate percentage change (avoid division by zero)
     merged['NSOH_Change_Pct'] = np.where(
         merged['NSOH_previous'] > 0,
         (merged['NSOH_Change'] / merged['NSOH_previous']) * 100,
         0
     )
 
-    # Determine change type (includes NO CHANGE)
+    # Filter out obviously bad data (anomalies like > 1 million change with 0 previous)
+    merged = merged[~((merged['NSOH_previous'] == 0) & (abs(merged['NSOH_Change']) > 500000))]
+
+    # Determine change type
     def get_change_type(row):
         if row['NSOH_Change'] > 0:
             return "📦 STOCK ADDED"
@@ -887,28 +809,293 @@ def calculate_stock_changes(current_df, previous_df):
 
     merged['Change Type'] = merged.apply(get_change_type, axis=1)
 
-    # Format numbers
-    merged['NSOH_previous'] = merged['NSOH_previous'].apply(lambda x: f"{int(x):,}")
-    merged['NSOH_now'] = merged['NSOH_now'].apply(lambda x: f"{int(x):,}")
-    merged['NSOH_Change'] = merged['NSOH_Change'].apply(lambda x: f"{'+' if x > 0 else ''}{int(x):,}" if x != 0 else "0")
-    merged['NSOH_Change_Pct'] = merged['NSOH_Change_Pct'].apply(lambda x: f"{x:+.1f}%" if x != 0 else "0%")
-    merged['NMOS_previous'] = merged['NMOS_previous'].apply(lambda x: f"{x:.2f}")
-    merged['NMOS_now'] = merged['NMOS_now'].apply(lambda x: f"{x:.2f}")
-    merged['NMOS_Change'] = merged['NMOS_Change'].apply(lambda x: f"{x:+.2f}" if x != 0 else "0.00")
+    # Format numbers for display
+    merged['NSOH_previous'] = merged['NSOH_previous'].apply(lambda x: f"{x:,}")
+    merged['NSOH_now'] = merged['NSOH_now'].apply(lambda x: f"{x:,}")
+    merged['NSOH_Change'] = merged['NSOH_Change'].apply(
+        lambda x: f"{'+' if x > 0 else ''}{x:,}" if x != 0 else "0"
+    )
+    merged['NSOH_Change_Pct'] = merged['NSOH_Change_Pct'].apply(
+        lambda x: f"{x:+.1f}%" if x != 0 else "0%"
+    )
 
-    # Return single table with all change data (including NO CHANGE)
+    # Sort by absolute NSOH change (largest first)
+    merged['_sort_key'] = merged['NSOH_Change'].str.replace(',', '').str.replace('+', '').astype(int).abs()
+    merged = merged.sort_values('_sort_key', ascending=False).drop('_sort_key', axis=1)
+
+    # Select final columns
     result = merged[[
         'Material Description',
         'NSOH_previous', 'NSOH_now', 'NSOH_Change', 'NSOH_Change_Pct',
-        'NMOS_previous', 'NMOS_now', 'NMOS_Change',
         'Change Type'
     ]].copy()
 
-    # Sort by absolute NSOH change (largest first, NO CHANGE at bottom)
-    result['_sort_key'] = result['NSOH_Change'].str.replace(',', '').str.replace('+', '').astype(int).abs()
-    result = result.sort_values('_sort_key', ascending=False).drop('_sort_key', axis=1)
-
     return result
+
+# ---------------------------------------------------
+# SINGLE CORRECTED load_national_data_with_hash FUNCTION
+# ---------------------------------------------------
+@st.cache_data(ttl=300, show_spinner=False)
+def load_national_data_with_hash():
+    """Load data from Supabase and return along with a hash for change detection"""
+    try:
+        if st.session_state.supabase_client is None:
+            st.error("Supabase client not initialized")
+            return pd.DataFrame(), None
+
+        # Pagination to get ALL rows
+        all_data = []
+        page = 0
+        page_size = 1000
+        max_pages = 100  # Safety limit to prevent infinite loops
+
+        while page < max_pages:
+            response = st.session_state.supabase_client.table("health_data") \
+                .select("*") \
+                .range(page * page_size, (page + 1) * page_size - 1) \
+                .execute()
+
+            if not response.data:
+                break
+
+            all_data.extend(response.data)
+
+            if len(response.data) < page_size:
+                break
+
+            page += 1
+
+        if not all_data:
+            st.warning("No data found in Supabase")
+            return pd.DataFrame(), None
+
+        df = pd.DataFrame(all_data)
+
+        if 'id' in df.columns:
+            df = df.drop(columns=['id'])
+
+        column_mapping = {
+            'material_description': 'Material Description',
+            'adama_branch': 'Adama Branch',
+            'addis_ababa_branch_1': 'Addis Ababa Branch 1',
+            'addis_ababa_branch_2': 'Addis Ababa Branch 2',
+            'arba_minch_branch': 'Arba Minch Branch',
+            'assosa_branch': 'Assosa Branch',
+            'bahir_dar_branch': 'Bahir Dar Branch',
+            'dessie_branch': 'Dessie Branch',
+            'dire_dawa_branch': 'Dire Dawa Branch',
+            'gambela_branch': 'Gambela Branch',
+            'gondar_branch': 'Gondar Branch',
+            'hawassa_branch': 'Hawassa Branch',
+            'jigjiga_branch': 'Jigjiga Branch',
+            'jimma_branch': 'Jimma Branch',
+            'kebridahar_branch': 'Kebridahar Branch',
+            'mekele_branch': 'Mekele Branch',
+            'negele_borena_branch': 'Negele Borena Branch',
+            'nekemte_branch': 'Nekemte Branch',
+            'semera_branch': 'Semera Branch',
+            'shire_branch': 'Shire Branch',
+            'head_office': 'Head Office',
+            'hubs': 'Hubs',
+            'nsoh': 'NSOH',
+            'expiry': 'Expiry'
+        }
+
+        existing_mapping = {k: v for k, v in column_mapping.items() if k in df.columns}
+        df = df.rename(columns=existing_mapping)
+        df = df.loc[:, ~df.columns.str.contains("^Unnamed")]
+        df.columns = df.columns.str.strip()
+
+        for col in df.columns:
+            if df[col].dtype == 'object':
+                df[col] = df[col].fillna("")
+
+        # Create a hash of NSOH values for change detection (using a safe method)
+        if 'NSOH' in df.columns:
+            # Convert to a stable string representation for hashing
+            nsoh_tuple = tuple(pd.to_numeric(df['NSOH'], errors='coerce').fillna(0).round(0).tolist())
+            nsoh_hash = hash(nsoh_tuple)
+        else:
+            nsoh_hash = hash(str(df.shape))
+
+        return df, nsoh_hash
+
+    except Exception as e:
+        st.error(f"Error loading data from Supabase: {e}")
+        return pd.DataFrame(), None
+
+# ---------------------------------------------------
+# DOS Tracking Function
+# ---------------------------------------------------
+def calculate_dos(current_df):
+    """Calculate Days Out of Stock - tracks persistently across data updates"""
+    from datetime import date, timedelta
+
+    current_date = date.today()
+
+    # Initialize tracking if not exists
+    if 'dos_tracking' not in st.session_state:
+        st.session_state.dos_tracking = {}
+
+    # Get current NMOS values from DataFrame
+    current_nmos = {}
+    for idx, row in current_df.iterrows():
+        material = row.get('Material Description')
+        if pd.isna(material):
+            continue
+
+        # Get NMOS value
+        nmos = row.get('NMOS')
+        try:
+            if pd.isna(nmos):
+                nmos = 1  # Default to 1 if no data
+            else:
+                nmos = float(nmos)
+        except (ValueError, TypeError):
+            nmos = 1
+
+        current_nmos[str(material)] = nmos
+
+    # Update DOS tracking based on current NMOS
+    for material, nmos in current_nmos.items():
+        is_out_of_stock = nmos < 1
+
+        if material not in st.session_state.dos_tracking:
+            # Initialize tracking for this material
+            if is_out_of_stock:
+                st.session_state.dos_tracking[material] = {
+                    'start_date': current_date,
+                    'days': 1,
+                    'is_out_of_stock': True,
+                    'last_nmos': nmos,
+                    'last_check_date': current_date
+                }
+            else:
+                st.session_state.dos_tracking[material] = {
+                    'start_date': None,
+                    'days': 0,
+                    'is_out_of_stock': False,
+                    'last_nmos': nmos,
+                    'last_check_date': current_date
+                }
+        else:
+            tracking = st.session_state.dos_tracking[material]
+            previous_status = tracking.get('is_out_of_stock', False)
+            previous_nmos = tracking.get('last_nmos', 1)
+            last_check = tracking.get('last_check_date', current_date)
+
+            # Calculate days since last check
+            days_since_last_check = (current_date - last_check).days if last_check else 1
+            days_since_last_check = max(1, days_since_last_check)  # At least 1 day
+
+            # Check if status changed
+            if is_out_of_stock != previous_status:
+                if is_out_of_stock and not previous_status:
+                    # JUST went out of stock - start counting from today
+                    tracking['start_date'] = current_date
+                    tracking['days'] = 1
+                    tracking['is_out_of_stock'] = True
+                elif not is_out_of_stock and previous_status:
+                    # JUST came back in stock - reset to 0
+                    tracking['start_date'] = None
+                    tracking['days'] = 0
+                    tracking['is_out_of_stock'] = False
+            else:
+                # Status unchanged
+                if is_out_of_stock:
+                    # Still out of stock - increment days
+                    if tracking['start_date'] is not None:
+                        # Calculate actual days from start date to today
+                        tracking['days'] = (current_date - tracking['start_date']).days
+                        # Ensure at least 1 day
+                        if tracking['days'] < 1:
+                            tracking['days'] = 1
+                    else:
+                        # No start date but we're out of stock - set start date
+                        tracking['start_date'] = current_date - timedelta(days=1)
+                        tracking['days'] = 1
+                    tracking['is_out_of_stock'] = True
+                else:
+                    # Still in stock - ensure days is 0
+                    tracking['days'] = 0
+                    tracking['is_out_of_stock'] = False
+
+            # Update last known values
+            tracking['last_nmos'] = nmos
+            tracking['last_check_date'] = current_date
+
+    # Return current DOS days for each material
+    return {material: st.session_state.dos_tracking[material]['days'] 
+            for material in st.session_state.dos_tracking}
+
+# ---------------------------------------------------
+# Recommendation Functions
+# ---------------------------------------------------
+def get_stock_out_recommendation(row):
+    """Generate recommendation for Risk of Stock out based on pipeline status with PO numbers"""
+    try:
+        git_mos = row.get('GIT_MOS', 0)
+        lc_mos = row.get('LC_MOS', 0)
+        wb_mos = row.get('WB_MOS', 0)
+        tmd_mos = row.get('TMD_MOS', 0)
+        git_po = row.get('GIT_PO', '')
+        lc_po = row.get('LC_PO', '')
+        wb_po = row.get('WB_PO', '')
+        tmd_po = row.get('TMD_PO', '')
+
+        git_mos = pd.to_numeric(git_mos, errors='coerce') if not isinstance(git_mos, (int, float)) else git_mos
+        lc_mos = pd.to_numeric(lc_mos, errors='coerce') if not isinstance(lc_mos, (int, float)) else lc_mos
+        wb_mos = pd.to_numeric(wb_mos, errors='coerce') if not isinstance(wb_mos, (int, float)) else wb_mos
+        tmd_mos = pd.to_numeric(tmd_mos, errors='coerce') if not isinstance(tmd_mos, (int, float)) else tmd_mos
+
+        git_mos = git_mos if pd.notna(git_mos) else 0
+        lc_mos = lc_mos if pd.notna(lc_mos) else 0
+        wb_mos = wb_mos if pd.notna(wb_mos) else 0
+        tmd_mos = tmd_mos if pd.notna(tmd_mos) else 0
+
+        if git_mos > 0:
+            po_text = f" PO {git_po}" if git_po and str(git_po) != 'nan' and str(git_po) != '' else ""
+            return f"🚚 Expedite shipment{po_text} - goods in transit"
+        elif git_mos == 0 and lc_mos > 0:
+            po_text = f" PO {lc_po}" if lc_po and str(lc_po) != 'nan' and str(lc_po) != '' else ""
+            return f"📄 Expedite L/C opening process{po_text}"
+        elif git_mos == 0 and lc_mos == 0 and wb_mos > 0:
+            po_text = f" PO {wb_po}" if wb_po and str(wb_po) != 'nan' and str(wb_po) != '' else ""
+            return f"💰 Expedite budget transfer{po_text}"
+        elif git_mos == 0 and lc_mos == 0 and wb_mos == 0 and tmd_mos > 0:
+            po_text = f" PO {tmd_po}" if tmd_po and str(tmd_po) != 'nan' and str(tmd_po) != '' else ""
+            return f"📋 Expedite tender process{po_text}"
+        else:
+            return "🔄 Initiate additional quantity - no pipeline stock"
+    except Exception as e:
+        return f"⚠️ Review supply chain status"
+
+def get_expiry_risk_recommendation(row, cv_category=None):
+    """Generate recommendation for Expiry Risk based on CV and distribution, including expiry quantity"""
+    try:
+        if cv_category is None:
+            cv_category = row.get('CV Category', 'Unknown')
+
+        hubs_pct = row.get('Hubs%', 0)
+        ho_pct = row.get('Head Office%', 0)
+        expiry_details = row.get('Expiry Risk Details', '')
+
+        hubs_pct = pd.to_numeric(hubs_pct, errors='coerce') if not isinstance(hubs_pct, (int, float)) else hubs_pct
+        ho_pct = pd.to_numeric(ho_pct, errors='coerce') if not isinstance(ho_pct, (int, float)) else ho_pct
+        hubs_pct = hubs_pct if pd.notna(hubs_pct) else 0
+        ho_pct = ho_pct if pd.notna(ho_pct) else 0
+
+        expiry_info = f" [Expiry: {expiry_details}]" if expiry_details and expiry_details != "" else ""
+
+        if cv_category == 'High variation':
+            return f"🔄 Redistribution required - high variation across hubs{expiry_info}"
+        elif hubs_pct < ho_pct:
+            return f"📦 Push stock to hubs - hubs have lower stock than head office{expiry_info}"
+        else:
+            return f"🌍 Donate to other countries - excess stock for donation{expiry_info}"
+
+    except Exception as e:
+        return f"⚠️ Review expiry risk - check batch details"
 
 # ---------------------------------------------------
 # Utility Functions
@@ -1001,138 +1188,6 @@ def calculate_risk(row):
         return ""
     except:
         return ""
-def calculate_dos(current_df):
-    """Calculate Days Out of Stock - counts actual calendar days"""
-    from datetime import date
-
-    current_date = date.today()
-
-    # Initialize if not exists
-    if 'dos_tracking' not in st.session_state:
-        st.session_state.dos_tracking = {}
-
-    for idx, row in current_df.iterrows():
-        material = row.get('Material Description')
-        if pd.isna(material):
-            continue
-
-        nmos = row.get('NMOS', 1)
-        try:
-            nmos = float(nmos) if pd.notna(nmos) else 1
-        except:
-            nmos = 1
-
-        is_out_of_stock = nmos < 1
-
-        if material not in st.session_state.dos_tracking:
-            # Initialize tracking for this material
-            if is_out_of_stock:
-                st.session_state.dos_tracking[material] = {
-                    'start_date': current_date,
-                    'days': 1
-                }
-            else:
-                st.session_state.dos_tracking[material] = {
-                    'start_date': None,
-                    'days': 0
-                }
-        else:
-            tracking = st.session_state.dos_tracking[material]
-
-            if is_out_of_stock:
-                if tracking['start_date'] is None:
-                    # Just went out of stock today
-                    tracking['start_date'] = current_date
-                    tracking['days'] = 1
-                else:
-                    # Calculate days including today
-                    tracking['days'] = (current_date - tracking['start_date']).days + 1
-            else:
-                # Back in stock - reset
-                if tracking['days'] > 0:
-                    # Record the episode for history (optional)
-                    if 'dos_history' not in st.session_state:
-                        st.session_state.dos_history = {}
-                    if material not in st.session_state.dos_history:
-                        st.session_state.dos_history[material] = []
-                    st.session_state.dos_history[material].append({
-                        'start': tracking['start_date'],
-                        'end': current_date,
-                        'days': tracking['days']
-                    })
-
-                # Reset
-                tracking['start_date'] = None
-                tracking['days'] = 0
-
-    # Return days only
-    return {material: st.session_state.dos_tracking[material]['days'] 
-            for material in st.session_state.dos_tracking}
-def get_stock_out_recommendation(row):
-    """Generate recommendation for Risk of Stock out based on pipeline status with PO numbers"""
-    try:
-        git_mos = row.get('GIT_MOS', 0)
-        lc_mos = row.get('LC_MOS', 0)
-        wb_mos = row.get('WB_MOS', 0)
-        tmd_mos = row.get('TMD_MOS', 0)
-        git_po = row.get('GIT_PO', '')
-        lc_po = row.get('LC_PO', '')
-        wb_po = row.get('WB_PO', '')
-        tmd_po = row.get('TMD_PO', '')
-
-        git_mos = pd.to_numeric(git_mos, errors='coerce') if not isinstance(git_mos, (int, float)) else git_mos
-        lc_mos = pd.to_numeric(lc_mos, errors='coerce') if not isinstance(lc_mos, (int, float)) else lc_mos
-        wb_mos = pd.to_numeric(wb_mos, errors='coerce') if not isinstance(wb_mos, (int, float)) else wb_mos
-        tmd_mos = pd.to_numeric(tmd_mos, errors='coerce') if not isinstance(tmd_mos, (int, float)) else tmd_mos
-
-        git_mos = git_mos if pd.notna(git_mos) else 0
-        lc_mos = lc_mos if pd.notna(lc_mos) else 0
-        wb_mos = wb_mos if pd.notna(wb_mos) else 0
-        tmd_mos = tmd_mos if pd.notna(tmd_mos) else 0
-
-        if git_mos > 0:
-            po_text = f" PO {git_po}" if git_po and str(git_po) != 'nan' and str(git_po) != '' else ""
-            return f"🚚 Expedite shipment{po_text} - goods in transit"
-        elif git_mos == 0 and lc_mos > 0:
-            po_text = f" PO {lc_po}" if lc_po and str(lc_po) != 'nan' and str(lc_po) != '' else ""
-            return f"📄 Expedite L/C opening process{po_text}"
-        elif git_mos == 0 and lc_mos == 0 and wb_mos > 0:
-            po_text = f" PO {wb_po}" if wb_po and str(wb_po) != 'nan' and str(wb_po) != '' else ""
-            return f"💰 Expedite budget transfer{po_text}"
-        elif git_mos == 0 and lc_mos == 0 and wb_mos == 0 and tmd_mos > 0:
-            po_text = f" PO {tmd_po}" if tmd_po and str(tmd_po) != 'nan' and str(tmd_po) != '' else ""
-            return f"📋 Expedite tender process{po_text}"
-        else:
-            return "🔄 Initiate additional quantity - no pipeline stock"
-    except Exception as e:
-        return f"⚠️ Review supply chain status"
-
-def get_expiry_risk_recommendation(row, cv_category=None):
-    """Generate recommendation for Expiry Risk based on CV and distribution, including expiry quantity"""
-    try:
-        if cv_category is None:
-            cv_category = row.get('CV Category', 'Unknown')
-
-        hubs_pct = row.get('Hubs%', 0)
-        ho_pct = row.get('Head Office%', 0)
-        expiry_details = row.get('Expiry Risk Details', '')
-
-        hubs_pct = pd.to_numeric(hubs_pct, errors='coerce') if not isinstance(hubs_pct, (int, float)) else hubs_pct
-        ho_pct = pd.to_numeric(ho_pct, errors='coerce') if not isinstance(ho_pct, (int, float)) else ho_pct
-        hubs_pct = hubs_pct if pd.notna(hubs_pct) else 0
-        ho_pct = ho_pct if pd.notna(ho_pct) else 0
-
-        expiry_info = f" [Expiry: {expiry_details}]" if expiry_details and expiry_details != "" else ""
-
-        if cv_category == 'High variation':
-            return f"🔄 Redistribution required - high variation across hubs{expiry_info}"
-        elif hubs_pct < ho_pct:
-            return f"📦 Push stock to hubs - hubs have lower stock than head office{expiry_info}"
-        else:
-            return f"🌍 Donate to other countries - excess stock for donation{expiry_info}"
-
-    except Exception as e:
-        return f"⚠️ Review expiry risk - check batch details"
 
 # ---------------------------------------------------
 # Load ALL data
@@ -1140,7 +1195,29 @@ def get_expiry_risk_recommendation(row, cv_category=None):
 amc_pipeline_sheet_id = "14VvZ7IyOmpM4SZrY5_ArHDgLkeFN4inW"
 branch_amc_sheet_id = "12Z5xqX32QIzjoN6tNvGbjutMheXx5US1"
 
-df_external = load_national_data()
+# Load data with hash for change detection
+df_external, current_data_hash = load_national_data_with_hash()
+
+if df_external.empty:
+    st.error("No data in Supabase. Please upload data through admin panel.")
+    st.stop()
+
+# Initialize previous_data_hash if not exists
+if 'previous_data_hash' not in st.session_state:
+    st.session_state.previous_data_hash = None
+    st.session_state.raw_previous_data = None
+    st.session_state.nsoh_changes = None
+
+# IMPORTANT: Only update previous data when hash changes (real data update)
+if st.session_state.previous_data_hash != current_data_hash and current_data_hash is not None:
+    # Data has changed - calculate changes using current (raw) vs previous (raw)
+    if st.session_state.raw_previous_data is not None and not st.session_state.raw_previous_data.empty:
+        st.session_state.nsoh_changes = calculate_stock_changes(df_external, st.session_state.raw_previous_data)
+
+    # Update previous data to current
+    st.session_state.raw_previous_data = df_external.copy()
+    st.session_state.previous_data_hash = current_data_hash
+
 df_new_deliveries = load_new_deliveries()
 branch_amc_data = load_branch_amc_from_google_sheets(branch_amc_sheet_id)
 google_sheets = load_google_sheets(amc_pipeline_sheet_id)
@@ -1342,13 +1419,9 @@ if not df.empty:
     else:
         df['CV Category'] = "Unknown"
 
-        # Handle subcategory filtering BEFORE other operations
+    # Handle subcategory filtering BEFORE other operations
     if sheet_name in PROGRAM_HIERARCHY:
         subcategory_list = PROGRAM_HIERARCHY[sheet_name]["subcategories"]
-
-        # DO NOT filter out subcategory headers - keep them visible
-        # df = filter_out_subcategory_headers(df, subcategory_list)
-
         # Assign subcategories to remaining materials
         subcategory_mapping = assign_subcategories_to_materials(df, subcategory_list)
         df['Assigned Subcategory'] = df['Material Description'].map(subcategory_mapping)
@@ -1383,23 +1456,11 @@ if not df.empty:
             risk_types.append("")
     df['Risk Type'] = risk_types
 
-    # ---------------------------------------------------
-    # Track stock changes AFTER NMOS is calculated
-    # ---------------------------------------------------
-    if st.session_state.raw_previous_data is not None:
-        stock_changes = calculate_stock_changes(df, st.session_state.raw_previous_data)
-        if stock_changes is not None:
-            st.session_state.nsoh_changes = stock_changes
-        else:
-            st.session_state.nsoh_changes = None
-    else:
-        st.session_state.nsoh_changes = None
-
     # Store current data for next comparison
     st.session_state.raw_previous_data = df.copy()
 
     display_df = df.copy()
-    text_columns_to_preserve = ['Material Description', 'Stock Status', 'Risk Type', 'Status', 'Expiry', 'GIT_PO', 'LC_PO', 'WB_PO', 'TMD_PO', 'CV Category','DOS']
+    text_columns_to_preserve = ['Material Description', 'Stock Status', 'Risk Type', 'Status', 'Expiry', 'GIT_PO', 'LC_PO', 'WB_PO', 'TMD_PO', 'CV Category', 'DOS']
 
     if 'Hubs%' in display_df.columns:
         text_columns_to_preserve.append('Hubs%')
@@ -1419,7 +1480,7 @@ if not df.empty:
 
     # ========== MATERIAL FILTER SECTION ==========
 if 'Material Description' in df.columns:
-    # FIXED: Handle NaN values in Material Description for sorting
+    # Handle NaN values in Material Description for sorting
     unique_materials = df['Material Description'].dropna().astype(str).unique()
 
     # Filter out subcategory headers from material list (dropdown only)
@@ -1447,7 +1508,6 @@ if 'Material Description' in df.columns:
         mask = ~df_filtered['Material Description'].astype(str).str.strip().isin(subcategory_list)
         df_filtered = df_filtered[mask].copy()
         display_df_filtered = display_df_filtered[mask].copy()
-    # ========== END REMOVE SUBCATEGORY HEADERS ==========
 
     if material_filter != "All":
         df_filtered = df_filtered[df_filtered['Material Description'] == material_filter]
@@ -1494,6 +1554,7 @@ if st.session_state['user']['role'] == 'admin':
     page = st.sidebar.radio("Navigation", ["Dashboard", "Advanced Analytics", "Executive Summary", "Admin Panel", "Profile"])
 else:
     page = st.sidebar.radio("Navigation", ["Dashboard", "Advanced Analytics", "Executive Summary", "Profile"])
+
 # ===================================================
 # TAB NAVIGATION DROPDOWNS FOR ALL PAGES (Auto-navigate)
 # ===================================================
@@ -1547,7 +1608,6 @@ elif page == "Advanced Analytics":
         key="analytics_tab_nav"
     )
 
-    # Auto-navigate when selection changes
     if selected_analytics_tab:
         target_index = analytics_tabs[selected_analytics_tab]
         if st.session_state.get('last_analytics_tab') != target_index:
@@ -1573,7 +1633,6 @@ elif page == "Executive Summary":
         key="summary_tab_nav"
     )
 
-    # Auto-navigate when selection changes
     if selected_summary_section:
         target_index = summary_sections[selected_summary_section]
         if st.session_state.get('last_summary_section') != target_index:
@@ -1582,6 +1641,7 @@ elif page == "Executive Summary":
             st.rerun()
 
 st.sidebar.markdown("---")
+
 # ---------------------------------------------------
 # Data Refresh Controls
 # ---------------------------------------------------
@@ -1689,49 +1749,37 @@ elif page == "Admin Panel" and st.session_state['user']['role'] == 'admin':
     st.stop()
 elif page == "Advanced Analytics":
     # ===================================================
-    # ADVANCED ANALYTICS PAGE (9 TABS - WITH HMOS CHANGES)
+    # ADVANCED ANALYTICS PAGE (Condensed for length)
     # ===================================================
     st.markdown("<h1 style='font-size: 32px; font-weight: bold; font-family: Times New Roman;' class='gradient-text'>Advanced Analytics Dashboard</h1>", unsafe_allow_html=True)
-if 'go_to_dashboard_tab' not in st.session_state:
-    st.session_state.go_to_dashboard_tab = None
-if 'go_to_analytics_tab' not in st.session_state:
-    st.session_state.go_to_analytics_tab = None
-if 'go_to_summary_section' not in st.session_state:
-    st.session_state.go_to_summary_section = None
-if 'last_dashboard_tab' not in st.session_state:
-    st.session_state.last_dashboard_tab = None
-if 'last_analytics_tab' not in st.session_state:
-    st.session_state.last_analytics_tab = None
-if 'last_summary_section' not in st.session_state:
-    st.session_state.last_summary_section = None
 
-# Auto-navigate to selected analytics tab
-if st.session_state.go_to_analytics_tab is not None:
-    tab_index = st.session_state.go_to_analytics_tab
-    st.session_state.go_to_analytics_tab = None
+    # Auto-navigate to selected analytics tab
+    if st.session_state.go_to_analytics_tab is not None:
+        tab_index = st.session_state.go_to_analytics_tab
+        st.session_state.go_to_analytics_tab = None
+        st.components.v1.html(f"""
+        <script>
+            setTimeout(function() {{
+                var tabs = window.parent.document.querySelectorAll('button[data-baseweb="tab"]');
+                if (tabs && tabs[{tab_index}]) {{
+                    tabs[{tab_index}].click();
+                }}
+            }}, 100);
+        </script>
+        """, height=0)
 
-    st.components.v1.html(f"""
-    <script>
-        setTimeout(function() {{
-            var tabs = window.parent.document.querySelectorAll('button[data-baseweb="tab"]');
-            if (tabs && tabs[{tab_index}]) {{
-                tabs[{tab_index}].click();
-            }}
-        }}, 100);
-    </script>
-    """, height=0)
-    # Create 9 sub-tabs within Advanced Analytics
+    # Create 9 sub-tabs
     aa_tab1, aa_tab2, aa_tab3, aa_tab4, aa_tab5, aa_tab6, aa_tab7, aa_tab8, aa_tab9 = st.tabs([
         "🏆 Branch Ranking", "🔄 Redistribution", "📧 Critical Alerts", "⏰ Expiry Notifications",
         "📊 Program Comparison", "🗺️ Regional Map", "👁️ Popular Materials", "👥 User Analytics", 
         "📅 Report Scheduling"
     ])
 
-    # ========== TAB 1: Branch Ranking (WITH HMOS) ==========
+    # ========== TAB 1: Branch Ranking ==========
     with aa_tab1:
         st.markdown("<h3 style='font-size: 24px; font-weight: bold;'>Branch Ranking</h3>", unsafe_allow_html=True)
         st.caption("Availability = materials with HMOS ≥ 0.5 (at least 2 weeks of stock)")
-        st.caption("Ranking based on: Availability (100%=1), Avg HMOS (2-4 months=1), Stock-out Materials (0=1)")
+        st.caption("Ranking based on: Availability Score (0-4) + Avg HMOS Score (0-2) + Stock-out Score (0-3) = Max 9 points")
 
         if branch_amc_data is not None and not branch_amc_data.empty:
             branch_stock_cols = [col for col in df.columns if 'Branch' in col and col != 'Material Description']
@@ -1753,7 +1801,8 @@ if st.session_state.go_to_analytics_tab is not None:
                         merged = pd.merge(
                             df[['Material Description', stock_col]], 
                             branch_amc_data[['Material Description', amc_branch]], 
-                            on='Material Description', how='inner'
+                            on='Material Description', 
+                            how='inner'
                         )
 
                         if not merged.empty:
@@ -1764,56 +1813,120 @@ if st.session_state.go_to_analytics_tab is not None:
 
                             availability_count = np.sum(branch_hmos >= 0.5)
                             total_materials = len(branch_hmos)
-                            availability_score = (availability_count / total_materials * 100) if total_materials > 0 else 0
+                            availability_pct = (availability_count / total_materials * 100) if total_materials > 0 else 0
                             valid_hmos = branch_hmos[branch_hmos > 0]
                             avg_hmos = np.mean(valid_hmos) if len(valid_hmos) > 0 else 0
                             stock_out_materials = total_materials - availability_count
 
+                            # Scoring System
+                            if availability_pct == 100:
+                                availability_points = 4
+                            elif availability_pct >= 85:
+                                availability_points = 3
+                            elif availability_pct >= 75:
+                                availability_points = 2
+                            elif availability_pct >= 55:
+                                availability_points = 1
+                            else:
+                                availability_points = 0
+
+                            if 2 <= avg_hmos <= 4:
+                                hmos_points = 2
+                            elif (1 <= avg_hmos < 2) or (4 < avg_hmos <= 6):
+                                hmos_points = 1
+                            else:
+                                hmos_points = 0
+
+                            if stock_out_materials <= 10:
+                                stockout_points = 3
+                            elif stock_out_materials <= 20:
+                                stockout_points = 2
+                            else:
+                                stockout_points = 0
+
+                            total_score = availability_points + hmos_points + stockout_points
+
+                            if total_score >= 8:
+                                rating = "🏆 EXCELLENT"
+                            elif total_score >= 6:
+                                rating = "✅ GOOD"
+                            elif total_score >= 4:
+                                rating = "⚠️ AVERAGE"
+                            elif total_score >= 2:
+                                rating = "📉 BELOW AVERAGE"
+                            else:
+                                rating = "🔴 CRITICAL"
+
                             rankings.append({
                                 'Branch': amc_branch,
-                                'Availability Score (%)': round(availability_score, 1),
-                                'Average HMOS': round(avg_hmos, 2),
-                                'Stock-out Materials': stock_out_materials,
+                                'Availability %': round(availability_pct, 1),
+                                'Availability Points': availability_points,
+                                'Avg HMOS': round(avg_hmos, 2),
+                                'HMOS Points': hmos_points,
+                                'Stock-outs': stock_out_materials,
+                                'Stock-out Points': stockout_points,
+                                'Total Score': total_score,
+                                'Rating': rating,
                                 'Total Materials': total_materials
                             })
                     except Exception:
                         continue
 
             if rankings:
-                for item in rankings:
-                    composite_score = 0
-                    if item['Availability Score (%)'] == 100:
-                        composite_score += 1
-                    if 2 <= item['Average HMOS'] <= 4:
-                        composite_score += 1
-                    if item['Stock-out Materials'] == 0:
-                        composite_score += 1
-                    item['Composite Score'] = composite_score
-
-                rankings_df = pd.DataFrame(rankings).sort_values(['Composite Score', 'Availability Score (%)'], ascending=[False, False])
+                rankings_df = pd.DataFrame(rankings).sort_values('Total Score', ascending=False)
                 rankings_df['Rank'] = range(1, len(rankings_df) + 1)
-                rankings_df = rankings_df.drop(columns=['Composite Score'])
 
                 col1, col2 = st.columns(2)
                 with col1:
                     st.metric("🏆 Top Branch", rankings_df.iloc[0]['Branch'])
-                    st.metric("📊 Best Availability Score", f"{rankings_df.iloc[0]['Availability Score (%)']}%")
+                    st.metric("📊 Best Score", f"{rankings_df.iloc[0]['Total Score']}/9 points")
                 with col2:
                     st.metric("📉 Bottom Branch", rankings_df.iloc[-1]['Branch'])
-                    st.metric("⚠️ Worst Availability Score", f"{rankings_df.iloc[-1]['Availability Score (%)']}%")
+                    st.metric("⚠️ Worst Score", f"{rankings_df.iloc[-1]['Total Score']}/9 points")
 
-                st.dataframe(rankings_df, use_container_width=True, hide_index=True)
+                st.markdown("---")
 
-                fig = px.bar(rankings_df, x='Branch', y='Availability Score (%)', color='Availability Score (%)',
-                            color_continuous_scale='RdYlGn', title='Branch Availability Scores (HMOS ≥ 0.5)')
+                st.dataframe(
+                    rankings_df[['Rank', 'Branch', 'Availability %', 'Availability Points', 
+                                'Avg HMOS', 'HMOS Points', 'Stock-outs', 
+                                'Stock-out Points', 'Total Score', 'Rating']],
+                    use_container_width=True,
+                    hide_index=True
+                )
+
+                fig = px.bar(rankings_df, x='Branch', y='Total Score', color='Total Score',
+                            color_continuous_scale='RdYlGn', title='Branch Performance Scores (Max 9 points)',
+                            text='Total Score', range_y=[0, 9])
+                fig.add_hline(y=6, line_dash="dash", line_color="green", annotation_text="Good (6+)")
+                fig.add_hline(y=3, line_dash="dash", line_color="red", annotation_text="Poor (<3)")
+                fig.update_traces(textposition='outside')
                 fig.update_layout(height=500, xaxis_tickangle=-45)
                 st.plotly_chart(fig, use_container_width=True)
+
+                with st.expander("📖 Scoring System Explanation", expanded=False):
+                    st.markdown("""
+                    **Branch Ranking Scoring System (Max 9 points)**
+
+                    **1. Availability Points (0-4)**
+                    - 100% = 4 points | 85-99% = 3 points | 75-84% = 2 points | 55-74% = 1 point | <55% = 0 points
+
+                    **2. Avg HMOS Points (0-2)**
+                    - 2-4 months = 2 points | 1-2 or 4-6 months = 1 point | Otherwise = 0 points
+
+                    **3. Stock-out Points (0-3)**
+                    - 0-10 stock-outs = 3 points | 10-20 stock-outs = 2 points | >20 stock-outs = 0 points
+                    """)
+
+                st.download_button("📥 Download Branch Ranking Data (CSV)", 
+                                  data=rankings_df.to_csv(index=False),
+                                  file_name=f"branch_ranking_{datetime.now().strftime('%Y%m%d')}.csv",
+                                  mime="text/csv", use_container_width=True)
             else:
                 st.info("No branch data available for ranking")
         else:
             st.info("Branch AMC data not available")
 
-    # ========== TAB 2: Redistribution Recommendations (WITH HMOS) ==========
+    # ========== TAB 2: Redistribution Recommendations ==========
     with aa_tab2:
         st.markdown("<h3 style='font-size: 24px; font-weight: bold;'>Stock Redistribution Recommendations</h3>", unsafe_allow_html=True)
         st.info("""
@@ -1915,9 +2028,11 @@ if st.session_state.go_to_analytics_tab is not None:
                 with col3:
                     urgent = len([r for r in recommendations if r['Priority'] == 'URGENT'])
                     st.metric("⚠️ Urgent Transfers", urgent)
-                st.download_button("📥 Download Redistribution Plan", pd.DataFrame(recommendations).to_csv(index=False), "redistribution_plan.csv")
+                st.download_button("📥 Download Redistribution Plan", 
+                                  pd.DataFrame(recommendations).to_csv(index=False), 
+                                  "redistribution_plan.csv")
             else:
-                st.success("✅ No redistribution opportunities identified. No materials meet the criteria.")
+                st.success("✅ No redistribution opportunities identified.")
         else:
             st.info("Branch AMC data not available")
 
@@ -1965,7 +2080,7 @@ if st.session_state.go_to_analytics_tab is not None:
         else:
             st.success("✅ No critical stock-outs detected. All materials have adequate stock levels!")
 
-    # ========== TAB 4: Expiry Notifications (CORRECTED) ==========
+    # ========== TAB 4: Expiry Notifications ==========
     with aa_tab4:
         st.markdown("<h3 style='font-size: 24px; font-weight: bold;'>Expiring Stock Notifications</h3>", unsafe_allow_html=True)
 
@@ -1997,7 +2112,6 @@ if st.session_state.go_to_analytics_tab is not None:
                     month_num = month_map.get(month[:3], 1)
                     expiry_date = datetime(int(year), month_num, 1)
                     months_to_expiry = (expiry_date.year - current_date.year) * 12 + (expiry_date.month - current_date.month)
-
                     months_of_stock_this_batch = qty / amc
 
                     if months_of_stock_this_batch <= months_to_expiry:
@@ -2051,7 +2165,7 @@ if st.session_state.go_to_analytics_tab is not None:
         else:
             st.success("✅ No expiring stock detected. All expiring batches can be consumed before their expiry date!")
 
-                # ========== TAB 5: Program Comparison ==========
+    # ========== TAB 5: Program Comparison ==========
     with aa_tab5:
         st.markdown("<h3 style='font-size: 24px; font-weight: bold;'>Program Performance Comparison</h3>", unsafe_allow_html=True)
         st.caption("Ranking based on: Availability (100%=1), SAP (≥65%=1), Stock-out Rate (0%=1), Overstock Rate (0%=1), Avg NMOS (6-18 months=1)")
@@ -2113,101 +2227,47 @@ if st.session_state.go_to_analytics_tab is not None:
                 bottom_program = comparison_df.iloc[-1]['Program']
                 bottom_availability = comparison_df.iloc[-1]['Availability (%)']
 
-                # Side by side cards for TOP and BOTTOM programs
                 col_left, col_right = st.columns(2)
-
                 with col_left:
                     st.markdown(f"""
-                    <div style='background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%); 
-                                border-radius: 15px; 
-                                padding: 15px; 
-                                text-align: center;
-                                box-shadow: 0 5px 15px rgba(0,0,0,0.1);
-                                animation: pulse 2s infinite;'>
-                        <div style='font-size: 32px; margin-bottom: 5px;'>🏆</div>
-                        <div style='font-size: 11px; text-transform: uppercase; letter-spacing: 1px; color: rgba(255,255,255,0.8);'>Top Program</div>
-                        <div style='font-size: 18px; font-weight: bold; color: white; margin: 5px 0;'>{top_program}</div>
-                        <div style='display: inline-block; background: rgba(255,255,255,0.2); border-radius: 50px; padding: 4px 12px;'>
-                            <span style='font-size: 18px; font-weight: bold; color: white;'>{top_availability}%</span>
-                            <span style='color: rgba(255,255,255,0.8); font-size: 11px;'> Availability</span>
-                        </div>
+                    <div style='background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%); border-radius: 15px; padding: 15px; text-align: center;'>
+                        <div style='font-size: 32px;'>🏆</div>
+                        <div style='font-size: 18px; font-weight: bold; color: white;'>{top_program}</div>
+                        <div><span style='font-size: 24px; font-weight: bold; color: white;'>{top_availability}%</span><span style='color: white;'> Availability</span></div>
                     </div>
-                    <style>
-                    @keyframes pulse {{
-                        0% {{ transform: scale(1); }}
-                        50% {{ transform: scale(1.02); }}
-                        100% {{ transform: scale(1); }}
-                    }}
-                    </style>
                     """, unsafe_allow_html=True)
-
                 with col_right:
                     st.markdown(f"""
-                    <div style='background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%); 
-                                border-radius: 15px; 
-                                padding: 15px; 
-                                text-align: center;
-                                box-shadow: 0 5px 15px rgba(0,0,0,0.1);'>
-                        <div style='font-size: 32px; margin-bottom: 5px;'>📉</div>
-                        <div style='font-size: 11px; text-transform: uppercase; letter-spacing: 1px; color: rgba(255,255,255,0.8);'>Bottom Program</div>
-                        <div style='font-size: 18px; font-weight: bold; color: white; margin: 5px 0;'>{bottom_program}</div>
-                        <div style='display: inline-block; background: rgba(255,255,255,0.2); border-radius: 50px; padding: 4px 12px;'>
-                            <span style='font-size: 18px; font-weight: bold; color: white;'>{bottom_availability}%</span>
-                            <span style='color: rgba(255,255,255,0.8); font-size: 11px;'> Availability</span>
-                        </div>
+                    <div style='background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%); border-radius: 15px; padding: 15px; text-align: center;'>
+                        <div style='font-size: 32px;'>📉</div>
+                        <div style='font-size: 18px; font-weight: bold; color: white;'>{bottom_program}</div>
+                        <div><span style='font-size: 24px; font-weight: bold; color: white;'>{bottom_availability}%</span><span style='color: white;'> Availability</span></div>
                     </div>
                     """, unsafe_allow_html=True)
 
                 st.dataframe(comparison_df, use_container_width=True, hide_index=True)
 
                 fig = go.Figure()
-                fig.add_trace(go.Bar(
-                    x=comparison_df['Program'], 
-                    y=comparison_df['Availability (%)'],
-                    name='Availability (%)',
-                    text=comparison_df['Availability (%)'].apply(lambda x: f'{x}%'),
-                    textposition='outside',
-                    marker_color='skyblue'
-                ))
-                fig.add_trace(go.Bar(
-                    x=comparison_df['Program'], 
-                    y=comparison_df['SAP Achievement (%)'],
-                    name='SAP Achievement (%)',
-                    text=comparison_df['SAP Achievement (%)'].apply(lambda x: f'{x}%'),
-                    textposition='outside',
-                    marker_color='lightgreen'
-                ))
-                fig.update_layout(
-                    title='Key Metrics Comparison',
-                    xaxis_title='Program',
-                    yaxis_title='Percentage (%)',
-                    barmode='group',
-                    height=500,
-                    xaxis_tickangle=-45
-                )
+                fig.add_trace(go.Bar(x=comparison_df['Program'], y=comparison_df['Availability (%)'], name='Availability (%)', text=comparison_df['Availability (%)'].apply(lambda x: f'{x}%'), textposition='outside', marker_color='skyblue'))
+                fig.add_trace(go.Bar(x=comparison_df['Program'], y=comparison_df['SAP Achievement (%)'], name='SAP Achievement (%)', text=comparison_df['SAP Achievement (%)'].apply(lambda x: f'{x}%'), textposition='outside', marker_color='lightgreen'))
+                fig.update_layout(title='Key Metrics Comparison', xaxis_title='Program', yaxis_title='Percentage (%)', barmode='group', height=500, xaxis_tickangle=-45)
                 st.plotly_chart(fig, use_container_width=True)
 
                 if len(comparison_df) >= 2:
                     categories = ['Availability (%)', 'SAP Achievement (%)', 'Stock-out Rate (%)', 'Overstock Rate (%)']
                     prog1 = comparison_df.iloc[0]
                     prog2 = comparison_df.iloc[1]
-
                     fig_radar = go.Figure()
-                    fig_radar.add_trace(go.Scatterpolar(
-                        r=[prog1[c] for c in categories], theta=categories, fill='toself', name=prog1['Program']
-                    ))
-                    fig_radar.add_trace(go.Scatterpolar(
-                        r=[prog2[c] for c in categories], theta=categories, fill='toself', name=prog2['Program']
-                    ))
-                    fig_radar.update_layout(polar=dict(radialaxis=dict(visible=True, range=[0, 100])), 
-                                           showlegend=True, title="Top 2 Programs Comparison", height=500)
+                    fig_radar.add_trace(go.Scatterpolar(r=[prog1[c] for c in categories], theta=categories, fill='toself', name=prog1['Program']))
+                    fig_radar.add_trace(go.Scatterpolar(r=[prog2[c] for c in categories], theta=categories, fill='toself', name=prog2['Program']))
+                    fig_radar.update_layout(polar=dict(radialaxis=dict(visible=True, range=[0, 100])), showlegend=True, title="Top 2 Programs Comparison", height=500)
                     st.plotly_chart(fig_radar, use_container_width=True)
             else:
                 st.info("No program comparison data available")
         else:
             st.info("Google Sheets data not available for program comparison")
 
-    # ========== TAB 6: Regional Map (WITH HMOS) ==========
+    # ========== TAB 6: Regional Map ==========
     with aa_tab6:
         st.markdown("<h3 style='font-size: 24px; font-weight: bold;'>Regional Stock Distribution Map</h3>", unsafe_allow_html=True)
         st.caption("🔴 Red = HMOS < 2 (Understock) | 🟢 Green = HMOS 2-4 (Normal) | 🔵 Skyblue = HMOS > 4 (Overstock)")
@@ -2236,19 +2296,12 @@ if st.session_state.go_to_analytics_tab is not None:
 
             for stock_col in branch_stock_cols:
                 if stock_col in branch_amc_data.columns:
-                    merged = pd.merge(
-                        df[['Material Description', stock_col]], 
-                        branch_amc_data[['Material Description', stock_col]], 
-                        on='Material Description', 
-                        how='inner'
-                    )
-
+                    merged = pd.merge(df[['Material Description', stock_col]], branch_amc_data[['Material Description', stock_col]], on='Material Description', how='inner')
                     if not merged.empty:
                         stock_values = pd.to_numeric(merged[stock_col + '_x'], errors='coerce').fillna(0)
                         amc_values = pd.to_numeric(merged[stock_col + '_y'], errors='coerce').fillna(1)
                         amc_values = amc_values.replace(0, 1)
                         hmos_values = (stock_values / amc_values).values
-
                         valid_hmos = hmos_values[hmos_values > 0]
                         avg_hmos = np.mean(valid_hmos) if len(valid_hmos) > 0 else 0
 
@@ -2260,22 +2313,12 @@ if st.session_state.go_to_analytics_tab is not None:
                             status = "Overstock"
 
                         coords = branch_coords.get(stock_col, [9.0, 38.0])
-
-                        map_data.append({
-                            'Branch': stock_col,
-                            'Latitude': coords[0],
-                            'Longitude': coords[1],
-                            'Average HMOS': round(avg_hmos, 2),
-                            'Status': status
-                        })
+                        map_data.append({'Branch': stock_col, 'Latitude': coords[0], 'Longitude': coords[1], 'Average HMOS': round(avg_hmos, 2), 'Status': status})
 
             if map_data:
                 map_df = pd.DataFrame(map_data)
-
-                fig = px.scatter_mapbox(map_df, lat='Latitude', lon='Longitude', 
-                                       size='Average HMOS', size_max=30,
-                                       color='Status', hover_name='Branch', 
-                                       hover_data=['Average HMOS'],
+                fig = px.scatter_mapbox(map_df, lat='Latitude', lon='Longitude', size='Average HMOS', size_max=30,
+                                       color='Status', hover_name='Branch', hover_data=['Average HMOS'],
                                        color_discrete_map={'Understock': 'red', 'Normal': 'green', 'Overstock': 'skyblue'},
                                        zoom=5, height=600, title='Branch Stock Distribution Map (Average HMOS)')
                 fig.update_layout(mapbox_style='open-street-map')
@@ -2283,7 +2326,7 @@ if st.session_state.go_to_analytics_tab is not None:
                 st.plotly_chart(fig, use_container_width=True)
                 st.dataframe(map_df[['Branch', 'Average HMOS', 'Status']], use_container_width=True, hide_index=True)
             else:
-                st.info("Map data not available. No HMOS values could be calculated for the branches.")
+                st.info("Map data not available.")
         else:
             st.info("Branch AMC data not available for map")
 
@@ -2293,22 +2336,17 @@ if st.session_state.go_to_analytics_tab is not None:
         st.caption("Tracks materials that users search for and view most frequently")
 
         if st.session_state.material_views:
-            popular_df = pd.DataFrame([
-                {'Material': k, 'Views': v} for k, v in st.session_state.material_views.items()
-            ]).sort_values('Views', ascending=False).head(10)
-
+            popular_df = pd.DataFrame([{'Material': k, 'Views': v} for k, v in st.session_state.material_views.items()]).sort_values('Views', ascending=False).head(10)
             if not popular_df.empty:
                 col1, col2 = st.columns(2)
                 with col1:
                     st.metric("👁️ Total Material Views", popular_df['Views'].sum())
                 with col2:
                     st.metric("⭐ Most Viewed", popular_df.iloc[0]['Material'])
-
                 fig = px.bar(popular_df, x='Material', y='Views', color='Views', title='Top 10 Most Viewed Materials')
                 fig.update_layout(height=500, xaxis_tickangle=-45)
                 st.plotly_chart(fig, use_container_width=True)
                 st.dataframe(popular_df, use_container_width=True, hide_index=True)
-
                 if st.button("🗑️ Reset View Tracking"):
                     st.session_state.material_views = {}
                     st.rerun()
@@ -2325,17 +2363,12 @@ if st.session_state.go_to_analytics_tab is not None:
             if st.session_state.user_activity:
                 activity_df = pd.DataFrame(st.session_state.user_activity)
                 if not activity_df.empty:
-                    role_summary = activity_df.groupby('role').agg({
-                        'user': 'nunique',
-                        'action': 'count'
-                    }).rename(columns={'user': 'Unique Users', 'action': 'Total Actions'})
+                    role_summary = activity_df.groupby('role').agg({'user': 'nunique', 'action': 'count'}).rename(columns={'user': 'Unique Users', 'action': 'Total Actions'})
                     st.dataframe(role_summary, use_container_width=True)
-
                     top_users = activity_df.groupby('user').size().sort_values(ascending=False).head(5).reset_index()
                     top_users.columns = ['User', 'Activity Count']
                     st.subheader("👥 Most Active Users")
                     st.dataframe(top_users, use_container_width=True, hide_index=True)
-
                     if st.button("🗑️ Clear Activity Log"):
                         st.session_state.user_activity = []
                         st.rerun()
@@ -2384,7 +2417,6 @@ if st.session_state.go_to_analytics_tab is not None:
             smtp_port = st.number_input("SMTP Port", value=587)
             sender_email = st.text_input("Sender Email")
             sender_password = st.text_input("Sender Password", type="password")
-
             if st.button("💾 Save Email Settings"):
                 st.success("Email settings saved (simulated)")
         else:
@@ -2394,16 +2426,39 @@ if st.session_state.go_to_analytics_tab is not None:
 
 elif page == "Executive Summary":
     # ===================================================
-    # EXECUTIVE SUMMARY PAGE (UPDATED)
+    # EXECUTIVE SUMMARY PAGE
     # ===================================================
     st.markdown("<h1 style='font-size: 36px; font-weight: bold; font-family: Times New Roman;' class='gradient-text'>📊 Executive Summary Dashboard</h1>", unsafe_allow_html=True)
     st.caption(f"Report Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} | Program: {sheet_name if sheet_name != 'All' else 'All Programs'}")
 
-    # SECTION 1: PERFORMANCE METRICS (Colorful cards)
+    # Check if we have data
+    if df_filtered.empty:
+        st.warning("No data available for the selected filters.")
+        st.stop()
+
+    # Initialize variables with defaults to prevent NameError
+    availability = 0
+    sap_achievement = 0
+    avg_avail_gap = 0
+    total_cv_materials = 0
+    low_variation = 0
+    moderate_variation = 0
+    high_variation = 0
+    low_pct = 0
+    mod_pct = 0
+    high_pct = 0
+    top_branch = "N/A"
+    bottom_branch = "N/A"
+    top_score = 0
+    bottom_score = 0
+    top_program = "N/A"
+    bottom_program = "N/A"
+
+    # SECTION 1: PERFORMANCE METRICS
     st.markdown("---")
     st.markdown("<h2 style='font-size: 28px; font-weight: bold;'>🎯 1. Performance Metrics</h2>", unsafe_allow_html=True)
 
-    if not df_filtered.empty and 'NMOS' in df_filtered.columns:
+    if 'NMOS' in df_filtered.columns:
         nmos_values = pd.to_numeric(df_filtered['NMOS'], errors='coerce').dropna()
 
         availability = (nmos_values > 1).mean() * 100 if len(nmos_values) > 0 else 0
@@ -2412,10 +2467,7 @@ elif page == "Executive Summary":
         if 'Avail Gap' in df_filtered.columns:
             avail_gap_values = pd.to_numeric(df_filtered['Avail Gap'], errors='coerce').dropna()
             avg_avail_gap = avail_gap_values.mean() if len(avail_gap_values) > 0 else 0
-        else:
-            avg_avail_gap = 0
 
-        # Colorful metric cards
         col1, col2, col3 = st.columns(3)
         with col1:
             st.markdown(f"""
@@ -2442,217 +2494,257 @@ elif page == "Executive Summary":
             </div>
             """, unsafe_allow_html=True)
 
-        st.markdown("<br>", unsafe_allow_html=True)
+    st.markdown("<br>", unsafe_allow_html=True)
 
-        # SECTION: STOCK STATUS (New title)
-        st.markdown("<h2 style='font-size: 28px; font-weight: bold;'>📊 Stock Status</h2>", unsafe_allow_html=True)
+    # SECTION 2: STOCK STATUS
+    st.markdown("<h2 style='font-size: 28px; font-weight: bold;'>📊 2. Stock Status</h2>", unsafe_allow_html=True)
 
-        total_materials = len(df_filtered)
-        stock_out_count = len(df_filtered[df_filtered['Stock Status'] == 'Stock Out'])
-        understock_count = len(df_filtered[df_filtered['Stock Status'] == 'Understock'])
-        normal_count = len(df_filtered[df_filtered['Stock Status'] == 'Normal Stock'])
-        overstock_count = len(df_filtered[df_filtered['Stock Status'] == 'Overstock'])
+    total_materials = len(df_filtered)
+    stock_out_count = len(df_filtered[df_filtered['Stock Status'] == 'Stock Out']) if 'Stock Status' in df_filtered.columns else 0
+    understock_count = len(df_filtered[df_filtered['Stock Status'] == 'Understock']) if 'Stock Status' in df_filtered.columns else 0
+    normal_count = len(df_filtered[df_filtered['Stock Status'] == 'Normal Stock']) if 'Stock Status' in df_filtered.columns else 0
+    overstock_count = len(df_filtered[df_filtered['Stock Status'] == 'Overstock']) if 'Stock Status' in df_filtered.columns else 0
 
-        col1, col2, col3, col4, col5 = st.columns(5)
+    col1, col2, col3, col4, col5 = st.columns(5)
+    with col1:
+        st.metric("📦 Total Materials", total_materials)
+    with col2:
+        st.metric("🔴 Stock Out", stock_out_count, delta=f"-{stock_out_count}" if stock_out_count > 0 else "0", delta_color="inverse")
+    with col3:
+        st.metric("🟡 Understock", understock_count)
+    with col4:
+        st.metric("🟢 Normal Stock", normal_count)
+    with col5:
+        st.metric("🔵 Overstock", overstock_count)
+
+    # SECTION 3: RISK SUMMARY
+    st.markdown("---")
+    st.markdown("<h2 style='font-size: 28px; font-weight: bold;'>⚠️ 3. Risk Summary</h2>", unsafe_allow_html=True)
+
+    critical_risk = len(df_filtered[df_filtered['Risk Type'] == 'Critical Risk']) if 'Risk Type' in df_filtered.columns else 0
+    risk_stock_out = len(df_filtered[df_filtered['Risk Type'] == 'Risk of Stock out']) if 'Risk Type' in df_filtered.columns else 0
+    expiry_risk = len(df_filtered[df_filtered['Risk Type'] == 'Expiry Risk']) if 'Risk Type' in df_filtered.columns else 0
+
+    st.markdown(f"""
+    <table style='width: 100%; border-collapse: collapse; margin: 20px 0;'>
+        <tr style='background-color: #ff4444; color: white; text-align: center;'>
+            <th style='padding: 15px; font-size: 18px; border-radius: 10px 0 0 0;'>🔴 CRITICAL RISK</th>
+            <th style='padding: 15px; font-size: 18px; background-color: #ffa500;'>🟡 RISK OF STOCK OUT</th>
+            <th style='padding: 15px; font-size: 18px; background-color: #ff9800; border-radius: 0 10px 0 0;'>⚠️ EXPIRY RISK</th>
+        </td>
+        <tr style='text-align: center; background-color: #f8f9fa;'>
+            <td style='padding: 20px; font-size: 42px; font-weight: bold; color: #ff4444;'>{critical_risk}</td>
+            <td style='padding: 20px; font-size: 42px; font-weight: bold; color: #ffa500;'>{risk_stock_out}</td>
+            <td style='padding: 20px; font-size: 42px; font-weight: bold; color: #ff9800;'>{expiry_risk}</td>
+        </tr>
+        <tr style='text-align: center; background-color: #ffffff;'>
+            <td style='padding: 10px; font-size: 14px;'>require URGENT attention</td>
+            <td style='padding: 10px; font-size: 14px;'>need expediting</td>
+            <td style='padding: 10px; font-size: 14px;'>approaching expiration</td>
+        </tr>
+    </table>
+    """, unsafe_allow_html=True)
+
+    # SECTION 4: HUBS DISTRIBUTION
+    st.markdown("---")
+    st.markdown("<h2 style='font-size: 28px; font-weight: bold;'>📍 4. Stock Distribution Across Hubs by MOS</h2>", unsafe_allow_html=True)
+
+    if 'CV Category' in df_filtered.columns:
+        cv_counts = df_filtered['CV Category'].value_counts()
+        total_cv_materials = len(df_filtered[df_filtered['CV Category'] != 'Unknown'])
+
+        low_variation = cv_counts.get('Low variation', 0)
+        moderate_variation = cv_counts.get('Moderate variation', 0)
+        high_variation = cv_counts.get('High variation', 0)
+
+        low_pct = (low_variation / total_cv_materials * 100) if total_cv_materials > 0 else 0
+        mod_pct = (moderate_variation / total_cv_materials * 100) if total_cv_materials > 0 else 0
+        high_pct = (high_variation / total_cv_materials * 100) if total_cv_materials > 0 else 0
+
+        col1, col2, col3, col4 = st.columns(4)
         with col1:
-            st.metric("📦 Total Materials", total_materials)
+            st.metric("📊 Total Materials", total_cv_materials)
         with col2:
-            st.metric("🔴 Stock Out", stock_out_count)
+            st.metric("🟢 Low Variation (<50%)", f"{low_variation} ({low_pct:.1f}%)")
         with col3:
-            st.metric("🟡 Understock", understock_count)
+            st.metric("🟡 Moderate Variation (50-100%)", f"{moderate_variation} ({mod_pct:.1f}%)")
         with col4:
-            st.metric("🟢 Normal Stock", normal_count)
-        with col5:
-            st.metric("🔵 Overstock", overstock_count)
+            st.metric("🔴 High Variation (>100%)", f"{high_variation} ({high_pct:.1f}%)")
+    else:
+        st.info("CV Category data not available")
 
-        # SECTION 2: RISK SUMMARY (Colorful table)
-        st.markdown("---")
-        st.markdown("<h2 style='font-size: 28px; font-weight: bold;'>⚠️ 2. Risk Summary</h2>", unsafe_allow_html=True)
+    # SECTION 5: BRANCH RANKING
+    st.markdown("---")
+    st.markdown("<h2 style='font-size: 28px; font-weight: bold;'>🏆 5. Branch Ranking</h2>", unsafe_allow_html=True)
+    st.caption("Availability = materials with HMOS ≥ 0.5 (at least 2 weeks of stock)")
+    st.caption("Ranking based on: Availability Score (0-4) + Avg HMOS Score (0-2) + Stock-out Score (0-3) = Max 9 points")
 
-        critical_risk = len(df_filtered[df_filtered['Risk Type'] == 'Critical Risk'])
-        risk_stock_out = len(df_filtered[df_filtered['Risk Type'] == 'Risk of Stock out'])
-        expiry_risk = len(df_filtered[df_filtered['Risk Type'] == 'Expiry Risk'])
+    # Calculate branch rankings (same as in Advanced Analytics)
+    if branch_amc_data is not None and not branch_amc_data.empty:
+        branch_stock_cols = [col for col in df.columns if 'Branch' in col and col != 'Material Description']
+        amc_branch_cols = [col for col in branch_amc_data.columns if col != 'Material Description']
+        rankings = []
 
-        st.markdown(f"""
-        <table style='width: 100%; border-collapse: collapse; margin: 20px 0;'>
-            <tr style='background-color: #ff4444; color: white; text-align: center;'>
-                <th style='padding: 15px; font-size: 18px; border-radius: 10px 0 0 0;'>🔴 CRITICAL RISK</th>
-                <th style='padding: 15px; font-size: 18px; background-color: #ffa500;'>🟡 RISK OF STOCK OUT</th>
-                <th style='padding: 15px; font-size: 18px; background-color: #ff9800; border-radius: 0 10px 0 0;'>⚠️ EXPIRY RISK</th>
-            </tr>
-            <tr style='text-align: center; background-color: #f8f9fa;'>
-                <td style='padding: 20px; font-size: 42px; font-weight: bold; color: #ff4444;'>{critical_risk}</td>
-                <td style='padding: 20px; font-size: 42px; font-weight: bold; color: #ffa500;'>{risk_stock_out}</td>
-                <td style='padding: 20px; font-size: 42px; font-weight: bold; color: #ff9800;'>{expiry_risk}</td>
-            </tr>
-            <tr style='text-align: center; background-color: #ffffff;'>
-                <td style='padding: 10px; font-size: 14px;'>require URGENT attention</td>
-                <td style='padding: 10px; font-size: 14px;'>need expediting</td>
-                <td style='padding: 10px; font-size: 14px;'>approaching expiration</td>
-            </tr>
-        </table>
-        """, unsafe_allow_html=True)
+        for amc_branch in amc_branch_cols:
+            stock_col = None
+            for bc in branch_stock_cols:
+                if amc_branch == bc:
+                    stock_col = bc
+                    break
 
-        # SECTION 3: STOCK DISTRIBUTION ACROSS HUBS (unchanged)
-        st.markdown("---")
-        st.markdown("<h2 style='font-size: 28px; font-weight: bold;'>📍 3. Stock Distribution Across Hubs by MOS</h2>", unsafe_allow_html=True)
+            if stock_col:
+                try:
+                    merged = pd.merge(
+                        df[['Material Description', stock_col]], 
+                        branch_amc_data[['Material Description', amc_branch]], 
+                        on='Material Description', 
+                        how='inner'
+                    )
 
-        if 'CV Category' in df_filtered.columns:
-            cv_counts = df_filtered['CV Category'].value_counts()
-            total_cv_materials = len(df_filtered[df_filtered['CV Category'] != 'Unknown'])
+                    if not merged.empty:
+                        stock_values = pd.to_numeric(merged[stock_col + '_x'], errors='coerce').fillna(0)
+                        amc_values = pd.to_numeric(merged[amc_branch + '_y'], errors='coerce').fillna(1)
+                        amc_values = amc_values.replace(0, 1)
+                        branch_hmos = (stock_values / amc_values).values
 
-            low_variation = cv_counts.get('Low variation', 0)
-            moderate_variation = cv_counts.get('Moderate variation', 0)
-            high_variation = cv_counts.get('High variation', 0)
+                        availability_count = np.sum(branch_hmos >= 0.5)
+                        total_materials_branch = len(branch_hmos)
+                        availability_pct = (availability_count / total_materials_branch * 100) if total_materials_branch > 0 else 0
+                        valid_hmos = branch_hmos[branch_hmos > 0]
+                        avg_hmos = np.mean(valid_hmos) if len(valid_hmos) > 0 else 0
+                        stock_out_materials = total_materials_branch - availability_count
 
-            low_pct = (low_variation / total_cv_materials * 100) if total_cv_materials > 0 else 0
-            mod_pct = (moderate_variation / total_cv_materials * 100) if total_cv_materials > 0 else 0
-            high_pct = (high_variation / total_cv_materials * 100) if total_cv_materials > 0 else 0
+                        if availability_pct == 100:
+                            availability_points = 4
+                        elif availability_pct >= 85:
+                            availability_points = 3
+                        elif availability_pct >= 75:
+                            availability_points = 2
+                        elif availability_pct >= 55:
+                            availability_points = 1
+                        else:
+                            availability_points = 0
 
-            col1, col2, col3, col4 = st.columns(4)
-            with col1:
-                st.metric("📊 Total Materials", total_cv_materials)
-            with col2:
-                st.metric("🟢 Low Variation (<50%)", f"{low_variation} ({low_pct:.1f}%)")
-            with col3:
-                st.metric("🟡 Moderate Variation (50-100%)", f"{moderate_variation} ({mod_pct:.1f}%)")
-            with col4:
-                st.metric("🔴 High Variation (>100%)", f"{high_variation} ({high_pct:.1f}%)")
-        else:
-            st.info("CV Category data not available")
+                        if 2 <= avg_hmos <= 4:
+                            hmos_points = 2
+                        elif (1 <= avg_hmos < 2) or (4 < avg_hmos <= 6):
+                            hmos_points = 1
+                        else:
+                            hmos_points = 0
 
-        # SECTION 4: BRANCH RANKING (Colorful gradient cards - name only)
-        st.markdown("---")
-        st.markdown("<h2 style='font-size: 28px; font-weight: bold;'>🏆 4. Top and Bottom Branch Ranking</h2>", unsafe_allow_html=True)
-        st.caption("Availability = materials with NMOS ≥ 0.5 (at least 2 weeks of stock)")
+                        if stock_out_materials <= 10:
+                            stockout_points = 3
+                        elif stock_out_materials <= 20:
+                            stockout_points = 2
+                        else:
+                            stockout_points = 0
 
-        if branch_amc_data is not None and not branch_amc_data.empty:
-            branch_stock_cols = [col for col in df.columns if 'Branch' in col and col != 'Material Description']
-            amc_branch_cols = [col for col in branch_amc_data.columns if col != 'Material Description']
-            rankings = []
+                        total_score = availability_points + hmos_points + stockout_points
 
-            for amc_branch in amc_branch_cols:
-                stock_col = None
-                for bc in branch_stock_cols:
-                    if amc_branch == bc:
-                        stock_col = bc
-                        break
-
-                if stock_col:
-                    try:
-                        merged = pd.merge(
-                            df[['Material Description', stock_col]], 
-                            branch_amc_data[['Material Description', amc_branch]], 
-                            on='Material Description', how='inner'
-                        )
-                        if not merged.empty:
-                            stock_values = pd.to_numeric(merged[stock_col + '_x'], errors='coerce').fillna(0)
-                            amc_values = pd.to_numeric(merged[amc_branch + '_y'], errors='coerce').fillna(1)
-                            amc_values = amc_values.replace(0, 1)
-                            branch_nmos = stock_values / amc_values
-                            availability_count = np.sum(branch_nmos >= 0.5)
-                            total_materials_branch = len(branch_nmos)
-                            availability_score = (availability_count / total_materials_branch * 100) if total_materials_branch > 0 else 0
-                            rankings.append({
-                                'Branch': amc_branch,
-                                'Score': availability_score
-                            })
-                    except Exception:
-                        continue
-
-            if rankings:
-                rankings_df = pd.DataFrame(rankings).sort_values('Score', ascending=False)
-                top_branch = rankings_df.iloc[0]['Branch']
-                bottom_branch = rankings_df.iloc[-1]['Branch']
-
-                # Colorful gradient cards - name only
-                col1, col2 = st.columns(2)
-                with col1:
-                    st.markdown(f"""
-                    <div style='background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%); border-radius: 15px; padding: 20px; color: white; text-align: center;'>
-                        <h3 style='margin:0; font-size: 16px; opacity:0.9'>🏆 TOP BRANCH</h3>
-                        <p style='font-size: 28px; font-weight: bold; margin: 10px 0;'>{top_branch}</p>
-                    </div>
-                    """, unsafe_allow_html=True)
-                with col2:
-                    st.markdown(f"""
-                    <div style='background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%); border-radius: 15px; padding: 20px; color: white; text-align: center;'>
-                        <h3 style='margin:0; font-size: 16px; opacity:0.9'>📉 BOTTOM BRANCH</h3>
-                        <p style='font-size: 28px; font-weight: bold; margin: 10px 0;'>{bottom_branch}</p>
-                    </div>
-                    """, unsafe_allow_html=True)
-            else:
-                st.info("No branch ranking data available")
-        else:
-            st.info("Branch AMC data not available")
-
-        # SECTION 5: PROGRAM PERFORMANCE (Colorful gradient cards - name only)
-        st.markdown("---")
-        st.markdown("<h2 style='font-size: 28px; font-weight: bold;'>📊 5. Program Performance</h2>", unsafe_allow_html=True)
-
-        if google_sheets and len(google_sheets) > 0:
-            program_metrics = []
-            for program_name, program_df in google_sheets.items():
-                if program_df.empty or 'Material Description' not in program_df.columns:
+                        rankings.append({
+                            'Branch': amc_branch,
+                            'Total Score': total_score
+                        })
+                except Exception:
                     continue
 
-                merged = program_df[['Material Description']].merge(
-                    df[['Material Description', 'NMOS']], on='Material Description', how='left'
-                )
-                nmos_values = pd.to_numeric(merged['NMOS'], errors='coerce').dropna()
+        if rankings:
+            rankings_df = pd.DataFrame(rankings).sort_values('Total Score', ascending=False)
+            top_branch = rankings_df.iloc[0]['Branch']
+            bottom_branch = rankings_df.iloc[-1]['Branch']
+            top_score = rankings_df.iloc[0]['Total Score']
+            bottom_score = rankings_df.iloc[-1]['Total Score']
 
-                if len(nmos_values) > 0:
-                    # Calculate composite score for ranking
-                    availability_prog = (nmos_values > 1).mean() * 100
-                    sap_prog = ((nmos_values >= 6) & (nmos_values <= 18)).mean() * 100
-                    stock_out_rate = (nmos_values < 1).mean() * 100
-                    overstock_rate = (nmos_values > 18).mean() * 100
-                    avg_nmos_prog = nmos_values.mean()
-
-                    composite_score = 0
-                    if availability_prog == 100:
-                        composite_score += 1
-                    if sap_prog >= 65:
-                        composite_score += 1
-                    if stock_out_rate == 0:
-                        composite_score += 1
-                    if overstock_rate == 0:
-                        composite_score += 1
-                    if 6 <= avg_nmos_prog <= 18:
-                        composite_score += 1
-
-                    program_metrics.append({
-                        'Program': program_name,
-                        'Composite Score': composite_score
-                    })
-
-            if program_metrics:
-                prog_df = pd.DataFrame(program_metrics).sort_values('Composite Score', ascending=False)
-                top_program = prog_df.iloc[0]['Program']
-                bottom_program = prog_df.iloc[-1]['Program']
-
-                # Colorful gradient cards - name only
-                col1, col2 = st.columns(2)
-                with col1:
-                    st.markdown(f"""
-                    <div style='background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%); border-radius: 15px; padding: 20px; color: white; text-align: center;'>
-                        <h3 style='margin:0; font-size: 16px; opacity:0.9'>🥇 TOP PROGRAM</h3>
-                        <p style='font-size: 28px; font-weight: bold; margin: 10px 0;'>{top_program}</p>
-                    </div>
-                    """, unsafe_allow_html=True)
-                with col2:
-                    st.markdown(f"""
-                    <div style='background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%); border-radius: 15px; padding: 20px; color: white; text-align: center;'>
-                        <h3 style='margin:0; font-size: 16px; opacity:0.9'>📉 BOTTOM PROGRAM</h3>
-                        <p style='font-size: 28px; font-weight: bold; margin: 10px 0;'>{bottom_program}</p>
-                    </div>
-                    """, unsafe_allow_html=True)
-            else:
-                st.info("No program data available for comparison")
+            col1, col2 = st.columns(2)
+            with col1:
+                st.markdown(f"""
+                <div style='background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%); border-radius: 15px; padding: 20px; color: white; text-align: center;'>
+                    <h3 style='margin:0; font-size: 16px; opacity:0.9'>🏆 TOP BRANCH</h3>
+                    <p style='font-size: 28px; font-weight: bold; margin: 10px 0;'>{top_branch}</p>
+                    <p style='margin:0; font-size: 14px;'>Score: {top_score}/9 points</p>
+                </div>
+                """, unsafe_allow_html=True)
+            with col2:
+                st.markdown(f"""
+                <div style='background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%); border-radius: 15px; padding: 20px; color: white; text-align: center;'>
+                    <h3 style='margin:0; font-size: 16px; opacity:0.9'>📉 BOTTOM BRANCH</h3>
+                    <p style='font-size: 28px; font-weight: bold; margin: 10px 0;'>{bottom_branch}</p>
+                    <p style='margin:0; font-size: 14px;'>Score: {bottom_score}/9 points</p>
+                </div>
+                """, unsafe_allow_html=True)
         else:
-            st.info("Google Sheets data not available")
+            st.info("No branch ranking data available")
+    else:
+        st.info("Branch AMC data not available for ranking")
 
-    # Download button
+    # SECTION 6: PROGRAM PERFORMANCE
+    st.markdown("---")
+    st.markdown("<h2 style='font-size: 28px; font-weight: bold;'>📊 6. Program Performance</h2>", unsafe_allow_html=True)
+    st.caption("Ranking based on: Availability (100%=1), SAP (≥65%=1), Stock-out Rate (0%=1), Overstock Rate (0%=1), Avg NMOS (6-18 months=1) = Max 5 points")
+
+    if google_sheets and len(google_sheets) > 0:
+        program_metrics = []
+        for program_name, program_df in google_sheets.items():
+            if program_df.empty or 'Material Description' not in program_df.columns:
+                continue
+
+            merged = program_df[['Material Description']].merge(
+                df[['Material Description', 'NMOS']], on='Material Description', how='left'
+            )
+            nmos_values = pd.to_numeric(merged['NMOS'], errors='coerce').dropna()
+
+            if len(nmos_values) > 0:
+                composite_score = 0
+                availability_prog = (nmos_values > 1).mean() * 100
+                if availability_prog == 100:
+                    composite_score += 1
+                sap_prog = ((nmos_values >= 6) & (nmos_values <= 18)).mean() * 100
+                if sap_prog >= 65:
+                    composite_score += 1
+                stock_out_rate = (nmos_values < 1).mean() * 100
+                if stock_out_rate == 0:
+                    composite_score += 1
+                overstock_rate = (nmos_values > 18).mean() * 100
+                if overstock_rate == 0:
+                    composite_score += 1
+                avg_nmos_prog = nmos_values.mean()
+                if 6 <= avg_nmos_prog <= 18:
+                    composite_score += 1
+
+                program_metrics.append({
+                    'Program': program_name,
+                    'Composite Score': composite_score
+                })
+
+        if program_metrics:
+            prog_df = pd.DataFrame(program_metrics).sort_values('Composite Score', ascending=False)
+            top_program = prog_df.iloc[0]['Program']
+            bottom_program = prog_df.iloc[-1]['Program']
+            top_score = prog_df.iloc[0]['Composite Score']
+            bottom_score = prog_df.iloc[-1]['Composite Score']
+
+            col1, col2 = st.columns(2)
+            with col1:
+                st.markdown(f"""
+                <div style='background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%); border-radius: 15px; padding: 20px; color: white; text-align: center;'>
+                    <h3 style='margin:0; font-size: 16px; opacity:0.9'>🥇 TOP PROGRAM</h3>
+                    <p style='font-size: 28px; font-weight: bold; margin: 10px 0;'>{top_program}</p>
+                    <p style='margin:0; font-size: 14px;'>Score: {top_score}/5 points</p>
+                </div>
+                """, unsafe_allow_html=True)
+            with col2:
+                st.markdown(f"""
+                <div style='background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%); border-radius: 15px; padding: 20px; color: white; text-align: center;'>
+                    <h3 style='margin:0; font-size: 16px; opacity:0.9'>📉 BOTTOM PROGRAM</h3>
+                    <p style='font-size: 28px; font-weight: bold; margin: 10px 0;'>{bottom_program}</p>
+                    <p style='margin:0; font-size: 14px;'>Score: {bottom_score}/5 points</p>
+                </div>
+                """, unsafe_allow_html=True)
+        else:
+            st.info("No program data available for comparison")
+    else:
+        st.info("Google Sheets data not available for program comparison")
+
     st.markdown("---")
 
     summary_text = f"""
@@ -2660,63 +2752,73 @@ EXECUTIVE SUMMARY REPORT
 Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
 Program: {sheet_name if sheet_name != 'All' else 'All Programs'}
 
-PERFORMANCE METRICS
-- Availability: {availability:.1f}% (Target: 100%)
-- SAP Achievement: {sap_achievement:.1f}% (Target: 65%)
-- Avail. Gap: {avg_avail_gap:.1f}%
+================================================================================
+1. PERFORMANCE METRICS
+================================================================================
+• Availability: {availability:.1f}% (Target: 100%)
+• SAP Achievement: {sap_achievement:.1f}% (Target: 65%)
+• Avail. Gap: {avg_avail_gap:.1f}%
 
-STOCK STATUS
-- Total Materials: {total_materials}
-- Stock Out: {stock_out_count}
-- Understock: {understock_count}
-- Normal Stock: {normal_count}
-- Overstock: {overstock_count}
+================================================================================
+2. STOCK STATUS
+================================================================================
+• Total Materials: {total_materials}
+• Stock Out: {stock_out_count}
+• Understock: {understock_count}
+• Normal Stock: {normal_count}
+• Overstock: {overstock_count}
 
-RISK SUMMARY
-- Critical Risk: {critical_risk}
-- Risk of Stock Out: {risk_stock_out}
-- Expiry Risk: {expiry_risk}
+================================================================================
+3. RISK SUMMARY
+================================================================================
+• Critical Risk: {critical_risk}
+• Risk of Stock Out: {risk_stock_out}
+• Expiry Risk: {expiry_risk}
 
-STOCK DISTRIBUTION ACROSS HUBS
-- Total Materials: {total_cv_materials}
-- Low Variation: {low_variation} ({low_pct:.1f}%)
-- Moderate Variation: {moderate_variation} ({mod_pct:.1f}%)
-- High Variation: {high_variation} ({high_pct:.1f}%)
+================================================================================
+4. STOCK DISTRIBUTION ACROSS HUBS
+================================================================================
+• Total Materials: {total_cv_materials}
+• Low Variation (<50%): {low_variation} ({low_pct:.1f}%)
+• Moderate Variation (50-100%): {moderate_variation} ({mod_pct:.1f}%)
+• High Variation (>100%): {high_variation} ({high_pct:.1f}%)
 
-BRANCH RANKING
-- Top Branch: {top_branch}
-- Bottom Branch: {bottom_branch}
+================================================================================
+5. BRANCH RANKING
+================================================================================
+• Top Branch: {top_branch} ({top_score}/9 points)
+• Bottom Branch: {bottom_branch} ({bottom_score}/9 points)
 
-PROGRAM PERFORMANCE
-- Top Program: {top_program}
-- Bottom Program: {bottom_program}
-"""
+================================================================================
+6. PROGRAM PERFORMANCE
+================================================================================
+• Top Program: {top_program} ({top_score}/5 points)
+• Bottom Program: {bottom_program} ({bottom_score}/5 points)
+================================================================================
+    """
 
     st.download_button(
         label="📥 Download Executive Summary Report",
         data=summary_text,
         file_name=f"executive_summary_{datetime.now().strftime('%Y%m%d')}.txt",
         mime="text/plain",
-        use_container_width=True
+        use_container_width=True,
+        type="primary"
     )
 
     st.stop()
 
-    # MAIN DASHBOARD (5 Tabs)
+# ===================================================
+# MAIN DASHBOARD (7 Tabs)
 # ===================================================
 else:
     # Header Row
     col_logo, col_title, col_settings = st.columns([1, 3, 1])
 
     with col_logo:
-        # For local file - use st.image directly with file path
-        try:
-            st.image(r"C:\Users\BIYENSA.NEGERA\Desktop\Epss Logo .png", width=60)
-        except:
-            # Fallback if file not found
-            st.markdown("<div style='background:#1a5276;border-radius:15px;padding:10px;text-align:center;width:60px'><p style='color:white;font-weight:bold;margin:0'>EPSS</p></div>", unsafe_allow_html=True)
+        # Fallback if file not found - removed hardcoded path
+        st.markdown("<div style='background:#1a5276;border-radius:15px;padding:10px;text-align:center;width:60px'><p style='color:white;font-weight:bold;margin:0'>EPSS</p></div>", unsafe_allow_html=True)
 
-    # Column 2: Title
     with col_title:
         st.markdown("""
         <div>
@@ -2725,7 +2827,6 @@ else:
         </div>
         """, unsafe_allow_html=True)
 
-    # Column 3: Display Settings
     with col_settings:
         st.markdown("""
         <div style='background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%); border-radius: 15px; padding: 10px; border: 1px solid #dee2e6;'>
@@ -2750,7 +2851,6 @@ else:
         else:
             avg_avail_gap = 0
 
-        # Determine program name for Quick Summary title
         if sheet_name == "All":
             program_name = "All Programs"
         elif subcategory_filter != "All":
@@ -2765,7 +2865,6 @@ else:
         </div>
         """, unsafe_allow_html=True)
 
-        # Row: Availability, SAP, Avail.Gap
         col_a, col_s, col_g = st.columns(3)
         with col_a:
             st.markdown(f"""
@@ -2791,7 +2890,7 @@ else:
 
     st.markdown("---")
 
-    # Original 5-COLUMN QUICK STATS (keep as is)
+    # Original 5-COLUMN QUICK STATS
     if not df_filtered.empty:
         col1, col2, col3, col4, col5 = st.columns(5)
 
@@ -2819,8 +2918,7 @@ else:
         with col5:
             st.metric("🔵 Overstock", overstock, delta=f"-{overstock}" if overstock > 0 else "0", delta_color="inverse")
 
-    # ---------------------------------------------------
-        # Auto-navigate to selected dashboard tab
+    # Auto-navigate to selected dashboard tab
     if st.session_state.get('go_to_dashboard_tab') is not None:
         tab_index = st.session_state.go_to_dashboard_tab
         st.session_state.go_to_dashboard_tab = None
@@ -2835,367 +2933,349 @@ else:
             }}, 200);
         </script>
         """, height=0)
+
     tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
-    "📋 Stock Status Table", 
-    "📈 KPIs & Analytics", 
-    "💡 Decision Briefs", 
-    "📍 Hubs Distribution",
-    "📦 Supply Planning",
-    "📋 Purchase Order Status",
-    "🚚 New Deliveries"
-])
+        "📋 Stock Status Table", 
+        "📈 KPIs & Analytics", 
+        "💡 Decision Briefs", 
+        "📍 Hubs Distribution",
+        "📦 Supply Planning",
+        "📋 Purchase Order Status",
+        "🚚 New Deliveries"
+    ])
 
     # ---------------------------------------------------
-# TAB 1 - Stock Status Table
-# ---------------------------------------------------
-with tab1:
-    st.markdown("<h3 style='font-size: 28px; font-weight: bold; font-family: Times New Roman;'>Complete Stock Status Table</h3>", unsafe_allow_html=True)
+    # TAB 1 - Stock Status Table
+    # ---------------------------------------------------
+    with tab1:
+        st.markdown("<h3 style='font-size: 28px; font-weight: bold; font-family: Times New Roman;'>Complete Stock Status Table</h3>", unsafe_allow_html=True)
 
-    if not display_df_filtered.empty and 'Material Description' in display_df_filtered.columns:
-        search_query = st.text_input(
-            "Search by Material Description or any column value:",
-            value=st.session_state.search_query,
-            placeholder="Type to search... (e.g., 'artesunate', 'stock out', 'shipped')",
-            key="search_input"
-        )
+        if not display_df_filtered.empty and 'Material Description' in display_df_filtered.columns:
+            search_query = st.text_input(
+                "Search by Material Description or any column value:",
+                value=st.session_state.search_query,
+                placeholder="Type to search... (e.g., 'artesunate', 'stock out', 'shipped')",
+                key="search_input"
+            )
 
-        if search_query != st.session_state.search_query:
-            st.session_state.search_query = search_query
-            st.rerun()
-
-        search_df = display_df_filtered.copy()
-
-        if st.session_state.search_query:
-            search_term = st.session_state.search_query.lower()
-            string_df = search_df.astype(str)
-            mask = string_df.apply(
-                lambda col: col.str.lower().str.contains(search_term, na=False, regex=False)
-            ).any(axis=1)
-            search_df = search_df[mask]
-            st.info(f"🔍 Found {len(search_df)} matching records for '{st.session_state.search_query}'")
-            if st.button("🗑️ Clear Search"):
-                st.session_state.search_query = ""
+            if search_query != st.session_state.search_query:
+                st.session_state.search_query = search_query
                 st.rerun()
-        else:
-            st.info(f"📊 Showing all {len(search_df)} records")
 
-        # Column ordering - keep original positions, just add DOS after NMOS
-        cols = list(search_df.columns)
-        if 'Material Description' in cols:
-            cols.remove('Material Description')
-            cols.insert(0, 'Material Description')
-        if 'NMOS' in cols and 'AMC' in cols:
-            cols.remove('NMOS')
-            amc_index = cols.index('AMC') if 'AMC' in cols else 0
-            cols.insert(amc_index + 1, 'NMOS')
-        # Add DOS right after NMOS (keeping NMOS in original position after AMC)
-        if 'DOS' in cols:
-            cols.remove('DOS')
-            nmos_index = cols.index('NMOS') if 'NMOS' in cols else 0
-            cols.insert(nmos_index + 1, 'DOS')
-        if 'Risk Type' in cols and 'Stock Status' in cols:
-            cols.remove('Risk Type')
-            status_index = cols.index('Stock Status') if 'Stock Status' in cols else 0
-            cols.insert(status_index + 1, 'Risk Type')
+            search_df = display_df_filtered.copy()
 
-        cols = [c for c in cols if c in search_df.columns]
-        search_df = search_df[cols]
+            if st.session_state.search_query:
+                search_term = st.session_state.search_query.lower()
+                string_df = search_df.astype(str)
+                mask = string_df.apply(
+                    lambda col: col.str.lower().str.contains(search_term, na=False, regex=False)
+                ).any(axis=1)
+                search_df = search_df[mask]
+                st.info(f"🔍 Found {len(search_df)} matching records for '{st.session_state.search_query}'")
+                if st.button("🗑️ Clear Search"):
+                    st.session_state.search_query = ""
+                    st.rerun()
+            else:
+                st.info(f"📊 Showing all {len(search_df)} records")
 
-        if st.session_state.view_mode == "card":
-            st.markdown("### 📇 Card View")
-            cols_per_row = 3
-            for i in range(0, len(search_df), cols_per_row):
-                cols = st.columns(cols_per_row)
-                for j, col in enumerate(cols):
-                    idx = i + j
-                    if idx < len(search_df):
-                        row = search_df.iloc[idx]
-                        status = row.get('Stock Status', '')
-                        color_map = {
-                            "Stock Out": "#ff4444",
-                            "Understock": "#ffa500",
-                            "Normal Stock": "#4CAF50",
-                            "Overstock": "#2196F3"
-                        }
-                        border_color = color_map.get(status, "#ddd")
-                        risk_type_value = row.get('Risk Type', 'N/A')
-                        risk_color = {
-                            "Critical Risk": "#9b59b6",
-                            "Risk of Stock out": "#ffa500",
-                            "Expiry Risk": "#ffa500"
-                        }.get(risk_type_value, border_color)
+            # Column ordering
+            cols = list(search_df.columns)
+            if 'Material Description' in cols:
+                cols.remove('Material Description')
+                cols.insert(0, 'Material Description')
+            if 'NMOS' in cols and 'AMC' in cols:
+                cols.remove('NMOS')
+                amc_index = cols.index('AMC') if 'AMC' in cols else 0
+                cols.insert(amc_index + 1, 'NMOS')
+            if 'DOS' in cols:
+                cols.remove('DOS')
+                nmos_index = cols.index('NMOS') if 'NMOS' in cols else 0
+                cols.insert(nmos_index + 1, 'DOS')
+            if 'Risk Type' in cols and 'Stock Status' in cols:
+                cols.remove('Risk Type')
+                status_index = cols.index('Stock Status') if 'Stock Status' in cols else 0
+                cols.insert(status_index + 1, 'Risk Type')
 
-                        material_desc = row.get('Material Description', 'N/A')
-                        if pd.isna(material_desc) or material_desc is None:
-                            material_desc = 'N/A'
-                        else:
-                            material_desc = str(material_desc)[:60]
+            cols = [c for c in cols if c in search_df.columns]
+            search_df = search_df[cols]
 
-                        dos_value = row.get('DOS', 0)
-                        if pd.isna(dos_value):
-                            dos_value = 0
+            if st.session_state.view_mode == "card":
+                st.markdown("### 📇 Card View")
+                cols_per_row = 3
+                for i in range(0, len(search_df), cols_per_row):
+                    card_cols = st.columns(cols_per_row)
+                    for j, col in enumerate(card_cols):
+                        idx = i + j
+                        if idx < len(search_df):
+                            row = search_df.iloc[idx]
+                            status = row.get('Stock Status', '')
+                            color_map = {
+                                "Stock Out": "#ff4444",
+                                "Understock": "#ffa500",
+                                "Normal Stock": "#4CAF50",
+                                "Overstock": "#2196F3"
+                            }
+                            border_color = color_map.get(status, "#ddd")
+                            risk_type_value = row.get('Risk Type', 'N/A')
+                            risk_color = {
+                                "Critical Risk": "#9b59b6",
+                                "Risk of Stock out": "#ffa500",
+                                "Expiry Risk": "#ffa500"
+                            }.get(risk_type_value, border_color)
 
-                        with col:
-                            st.markdown(f"""
-                            <div class="stock-card" style='border-left: 4px solid {border_color};'>
-                                <h4 style='color: {border_color}; margin-bottom: 10px;'>{material_desc}</h4>
-                                <p><strong>📦 NSOH:</strong> {row.get('NSOH', 'N/A')}</p>
-                                <p><strong>📈 AMC:</strong> {row.get('AMC', 'N/A')}</p>
-                                <p><strong>⏰ NMOS:</strong> <span style='color: {border_color}; font-weight: bold;'>{row.get('NMOS', 'N/A')}</span></p>
-                                <p><strong>📅 DOS:</strong> <span style='color: {"#ff4444" if dos_value > 0 else "#4CAF50"}; font-weight: bold;'>{dos_value} days</span></p>
-                                <p><strong>📊 Status:</strong> {row.get('Stock Status', 'N/A')}</p>
-                                <p><strong>🔄 TMOS:</strong> {row.get('TMOS', 'N/A')}</p>
-                                <p><strong>⚠️ Risk Type:</strong> <span style='color: {risk_color}; font-weight: bold;'>{risk_type_value}</span></p>
-                            </div>
-                            """, unsafe_allow_html=True)
-        else:
-            def color_row(row):
-                colors = {
-                    "Stock Out": "background-color:red;color:white",
-                    "Understock": "background-color:yellow",
-                    "Normal Stock": "background-color:green;color:white",
-                    "Overstock": "background-color:skyblue"
+                            material_desc = row.get('Material Description', 'N/A')
+                            if pd.isna(material_desc) or material_desc is None:
+                                material_desc = 'N/A'
+                            else:
+                                material_desc = str(material_desc)[:60]
+
+                            dos_value = row.get('DOS', 0)
+                            if pd.isna(dos_value):
+                                dos_value = 0
+
+                            with col:
+                                st.markdown(f"""
+                                <div class="stock-card" style='border-left: 4px solid {border_color};'>
+                                    <h4 style='color: {border_color}; margin-bottom: 10px;'>{material_desc}</h4>
+                                    <p><strong>📦 NSOH:</strong> {row.get('NSOH', 'N/A')}</p>
+                                    <p><strong>📈 AMC:</strong> {row.get('AMC', 'N/A')}</p>
+                                    <p><strong>⏰ NMOS:</strong> <span style='color: {border_color}; font-weight: bold;'>{row.get('NMOS', 'N/A')}</span></p>
+                                    <p><strong>📅 DOS:</strong> <span style='color: {"#ff4444" if dos_value > 0 else "#4CAF50"}; font-weight: bold;'>{dos_value} days</span></p>
+                                    <p><strong>📊 Status:</strong> {row.get('Stock Status', 'N/A')}</p>
+                                    <p><strong>🔄 TMOS:</strong> {row.get('TMOS', 'N/A')}</p>
+                                    <p><strong>⚠️ Risk Type:</strong> <span style='color: {risk_color}; font-weight: bold;'>{risk_type_value}</span></p>
+                                </div>
+                                """, unsafe_allow_html=True)
+            else:
+                def color_row(row):
+                    colors = {
+                        "Stock Out": "background-color:red;color:white",
+                        "Understock": "background-color:yellow",
+                        "Normal Stock": "background-color:green;color:white",
+                        "Overstock": "background-color:skyblue"
+                    }
+                    styles = [''] * len(row)
+                    for i, col in enumerate(row.index):
+                        if col == 'Material Description':
+                            styles[i] = colors.get(row['Stock Status'], '')
+                            break
+                    return styles
+
+                styled = search_df.style.apply(color_row, axis=1)
+
+                def color_risk_type(val):
+                    if val == "Critical Risk":
+                        return 'background-color: #9b59b6; color: white'
+                    elif val == "Risk of Stock out":
+                        return 'background-color: #ffa500; color: white'
+                    elif val == "Expiry Risk":
+                        return 'background-color: #ffa500; color: white'
+                    return ''
+
+                styled = styled.map(color_risk_type, subset=['Risk Type'])
+
+                def color_dos(val):
+                    if pd.notna(val) and val > 0:
+                        return 'background-color: #ff4444; color: white; font-weight: bold'
+                    return ''
+
+                if 'DOS' in search_df.columns:
+                    styled = styled.map(color_dos, subset=['DOS'])
+
+                column_config = {
+                    "Material Description": st.column_config.TextColumn("Material Description", width=300, pinned=True),
+                    "Risk Type": st.column_config.TextColumn("Risk Type", width=150),
+                    "DOS": st.column_config.NumberColumn("DOS (Days)", width=100)
                 }
-                styles = [''] * len(row)
-                for i, col in enumerate(row.index):
-                    if col == 'Material Description':
-                        styles[i] = colors.get(row['Stock Status'], '')
-                        break
-                return styles
 
-            styled = search_df.style.apply(color_row, axis=1)
+                st.dataframe(styled, column_config=column_config, use_container_width=True, hide_index=True, height=min(800, (len(search_df) + 1) * 35))
 
-            def color_risk_type(val):
-                if val == "Critical Risk":
-                    return 'background-color: #9b59b6; color: white'
-                elif val == "Risk of Stock out":
-                    return 'background-color: #ffa500; color: white'
-                elif val == "Expiry Risk":
-                    return 'background-color: #ffa500; color: white'
-                return ''
-
-            styled = styled.map(color_risk_type, subset=['Risk Type'])
-
-            def color_dos(val):
-                if pd.notna(val) and val > 0:
-                    return 'background-color: #ff4444; color: white; font-weight: bold'
-                return ''
-
-            if 'DOS' in search_df.columns:
-                styled = styled.map(color_dos, subset=['DOS'])
-
-            column_config = {
-                "Material Description": st.column_config.TextColumn("Material Description", width=300, pinned=True),
-                "Risk Type": st.column_config.TextColumn("Risk Type", width=150),
-                "DOS": st.column_config.NumberColumn("DOS (Days)", width=100)
-            }
-
-            st.dataframe(styled, column_config=column_config, use_container_width=True, hide_index=True, height=min(800, (len(search_df) + 1) * 35))
-
-            st.markdown("""
-            <div class="legend-box">
-                <h5 class="legend-title">📊 Color Legend - Stock Status:</h5>
-                <div style="display: flex; gap: 20px; flex-wrap: wrap;">
-                    <div class="legend-item"><div class="legend-color" style="background-color: red;"></div><span><strong>Red</strong> = Stock Out (NMOS &lt; 1)</span></div>
-                    <div class="legend-item"><div class="legend-color" style="background-color: yellow;"></div><span><strong>Yellow</strong> = Understock (1 ≤ NMOS &lt; 6)</span></div>
-                    <div class="legend-item"><div class="legend-color" style="background-color: green;"></div><span><strong>Green</strong> = Normal Stock (6 ≤ NMOS ≤ 18)</span></div>
-                    <div class="legend-item"><div class="legend-color" style="background-color: skyblue;"></div><span><strong>Blue</strong> = Overstock (NMOS > 18)</span></div>
-                    <div class="legend-item"><div class="legend-color" style="background-color: #9b59b6;"></div><span><strong>Purple</strong> = Critical Risk</span></div>
-                    <div class="legend-item"><div class="legend-color" style="background-color: #ffa500;"></div><span><strong>Orange</strong> = Risk of Stock out or Expiry Risk</span></div>
-                    <div class="legend-item"><div class="legend-color" style="background-color: #ff4444;"></div><span><strong>Red DOS</strong> = Days Out of Stock (>0 days)</span></div>
+                st.markdown("""
+                <div class="legend-box">
+                    <h5 class="legend-title">📊 Color Legend - Stock Status:</h5>
+                    <div style="display: flex; gap: 20px; flex-wrap: wrap;">
+                        <div class="legend-item"><div class="legend-color" style="background-color: red;"></div><span><strong>Red</strong> = Stock Out (NMOS &lt; 1)</span></div>
+                        <div class="legend-item"><div class="legend-color" style="background-color: yellow;"></div><span><strong>Yellow</strong> = Understock (1 ≤ NMOS &lt; 6)</span></div>
+                        <div class="legend-item"><div class="legend-color" style="background-color: green;"></div><span><strong>Green</strong> = Normal Stock (6 ≤ NMOS ≤ 18)</span></div>
+                        <div class="legend-item"><div class="legend-color" style="background-color: skyblue;"></div><span><strong>Blue</strong> = Overstock (NMOS > 18)</span></div>
+                        <div class="legend-item"><div class="legend-color" style="background-color: #9b59b6;"></div><span><strong>Purple</strong> = Critical Risk</span></div>
+                        <div class="legend-item"><div class="legend-color" style="background-color: #ffa500;"></div><span><strong>Orange</strong> = Risk of Stock out or Expiry Risk</span></div>
+                        <div class="legend-item"><div class="legend-color" style="background-color: #ff4444;"></div><span><strong>Red DOS</strong> = Days Out of Stock (>0 days)</span></div>
+                    </div>
                 </div>
-            </div>
-            """, unsafe_allow_html=True)
+                """, unsafe_allow_html=True)
 
-        # DOWNLOAD REPORT
-        st.markdown("---")
-        st.markdown("<h4 style='font-size: 20px; font-weight: bold; font-family: Times New Roman;'>📥 Download Report</h4>", unsafe_allow_html=True)
-
-        report_columns = []
-
-        if 'Material Description' in df_filtered.columns:
-            report_columns.append('Material Description')
-
-        all_columns = list(df_filtered.columns)
-
-        if 'Material Description' in all_columns and 'TMOS' in all_columns:
-            mat_index = all_columns.index('Material Description')
-            tmos_index = all_columns.index('TMOS')
-            all_cols_between = all_columns[mat_index:tmos_index + 1]
-
-            if 'AMC' in all_cols_between and 'NMOS' in all_cols_between:
-                for col in all_cols_between:
-                    if col == 'NMOS':
-                        continue
-                    report_columns.append(col)
-                if 'AMC' in report_columns:
-                    amc_pos = report_columns.index('AMC')
-                    report_columns.insert(amc_pos + 1, 'NMOS')
-                if 'DOS' in all_cols_between and 'DOS' not in report_columns:
-                    nmos_pos = report_columns.index('NMOS') if 'NMOS' in report_columns else 0
-                    report_columns.insert(nmos_pos + 1, 'DOS')
-            else:
-                report_columns = all_cols_between
-        else:
-            for col in all_columns:
-                if col not in ['Stock Status', 'Risk of Stock', 'Hubs%', 'Head Office%', 'Avail Gap', 'CV (%)', 'CV Category', 'Has Expiry Risk', 'Expiry Risk Details', 'Assigned Subcategory', 'Risk Type']:
-                    report_columns.append(col)
-
-        if not report_columns:
-            report_columns = ['Material Description']
-
-        report_columns = list(dict.fromkeys(report_columns))
-
-        report_df = df_filtered[report_columns].copy()
-
-        for col in report_df.columns:
-            if col in ['NMOS', 'GIT_MOS', 'LC_MOS', 'WB_MOS', 'TMD_MOS', 'TMOS']:
-                report_df[col] = report_df[col].apply(lambda x: round(x, 2) if pd.notna(x) else "")
-            elif col in ['NSOH', 'AMC', 'Hubs', 'Head Office']:
-                report_df[col] = report_df[col].apply(lambda x: f"{int(x):,}" if pd.notna(x) and x != "" else "" if x == "" else x)
-            elif col == 'DOS':
-                report_df[col] = report_df[col].apply(lambda x: f"{int(x)} days" if pd.notna(x) and x > 0 else "0 days" if pd.notna(x) else "")
-
-        output = BytesIO()
-
-        try:
-            with pd.ExcelWriter(output, engine='openpyxl') as writer:
-                if sheet_name == "All":
-                    report_title = "All Programs Medicines Monthly National and Pipeline Report"
-                else:
-                    report_title = f"{sheet_name} Medicines Monthly National and Pipeline Report"
-
-                report_df.to_excel(writer, sheet_name=report_title[:31], index=False)
-                worksheet = writer.sheets[report_title[:31]]
-
-                for column in report_df.columns:
-                    try:
-                        str_values = report_df[column].astype(str).replace('nan', '').replace('None', '')
-                        if len(str_values) > 0:
-                            column_length = max(str_values.map(len).max(), len(column))
-                        else:
-                            column_length = len(column)
-                        column_length = min(column_length, 50)
-                        col_idx = report_df.columns.get_loc(column)
-                        col_letter = get_column_letter(col_idx + 1)
-                        worksheet.column_dimensions[col_letter].width = column_length + 2
-                    except Exception:
-                        col_idx = report_df.columns.get_loc(column)
-                        col_letter = get_column_letter(col_idx + 1)
-                        worksheet.column_dimensions[col_letter].width = 15
-
-            output.seek(0)
-            st.download_button(
-                label=f"📊 Download {sheet_name} Monthly National and Pipeline Report (Excel)",
-                data=output,
-                file_name=f"{sheet_name}_Monthly_National_Pipeline_Report_{datetime.now().strftime('%Y%m%d')}.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                use_container_width=True,
-                type="primary"
-            )
-            st.caption(f"Report includes columns from Material Description to TMOS ({len(report_columns)} columns)")
-
-        except Exception as excel_error:
-            st.error(f"Error creating Excel file: {excel_error}")
-            csv_data = report_df.to_csv(index=False)
-            st.download_button(
-                label=f"📊 Download {sheet_name} Monthly National and Pipeline Report (CSV)",
-                data=csv_data,
-                file_name=f"{sheet_name}_Monthly_National_Pipeline_Report_{datetime.now().strftime('%Y%m%d')}.csv",
-                mime="text/csv",
-                use_container_width=True
-            )
-
-                        # STOCK CHANGES TABLE
-        st.markdown("---")
-        st.markdown("<h4 style='font-size: 20px; font-weight: bold; font-family: Times New Roman;'>📈 Stock Changes Since Last Update</h4>", unsafe_allow_html=True)
-
-        if st.session_state.nsoh_changes is not None and not st.session_state.nsoh_changes.empty:
-
-            # Show summary metrics
-            added = st.session_state.nsoh_changes[st.session_state.nsoh_changes['Change Type'] == '📦 STOCK ADDED']
-            consumed = st.session_state.nsoh_changes[st.session_state.nsoh_changes['Change Type'] == '📉 STOCK CONSUMED']
-            no_change = st.session_state.nsoh_changes[st.session_state.nsoh_changes['Change Type'] == '➖ NO CHANGE']
-
-            col1, col2, col3, col4, col5 = st.columns(5)
-            with col1:
-                st.metric("📋 Total Materials", len(st.session_state.nsoh_changes))
-            with col2:
-                st.metric("➕ Stock Added", len(added))
-            with col3:
-                st.metric("📉 Stock Consumed", len(consumed))
-            with col4:
-                st.metric("➖ No Change", len(no_change))
-            with col5:
-                # Calculate net change
-                total_added = 0
-                for val in added['NSOH_Change']:
-                    try:
-                        total_added += int(val.replace(',', '').replace('+', ''))
-                    except:
-                        pass
-                total_consumed = 0
-                for val in consumed['NSOH_Change']:
-                    try:
-                        total_consumed += abs(int(val.replace(',', '')))
-                    except:
-                        pass
-                net_change = total_added - total_consumed
-                st.metric("📊 Net Change", f"{net_change:+,}")
-
+            # DOWNLOAD REPORT
             st.markdown("---")
+            st.markdown("<h4 style='font-size: 20px; font-weight: bold; font-family: Times New Roman;'>📥 Download Report</h4>", unsafe_allow_html=True)
 
-            # Add filter for change type
-            filter_type = st.radio(
-                "Filter by Change Type:",
-                ["All", "📦 STOCK ADDED", "📉 STOCK CONSUMED", "➖ NO CHANGE"],
-                horizontal=True
-            )
+            report_columns = []
 
-            # Apply filter
-            if filter_type != "All":
-                filtered_changes = st.session_state.nsoh_changes[st.session_state.nsoh_changes['Change Type'] == filter_type]
+            if 'Material Description' in df_filtered.columns:
+                report_columns.append('Material Description')
+
+            all_columns = list(df_filtered.columns)
+
+            if 'Material Description' in all_columns and 'TMOS' in all_columns:
+                mat_index = all_columns.index('Material Description')
+                tmos_index = all_columns.index('TMOS')
+                all_cols_between = all_columns[mat_index:tmos_index + 1]
+
+                if 'AMC' in all_cols_between and 'NMOS' in all_cols_between:
+                    for col in all_cols_between:
+                        if col == 'NMOS':
+                            continue
+                        report_columns.append(col)
+                    if 'AMC' in report_columns:
+                        amc_pos = report_columns.index('AMC')
+                        report_columns.insert(amc_pos + 1, 'NMOS')
+                    if 'DOS' in all_cols_between and 'DOS' not in report_columns:
+                        nmos_pos = report_columns.index('NMOS') if 'NMOS' in report_columns else 0
+                        report_columns.insert(nmos_pos + 1, 'DOS')
+                else:
+                    report_columns = all_cols_between
             else:
-                filtered_changes = st.session_state.nsoh_changes
+                for col in all_columns:
+                    if col not in ['Stock Status', 'Risk of Stock', 'Hubs%', 'Head Office%', 'Avail Gap', 'CV (%)', 'CV Category', 'Has Expiry Risk', 'Expiry Risk Details', 'Assigned Subcategory', 'Risk Type']:
+                        report_columns.append(col)
 
-            st.markdown(f"Showing **{len(filtered_changes)}** materials")
+            if not report_columns:
+                report_columns = ['Material Description']
 
-            # Single table showing all changes
-            st.dataframe(
-                filtered_changes,
-                column_config={
-                    "Material Description": st.column_config.TextColumn("Material", width=280),
-                    "NSOH_previous": st.column_config.TextColumn("Previous NSOH", width=110),
-                    "NSOH_now": st.column_config.TextColumn("Current NSOH", width=110),
-                    "NSOH_Change": st.column_config.TextColumn("NSOH Change", width=110),
-                    "NSOH_Change_Pct": st.column_config.TextColumn("Change %", width=90),
-                    "NMOS_previous": st.column_config.TextColumn("Previous NMOS", width=100),
-                    "NMOS_now": st.column_config.TextColumn("Current NMOS", width=100),
-                    "NMOS_Change": st.column_config.TextColumn("NMOS Change", width=100),
-                    "Change Type": st.column_config.TextColumn("Type", width=130),
-                },
-                use_container_width=True,
-                hide_index=True
-            )
+            report_columns = list(dict.fromkeys(report_columns))
 
-            # Download button
-            changes_csv = st.session_state.nsoh_changes.to_csv(index=False)
-            st.download_button(
-                label="📥 Download Stock Changes (CSV)",
-                data=changes_csv,
-                file_name=f"stock_changes_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
-                mime="text/csv",
-                use_container_width=True
-            )
+            report_df = df_filtered[report_columns].copy()
 
-        elif st.session_state.raw_previous_data is not None:
-            st.info("ℹ️ No previous data available for comparison. Stock change tracking will appear after the next update.")
-        else:
-            st.info("ℹ️ Stock change tracking will appear after the next data update. (Need at least 2 data points to compare)")
+            for col in report_df.columns:
+                if col in ['NMOS', 'GIT_MOS', 'LC_MOS', 'WB_MOS', 'TMD_MOS', 'TMOS']:
+                    report_df[col] = report_df[col].apply(lambda x: round(x, 2) if pd.notna(x) else "")
+                elif col in ['NSOH', 'AMC', 'Hubs', 'Head Office']:
+                    report_df[col] = report_df[col].apply(lambda x: f"{int(x):,}" if pd.notna(x) and x != "" else "" if x == "" else x)
+                elif col == 'DOS':
+                    report_df[col] = report_df[col].apply(lambda x: f"{int(x)} days" if pd.notna(x) and x > 0 else "0 days" if pd.notna(x) else "")
 
-    # ---------------------------------------------------
+            output = BytesIO()
+
+            try:
+                with pd.ExcelWriter(output, engine='openpyxl') as writer:
+                    if sheet_name == "All":
+                        report_title = "All Programs Medicines Monthly National and Pipeline Report"
+                    else:
+                        report_title = f"{sheet_name} Medicines Monthly National and Pipeline Report"
+
+                    report_df.to_excel(writer, sheet_name=report_title[:31], index=False)
+                    worksheet = writer.sheets[report_title[:31]]
+
+                    for column in report_df.columns:
+                        try:
+                            str_values = report_df[column].astype(str).replace('nan', '').replace('None', '')
+                            if len(str_values) > 0:
+                                column_length = max(str_values.map(len).max(), len(column))
+                            else:
+                                column_length = len(column)
+                            column_length = min(column_length, 50)
+                            col_idx = report_df.columns.get_loc(column)
+                            col_letter = get_column_letter(col_idx + 1)
+                            worksheet.column_dimensions[col_letter].width = column_length + 2
+                        except Exception:
+                            col_idx = report_df.columns.get_loc(column)
+                            col_letter = get_column_letter(col_idx + 1)
+                            worksheet.column_dimensions[col_letter].width = 15
+
+                output.seek(0)
+                st.download_button(
+                    label=f"📊 Download {sheet_name} Monthly National and Pipeline Report (Excel)",
+                    data=output,
+                    file_name=f"{sheet_name}_Monthly_National_Pipeline_Report_{datetime.now().strftime('%Y%m%d')}.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    use_container_width=True,
+                    type="primary"
+                )
+                st.caption(f"Report includes columns from Material Description to TMOS ({len(report_columns)} columns)")
+
+            except Exception as excel_error:
+                st.error(f"Error creating Excel file: {excel_error}")
+                csv_data = report_df.to_csv(index=False)
+                st.download_button(
+                    label=f"📊 Download {sheet_name} Monthly National and Pipeline Report (CSV)",
+                    data=csv_data,
+                    file_name=f"{sheet_name}_Monthly_National_Pipeline_Report_{datetime.now().strftime('%Y%m%d')}.csv",
+                    mime="text/csv",
+                    use_container_width=True
+                )
+
+            # STOCK CHANGES TABLE
+            st.markdown("---")
+            st.markdown("<h4 style='font-size: 20px; font-weight: bold; font-family: Times New Roman;'>📈 Stock Changes Since Last Update</h4>", unsafe_allow_html=True)
+
+            if st.session_state.nsoh_changes is not None and not st.session_state.nsoh_changes.empty:
+                added = st.session_state.nsoh_changes[st.session_state.nsoh_changes['Change Type'] == '📦 STOCK ADDED']
+                consumed = st.session_state.nsoh_changes[st.session_state.nsoh_changes['Change Type'] == '📉 STOCK CONSUMED']
+                no_change = st.session_state.nsoh_changes[st.session_state.nsoh_changes['Change Type'] == '➖ NO CHANGE']
+
+                col1, col2, col3, col4, col5 = st.columns(5)
+                with col1:
+                    st.metric("📋 Total Materials", len(st.session_state.nsoh_changes))
+                with col2:
+                    st.metric("➕ Stock Added", len(added))
+                with col3:
+                    st.metric("📉 Stock Consumed", len(consumed))
+                with col4:
+                    st.metric("➖ No Change", len(no_change))
+                with col5:
+                    total_added = 0
+                    for val in added['NSOH_Change']:
+                        try:
+                            total_added += int(val.replace(',', '').replace('+', ''))
+                        except:
+                            pass
+                    total_consumed = 0
+                    for val in consumed['NSOH_Change']:
+                        try:
+                            total_consumed += abs(int(val.replace(',', '')))
+                        except:
+                            pass
+                    net_change = total_added - total_consumed
+                    st.metric("📊 Net Change", f"{net_change:+,}")
+
+                st.markdown("---")
+
+                filter_type = st.radio(
+                    "Filter by Change Type:",
+                    ["All", "📦 STOCK ADDED", "📉 STOCK CONSUMED", "➖ NO CHANGE"],
+                    horizontal=True
+                )
+
+                if filter_type != "All":
+                    filtered_changes = st.session_state.nsoh_changes[st.session_state.nsoh_changes['Change Type'] == filter_type]
+                else:
+                    filtered_changes = st.session_state.nsoh_changes
+
+                st.markdown(f"Showing **{len(filtered_changes)}** materials")
+
+                st.dataframe(
+                    filtered_changes,
+                    use_container_width=True,
+                    hide_index=True
+                )
+
+                changes_csv = st.session_state.nsoh_changes.to_csv(index=False)
+                st.download_button(
+                    label="📥 Download Stock Changes (CSV)",
+                    data=changes_csv,
+                    file_name=f"stock_changes_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                    mime="text/csv",
+                    use_container_width=True
+                )
+
+            elif st.session_state.raw_previous_data is not None:
+                st.info("ℹ️ No previous data available for comparison. Stock change tracking will appear after the next update.")
+            else:
+                st.info("ℹ️ Stock change tracking will appear after the next data update. (Need at least 2 data points to compare)")
+
+        # ===================================================
     # TAB 2 - KPIs & Analytics
-    # ---------------------------------------------------
+    # ===================================================
     with tab2:
         if sheet_name == "All":
             program_display = "All Programs"
@@ -3310,12 +3390,15 @@ with tab1:
                             df_chunk = df_chunk.iloc[::-1].reset_index(drop=True)
                             fig = go.Figure()
                             fig.add_trace(go.Bar(y=df_chunk['Material_split'], x=df_chunk['NMOS'], name='NMOS', orientation='h', marker=dict(color=df_chunk['NMOS_color']), text=df_chunk['NMOS'].apply(lambda x: f"{x:.1f}" if pd.notna(x) else ""), textposition='inside', textfont_size=12, hovertemplate='NMOS: %{x:.1f} months<extra></extra>'))
+
                             pipeline_traces = [('GIT_MOS', 'cyan', 'GIT MOS'), ('LC_MOS', 'plum', 'LC MOS'), ('WB_MOS', 'gray', 'WB MOS'), ('TMD_MOS', 'orange', 'TMD MOS')]
                             for col, color, label in pipeline_traces:
                                 if col in df_chunk.columns and (df_chunk[col] > 0).any():
                                     fig.add_trace(go.Bar(y=df_chunk['Material_split'], x=df_chunk[col], name=label, orientation='h', marker_color=color, text=df_chunk[col].apply(lambda x: f"{x:.1f}" if x > 0 else ""), textposition='inside', textfont_size=12, hovertemplate=f'{label}: %{{x:.1f}} months<extra></extra>'))
+
                             if 'TMOS' in df_chunk.columns:
                                 fig.add_trace(go.Scatter(y=df_chunk['Material_split'], x=df_chunk['TMOS'], mode='text', text=df_chunk['TMOS'].apply(lambda x: f"TMOS: {x:.2f}" if x > 0 else ""), textposition='middle right', showlegend=False, textfont_size=12))
+
                             original_start = i + 1
                             original_end = i + len(df_chunk)
                             chart_title = f'{program_display} Stock Status - National and Pipeline (Medicines {original_start}-{original_end})'
@@ -3360,7 +3443,7 @@ with tab1:
             st.info("No data available for KPI calculations.")
 
     # ---------------------------------------------------
-    # TAB 3 - Decision Briefs (FIXED CARD VIEW)
+    # TAB 3 - Decision Briefs
     # ---------------------------------------------------
     with tab3:
         if sheet_name == "All":
@@ -3471,12 +3554,13 @@ with tab1:
                 st.markdown("### 📇 Card View with Recommendations")
 
                 for idx, row in decision_df.iterrows():
-                    risk_type = row['Identified Problems']
-                    if risk_type == "Critical Risk":
+                    identified_problem = row.get('Identified Problems', '')
+
+                    if identified_problem == "Critical Risk":
                         status_color = "#9b59b6"
-                    elif risk_type == "Stock Out":
+                    elif identified_problem == "Stock Out":
                         status_color = "#ff4444"
-                    elif risk_type in ["Risk of Stock out", "Expiry Risk"]:
+                    elif identified_problem in ["Risk of Stock out", "Expiry Risk"]:
                         status_color = "#ffa500"
                     else:
                         status_color = "#ffa500"
@@ -3484,22 +3568,26 @@ with tab1:
                     recommendation_text = row.get('Recommendation', '')
                     cv_category = row.get('CV Category', 'N/A')
 
-                    # FIXED: Safely get material description
                     material_desc = row.get('Material Description', 'N/A')
                     if pd.isna(material_desc) or material_desc is None:
                         material_desc = 'N/A'
                     else:
                         material_desc = str(material_desc)[:60]
 
+                    expiry_details = row.get('Expiry Risk Details', '')
+                    expiry_display = row.get('Expiry', 'N/A')
+                    if expiry_details and expiry_details != '':
+                        expiry_display = f"{expiry_display} ⚠️ {expiry_details}"
+
                     st.markdown(f"""
                     <div class="stock-card" style='border-left: 4px solid {status_color}; margin-bottom: 15px;'>
                         <h4 style='color: {status_color}; margin-bottom: 10px;'>{material_desc}</h4>
                         <p><strong>📦 NSOH:</strong> {row.get('NSOH', 'N/A')}</p>
-                        <p><strong>📅 Expiry:</strong> {row.get('Expiry', 'N/A')}</p>
+                        <p><strong>📅 Expiry:</strong> {expiry_display}</p>
                         <p><strong>📈 AMC:</strong> {row.get('AMC', 'N/A')}</p>
                         <p><strong>⏰ NMOS:</strong> <span style='color: {status_color}; font-weight: bold;'>{row.get('NMOS', 'N/A')}</span></p>
                         <p><strong>📊 Status:</strong> {row.get('Status', 'N/A')}</p>
-                        <p><strong>⚠️ Risk Type:</strong> <span style='color: {status_color}; font-weight: bold;'>{risk_type}</span></p>
+                        <p><strong>⚠️ Identified Problem:</strong> <span style='color: {status_color}; font-weight: bold;'>{identified_problem}</span></p>
                         <p><strong>📊 CV Category:</strong> {cv_category}</p>
                         <p><strong>💡 Recommendation:</strong> <span style='background-color: #f0f2f6; padding: 5px; border-radius: 5px; display: inline-block;'>{recommendation_text}</span></p>
                     </div>
@@ -3510,8 +3598,8 @@ with tab1:
         else:
             st.info("No data available.")
 
-        # ---------------------------------------------------
-    # TAB 4 - Hubs Distribution (WITH CORRECTED HEATMAP - EXCLUDING HUBS & HUBS%)
+    # ---------------------------------------------------
+    # TAB 4 - Hubs Distribution
     # ---------------------------------------------------
     with tab4:
         try:
@@ -3583,7 +3671,7 @@ with tab1:
                                     high_pct = (high_count / len(division_df) * 100) if len(division_df) > 0 else 0
                                     st.metric("High Variation (>100%)", f"{high_count} ({high_pct:.1f}%)")
 
-                            # MOS Heatmap (existing)
+                            # MOS Heatmap
                             if division_df.shape[1] > 2:
                                 branch_cols_list = [col for col in division_df.columns if col not in ['Material Description', 'CV (%)', 'CV Category']]
                                 heatmap_df = division_df.copy()
@@ -3639,45 +3727,32 @@ with tab1:
                                 with col4:
                                     st.markdown("🔵 **> 4** : Overstock")
 
-                                # ========== NEW: EPSS Hubs SOH Heatmap (Excluding "Hubs" and "Hubs%") ==========
+                                # EPSS Hubs SOH Heatmap
                                 st.markdown("---")
                                 st.markdown("<h5 style='font-size: 20px; font-weight: bold;'>🔥 EPSS Hubs Stock on Hand (SOH) Heatmap</h5>", unsafe_allow_html=True)
                                 st.caption("🔴 Red shades indicate higher stock levels | Lighter shades indicate lower stock levels")
 
-                                # Get branch stock columns for heatmap - EXCLUDE "Hubs" and "Hubs%"
                                 branch_soh_cols = []
                                 for col in df.columns:
-                                    # Include columns with 'Branch' in name
                                     if 'Branch' in col:
                                         branch_soh_cols.append(col)
-                                    # Include columns that start with 'Hub' but NOT exactly 'Hubs' or 'Hubs%'
                                     elif col.startswith('Hub') and col not in ['Hubs', 'Hubs%']:
                                         branch_soh_cols.append(col)
-                                    # Also include any column that has specific hub names (Adama, Addis, etc.)
-                                    elif col in ['Adama', 'Addis Ababa', 'Bahir Dar', 'Gondar', 'Mekele', 'Hawassa', 'Jimma', 'Dire Dawa', 'Dessie', 'Arba Minch', 'Jigjiga', 'Assosa', 'Gambela', 'Semera', 'Shire', 'Kebridahar', 'Negele Borena', 'Nekemte']:
-                                        branch_soh_cols.append(col)
 
-                                # Remove duplicates and Material Description
                                 branch_soh_cols = list(set(branch_soh_cols))
                                 branch_soh_cols = [col for col in branch_soh_cols if col != 'Material Description']
 
                                 if branch_soh_cols:
-                                    # Prepare data for heatmap - Materials on X-axis, Branches on Y-axis
                                     heatmap_data = df[['Material Description'] + branch_soh_cols].copy()
 
-                                    # Convert to numeric and fill NaN with 0
                                     for col in branch_soh_cols:
                                         heatmap_data[col] = pd.to_numeric(heatmap_data[col], errors='coerce').fillna(0)
 
-                                    # Set Material Description as index (rows = materials)
                                     heatmap_data = heatmap_data.set_index('Material Description')
+                                    heatmap_data_transposed = heatmap_data.T
 
-                                    # Transpose so that Materials are on X-axis, Branches on Y-axis
-                                    heatmap_data_transposed = heatmap_data.T  # Branches become rows, Materials become columns
-
-                                    # Pagination: Split materials (columns) into pages of 10
                                     total_materials_soh = len(heatmap_data_transposed.columns)
-                                    materials_per_page_soh = 10  # Show 10 materials per page
+                                    materials_per_page_soh = 10
 
                                     if 'soh_heatmap_page' not in st.session_state:
                                         st.session_state.soh_heatmap_page = 1
@@ -3701,7 +3776,6 @@ with tab1:
 
                                         start_idx_soh = (st.session_state.soh_heatmap_page - 1) * materials_per_page_soh
                                         end_idx_soh = min(start_idx_soh + materials_per_page_soh, total_materials_soh)
-                                        # Select a subset of columns (materials) for current page
                                         page_materials_soh = heatmap_data_transposed.columns[start_idx_soh:end_idx_soh]
                                         heatmap_page_df_soh = heatmap_data_transposed[page_materials_soh]
                                         st.info(f"Showing materials {start_idx_soh + 1} to {end_idx_soh} of {total_materials_soh}")
@@ -3709,48 +3783,30 @@ with tab1:
                                         heatmap_page_df_soh = heatmap_data_transposed
 
                                     if not heatmap_page_df_soh.empty:
-                                        # Create heatmap with Reds color scale
-                                        # X-axis: Materials, Y-axis: Branches
                                         fig_soh = go.Figure(data=go.Heatmap(
-                                            z=heatmap_page_df_soh.values,  # Stock values
-                                            y=heatmap_page_df_soh.index,   # Branches (Y-axis)
-                                            x=heatmap_page_df_soh.columns, # Materials (X-axis)
+                                            z=heatmap_page_df_soh.values,
+                                            y=heatmap_page_df_soh.index,
+                                            x=heatmap_page_df_soh.columns,
                                             colorscale='Reds',
                                             zmin=0,
                                             zmax=heatmap_page_df_soh.max().max(),
                                             text=heatmap_page_df_soh.values,
                                             texttemplate='%{text:,.0f}',
                                             textfont={"size": 12},
-                                            colorbar=dict(
-                                                title="Stock on Hand (Units)",
-                                                title_side="right",
-                                                ticks="outside"
-                                            ),
-                                            hovertemplate='<b>Material:</b> %{x}<br>' +
-                                                          '<b>Branch:</b> %{y}<br>' +
-                                                          '<b>SOH:</b> %{z:,.0f} units<br>' +
-                                                          '<extra></extra>'
+                                            colorbar=dict(title="Stock on Hand (Units)", title_side="right", ticks="outside"),
+                                            hovertemplate='<b>Material:</b> %{x}<br><b>Branch:</b> %{y}<br><b>SOH:</b> %{z:,.0f} units<br><extra></extra>'
                                         ))
 
                                         fig_soh.update_layout(
                                             title="EPSS Hubs Stock on Hand Distribution",
-                                            xaxis={
-                                                'title': 'Material Description',
-                                                'tickangle': -45,
-                                                'tickfont': {'size': 10},
-                                                'automargin': True
-                                            },
-                                            yaxis={
-                                                'title': 'Branches / Hubs',
-                                                'tickfont': {'size': 11}
-                                            },
+                                            xaxis={'title': 'Material Description', 'tickangle': -45, 'tickfont': {'size': 10}, 'automargin': True},
+                                            yaxis={'title': 'Branches / Hubs', 'tickfont': {'size': 11}},
                                             height=max(500, 35 * len(heatmap_page_df_soh.index)),
                                             margin=dict(l=150, r=50, t=80, b=200)
                                         )
 
                                         st.plotly_chart(fig_soh, use_container_width=True)
 
-                                        # Heatmap summary statistics
                                         st.markdown("**Summary Statistics for Current Page:**")
                                         col_h1, col_h2, col_h3, col_h4 = st.columns(4)
                                         with col_h1:
@@ -3765,11 +3821,9 @@ with tab1:
                                             max_material_value = int(heatmap_page_df_soh.sum(axis=0).max()) if not heatmap_page_df_soh.empty else 0
                                             st.metric("🥇 Material with Most Stock", max_material[:25], delta=f"{max_material_value:,} units")
                                         with col_h4:
-                                            # Average stock per material on this page
                                             avg_stock = heatmap_page_df_soh.mean(axis=0).mean() if not heatmap_page_df_soh.empty else 0
                                             st.metric("📊 Avg Stock per Material", f"{int(avg_stock):,}")
 
-                                        # Overall summary (all materials)
                                         with st.expander("📊 View Overall Summary (All Materials)"):
                                             total_stock_all = heatmap_data.sum().sum()
                                             hub_max_all = heatmap_data.T.sum(axis=1).idxmax()
@@ -3971,17 +4025,12 @@ with tab1:
                     use_container_width=True
                 )
 
-                # Action Plan Table
+                # ACTION PLAN
                 st.markdown("---")
                 st.markdown("<h4 style='font-size: 20px; font-weight: bold;'>📝 Action Plan - Materials Requiring Attention</h4>", unsafe_allow_html=True)
 
-                # Initialize selected_tab in session state if not exists
-                if 'action_plan_tab' not in st.session_state:
-                    st.session_state.action_plan_tab = "📋 All Issues"
-
                 selected_tab_action = st.session_state.action_plan_tab
 
-                # Stylish filter buttons
                 col_filter1, col_filter2, col_filter3, col_filter4, col_filter5, col_filter6 = st.columns(6)
 
                 with col_filter1:
@@ -4013,317 +4062,299 @@ with tab1:
 
                 action_plan = []
 
-                for idx, row in df_filtered.iterrows():
-                    material = row['Material Description']
-                    nmos = row.get('NMOS', 0)
-                    tmos = row.get('TMOS', 0)
-                    nsoh = row.get('NSOH', 0)
-                    amc = row.get('AMC', 0)
-                    stock_status = row.get('Stock Status', '')
-                    risk_type = row.get('Risk Type', '')
-                    has_expiry_risk = row.get('Has Expiry Risk', False)
-                    risk_of_stock = row.get('Risk of Stock', '')
+                def get_end_of_month_date(year, month):
+                    year_int = int(year)
+                    month_int = int(month)
+                    if month_int == 12:
+                        next_month = 1
+                        next_year = year_int + 1
+                    else:
+                        next_month = month_int + 1
+                        next_year = year_int
+                    last_day = (datetime(next_year, next_month, 1) - timedelta(days=1)).day
+                    return datetime(year_int, month_int, last_day)
 
+                def calculate_due_date_for_pipeline(tmos):
+                    current_date = datetime.now()
+
+                    if tmos < 8:
+                        return "IMMEDIATELY"
+                    else:
+                        months_until_need = tmos - 8
+
+                        if months_until_need <= 0.3:
+                            first_day = current_date.replace(day=1)
+                            return f"Beginning of this month ({first_day.strftime('%d %b %Y')})"
+                        elif months_until_need <= 0.7:
+                            last_day = get_end_of_month_date(current_date.year, current_date.month)
+                            return f"End of this month ({last_day.strftime('%d %b %Y')})"
+                        else:
+                            target_date = current_date + timedelta(days=int(months_until_need * 30))
+                            return f"By {target_date.strftime('%d %b %Y')}"
+
+                def get_total_pipeline_mos(row):
                     git_mos = row.get('GIT_MOS', 0)
                     lc_mos = row.get('LC_MOS', 0)
                     wb_mos = row.get('WB_MOS', 0)
                     tmd_mos = row.get('TMD_MOS', 0)
+                    try:
+                        git_mos = float(git_mos) if pd.notna(git_mos) else 0
+                        lc_mos = float(lc_mos) if pd.notna(lc_mos) else 0
+                        wb_mos = float(wb_mos) if pd.notna(wb_mos) else 0
+                        tmd_mos = float(tmd_mos) if pd.notna(tmd_mos) else 0
+                    except:
+                        return 0
+                    return git_mos + lc_mos + wb_mos + tmd_mos
 
+                def has_pipeline(row):
+                    return get_total_pipeline_mos(row) > 0
+
+                def get_pipeline_recommendation(row):
+                    git_mos = row.get('GIT_MOS', 0)
+                    lc_mos = row.get('LC_MOS', 0)
+                    wb_mos = row.get('WB_MOS', 0)
+                    tmd_mos = row.get('TMD_MOS', 0)
                     git_po = row.get('GIT_PO', '')
                     lc_po = row.get('LC_PO', '')
                     wb_po = row.get('WB_PO', '')
                     tmd_po = row.get('TMD_PO', '')
 
                     try:
-                        nmos = float(nmos) if pd.notna(nmos) else 0
-                        tmos = float(tmos) if pd.notna(tmos) else 0
-                        nsoh = float(nsoh) if pd.notna(nsoh) else 0
-                        amc = float(amc) if pd.notna(amc) else 0
                         git_mos = float(git_mos) if pd.notna(git_mos) else 0
                         lc_mos = float(lc_mos) if pd.notna(lc_mos) else 0
                         wb_mos = float(wb_mos) if pd.notna(wb_mos) else 0
                         tmd_mos = float(tmd_mos) if pd.notna(tmd_mos) else 0
+                    except:
+                        return "⚠️ Pipeline exists but no PO details available", "EPSS_DMD"
+
+                    if git_mos > 0:
+                        po_text = f" PO {git_po}" if git_po and str(git_po) != 'nan' else ""
+                        return f"🚚 Expedite shipment{po_text}", "EPSS_CMD"
+                    elif lc_mos > 0:
+                        po_text = f" PO {lc_po}" if lc_po and str(lc_po) != 'nan' else ""
+                        return f"📄 Expedite L/C opening process{po_text}", "EPSS_CMD, EPSS_DMD"
+                    elif wb_mos > 0:
+                        po_text = f" PO {wb_po}" if wb_po and str(wb_po) != 'nan' else ""
+                        return f"💰 Expedite budget transfer{po_text}", "EPSS_Finance, MOH"
+                    elif tmd_mos > 0:
+                        po_text = f" PO {tmd_po}" if tmd_po and str(tmd_po) != 'nan' else ""
+                        return f"📋 Expedite tender process{po_text}", "EPSS_PMD, EPSS_DMD"
+                    else:
+                        return "⚠️ Pipeline exists but no PO details available", "EPSS_DMD"
+
+                for idx, row in df_filtered.iterrows():
+                    material = row['Material Description']
+                    if pd.isna(material):
+                        continue
+
+                    nmos = row.get('NMOS', 0)
+                    tmos = row.get('TMOS', 0)
+                    nsoh = row.get('NSOH', 0)
+                    amc = row.get('AMC', 0)
+                    risk_type = row.get('Risk Type', '')
+                    has_expiry_risk = row.get('Has Expiry Risk', False)
+                    risk_of_stock = row.get('Risk of Stock', '')
+                    cv_category = row.get('CV Category', 'Unknown')
+
+                    try:
+                        nmos = float(nmos) if pd.notna(nmos) else 0
+                        tmos = float(tmos) if pd.notna(tmos) else 0
+                        nsoh = float(nsoh) if pd.notna(nsoh) else 0
+                        amc = float(amc) if pd.notna(amc) else 0
                     except:
                         continue
 
                     if amc == 0 and not has_expiry_risk:
                         continue
 
-                    pmos = git_mos + lc_mos + wb_mos + tmd_mos
-                    problems_list = []
-
-                    current_date = datetime.now()
-                    current_month = current_date.month
-                    current_year = current_date.year
-
-                    def get_end_of_month_date(year, month):
-                        year_int = int(year)
-                        month_int = int(month)
-                        if month_int == 12:
-                            next_month = 1
-                            next_year = year_int + 1
-                        else:
-                            next_month = month_int + 1
-                            next_year = year_int
-                        last_day = (datetime(next_year, next_month, 1) - timedelta(days=1)).day
-                        return datetime(year_int, month_int, last_day)
-
-                    def has_pipeline():
-                        return pmos > 0
-
-                    def get_pipeline_recommendation():
-                        recommendations = []
-                        responsible = []
-
-                        if git_mos > 0 and git_po != '' and str(git_po) != 'nan':
-                            recommendations.append(f"🚚 Expedite shipment for GIT PO: {git_po}")
-                            responsible.append("EPSS_CMD")
-                        if lc_mos > 0 and lc_po != '' and str(lc_po) != 'nan':
-                            recommendations.append(f"📄 Expedite L/C opening for PO: {lc_po}")
-                            responsible.append("EPSS_CMD, EPSS_DMD")
-                        if wb_mos > 0 and wb_po != '' and str(wb_po) != 'nan':
-                            recommendations.append(f"💰 Expedite budget transfer for PO: {wb_po}")
-                            responsible.append("EPSS_Finance, MOH")
-                        if tmd_mos > 0 and tmd_po != '' and str(tmd_po) != 'nan':
-                            recommendations.append(f"📋 Expedite tender process for PO: {tmd_po}")
-                            responsible.append("EPSS_PMD, EPSS_DMD")
-
-                        if recommendations:
-                            return " | ".join(recommendations), ", ".join(set(responsible))
-                        return "⚠️ Pipeline exists but no PO details available", "EPSS_DMD"
-
-                    # Check for STOCK OUT
-                    if stock_status == 'Stock Out' or nmos < 1:
-                        if has_pipeline():
-                            action_point, responsible_body = get_pipeline_recommendation()
-                        else:
-                            order_qty = int((18 - tmos) * amc) if amc > 0 else 0
-                            action_point = f"📦 Place urgent order for {order_qty:,} units - no pipeline stock"
-                            responsible_body = "EPSS_CMD, EPSS_DMD"
-
-                        end_of_month = get_end_of_month_date(current_year, current_month)
-                        due_date = end_of_month.strftime('Before %d %b %Y')
-
-                        problems_list.append({
-                            'problem': '🔴 Stock Out',
-                            'action_point': action_point,
-                            'responsible_body': responsible_body,
-                            'due_date': due_date
-                        })
-
-                    # Check for RISK OF STOCK OUT
-                    if (risk_of_stock == 'Risk of Stock out' or risk_type == 'Risk of Stock out') and nmos < 6 and nmos >= 1:
-                        if has_pipeline():
-                            action_point, responsible_body = get_pipeline_recommendation()
-                        else:
-                            order_qty = int((18 - tmos) * amc) if amc > 0 else 0
-                            action_point = f"📦 Place order for {order_qty:,} units - initiate procurement (no pipeline stock)"
-                            responsible_body = "EPSS_DMD"
-
-                        end_of_month = get_end_of_month_date(current_year, current_month)
-                        due_date = end_of_month.strftime('Before %d %b %Y')
-
-                        problems_list.append({
-                            'problem': '🟡 Risk of Stock Out',
-                            'action_point': action_point,
-                            'responsible_body': responsible_body,
-                            'due_date': due_date
-                        })
-
-                    # Check for EXPIRY RISK
-                    if has_expiry_risk or risk_type == 'Expiry Risk':
-                        action_point = get_expiry_risk_recommendation(row)
-                        responsible_body = "EPSS_DMD"
-                        due_date = "ASAP"
-
-                        problems_list.append({
-                            'problem': '⚠️ Expiry Risk',
-                            'action_point': action_point,
-                            'responsible_body': responsible_body,
-                            'due_date': due_date
-                        })
-
-                    # Check for BELOW MINIMUM STOCK LEVEL
-                    if nmos < 6 and nmos >= 1 and not has_expiry_risk and not (risk_of_stock == 'Risk of Stock out' or risk_type == 'Risk of Stock out'):
-                        if has_pipeline():
-                            action_point, responsible_body = get_pipeline_recommendation()
-                        else:
-                            order_qty = int((6 - nmos) * amc) if amc > 0 else 0
-                            action_point = f"📦 Place order for {order_qty:,} units to reach minimum stock level (6 months) - no pipeline stock"
-                            responsible_body = "EPSS_DMD"
-
-                        end_of_month = get_end_of_month_date(current_year, current_month)
-                        due_date = end_of_month.strftime('Before %d %b %Y')
-
-                        problems_list.append({
-                            'problem': '📉 Below Minimum Stock Level',
-                            'action_point': action_point,
-                            'responsible_body': responsible_body,
-                            'due_date': due_date
-                        })
-
-                    # Check for PIPELINE INSUFFICIENT
-                    if tmos < 18 and nmos >= 6 and not has_expiry_risk:
-                        if has_pipeline():
-                            action_point, responsible_body = get_pipeline_recommendation()
-                        else:
-                            order_qty = int((18 - tmos) * amc) if amc > 0 else 0
-                            action_point = f"📦 Place order for {order_qty:,} units to reach maximum stock level (18 months) - no pipeline stock"
-                            responsible_body = "MOH"
-
-                        due_date = "Plan for next quarter"
-
-                        problems_list.append({
-                            'problem': '📦 Pipeline Insufficient - Cannot Reach Max Stock',
-                            'action_point': action_point,
-                            'responsible_body': responsible_body,
-                            'due_date': due_date
-                        })
-
-                    if not problems_list:
-                        continue
+                    mos_needed_calc = 18 - tmos
+                    if mos_needed_calc < 0:
+                        mos_needed_calc = 0
 
                     nsoh_formatted = f"{int(nsoh):,}" if nsoh > 0 else "0"
                     amc_formatted = f"{int(amc):,}" if amc > 0 else "N/A"
-                    pmos_formatted = f"{round(pmos, 2)}" if pmos > 0 else "0"
+                    pmos = round(get_total_pipeline_mos(row), 2)
 
-                    for problem_item in problems_list:
+                    current_date = datetime.now()
+                    end_of_month = get_end_of_month_date(current_date.year, current_date.month)
+
+                    if nmos < 1:
+                        if has_pipeline(row):
+                            action_point, responsible_body = get_pipeline_recommendation(row)
+                        else:
+                            action_point = f"🆘 CRITICAL: Place URGENT order - stock out"
+                            responsible_body = "MOH"
+
                         action_plan.append({
                             'Material': material,
                             'NSOH': nsoh_formatted,
                             'AMC': amc_formatted,
-                            'PMOS': pmos_formatted,
+                            'PMOS': pmos,
                             'NMOS': round(nmos, 2),
                             'TMOS': round(tmos, 2),
-                            'Identified Problem': problem_item['problem'],
-                            'Action Point': problem_item['action_point'],
-                            'Responsible Body': problem_item['responsible_body'],
-                            'Due Date': problem_item['due_date']
+                            'MOS Needed': round(mos_needed_calc, 2),
+                            'Identified Problem': '🔴 Stock Out',
+                            'Action Point': action_point,
+                            'Responsible Body': responsible_body,
+                            'Due Date': 'IMMEDIATELY'
+                        })
+
+                    if risk_of_stock == 'Risk of Stock out' or risk_type == 'Risk of Stock out':
+                        if has_pipeline(row):
+                            action_point, responsible_body = get_pipeline_recommendation(row)
+                        else:
+                            action_point = f"⚠️ Place order - at risk of stock out"
+                            responsible_body = "MOH"
+
+                        action_plan.append({
+                            'Material': material,
+                            'NSOH': nsoh_formatted,
+                            'AMC': amc_formatted,
+                            'PMOS': pmos,
+                            'NMOS': round(nmos, 2),
+                            'TMOS': round(tmos, 2),
+                            'MOS Needed': round(mos_needed_calc, 2),
+                            'Identified Problem': '🟡 Risk of Stock Out',
+                            'Action Point': action_point,
+                            'Responsible Body': responsible_body,
+                            'Due Date': end_of_month.strftime('Before %d %b %Y')
+                        })
+
+                    if has_expiry_risk or risk_type == 'Expiry Risk':
+                        hubs_pct = row.get('Hubs%', 0)
+                        ho_pct = row.get('Head Office%', 0)
+
+                        try:
+                            hubs_pct = float(hubs_pct) if pd.notna(hubs_pct) else 0
+                            ho_pct = float(ho_pct) if pd.notna(ho_pct) else 0
+                        except:
+                            hubs_pct = 0
+                            ho_pct = 0
+
+                        if cv_category == 'High variation':
+                            action_point = f"🔄 Redistribution required - high variation across hubs"
+                            responsible_body = "EPSS_DMD, Branch Managers"
+                        elif hubs_pct < ho_pct:
+                            action_point = f"📦 Push stock to hubs - hubs have lower stock than head office"
+                            responsible_body = "EPSS_DMD, Logistics"
+                        else:
+                            action_point = f"🌍 Explore donation options - excess stock that may expire"
+                            responsible_body = "EPSS_DMD, MOH"
+
+                        action_plan.append({
+                            'Material': material,
+                            'NSOH': nsoh_formatted,
+                            'AMC': amc_formatted,
+                            'PMOS': pmos,
+                            'NMOS': round(nmos, 2),
+                            'TMOS': round(tmos, 2),
+                            'MOS Needed': round(mos_needed_calc, 2),
+                            'Identified Problem': '⚠️ Expiry Risk',
+                            'Action Point': action_point,
+                            'Responsible Body': responsible_body,
+                            'Due Date': 'ASAP'
+                        })
+
+                    if 1 <= nmos < 6:
+                        if has_pipeline(row):
+                            action_point, responsible_body = get_pipeline_recommendation(row)
+                        else:
+                            months_needed_stock = 6 - nmos
+                            order_qty = int(months_needed_stock * amc) if amc > 0 else 0
+                            action_point = f"📊 Need {months_needed_stock:.1f} months ({order_qty:,} units) to reach minimum stock level (6 months)"
+                            responsible_body = "EPSS_DMD"
+
+                        action_plan.append({
+                            'Material': material,
+                            'NSOH': nsoh_formatted,
+                            'AMC': amc_formatted,
+                            'PMOS': pmos,
+                            'NMOS': round(nmos, 2),
+                            'TMOS': round(tmos, 2),
+                            'MOS Needed': round(mos_needed_calc, 2),
+                            'Identified Problem': '📉 Below Minimum Stock Level',
+                            'Action Point': action_point,
+                            'Responsible Body': responsible_body,
+                            'Due Date': end_of_month.strftime('Before %d %b %Y')
+                        })
+
+                    if tmos < 18:
+                        months_needed_stock = 18 - tmos
+                        order_qty = int(months_needed_stock * amc) if amc > 0 and months_needed_stock > 0 else 0
+                        action_point = f"📋 Need {months_needed_stock:.1f} months ({order_qty:,} units) to reach maximum stock level (18 months)"
+                        responsible_body = "MOH"
+                        due_date = calculate_due_date_for_pipeline(tmos)
+
+                        action_plan.append({
+                            'Material': material,
+                            'NSOH': nsoh_formatted,
+                            'AMC': amc_formatted,
+                            'PMOS': pmos,
+                            'NMOS': round(nmos, 2),
+                            'TMOS': round(tmos, 2),
+                            'MOS Needed': round(mos_needed_calc, 2),
+                            'Identified Problem': '📦 Pipeline Insufficient - Cannot Reach Max Stock',
+                            'Action Point': action_point,
+                            'Responsible Body': responsible_body,
+                            'Due Date': due_date
                         })
 
                 if action_plan:
                     action_df = pd.DataFrame(action_plan)
 
-                    total_items = len(action_df)
-                    stock_out_count = len([a for a in action_plan if a['Identified Problem'] == '🔴 Stock Out'])
-                    risk_count = len([a for a in action_plan if a['Identified Problem'] == '🟡 Risk of Stock Out'])
-                    expiry_count = len([a for a in action_plan if a['Identified Problem'] == '⚠️ Expiry Risk'])
-                    below_min_count = len([a for a in action_plan if a['Identified Problem'] == '📉 Below Minimum Stock Level'])
-                    pipeline_insufficient_count = len([a for a in action_plan if a['Identified Problem'] == '📦 Pipeline Insufficient - Cannot Reach Max Stock'])
-
-                    # Metric cards
-                    st.markdown("""
-                    <style>
-                    .metric-card {
-                        background: white;
-                        border-radius: 15px;
-                        padding: 15px;
-                        text-align: center;
-                        box-shadow: 0 4px 6px rgba(0,0,0,0.1);
-                        transition: transform 0.3s ease;
-                    }
-                    .metric-card:hover {
-                        transform: translateY(-5px);
-                        box-shadow: 0 8px 15px rgba(0,0,0,0.2);
-                    }
-                    .metric-value {
-                        font-size: 28px;
-                        font-weight: bold;
-                        margin: 10px 0;
-                    }
-                    .metric-label {
-                        font-size: 14px;
-                        color: #666;
-                    }
-                    </style>
-                    """, unsafe_allow_html=True)
+                    total_issues = len(action_df)
+                    stock_out_count = len(action_df[action_df['Identified Problem'] == '🔴 Stock Out'])
+                    risk_count = len(action_df[action_df['Identified Problem'] == '🟡 Risk of Stock Out'])
+                    expiry_count = len(action_df[action_df['Identified Problem'] == '⚠️ Expiry Risk'])
+                    below_min_count = len(action_df[action_df['Identified Problem'] == '📉 Below Minimum Stock Level'])
+                    pipeline_insufficient_count = len(action_df[action_df['Identified Problem'] == '📦 Pipeline Insufficient - Cannot Reach Max Stock'])
 
                     col1, col2, col3, col4, col5, col6 = st.columns(6)
 
                     with col1:
-                        st.markdown(f"""
-                        <div class="metric-card">
-                            <div>📋</div>
-                            <div class="metric-value">{total_items}</div>
-                            <div class="metric-label">Total Issues</div>
-                        </div>
-                        """, unsafe_allow_html=True)
+                        st.metric("📋 Total Issues", total_issues)
                     with col2:
-                        st.markdown(f"""
-                        <div class="metric-card">
-                            <div>🔴</div>
-                            <div class="metric-value" style="color:#ff4444;">{stock_out_count}</div>
-                            <div class="metric-label">Stock Out</div>
-                        </div>
-                        """, unsafe_allow_html=True)
+                        st.metric("🔴 Stock Out", stock_out_count)
                     with col3:
-                        st.markdown(f"""
-                        <div class="metric-card">
-                            <div>🟡</div>
-                            <div class="metric-value" style="color:#ffa500;">{risk_count}</div>
-                            <div class="metric-label">Risk of SO</div>
-                        </div>
-                        """, unsafe_allow_html=True)
+                        st.metric("🟡 Risk of SO", risk_count)
                     with col4:
-                        st.markdown(f"""
-                        <div class="metric-card">
-                            <div>⚠️</div>
-                            <div class="metric-value" style="color:#ff9800;">{expiry_count}</div>
-                            <div class="metric-label">Expiry Risk</div>
-                        </div>
-                        """, unsafe_allow_html=True)
+                        st.metric("⚠️ Expiry Risk", expiry_count)
                     with col5:
-                        st.markdown(f"""
-                        <div class="metric-card">
-                            <div>📉</div>
-                            <div class="metric-value" style="color:#2196F3;">{below_min_count}</div>
-                            <div class="metric-label">Below Min</div>
-                        </div>
-                        """, unsafe_allow_html=True)
+                        st.metric("📉 Below Min", below_min_count)
                     with col6:
-                        st.markdown(f"""
-                        <div class="metric-card">
-                            <div>📦</div>
-                            <div class="metric-value" style="color:#9C27B0;">{pipeline_insufficient_count}</div>
-                            <div class="metric-label">Pipeline Insuff</div>
-                        </div>
-                        """, unsafe_allow_html=True)
+                        st.metric("📦 Pipeline Insuff", pipeline_insufficient_count)
 
                     st.markdown("---")
 
-                    # APPLY FILTER
                     if selected_tab_action == "🔴 Stock Out":
                         filtered_df = action_df[action_df['Identified Problem'] == '🔴 Stock Out']
-                        st.info(f"📌 Showing {len(filtered_df)} items with STOCK OUT")
                     elif selected_tab_action == "🟡 Risk of Stock Out":
                         filtered_df = action_df[action_df['Identified Problem'] == '🟡 Risk of Stock Out']
-                        st.info(f"📌 Showing {len(filtered_df)} items with RISK OF STOCK OUT")
                     elif selected_tab_action == "⚠️ Expiry Risk":
                         filtered_df = action_df[action_df['Identified Problem'] == '⚠️ Expiry Risk']
-                        st.info(f"📌 Showing {len(filtered_df)} items with EXPIRY RISK")
                     elif selected_tab_action == "📉 Below Min Stock":
                         filtered_df = action_df[action_df['Identified Problem'] == '📉 Below Minimum Stock Level']
-                        st.info(f"📌 Showing {len(filtered_df)} items with BELOW MINIMUM STOCK LEVEL")
                     elif selected_tab_action == "📦 Pipeline Insufficient":
                         filtered_df = action_df[action_df['Identified Problem'] == '📦 Pipeline Insufficient - Cannot Reach Max Stock']
-                        st.info(f"📌 Showing {len(filtered_df)} items with PIPELINE INSUFFICIENT")
                     else:
                         filtered_df = action_df
-                        st.info(f"📌 Showing all {len(filtered_df)} action items")
+
+                    st.info(f"📌 Showing {len(filtered_df)} action items")
 
                     st.dataframe(
-                        filtered_df,
+                        filtered_df[['Material', 'NSOH', 'AMC', 'PMOS', 'NMOS', 'TMOS', 'MOS Needed', 'Identified Problem', 'Action Point', 'Responsible Body', 'Due Date']],
                         column_config={
-                            'Material': st.column_config.TextColumn('Material', width=180),
+                            'Material': st.column_config.TextColumn('Material', width=200, pinned=True),
                             'NSOH': st.column_config.TextColumn('NSOH', width=80),
                             'AMC': st.column_config.TextColumn('AMC', width=70),
-                            'PMOS': st.column_config.TextColumn('PMOS', width=70, help="Pipeline Months of Stock"),
-                            'NMOS': st.column_config.NumberColumn('NMOS', width=70, format="%.2f"),
-                            'TMOS': st.column_config.NumberColumn('TMOS', width=70, format="%.2f"),
-                            'Identified Problem': st.column_config.TextColumn('Identified Problem', width=220),
-                            'Action Point': st.column_config.TextColumn('Action Point', width=400),
-                            'Responsible Body': st.column_config.TextColumn('Responsible Body', width=180),
-                            'Due Date': st.column_config.TextColumn('Due Date', width=110)
+                            'PMOS': st.column_config.NumberColumn('PMOS', width=70, format='%.2f'),
+                            'NMOS': st.column_config.NumberColumn('NMOS', width=70, format='%.2f'),
+                            'TMOS': st.column_config.NumberColumn('TMOS', width=70, format='%.2f'),
+                            'MOS Needed': st.column_config.NumberColumn('MOS Needed', width=80, format='%.2f', help='Months needed to reach 18 months (18 - TMOS)'),
+                            'Identified Problem': st.column_config.TextColumn('Problem', width=220),
+                            'Action Point': st.column_config.TextColumn('Action Point', width=350),
+                            'Responsible Body': st.column_config.TextColumn('Responsible Body', width=150),
+                            'Due Date': st.column_config.TextColumn('Due Date', width=180)
                         },
                         use_container_width=True,
                         hide_index=True,
@@ -4355,370 +4386,343 @@ with tab1:
         else:
             st.info("TMOS, NMOS, or AMC data not available for supply planning")
 
-# ---------------------------------------------------
-# TAB 6 - Purchase Order Status
-# ---------------------------------------------------
-with tab6:
-    st.markdown("<h3 style='font-size: 28px; font-weight: bold; font-family: Times New Roman;'>📋 Purchase Order Status Tracking</h3>", unsafe_allow_html=True)
-    st.caption("Pipeline Purchase Orders - Track all active POs with their status and pipeline months of stock")
+    # ---------------------------------------------------
+    # TAB 6 - Purchase Order Status
+    # ---------------------------------------------------
+    with tab6:
+        st.markdown("<h3 style='font-size: 28px; font-weight: bold; font-family: Times New Roman;'>📋 Purchase Order Status Tracking</h3>", unsafe_allow_html=True)
+        st.caption("Pipeline Purchase Orders - Track all active POs with their status and pipeline months of stock")
 
-    if not df_filtered.empty:
-        po_records = []
+        if not df_filtered.empty:
+            po_records = []
 
-        for idx, row in df_filtered.iterrows():
-            material = row.get('Material Description', '')
-            if pd.isna(material) or material == '':
-                continue
+            for idx, row in df_filtered.iterrows():
+                material = row.get('Material Description', '')
+                if pd.isna(material) or material == '':
+                    continue
 
-            # Get the actual Status from the Stock Status Table
-            actual_status = row.get('Status', '')
-            if pd.isna(actual_status) or actual_status == '':
-                actual_status = 'No Status'
+                actual_status = row.get('Status', '')
+                if pd.isna(actual_status) or actual_status == '':
+                    actual_status = 'No Status'
 
-            # Get pipeline MOS values
-            git_mos = row.get('GIT_MOS', 0)
-            lc_mos = row.get('LC_MOS', 0)
-            wb_mos = row.get('WB_MOS', 0)
-            tmd_mos = row.get('TMD_MOS', 0)
+                git_mos = row.get('GIT_MOS', 0)
+                lc_mos = row.get('LC_MOS', 0)
+                wb_mos = row.get('WB_MOS', 0)
+                tmd_mos = row.get('TMD_MOS', 0)
 
-            # Get PO numbers
-            git_po = row.get('GIT_PO', '')
-            lc_po = row.get('LC_PO', '')
-            wb_po = row.get('WB_PO', '')
-            tmd_po = row.get('TMD_PO', '')
+                git_po = row.get('GIT_PO', '')
+                lc_po = row.get('LC_PO', '')
+                wb_po = row.get('WB_PO', '')
+                tmd_po = row.get('TMD_PO', '')
 
-            # Get quantities
-            git_qty = row.get('GIT_Qty', 0)
-            lc_qty = row.get('LC_Qty', 0)
-            wb_qty = row.get('WB_Qty', 0)
-            tmd_qty = row.get('TMD_Qty', 0)
+                git_qty = row.get('GIT_Qty', 0)
+                lc_qty = row.get('LC_Qty', 0)
+                wb_qty = row.get('WB_Qty', 0)
+                tmd_qty = row.get('TMD_Qty', 0)
 
-            # Convert to numeric
-            try:
-                git_mos = float(git_mos) if pd.notna(git_mos) else 0
-                lc_mos = float(lc_mos) if pd.notna(lc_mos) else 0
-                wb_mos = float(wb_mos) if pd.notna(wb_mos) else 0
-                tmd_mos = float(tmd_mos) if pd.notna(tmd_mos) else 0
+                try:
+                    git_mos = float(git_mos) if pd.notna(git_mos) else 0
+                    lc_mos = float(lc_mos) if pd.notna(lc_mos) else 0
+                    wb_mos = float(wb_mos) if pd.notna(wb_mos) else 0
+                    tmd_mos = float(tmd_mos) if pd.notna(tmd_mos) else 0
 
-                git_qty = float(git_qty) if pd.notna(git_qty) else 0
-                lc_qty = float(lc_qty) if pd.notna(lc_qty) else 0
-                wb_qty = float(wb_qty) if pd.notna(wb_qty) else 0
-                tmd_qty = float(tmd_qty) if pd.notna(tmd_qty) else 0
-            except:
-                continue
+                    git_qty = float(git_qty) if pd.notna(git_qty) else 0
+                    lc_qty = float(lc_qty) if pd.notna(lc_qty) else 0
+                    wb_qty = float(wb_qty) if pd.notna(wb_qty) else 0
+                    tmd_qty = float(tmd_qty) if pd.notna(tmd_qty) else 0
+                except:
+                    continue
 
-            # Process GIT PO
-            if git_mos > 0 and git_po != '' and str(git_po) != 'nan':
-                po_records.append({
-                    'Material Description': material,
-                    'PO Number': str(git_po),
-                    'Quantity': format_number_with_commas(git_qty) if git_qty > 0 else 'N/A',
-                    'PMOS': round(git_mos, 2),
-                    'Status': actual_status,  # CHANGED: Using actual Status from Stock Status Table
-                    'Status Type': 'GIT'
-                })
+                if git_mos > 0 and git_po != '' and str(git_po) != 'nan':
+                    po_records.append({
+                        'Material Description': material,
+                        'PO Number': str(git_po),
+                        'Quantity': format_number_with_commas(git_qty) if git_qty > 0 else 'N/A',
+                        'PMOS': round(git_mos, 2),
+                        'Status': actual_status,
+                        'Status Type': 'GIT'
+                    })
 
-            # Process LC PO
-            if lc_mos > 0 and lc_po != '' and str(lc_po) != 'nan':
-                po_records.append({
-                    'Material Description': material,
-                    'PO Number': str(lc_po),
-                    'Quantity': format_number_with_commas(lc_qty) if lc_qty > 0 else 'N/A',
-                    'PMOS': round(lc_mos, 2),
-                    'Status': actual_status,  # CHANGED: Using actual Status from Stock Status Table
-                    'Status Type': 'LC'
-                })
+                if lc_mos > 0 and lc_po != '' and str(lc_po) != 'nan':
+                    po_records.append({
+                        'Material Description': material,
+                        'PO Number': str(lc_po),
+                        'Quantity': format_number_with_commas(lc_qty) if lc_qty > 0 else 'N/A',
+                        'PMOS': round(lc_mos, 2),
+                        'Status': actual_status,
+                        'Status Type': 'LC'
+                    })
 
-            # Process WB PO
-            if wb_mos > 0 and wb_po != '' and str(wb_po) != 'nan':
-                po_records.append({
-                    'Material Description': material,
-                    'PO Number': str(wb_po),
-                    'Quantity': format_number_with_commas(wb_qty) if wb_qty > 0 else 'N/A',
-                    'PMOS': round(wb_mos, 2),
-                    'Status': actual_status,  # CHANGED: Using actual Status from Stock Status Table
-                    'Status Type': 'WB'
-                })
+                if wb_mos > 0 and wb_po != '' and str(wb_po) != 'nan':
+                    po_records.append({
+                        'Material Description': material,
+                        'PO Number': str(wb_po),
+                        'Quantity': format_number_with_commas(wb_qty) if wb_qty > 0 else 'N/A',
+                        'PMOS': round(wb_mos, 2),
+                        'Status': actual_status,
+                        'Status Type': 'WB'
+                    })
 
-            # Process TMD PO
-            if tmd_mos > 0 and tmd_po != '' and str(tmd_po) != 'nan':
-                po_records.append({
-                    'Material Description': material,
-                    'PO Number': str(tmd_po),
-                    'Quantity': format_number_with_commas(tmd_qty) if tmd_qty > 0 else 'N/A',
-                    'PMOS': round(tmd_mos, 2),
-                    'Status': actual_status,  # CHANGED: Using actual Status from Stock Status Table
-                    'Status Type': 'TMD'
-                })
+                if tmd_mos > 0 and tmd_po != '' and str(tmd_po) != 'nan':
+                    po_records.append({
+                        'Material Description': material,
+                        'PO Number': str(tmd_po),
+                        'Quantity': format_number_with_commas(tmd_qty) if tmd_qty > 0 else 'N/A',
+                        'PMOS': round(tmd_mos, 2),
+                        'Status': actual_status,
+                        'Status Type': 'TMD'
+                    })
 
-        if po_records:
-            po_df = pd.DataFrame(po_records)
+            if po_records:
+                po_df = pd.DataFrame(po_records)
 
-            # Summary metrics
-            col1, col2, col3, col4 = st.columns(4)
-            with col1:
-                st.metric("📋 Total POs", len(po_df))
-            with col2:
-                unique_materials = po_df['Material Description'].nunique()
-                st.metric("📦 Materials with POs", unique_materials)
-            with col3:
-                total_pmos = po_df['PMOS'].sum()
-                st.metric("📊 Total Pipeline MOS", f"{total_pmos:.2f}")
-            with col4:
-                status_counts = po_df['Status Type'].value_counts()
-                most_common = status_counts.index[0] if len(status_counts) > 0 else 'N/A'
-                st.metric("🔝 Most Common", most_common)
+                col1, col2, col3, col4 = st.columns(4)
+                with col1:
+                    st.metric("📋 Total POs", len(po_df))
+                with col2:
+                    unique_materials = po_df['Material Description'].nunique()
+                    st.metric("📦 Materials with POs", unique_materials)
+                with col3:
+                    total_pmos = po_df['PMOS'].sum()
+                    st.metric("📊 Total Pipeline MOS", f"{total_pmos:.2f}")
+                with col4:
+                    status_counts = po_df['Status Type'].value_counts()
+                    most_common = status_counts.index[0] if len(status_counts) > 0 else 'N/A'
+                    st.metric("🔝 Most Common", most_common)
+
+                st.markdown("---")
+
+                status_options = ["All"] + sorted(po_df['Status'].unique().tolist())
+                po_status_filter = st.selectbox("Filter by Status", status_options, key="po_status_filter")
+
+                if po_status_filter != "All":
+                    filtered_po_df = po_df[po_df['Status'] == po_status_filter]
+                    st.info(f"Showing {len(filtered_po_df)} POs with status: {po_status_filter}")
+                else:
+                    filtered_po_df = po_df
+                    st.info(f"Showing all {len(filtered_po_df)} POs")
+
+                po_search = st.text_input("🔍 Search by Material or PO Number", placeholder="e.g., 'artesunate' or 'PO-12345'")
+                if po_search:
+                    search_mask = (
+                        filtered_po_df['Material Description'].str.contains(po_search, case=False, na=False) |
+                        filtered_po_df['PO Number'].str.contains(po_search, case=False, na=False)
+                    )
+                    filtered_po_df = filtered_po_df[search_mask]
+                    st.info(f"Found {len(filtered_po_df)} matching POs")
+
+                st.dataframe(
+                    filtered_po_df,
+                    column_config={
+                        'Material Description': st.column_config.TextColumn('Material Description', width=300),
+                        'PO Number': st.column_config.TextColumn('PO Number', width=150),
+                        'Quantity': st.column_config.TextColumn('Quantity', width=100),
+                        'PMOS': st.column_config.NumberColumn('PMOS (Months)', width=100, format="%.2f"),
+                        'Status': st.column_config.TextColumn('Status', width=200),
+                        'Status Type': st.column_config.TextColumn('Type', width=80)
+                    },
+                    use_container_width=True,
+                    hide_index=True
+                )
+            else:
+                st.info("No active purchase orders found")
+
+    # ---------------------------------------------------
+    # TAB 7 - New Deliveries
+    # ---------------------------------------------------
+    with tab7:
+        if not df_new_deliveries.empty and sheet_name != "All" and sheet_name in google_sheets:
+            program_materials = google_sheets[sheet_name]['Material Description'].dropna().tolist()
+            df_new_deliveries = df_new_deliveries[df_new_deliveries['Material Description'].isin(program_materials)]
+
+        st.markdown("<h3 style='font-size: 28px; font-weight: bold; font-family: Times New Roman;'>🚚 New Deliveries Tracking</h3>", unsafe_allow_html=True)
+        st.caption("Track incoming deliveries - Purchase Orders and Quantities")
+
+        if not df_new_deliveries.empty:
+            df_new_deliveries['Posting Date'] = pd.to_datetime(df_new_deliveries['Posting Date'], errors='coerce')
+
+            st.markdown("#### 📅 Date Range Filter")
+            col_date1, col_date2 = st.columns(2)
+
+            min_date = df_new_deliveries['Posting Date'].min().date() if not df_new_deliveries['Posting Date'].isna().all() else datetime.now().date()
+            max_date = df_new_deliveries['Posting Date'].max().date() if not df_new_deliveries['Posting Date'].isna().all() else datetime.now().date()
+
+            with col_date1:
+                start_date = st.date_input("From Date", value=min_date, min_value=min_date, max_value=max_date, key="start_date")
+            with col_date2:
+                end_date = st.date_input("To Date", value=max_date, min_value=min_date, max_value=max_date, key="end_date")
+
+            mask_date = (df_new_deliveries['Posting Date'].dt.date >= start_date) & (df_new_deliveries['Posting Date'].dt.date <= end_date)
+            filtered_delivery_df = df_new_deliveries[mask_date].copy()
 
             st.markdown("---")
 
-            # Status filter
-            status_options = ["All"] + sorted(po_df['Status'].unique().tolist())
-            po_status_filter = st.selectbox("Filter by Status", status_options, key="po_status_filter")
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                st.metric("📦 Total Deliveries", len(filtered_delivery_df))
+            with col2:
+                unique_pos = filtered_delivery_df['PO Number'].nunique() if 'PO Number' in filtered_delivery_df.columns else 0
+                st.metric("📋 Unique POs", unique_pos)
+            with col3:
+                if not filtered_delivery_df.empty and 'Posting Date' in filtered_delivery_df.columns:
+                    newest_row = filtered_delivery_df.loc[filtered_delivery_df['Posting Date'].idxmax()]
+                    newest_po = newest_row.get('PO Number', 'N/A')
+                    newest_date = newest_row.get('Posting Date', datetime.now()).strftime('%d/%m/%y')
+                    st.metric("🆕 Newest PO", newest_po, delta=f"Date: {newest_date}")
+                else:
+                    st.metric("🆕 Newest PO", "N/A")
 
-            if po_status_filter != "All":
-                filtered_po_df = po_df[po_df['Status'] == po_status_filter]
-                st.info(f"Showing {len(filtered_po_df)} POs with status: {po_status_filter}")
+            st.markdown("---")
+
+            search_delivery = st.text_input("🔍 Search by Material, PO Number", placeholder="e.g., 'artesunate' or 'PO-12345'")
+
+            if search_delivery:
+                mask = filtered_delivery_df.astype(str).apply(
+                    lambda col: col.str.contains(search_delivery, case=False, na=False)
+                ).any(axis=1)
+                filtered_delivery_df = filtered_delivery_df[mask]
+                st.info(f"Found {len(filtered_delivery_df)} matching deliveries")
+
+            display_df = filtered_delivery_df.copy()
+            if 'Quantity' in display_df.columns:
+                display_df['Quantity'] = pd.to_numeric(display_df['Quantity'], errors='coerce')
+                display_df['Quantity_display'] = display_df['Quantity'].apply(format_number_with_commas)
             else:
-                filtered_po_df = po_df
-                st.info(f"Showing all {len(filtered_po_df)} POs")
+                display_df['Quantity_display'] = 'N/A'
 
-            # Search box
-            po_search = st.text_input("🔍 Search by Material or PO Number", placeholder="e.g., 'artesunate' or 'PO-12345'")
-            if po_search:
-                search_mask = (
-                    filtered_po_df['Material Description'].str.contains(po_search, case=False, na=False) |
-                    filtered_po_df['PO Number'].str.contains(po_search, case=False, na=False)
-                )
-                filtered_po_df = filtered_po_df[search_mask]
-                st.info(f"Found {len(filtered_po_df)} matching POs")
+            if 'Posting Date' in display_df.columns:
+                display_df['Posting Date'] = display_df['Posting Date'].dt.strftime('%Y-%m-%d')
 
-            # Display table
+            st.markdown("### 📋 Table 1: Detailed Deliveries")
+
+            if 'Posting Date' in display_df.columns:
+                display_df = display_df.sort_values('Posting Date', ascending=False)
+
+            display_cols = ['Material Description', 'Posting Date', 'PO Number', 'Quantity_display']
+            display_cols = [col for col in display_cols if col in display_df.columns]
+            display_rename = {'Quantity_display': 'Quantity'}
+
             st.dataframe(
-                filtered_po_df,
+                display_df[display_cols].rename(columns=display_rename),
                 column_config={
                     'Material Description': st.column_config.TextColumn('Material Description', width=300),
-                    'PO Number': st.column_config.TextColumn('PO Number', width=150),
-                    'Quantity': st.column_config.TextColumn('Quantity', width=100),
-                    'PMOS': st.column_config.NumberColumn('PMOS (Months)', width=100, format="%.2f"),
-                    'Status': st.column_config.TextColumn('Status', width=200),
-                    'Status Type': st.column_config.TextColumn('Type', width=80)
-                },
-                use_container_width=True,
-                hide_index=True
-            )
-
-# ---------------------------------------------------
-# TAB 7 - New Deliveries
-# ---------------------------------------------------
-with tab7:
-    # Filter by selected program
-    if not df_new_deliveries.empty and sheet_name != "All" and sheet_name in google_sheets:
-        program_materials = google_sheets[sheet_name]['Material Description'].dropna().tolist()
-        df_new_deliveries = df_new_deliveries[df_new_deliveries['Material Description'].isin(program_materials)]
-
-    st.markdown("<h3 style='font-size: 28px; font-weight: bold; font-family: Times New Roman;'>🚚 New Deliveries Tracking</h3>", unsafe_allow_html=True)
-    st.caption("Track incoming deliveries - Purchase Orders and Quantities")
-
-    if not df_new_deliveries.empty:
-        # Convert Posting Date to datetime
-        df_new_deliveries['Posting Date'] = pd.to_datetime(df_new_deliveries['Posting Date'], errors='coerce')
-
-        # Date range filter
-        st.markdown("#### 📅 Date Range Filter")
-        col_date1, col_date2 = st.columns(2)
-
-        # Get min and max dates from data
-        min_date = df_new_deliveries['Posting Date'].min().date() if not df_new_deliveries['Posting Date'].isna().all() else datetime.now().date()
-        max_date = df_new_deliveries['Posting Date'].max().date() if not df_new_deliveries['Posting Date'].isna().all() else datetime.now().date()
-
-        with col_date1:
-            start_date = st.date_input("From Date", value=min_date, min_value=min_date, max_value=max_date, key="start_date")
-        with col_date2:
-            end_date = st.date_input("To Date", value=max_date, min_value=min_date, max_value=max_date, key="end_date")
-
-        # Filter by date range
-        mask_date = (df_new_deliveries['Posting Date'].dt.date >= start_date) & (df_new_deliveries['Posting Date'].dt.date <= end_date)
-        filtered_delivery_df = df_new_deliveries[mask_date].copy()
-
-        st.markdown("---")
-
-        # Summary metrics
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            st.metric("📦 Total Deliveries", len(filtered_delivery_df))
-        with col2:
-            unique_pos = filtered_delivery_df['PO Number'].nunique() if 'PO Number' in filtered_delivery_df.columns else 0
-            st.metric("📋 Unique POs", unique_pos)
-        with col3:
-            if not filtered_delivery_df.empty and 'Posting Date' in filtered_delivery_df.columns:
-                newest_row = filtered_delivery_df.loc[filtered_delivery_df['Posting Date'].idxmax()]
-                newest_po = newest_row.get('PO Number', 'N/A')
-                newest_date = newest_row.get('Posting Date', datetime.now()).strftime('%d/%m/%y')
-                st.metric("🆕 Newest PO", newest_po, delta=f"Date: {newest_date}")
-            else:
-                st.metric("🆕 Newest PO", "N/A")
-
-        st.markdown("---")
-
-        # Search filter
-        search_delivery = st.text_input("🔍 Search by Material, PO Number", placeholder="e.g., 'artesunate' or 'PO-12345'")
-
-        if search_delivery:
-            mask = filtered_delivery_df.astype(str).apply(
-                lambda col: col.str.contains(search_delivery, case=False, na=False)
-            ).any(axis=1)
-            filtered_delivery_df = filtered_delivery_df[mask]
-            st.info(f"Found {len(filtered_delivery_df)} matching deliveries")
-
-        # Format Quantity column for display
-        display_df = filtered_delivery_df.copy()
-        if 'Quantity' in display_df.columns:
-            display_df['Quantity'] = pd.to_numeric(display_df['Quantity'], errors='coerce')
-            display_df['Quantity_display'] = display_df['Quantity'].apply(format_number_with_commas)
-        else:
-            display_df['Quantity_display'] = 'N/A'
-
-        # Format Posting Date column
-        if 'Posting Date' in display_df.columns:
-            display_df['Posting Date'] = display_df['Posting Date'].dt.strftime('%Y-%m-%d')
-
-        # ========== TABLE 1: Detailed View (SORTED DESCENDING) ==========
-        st.markdown("### 📋 Table 1: Detailed Deliveries")
-
-        # Sort by Posting Date in descending order (newest first)
-        if 'Posting Date' in display_df.columns:
-            display_df = display_df.sort_values('Posting Date', ascending=False)
-
-        # Select columns for display
-        display_cols = ['Material Description', 'Posting Date', 'PO Number', 'Quantity_display']
-        display_cols = [col for col in display_cols if col in display_df.columns]
-        display_rename = {'Quantity_display': 'Quantity'}
-
-        st.dataframe(
-            display_df[display_cols].rename(columns=display_rename),
-            column_config={
-                'Material Description': st.column_config.TextColumn('Material Description', width=300),
-                'Posting Date': st.column_config.TextColumn('Posting Date', width=120),
-                'PO Number': st.column_config.TextColumn('PO Number', width=150),
-                'Quantity': st.column_config.TextColumn('Quantity', width=100)
-            },
-            use_container_width=True,
-            hide_index=True
-        )
-
-        # ========== TABLE 2: Summarized View ==========
-        st.markdown("---")
-        st.markdown("### 📊 Table 2: Summarized Deliveries (Same Material + PO Combined)")
-        st.caption("When the same Material Description and PO Number appear multiple times, quantities are summed up")
-
-        summary_df = filtered_delivery_df.copy()
-        if 'Quantity' in summary_df.columns:
-            summary_df['Quantity'] = pd.to_numeric(summary_df['Quantity'], errors='coerce')
-
-        grouped_summary = summary_df.groupby(['Material Description', 'PO Number']).agg({
-            'Quantity': 'sum',
-            'Posting Date': 'count'
-        }).rename(columns={'Quantity': 'Total Quantity', 'Posting Date': 'Number of Deliveries'}).reset_index()
-
-        grouped_summary['Total Quantity'] = grouped_summary['Total Quantity'].apply(format_number_with_commas)
-
-        st.dataframe(
-            grouped_summary,
-            column_config={
-                'Material Description': st.column_config.TextColumn('Material Description', width=350),
-                'PO Number': st.column_config.TextColumn('PO Number', width=180),
-                'Total Quantity': st.column_config.TextColumn('Total Quantity', width=120),
-                'Number of Deliveries': st.column_config.NumberColumn('Number of Deliveries', width=120)
-            },
-            use_container_width=True,
-            hide_index=True
-        )
-
-        # ========== TOP NEW DELIVERIES ==========
-        st.markdown("---")
-        st.markdown("### 🏆 Top New Deliveries (Highest Quantity)")
-
-        top_deliveries = filtered_delivery_df.copy()
-        if 'Quantity' in top_deliveries.columns:
-            top_deliveries['Quantity'] = pd.to_numeric(top_deliveries['Quantity'], errors='coerce')
-
-        top_grouped = top_deliveries.groupby('Material Description').agg({
-            'Quantity': 'sum'
-        }).reset_index().sort_values('Quantity', ascending=False).head(10)
-
-        top_grouped['Quantity'] = top_grouped['Quantity'].apply(format_number_with_commas)
-
-        col_top1, col_top2, col_top3, col_top4, col_top5 = st.columns(5)
-        for i, (idx, row) in enumerate(top_grouped.head(5).iterrows()):
-            with [col_top1, col_top2, col_top3, col_top4, col_top5][i]:
-                st.metric(f"#{i+1}", row['Material Description'][:30], delta=row['Quantity'])
-
-        st.dataframe(
-            top_grouped,
-            column_config={
-                'Material Description': st.column_config.TextColumn('Material Description', width=400),
-                'Quantity': st.column_config.TextColumn('Total Quantity', width=150)
-            },
-            use_container_width=True,
-            hide_index=True
-        )
-
-        # ========== NEWEST POs Section ==========
-        st.markdown("---")
-        st.markdown("### 🆕 Newest Purchase Orders (Last 10)")
-
-        newest_pos = filtered_delivery_df.copy()
-        if 'Posting Date' in newest_pos.columns:
-            newest_pos['Posting Date'] = pd.to_datetime(newest_pos['Posting Date'], errors='coerce')
-            newest_pos = newest_pos.sort_values('Posting Date', ascending=False).drop_duplicates(subset=['PO Number']).head(10)
-
-            newest_pos['Posting Date'] = newest_pos['Posting Date'].dt.strftime('%Y-%m-%d')
-            if 'Quantity' in newest_pos.columns:
-                newest_pos['Quantity'] = pd.to_numeric(newest_pos['Quantity'], errors='coerce')
-                newest_pos['Quantity'] = newest_pos['Quantity'].apply(format_number_with_commas)
-
-            newest_display_cols = ['PO Number', 'Posting Date', 'Material Description', 'Quantity']
-            newest_display_cols = [col for col in newest_display_cols if col in newest_pos.columns]
-
-            st.dataframe(
-                newest_pos[newest_display_cols],
-                column_config={
-                    'PO Number': st.column_config.TextColumn('PO Number', width=150),
                     'Posting Date': st.column_config.TextColumn('Posting Date', width=120),
-                    'Material Description': st.column_config.TextColumn('Material Description', width=300),
+                    'PO Number': st.column_config.TextColumn('PO Number', width=150),
                     'Quantity': st.column_config.TextColumn('Quantity', width=100)
                 },
                 use_container_width=True,
                 hide_index=True
             )
+
+            st.markdown("---")
+            st.markdown("### 📊 Table 2: Summarized Deliveries (Same Material + PO Combined)")
+            st.caption("When the same Material Description and PO Number appear multiple times, quantities are summed up")
+
+            summary_df = filtered_delivery_df.copy()
+            if 'Quantity' in summary_df.columns:
+                summary_df['Quantity'] = pd.to_numeric(summary_df['Quantity'], errors='coerce')
+
+            grouped_summary = summary_df.groupby(['Material Description', 'PO Number']).agg({
+                'Quantity': 'sum',
+                'Posting Date': 'count'
+            }).rename(columns={'Quantity': 'Total Quantity', 'Posting Date': 'Number of Deliveries'}).reset_index()
+
+            grouped_summary['Total Quantity'] = grouped_summary['Total Quantity'].apply(format_number_with_commas)
+
+            st.dataframe(
+                grouped_summary,
+                column_config={
+                    'Material Description': st.column_config.TextColumn('Material Description', width=350),
+                    'PO Number': st.column_config.TextColumn('PO Number', width=180),
+                    'Total Quantity': st.column_config.TextColumn('Total Quantity', width=120),
+                    'Number of Deliveries': st.column_config.NumberColumn('Number of Deliveries', width=120)
+                },
+                use_container_width=True,
+                hide_index=True
+            )
+
+            st.markdown("---")
+            st.markdown("### 🏆 Top New Deliveries (Highest Quantity)")
+
+            top_deliveries = filtered_delivery_df.copy()
+            if 'Quantity' in top_deliveries.columns:
+                top_deliveries['Quantity'] = pd.to_numeric(top_deliveries['Quantity'], errors='coerce')
+
+            top_grouped = top_deliveries.groupby('Material Description').agg({
+                'Quantity': 'sum'
+            }).reset_index().sort_values('Quantity', ascending=False).head(10)
+
+            top_grouped['Quantity'] = top_grouped['Quantity'].apply(format_number_with_commas)
+
+            col_top1, col_top2, col_top3, col_top4, col_top5 = st.columns(5)
+            for i, (idx, row) in enumerate(top_grouped.head(5).iterrows()):
+                with [col_top1, col_top2, col_top3, col_top4, col_top5][i]:
+                    st.metric(f"#{i+1}", row['Material Description'][:30], delta=row['Quantity'])
+
+            st.dataframe(
+                top_grouped,
+                column_config={
+                    'Material Description': st.column_config.TextColumn('Material Description', width=400),
+                    'Quantity': st.column_config.TextColumn('Total Quantity', width=150)
+                },
+                use_container_width=True,
+                hide_index=True
+            )
+
+            st.markdown("---")
+            st.markdown("### 🆕 Newest Purchase Orders (Last 10)")
+
+            newest_pos = filtered_delivery_df.copy()
+            if 'Posting Date' in newest_pos.columns:
+                newest_pos['Posting Date'] = pd.to_datetime(newest_pos['Posting Date'], errors='coerce')
+                newest_pos = newest_pos.sort_values('Posting Date', ascending=False).drop_duplicates(subset=['PO Number']).head(10)
+
+                newest_pos['Posting Date'] = newest_pos['Posting Date'].dt.strftime('%Y-%m-%d')
+                if 'Quantity' in newest_pos.columns:
+                    newest_pos['Quantity'] = pd.to_numeric(newest_pos['Quantity'], errors='coerce')
+                    newest_pos['Quantity'] = newest_pos['Quantity'].apply(format_number_with_commas)
+
+                newest_display_cols = ['PO Number', 'Posting Date', 'Material Description', 'Quantity']
+                newest_display_cols = [col for col in newest_display_cols if col in newest_pos.columns]
+
+                st.dataframe(
+                    newest_pos[newest_display_cols],
+                    column_config={
+                        'PO Number': st.column_config.TextColumn('PO Number', width=150),
+                        'Posting Date': st.column_config.TextColumn('Posting Date', width=120),
+                        'Material Description': st.column_config.TextColumn('Material Description', width=300),
+                        'Quantity': st.column_config.TextColumn('Quantity', width=100)
+                    },
+                    use_container_width=True,
+                    hide_index=True
+                )
+            else:
+                st.info("No posting date data available to determine newest POs")
+
+            st.markdown("---")
+            col_dl1, col_dl2 = st.columns(2)
+            with col_dl1:
+                st.download_button(
+                    label="📥 Download Detailed View (CSV)",
+                    data=display_df[display_cols].rename(columns=display_rename).to_csv(index=False),
+                    file_name=f"new_deliveries_detailed_{start_date}_{end_date}.csv",
+                    mime="text/csv",
+                    use_container_width=True
+                )
+            with col_dl2:
+                st.download_button(
+                    label="📥 Download Summarized View (CSV)",
+                    data=grouped_summary.to_csv(index=False),
+                    file_name=f"new_deliveries_summarized_{start_date}_{end_date}.csv",
+                    mime="text/csv",
+                    use_container_width=True
+                )
+
+            if len(filtered_delivery_df) > len(grouped_summary):
+                st.info(f"📊 {len(filtered_delivery_df)} detailed records combined into {len(grouped_summary)} summarized records")
         else:
-            st.info("No posting date data available to determine newest POs")
-
-        # Download buttons
-        st.markdown("---")
-        col_dl1, col_dl2 = st.columns(2)
-        with col_dl1:
-            st.download_button(
-                label="📥 Download Detailed View (CSV)",
-                data=display_df[display_cols].rename(columns=display_rename).to_csv(index=False),
-                file_name=f"new_deliveries_detailed_{start_date}_{end_date}.csv",
-                mime="text/csv",
-                use_container_width=True
-            )
-        with col_dl2:
-            st.download_button(
-                label="📥 Download Summarized View (CSV)",
-                data=grouped_summary.to_csv(index=False),
-                file_name=f"new_deliveries_summarized_{start_date}_{end_date}.csv",
-                mime="text/csv",
-                use_container_width=True
-            )
-
-        if len(filtered_delivery_df) > len(grouped_summary):
-            st.info(f"📊 {len(filtered_delivery_df)} detailed records combined into {len(grouped_summary)} summarized records")
-    else:
-        st.info("No new deliveries data available. Please upload data to the New_deliveries table in Supabase.")
-        st.caption("Expected columns: material_description, posting_date, purchase_order, quantity")                      
+            st.info("No new deliveries data available. Please upload data to the New_deliveries table in Supabase.")
+            st.caption("Expected columns: material_description, posting_date, purchase_order, quantity")
 
 # ---------------------------------------------------
 # Download Filtered Data
