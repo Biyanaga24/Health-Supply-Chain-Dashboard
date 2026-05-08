@@ -3105,7 +3105,7 @@ else:
                 </div>
                 """, unsafe_allow_html=True)
 
-            # DOWNLOAD REPORT
+                        # DOWNLOAD REPORT
             st.markdown("---")
             st.markdown("<h4 style='font-size: 20px; font-weight: bold; font-family: Times New Roman;'>📥 Download Report</h4>", unsafe_allow_html=True)
 
@@ -3116,6 +3116,9 @@ else:
 
             all_columns = list(df_filtered.columns)
 
+            # EXCLUDE DOS from the download report
+            columns_to_exclude = ['Stock Status', 'Risk of Stock', 'Hubs%', 'Head Office%', 'Avail Gap', 'CV (%)', 'CV Category', 'Has Expiry Risk', 'Expiry Risk Details', 'Assigned Subcategory', 'Risk Type', 'DOS']
+
             if 'Material Description' in all_columns and 'TMOS' in all_columns:
                 mat_index = all_columns.index('Material Description')
                 tmos_index = all_columns.index('TMOS')
@@ -3123,26 +3126,27 @@ else:
 
                 if 'AMC' in all_cols_between and 'NMOS' in all_cols_between:
                     for col in all_cols_between:
-                        if col == 'NMOS':
-                            continue
-                        report_columns.append(col)
+                        if col not in columns_to_exclude:
+                            report_columns.append(col)
                     if 'AMC' in report_columns:
                         amc_pos = report_columns.index('AMC')
                         report_columns.insert(amc_pos + 1, 'NMOS')
-                    if 'DOS' in all_cols_between and 'DOS' not in report_columns:
-                        nmos_pos = report_columns.index('NMOS') if 'NMOS' in report_columns else 0
-                        report_columns.insert(nmos_pos + 1, 'DOS')
                 else:
-                    report_columns = all_cols_between
+                    for col in all_cols_between:
+                        if col not in columns_to_exclude:
+                            report_columns.append(col)
             else:
                 for col in all_columns:
-                    if col not in ['Stock Status', 'Risk of Stock', 'Hubs%', 'Head Office%', 'Avail Gap', 'CV (%)', 'CV Category', 'Has Expiry Risk', 'Expiry Risk Details', 'Assigned Subcategory', 'Risk Type']:
+                    if col not in columns_to_exclude:
                         report_columns.append(col)
 
-            if not report_columns:
-                report_columns = ['Material Description']
-
+            # Remove any duplicates
             report_columns = list(dict.fromkeys(report_columns))
+
+            # Ensure Material Description is first
+            if 'Material Description' in report_columns:
+                report_columns.remove('Material Description')
+                report_columns.insert(0, 'Material Description')
 
             report_df = df_filtered[report_columns].copy()
 
@@ -3151,8 +3155,6 @@ else:
                     report_df[col] = report_df[col].apply(lambda x: round(x, 2) if pd.notna(x) else "")
                 elif col in ['NSOH', 'AMC', 'Hubs', 'Head Office']:
                     report_df[col] = report_df[col].apply(lambda x: f"{int(x):,}" if pd.notna(x) and x != "" else "" if x == "" else x)
-                elif col == 'DOS':
-                    report_df[col] = report_df[col].apply(lambda x: f"{int(x)} days" if pd.notna(x) and x > 0 else "0 days" if pd.notna(x) else "")
 
             output = BytesIO()
 
@@ -4025,7 +4027,7 @@ else:
                     use_container_width=True
                 )
 
-                # ACTION PLAN
+                                # ACTION PLAN
                 st.markdown("---")
                 st.markdown("<h4 style='font-size: 20px; font-weight: bold;'>📝 Action Plan - Materials Requiring Attention</h4>", unsafe_allow_html=True)
 
@@ -4109,7 +4111,40 @@ else:
                 def has_pipeline(row):
                     return get_total_pipeline_mos(row) > 0
 
+                def get_all_active_pos(row):
+                    """Get all active PO numbers for a material"""
+                    all_pos = []
+                    git_po = row.get('GIT_PO', '')
+                    lc_po = row.get('LC_PO', '')
+                    wb_po = row.get('WB_PO', '')
+                    tmd_po = row.get('TMD_PO', '')
+
+                    git_mos = row.get('GIT_MOS', 0)
+                    lc_mos = row.get('LC_MOS', 0)
+                    wb_mos = row.get('WB_MOS', 0)
+                    tmd_mos = row.get('TMD_MOS', 0)
+
+                    try:
+                        git_mos = float(git_mos) if pd.notna(git_mos) else 0
+                        lc_mos = float(lc_mos) if pd.notna(lc_mos) else 0
+                        wb_mos = float(wb_mos) if pd.notna(wb_mos) else 0
+                        tmd_mos = float(tmd_mos) if pd.notna(tmd_mos) else 0
+                    except:
+                        pass
+
+                    if git_mos > 0 and git_po and str(git_po) != 'nan' and str(git_po) != '':
+                        all_pos.append(str(git_po).strip())
+                    if lc_mos > 0 and lc_po and str(lc_po) != 'nan' and str(lc_po) != '':
+                        all_pos.append(str(lc_po).strip())
+                    if wb_mos > 0 and wb_po and str(wb_po) != 'nan' and str(wb_po) != '':
+                        all_pos.append(str(wb_po).strip())
+                    if tmd_mos > 0 and tmd_po and str(tmd_po) != 'nan' and str(tmd_po) != '':
+                        all_pos.append(str(tmd_po).strip())
+
+                    return all_pos
+
                 def get_pipeline_recommendation(row):
+                    """Get recommendation with ALL active PO numbers"""
                     git_mos = row.get('GIT_MOS', 0)
                     lc_mos = row.get('LC_MOS', 0)
                     wb_mos = row.get('WB_MOS', 0)
@@ -4127,20 +4162,37 @@ else:
                     except:
                         return "⚠️ Pipeline exists but no PO details available", "EPSS_DMD"
 
-                    if git_mos > 0:
-                        po_text = f" PO {git_po}" if git_po and str(git_po) != 'nan' else ""
-                        return f"🚚 Expedite shipment{po_text}", "EPSS_CMD"
-                    elif lc_mos > 0:
-                        po_text = f" PO {lc_po}" if lc_po and str(lc_po) != 'nan' else ""
-                        return f"📄 Expedite L/C opening process{po_text}", "EPSS_CMD, EPSS_DMD"
-                    elif wb_mos > 0:
-                        po_text = f" PO {wb_po}" if wb_po and str(wb_po) != 'nan' else ""
-                        return f"💰 Expedite budget transfer{po_text}", "EPSS_Finance, MOH"
-                    elif tmd_mos > 0:
-                        po_text = f" PO {tmd_po}" if tmd_po and str(tmd_po) != 'nan' else ""
-                        return f"📋 Expedite tender process{po_text}", "EPSS_PMD, EPSS_DMD"
-                    else:
+                    # Collect all active POs with their MOS
+                    active_pos = []
+
+                    if git_mos > 0 and git_po and str(git_po) != 'nan' and str(git_po) != '':
+                        active_pos.append(('GIT', str(git_po).strip(), git_mos))
+                    if lc_mos > 0 and lc_po and str(lc_po) != 'nan' and str(lc_po) != '':
+                        active_pos.append(('LC', str(lc_po).strip(), lc_mos))
+                    if wb_mos > 0 and wb_po and str(wb_po) != 'nan' and str(wb_po) != '':
+                        active_pos.append(('WB', str(wb_po).strip(), wb_mos))
+                    if tmd_mos > 0 and tmd_po and str(tmd_po) != 'nan' and str(tmd_po) != '':
+                        active_pos.append(('TMD', str(tmd_po).strip(), tmd_mos))
+
+                    if not active_pos:
                         return "⚠️ Pipeline exists but no PO details available", "EPSS_DMD"
+
+                    # Format PO numbers - combine multiple POs with commas
+                    po_numbers = [po for _, po, _ in active_pos]
+                    po_text = ", ".join(po_numbers)
+
+                    # Check for highest priority PO (GIT first, then LC, then WB, then TMD)
+                    for po_type, po_num, mos in active_pos:
+                        if po_type == 'GIT':
+                            return f"🚚 Expedite shipment - PO: {po_text}", "EPSS_CMD"
+                        elif po_type == 'LC':
+                            return f"📄 Expedite L/C opening process - PO: {po_text}", "EPSS_CMD, EPSS_DMD"
+                        elif po_type == 'WB':
+                            return f"💰 Expedite budget transfer - PO: {po_text}", "EPSS_Finance, MOH"
+                        elif po_type == 'TMD':
+                            return f"📋 Expedite tender process - PO: {po_text}", "EPSS_PMD, EPSS_DMD"
+
+                    return f"⚠️ Pipeline exists - PO: {po_text}", "EPSS_DMD"
 
                 for idx, row in df_filtered.iterrows():
                     material = row['Material Description']
@@ -4178,11 +4230,16 @@ else:
                     current_date = datetime.now()
                     end_of_month = get_end_of_month_date(current_date.year, current_date.month)
 
+                    # Get all active POs for display
+                    all_pos = get_all_active_pos(row)
+                    po_display = f" (POs: {', '.join(all_pos)})" if all_pos else ""
+
+                    # 🔴 Stock Out
                     if nmos < 1:
                         if has_pipeline(row):
                             action_point, responsible_body = get_pipeline_recommendation(row)
                         else:
-                            action_point = f"🆘 CRITICAL: Place URGENT order - stock out"
+                            action_point = f"🆘 CRITICAL: Place URGENT order - stock out{po_display}"
                             responsible_body = "MOH"
 
                         action_plan.append({
@@ -4199,11 +4256,12 @@ else:
                             'Due Date': 'IMMEDIATELY'
                         })
 
+                    # 🟡 Risk of Stock Out
                     if risk_of_stock == 'Risk of Stock out' or risk_type == 'Risk of Stock out':
                         if has_pipeline(row):
                             action_point, responsible_body = get_pipeline_recommendation(row)
                         else:
-                            action_point = f"⚠️ Place order - at risk of stock out"
+                            action_point = f"⚠️ Place order - at risk of stock out{po_display}"
                             responsible_body = "MOH"
 
                         action_plan.append({
@@ -4220,6 +4278,7 @@ else:
                             'Due Date': end_of_month.strftime('Before %d %b %Y')
                         })
 
+                    # ⚠️ Expiry Risk
                     if has_expiry_risk or risk_type == 'Expiry Risk':
                         hubs_pct = row.get('Hubs%', 0)
                         ho_pct = row.get('Head Office%', 0)
@@ -4255,13 +4314,14 @@ else:
                             'Due Date': 'ASAP'
                         })
 
+                    # 📉 Below Minimum Stock Level
                     if 1 <= nmos < 6:
                         if has_pipeline(row):
                             action_point, responsible_body = get_pipeline_recommendation(row)
                         else:
                             months_needed_stock = 6 - nmos
                             order_qty = int(months_needed_stock * amc) if amc > 0 else 0
-                            action_point = f"📊 Need {months_needed_stock:.1f} months ({order_qty:,} units) to reach minimum stock level (6 months)"
+                            action_point = f"📊 Need {months_needed_stock:.1f} months ({order_qty:,} units) to reach minimum stock level (6 months){po_display}"
                             responsible_body = "EPSS_DMD"
 
                         action_plan.append({
@@ -4278,10 +4338,12 @@ else:
                             'Due Date': end_of_month.strftime('Before %d %b %Y')
                         })
 
+                    # 📦 Pipeline Insufficient - Cannot Reach Max Stock
                     if tmos < 18:
                         months_needed_stock = 18 - tmos
                         order_qty = int(months_needed_stock * amc) if amc > 0 and months_needed_stock > 0 else 0
-                        action_point = f"📋 Need {months_needed_stock:.1f} months ({order_qty:,} units) to reach maximum stock level (18 months)"
+                        po_text = f" - POs: {', '.join(all_pos)}" if all_pos else ""
+                        action_point = f"📋 Need {months_needed_stock:.1f} months ({order_qty:,} units) to reach maximum stock level (18 months){po_text}"
                         responsible_body = "MOH"
                         due_date = calculate_due_date_for_pipeline(tmos)
 
@@ -4381,10 +4443,6 @@ else:
                 else:
                     st.success("✅ No action items identified")
                     st.balloons()
-            else:
-                st.success("✅ No procurement needed. All materials have TMOS ≥ 18 months.")
-        else:
-            st.info("TMOS, NMOS, or AMC data not available for supply planning")
 
     # ---------------------------------------------------
     # TAB 6 - Purchase Order Status
