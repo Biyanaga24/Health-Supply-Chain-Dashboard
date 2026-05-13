@@ -17,13 +17,13 @@ warnings.filterwarnings("ignore")
 
 # Page configuration
 st.set_page_config(
-    page_title="Malaria Medicines Forecasting Dashboard",
-    page_icon="💊",
+    page_title="Health Program Medicines Forecasting Dashboard",
+    page_icon="📊",
     layout="wide"
 )
 
 # Title
-st.title("💊 Malaria Medicines Forecasting Dashboard")
+st.title("📊 Health Program Medicines Forecasting Dashboard")
 st.markdown("### Time Series Analysis and Demand Forecasting")
 
 # Initialize session state
@@ -187,44 +187,111 @@ def linear_forecast_with_yearly_data(data_series, forecast_years=3, n_points=Non
     Linear forecast using ANNUAL data (aggregated by fiscal year)
     Returns monthly predictions for the forecast period
     """
-    # Create DataFrame
     df_temp = pd.DataFrame({
         'Date': data_series.index,
         'Demand': data_series.values
     })
 
-    # Assign fiscal year
     df_temp['Fiscal_Year'] = df_temp['Date'].apply(get_fiscal_year)
-
-    # Aggregate by fiscal year
     yearly_data = df_temp.groupby('Fiscal_Year')['Demand'].sum().sort_index()
 
-    # Use only last n_points if specified
     if n_points is not None and n_points < len(yearly_data):
         yearly_data = yearly_data.iloc[-n_points:]
 
     if len(yearly_data) < 3:
         return None, None, None, None
 
-    # Create time index for regression
     X = np.arange(len(yearly_data)).reshape(-1, 1)
     y = yearly_data.values
-
-    # Fit linear regression
     model = LinearRegression()
     model.fit(X, y)
 
-    # Generate yearly predictions
     future_X = np.arange(len(yearly_data), len(yearly_data) + forecast_years).reshape(-1, 1)
     yearly_predictions = model.predict(future_X)
     yearly_predictions = np.maximum(yearly_predictions, 0)
 
-    # Convert to monthly (divide each year by 12)
     monthly_predictions = []
     for year_pred in yearly_predictions:
         monthly_predictions.extend([year_pred / 12] * 12)
 
     return np.array(monthly_predictions), yearly_predictions, model, yearly_data
+
+def simple_average_forecast(data_series, forecast_years=3, n_points=None):
+    """Simple average forecast using ANNUAL data"""
+    df_temp = pd.DataFrame({
+        'Date': data_series.index,
+        'Demand': data_series.values
+    })
+    df_temp['Fiscal_Year'] = df_temp['Date'].apply(get_fiscal_year)
+    yearly_data = df_temp.groupby('Fiscal_Year')['Demand'].sum().sort_index()
+
+    if n_points is not None and n_points < len(yearly_data):
+        yearly_data = yearly_data.iloc[-n_points:]
+
+    if len(yearly_data) == 0:
+        return None, None
+
+    avg_yearly = yearly_data.mean()
+    yearly_predictions = np.full(forecast_years, avg_yearly)
+
+    monthly_predictions = []
+    for year_pred in yearly_predictions:
+        monthly_predictions.extend([year_pred / 12] * 12)
+
+    return np.array(monthly_predictions), yearly_predictions
+
+def weighted_average_forecast(data_series, forecast_years=3, n_points=None):
+    """Weighted average forecast with optimal weights that minimize forecast error"""
+    df_temp = pd.DataFrame({
+        'Date': data_series.index,
+        'Demand': data_series.values
+    })
+    df_temp['Fiscal_Year'] = df_temp['Date'].apply(get_fiscal_year)
+    yearly_data = df_temp.groupby('Fiscal_Year')['Demand'].sum().sort_index()
+
+    if n_points is not None and n_points < len(yearly_data):
+        yearly_data = yearly_data.iloc[-n_points:]
+
+    if len(yearly_data) < 2:
+        return None, None
+
+    best_mape = float('inf')
+    best_lambda = 0.5
+
+    for lam in np.arange(0.1, 1.0, 0.05):
+        weights = np.exp(-lam * np.arange(len(yearly_data))[::-1])
+        weights = weights / weights.sum()
+
+        total_mape = 0
+        for i in range(len(yearly_data)):
+            train_indices = [j for j in range(len(yearly_data)) if j != i]
+            test_value = yearly_data.iloc[i]
+
+            if len(train_indices) > 0:
+                train_yearly = yearly_data.iloc[train_indices]
+                train_weights = weights[train_indices]
+                train_weights = train_weights / train_weights.sum()
+                pred = np.sum(train_yearly * train_weights)
+
+                if test_value > 0:
+                    mape = abs((test_value - pred) / test_value) * 100
+                    total_mape += mape
+
+        avg_mape = total_mape / len(yearly_data)
+        if avg_mape < best_mape:
+            best_mape = avg_mape
+            best_lambda = lam
+
+    optimal_weights = np.exp(-best_lambda * np.arange(len(yearly_data))[::-1])
+    optimal_weights = optimal_weights / optimal_weights.sum()
+    weighted_avg = np.sum(yearly_data * optimal_weights)
+    yearly_predictions = np.full(forecast_years, weighted_avg)
+
+    monthly_predictions = []
+    for year_pred in yearly_predictions:
+        monthly_predictions.extend([year_pred / 12] * 12)
+
+    return np.array(monthly_predictions), yearly_predictions
 
 if uploaded_file is not None:
     with st.spinner("Loading data..."):
@@ -297,21 +364,17 @@ if st.session_state.data_loaded:
         if hasattr(display_df.index, 'strftime'):
             display_df.index = display_df.index.strftime('%b-%Y')
 
-        # Transposed data preview (columns as rows for better readability)
         st.write("**Transposed View (Dates as columns, Demand as row)**")
         transposed_display = display_df.T
         st.dataframe(transposed_display, use_container_width=True)
 
-        # 1. Time Series Plot with trend line
         st.subheader("📈 Time Series Plot with Trend Line")
         fig, ax = plt.subplots(figsize=(14, 6))
 
-        # Plot actual data
         ax.plot(material_data_full.index, material_data_full.values, 
                 marker='o', linewidth=2, markersize=6, 
                 color='#2E86AB', label='Actual Demand')
 
-        # Add trend line (linear regression)
         x = np.arange(len(material_data_full.index))
         y = material_data_full.values
         z = np.polyfit(x, y, 1)
@@ -320,7 +383,6 @@ if st.session_state.data_loaded:
                 linestyle='--', linewidth=2.5, color='#E63946', 
                 label=f'Trend Line (slope: {z[0]:.1f})')
 
-        # Add value labels with improved placement
         prev_y = None
         for i, (date, value) in enumerate(zip(material_data_full.index, material_data_full.values)):
             if value > 0:
@@ -348,7 +410,6 @@ if st.session_state.data_loaded:
         plt.tight_layout()
         st.pyplot(fig)
 
-        # 2. Demand Distribution
         st.subheader("📊 Demand Distribution")
         fig2, ax2 = plt.subplots(figsize=(14, 6))
 
@@ -373,7 +434,6 @@ if st.session_state.data_loaded:
         plt.tight_layout()
         st.pyplot(fig2)
 
-        # 3. Summary Statistics
         st.subheader("📋 Summary Statistics (Non-Zero Values)")
 
         stats_summary = material_data.describe()
@@ -402,7 +462,6 @@ if st.session_state.data_loaded:
             - **Skewness**: Positive = right-skewed (more low values, few high spikes)
             """)
 
-        # Box plot
         st.subheader("🔍 Outlier Detection (Box Plot)")
         fig3, ax3 = plt.subplots(figsize=(14, 5))
         ax3.boxplot(material_data.values, vert=True, patch_artist=True,
@@ -429,7 +488,6 @@ if st.session_state.data_loaded:
         st.info("This chart compares demand across different fiscal years (April to March), helping identify year-over-year trends and seasonal patterns.")
 
         if len(material_data_full) >= 12:
-            # Create DataFrame for fiscal year analysis
             df_fiscal = pd.DataFrame({
                 'Date': material_data_full.index,
                 'Demand': material_data_full.values
@@ -440,12 +498,10 @@ if st.session_state.data_loaded:
             df_fiscal = df_fiscal.sort_values('Date')
             df_fiscal['Month_Short'] = df_fiscal['Date'].dt.strftime('%b')
 
-            # Assign month number for ordering (April=1 to March=12)
             month_order = {4:1, 5:2, 6:3, 7:4, 8:5, 9:6, 10:7, 11:8, 12:9, 1:10, 2:11, 3:12}
             df_fiscal['Month_Num'] = df_fiscal['Date'].dt.month.map(month_order)
             df_fiscal_monthly = df_fiscal.sort_values('Month_Num')
 
-            # Pivot for fiscal year comparison
             fiscal_pivot = df_fiscal_monthly.pivot(index='Month_Short', columns='Fiscal_Year_Label', values='Demand')
             month_seq = ['Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec', 'Jan', 'Feb', 'Mar']
             fiscal_pivot = fiscal_pivot.reindex(month_seq)
@@ -453,7 +509,6 @@ if st.session_state.data_loaded:
             colors = ['#2E86AB', '#E63946', '#2A9D8F', '#E9C46A', '#9B5DE5', '#F4A261']
             markers = ['o', 's', '^', 'D', 'v', '<']
 
-            # Graph 1: Monthly demand by fiscal year
             st.markdown("### 📈 Monthly Demand Pattern by Fiscal Year")
             fig1, ax1 = plt.subplots(figsize=(14, 7))
 
@@ -469,7 +524,6 @@ if st.session_state.data_loaded:
                            label=year,
                            markevery=1)
 
-                    # Add value labels
                     for j, (month, value) in enumerate(zip(fiscal_pivot.index, col.values)):
                         if not pd.isna(value) and value > 0:
                             offset = 15 if j % 2 == 0 else -15
@@ -490,7 +544,32 @@ if st.session_state.data_loaded:
             plt.tight_layout()
             st.pyplot(fig1)
 
-            # Graph 2: Yearly totals bar chart
+            st.markdown("### 📊 Average Monthly Demand Across All Fiscal Years")
+            fig4, ax4 = plt.subplots(figsize=(14, 7))
+
+            monthly_avg = fiscal_pivot.mean(axis=1)
+            bars = ax4.bar(monthly_avg.index, monthly_avg.values, 
+                           color='#2E86AB', alpha=0.7, edgecolor='black', width=0.7)
+
+            for bar, avg in zip(bars, monthly_avg.values):
+                if not pd.isna(avg):
+                    ax4.annotate(f'{avg:,.0f}',
+                                xy=(bar.get_x() + bar.get_width() / 2, bar.get_height()),
+                                xytext=(0, 8),
+                                textcoords="offset points",
+                                ha='center',
+                                va='bottom',
+                                fontsize=10,
+                                fontweight='bold')
+
+            ax4.set_xlabel("Month", fontsize=12)
+            ax4.set_ylabel("Average Demand", fontsize=12)
+            ax4.set_title("Average Monthly Demand Across All Fiscal Years", fontsize=14)
+            ax4.grid(True, alpha=0.3, axis='y')
+            plt.xticks(rotation=45)
+            plt.tight_layout()
+            st.pyplot(fig4)
+
             st.markdown("### 📊 Year-over-Year Total Demand Comparison")
             fig2, ax2 = plt.subplots(figsize=(14, 7))
 
@@ -520,7 +599,6 @@ if st.session_state.data_loaded:
             plt.tight_layout()
             st.pyplot(fig2)
 
-            # Graph 3: Chronological monthly demand with fiscal year coloring
             st.markdown("### 📅 Monthly Demand Timeline (Chronological Order)")
             fig3, ax3 = plt.subplots(figsize=(14, 7))
 
@@ -537,7 +615,6 @@ if st.session_state.data_loaded:
                             color=colors[i % len(colors)],
                             label=fiscal_year)
 
-                    # Add value labels
                     for idx, row in year_data.iterrows():
                         if row['Demand'] > 0:
                             ax3.annotate(f'{row["Demand"]:,.0f}',
@@ -557,34 +634,6 @@ if st.session_state.data_loaded:
             plt.tight_layout()
             st.pyplot(fig3)
 
-            # Graph 4: Average monthly demand bar chart
-            st.markdown("### 📊 Average Monthly Demand Across All Fiscal Years")
-            fig4, ax4 = plt.subplots(figsize=(14, 7))
-
-            monthly_avg = fiscal_pivot.mean(axis=1)
-            bars = ax4.bar(monthly_avg.index, monthly_avg.values, 
-                           color='#2E86AB', alpha=0.7, edgecolor='black', width=0.7)
-
-            for bar, avg in zip(bars, monthly_avg.values):
-                if not pd.isna(avg):
-                    ax4.annotate(f'{avg:,.0f}',
-                                xy=(bar.get_x() + bar.get_width() / 2, bar.get_height()),
-                                xytext=(0, 8),
-                                textcoords="offset points",
-                                ha='center',
-                                va='bottom',
-                                fontsize=10,
-                                fontweight='bold')
-
-            ax4.set_xlabel("Month", fontsize=12)
-            ax4.set_ylabel("Average Demand", fontsize=12)
-            ax4.set_title("Average Monthly Demand Across All Fiscal Years", fontsize=14)
-            ax4.grid(True, alpha=0.3, axis='y')
-            plt.xticks(rotation=45)
-            plt.tight_layout()
-            st.pyplot(fig4)
-
-            # Display fiscal year summary table
             st.subheader("📊 Fiscal Year Summary")
 
             summary_data = []
@@ -604,7 +653,6 @@ if st.session_state.data_loaded:
                 summary_df = pd.DataFrame(summary_data)
                 st.dataframe(summary_df, use_container_width=True, hide_index=True)
 
-            # Growth rate calculation
             if len(fiscal_pivot.columns) >= 2:
                 st.subheader("📈 Year-over-Year Growth Analysis")
                 cols = list(fiscal_pivot.columns)
@@ -634,7 +682,6 @@ if st.session_state.data_loaded:
                     elif growth_value < -10:
                         st.info(f"ℹ️ **Significant decrease detected:** {last_growth['Period']}: {last_growth['Growth Rate']}. Investigate potential causes.")
 
-            # Monthly pattern analysis
             st.subheader("📊 Monthly Pattern Analysis")
             col1, col2, col3 = st.columns(3)
 
@@ -645,7 +692,6 @@ if st.session_state.data_loaded:
                     st.metric("Highest Average Month", highest_avg_month, f"{avg_monthly.max():,.0f} units avg")
 
             with col2:
-                # Find most consistent peak month
                 peak_months = {}
                 for year in fiscal_pivot.columns:
                     year_data = fiscal_pivot[year].dropna()
@@ -658,7 +704,6 @@ if st.session_state.data_loaded:
                     st.metric("Most Common Peak Month", most_common_peak, f"{peak_months[most_common_peak]} of {len(fiscal_pivot.columns)} years")
 
             with col3:
-                # Coefficient of variation across years for each month
                 cv_by_month = fiscal_pivot.std(axis=1) / fiscal_pivot.mean(axis=1) * 100
                 if len(cv_by_month) > 0:
                     most_stable_month = cv_by_month.idxmin()
@@ -666,10 +711,13 @@ if st.session_state.data_loaded:
         else:
             st.warning(f"Not enough data for fiscal year comparison. Need at least 12 months of data. Currently have {len(material_data_full)} months.")
 
+        # stationarity
     with tab3:
         st.subheader(f"Stationarity Test - {selected_material[:50]}...")
 
         if len(material_data) >= 3:
+            from statsmodels.graphics.tsaplots import plot_acf, plot_pacf
+
             result = adfuller(material_data.values)
 
             col1, col2 = st.columns(2)
@@ -688,17 +736,98 @@ if st.session_state.data_loaded:
             else:
                 st.warning("⚠️ **The time series is NOT stationary** (p-value >= 0.05)")
 
-                if len(material_data) > 1:
-                    diff_data = material_data.diff().dropna()
-                    fig, ax = plt.subplots(figsize=(14, 5))
-                    ax.plot(diff_data.index, diff_data.values, color='green', marker='o', linewidth=1.5)
-                    ax.set_xlabel("Date")
-                    ax.set_ylabel("Differenced Quantity")
-                    ax.set_title("First Difference", fontsize=12)
-                    ax.axhline(y=0, color='red', linestyle='--', alpha=0.5)
-                    ax.grid(True, alpha=0.3)
-                    plt.xticks(rotation=45)
-                    st.pyplot(fig)
+            # Show graph for BOTH stationary and non-stationary data
+            if len(material_data) > 1:
+                # First differencing
+                diff_data = material_data.diff().dropna()
+
+                fig, ax = plt.subplots(figsize=(14, 5))
+
+                # Scatter plot ONLY (no lines)
+                ax.scatter(
+                    diff_data.index,
+                    diff_data.values,
+                    color='green' if is_stationary else 'orange',
+                    s=60,
+                    alpha=0.8,
+                    label='First Difference'
+                )
+
+                # Horizontal zero line
+                ax.axhline(y=0, color='red', linestyle='--', alpha=0.5)
+
+                # Labels
+                ax.set_xlabel("Date", fontsize=12)
+                ax.set_ylabel("Differenced Quantity", fontsize=12)
+
+                # Dynamic title
+                ax.set_title(
+                    "Stationarity Visualization (Points Only - No Connecting Lines)",
+                    fontsize=13
+                )
+
+                ax.legend()
+
+                # Grid
+                ax.grid(True, alpha=0.3)
+
+                # Rotate dates
+                plt.xticks(rotation=45)
+
+                plt.tight_layout()
+
+                # Display
+                st.pyplot(fig)
+
+            # ACF and PACF Plots
+            st.markdown("---")
+            st.subheader("📊 Autocorrelation (ACF) and Partial Autocorrelation (PACF) Plots")
+            st.info("ACF and PACF plots help identify AR and MA terms for ARIMA modeling.")
+
+            col1, col2 = st.columns(2)
+
+            with col1:
+                # ACF Plot
+                fig_acf, ax_acf = plt.subplots(figsize=(10, 6))
+                plot_acf(material_data.values, lags=min(20, len(material_data)//2), ax=ax_acf, alpha=0.05)
+                ax_acf.set_title("Autocorrelation Function (ACF)", fontsize=12)
+                ax_acf.set_xlabel("Lags", fontsize=10)
+                ax_acf.set_ylabel("Autocorrelation", fontsize=10)
+                ax_acf.grid(True, alpha=0.3)
+                plt.tight_layout()
+                st.pyplot(fig_acf)
+
+            with col2:
+                # PACF Plot
+                fig_pacf, ax_pacf = plt.subplots(figsize=(10, 6))
+                plot_pacf(material_data.values, lags=min(20, len(material_data)//2), ax=ax_pacf, alpha=0.05, method='ywm')
+                ax_pacf.set_title("Partial Autocorrelation Function (PACF)", fontsize=12)
+                ax_pacf.set_xlabel("Lags", fontsize=10)
+                ax_pacf.set_ylabel("Partial Autocorrelation", fontsize=10)
+                ax_pacf.grid(True, alpha=0.3)
+                plt.tight_layout()
+                st.pyplot(fig_pacf)
+
+            # Interpretation guide
+            with st.expander("📖 How to interpret ACF/PACF plots"):
+                st.markdown("""
+                **ACF (Autocorrelation Function) Interpretation:**
+                - **Slowly decaying ACF** → Indicates non-stationary data (need differencing)
+                - **Sharp cut-off after lag q** → MA(q) model
+                - **Exponential decay** → AR model
+
+                **PACF (Partial Autocorrelation Function) Interpretation:**
+                - **Sharp cut-off after lag p** → AR(p) model
+                - **Exponential decay** → MA model
+                - **No significant correlations** → White noise
+
+                **For ARIMA Model Selection:**
+                - If ACF cuts off after lag q and PACF decays → Use MA(q)
+                - If PACF cuts off after lag p and ACF decays → Use AR(p)
+                - If both decay slowly → Need differencing (increase d)
+
+                **Blue shaded area** = 95% confidence interval (correlations within this area are not significant)
+                """)
         else:
             st.warning(f"Not enough data for stationarity test (need at least 3 data points). Currently have {len(material_data)}.")
 
@@ -807,20 +936,19 @@ if st.session_state.data_loaded:
                 st.stop()
 
             st.subheader("Select Models to Train")
-            # All checkboxes set to False by default, only TES remains
             col1, col2, col3, col4, col5, col6 = st.columns(6)
             with col1:
-                run_sma = st.checkbox("Simple MA", value=False, key="train_sma")
+                run_sma = st.checkbox("Simple MA", value=True, key="train_sma")
             with col2:
-                run_ema = st.checkbox("Exponential MA", value=False, key="train_ema")
+                run_ema = st.checkbox("Exponential MA", value=True, key="train_ema")
             with col3:
-                run_arima = st.checkbox("ARIMA", value=False, key="train_arima")
+                run_arima = st.checkbox("ARIMA", value=True, key="train_arima")
             with col4:
-                run_ses = st.checkbox("SES", value=False, key="train_ses")
+                run_ses = st.checkbox("SES", value=True, key="train_ses")
             with col5:
-                run_des = st.checkbox("DES/Holt", value=False, key="train_des")
+                run_des = st.checkbox("DES/Holt", value=True, key="train_des")
             with col6:
-                run_tes = st.checkbox("TES/HW", value=True, key="train_tes")  # TES is checked by default
+                run_tes = st.checkbox("TES/HW", value=True, key="train_tes")
 
             st.markdown("---")
             st.subheader("⚙️ Exponential Smoothing Configuration (For DES & TES)")
@@ -875,7 +1003,6 @@ if st.session_state.data_loaded:
                 results = {}
                 progress_text = st.empty()
 
-                # Simple Moving Average
                 if run_sma:
                     progress_text.text("Training Simple Moving Average model...")
                     try:
@@ -905,7 +1032,6 @@ if st.session_state.data_loaded:
                     except Exception as e:
                         st.warning(f"Simple Moving Average failed: {str(e)[:100]}")
 
-                # Exponential Moving Average
                 if run_ema:
                     progress_text.text("Training Exponential Moving Average model...")
                     try:
@@ -935,7 +1061,6 @@ if st.session_state.data_loaded:
                     except Exception as e:
                         st.warning(f"Exponential Moving Average failed: {str(e)[:100]}")
 
-                # ARIMA
                 if run_arima:
                     progress_text.text("Training ARIMA model...")
                     try:
@@ -950,7 +1075,6 @@ if st.session_state.data_loaded:
                     except Exception as e:
                         st.warning(f"ARIMA failed: {str(e)[:100]}")
 
-                # SES
                 if run_ses:
                     progress_text.text("Training Simple Exponential Smoothing (SES)...")
                     try:
@@ -960,7 +1084,6 @@ if st.session_state.data_loaded:
                     except Exception as e:
                         st.warning(f"SES failed: {str(e)[:100]}")
 
-                # DES
                 if run_des:
                     trend_text = "additive" if trend_type == "add" else "multiplicative" if trend_type == "mul" else "no"
                     progress_text.text(f"Training Double Exponential Smoothing (DES) with {trend_text} trend...")
@@ -977,7 +1100,6 @@ if st.session_state.data_loaded:
                     except Exception as e:
                         st.warning(f"DES failed: {str(e)[:100]}")
 
-                # TES
                 if run_tes:
                     trend_text = "additive" if trend_type == "add" else "multiplicative" if trend_type == "mul" else "none"
                     season_text = "additive" if seasonal_type == "add" else "multiplicative" if seasonal_type == "mul" else "none"
@@ -1087,65 +1209,72 @@ if st.session_state.data_loaded:
         st.subheader(f"Future Forecasting - {selected_material[:50]}...")
 
         if len(material_data) >= 3:
-            # Forecast type selection
             st.subheader("📊 Forecast Configuration")
             col1, col2 = st.columns(2)
             with col1:
                 forecast_type = st.radio(
                     "Select forecast approach:",
-                    ["Monthly Models (SMA, EMA, ARIMA, SES, DES, TES)", "Linear Regression (Yearly Aggregation)"],
+                    ["Monthly Models (SMA, EMA, ARIMA, SES, DES, TES)", "Annual Aggregation Methods (Linear, Simple Avg, Weighted Avg)"],
                     key="forecast_type_radio"
                 )
 
             if "Monthly Models" in forecast_type:
                 forecast_periods = st.number_input("Number of months to forecast", min_value=1, max_value=48, value=12, key="forecast_months")
-                use_linear = False
             else:
                 forecast_years = st.number_input("Number of years to forecast", min_value=1, max_value=10, value=3, key="forecast_years")
                 forecast_periods = forecast_years * 12
-                use_linear = True
 
-            # Add option to select number of data points to use for forecasting
+                st.subheader("📊 Select Annual Forecasting Methods")
+                col1, col2, col3 = st.columns(3)
+                with col1:
+                    use_linear_method = st.checkbox("Linear Regression", value=True, key="use_linear")
+                with col2:
+                    use_simple_avg_method = st.checkbox("Simple Average", value=True, key="use_simple_avg")
+                with col3:
+                    use_weighted_avg_method = st.checkbox("Weighted Average (Optimal)", value=True, key="use_weighted_avg")
+
             st.subheader("📊 Data Points Selection for Forecasting")
             col1, col2 = st.columns(2)
             with col1:
                 use_all_data = st.radio(
                     "Select data points to use for forecasting:",
-                    ["Use all available data", "Use last N months only"],
+                    ["Use all available data", "Use last N years only"],
                     key="data_points_selection"
                 )
 
-            n_points_for_forecast = None
-            if use_all_data == "Use last N months only":
+            n_years_for_forecast = None
+            if use_all_data == "Use last N years only":
                 with col2:
-                    max_points = len(material_data_full)
-                    n_points_for_forecast = st.slider(
-                        f"Number of months to use (max: {max_points})",
-                        min_value=3,
-                        max_value=max_points,
-                        value=min(24, max_points),
-                        key="n_points_forecast"
+                    temp_df = pd.DataFrame({'Date': material_data_full.index, 'Demand': material_data_full.values})
+                    temp_df['Fiscal_Year'] = temp_df['Date'].apply(get_fiscal_year)
+                    available_years = temp_df['Fiscal_Year'].nunique()
+
+                    n_years_for_forecast = st.slider(
+                        f"Number of fiscal years to use (max: {available_years})",
+                        min_value=1,
+                        max_value=available_years,
+                        value=min(3, available_years),
+                        key="n_years_forecast"
                     )
-                    st.info(f"Using last {n_points_for_forecast} months of data for forecasting")
+                    st.info(f"Using last {n_years_for_forecast} fiscal years of data for forecasting")
 
             st.subheader("Select Models for Forecasting")
             if "Monthly Models" in forecast_type:
                 col1, col2, col3, col4, col5, col6 = st.columns(6)
                 with col1:
-                    use_sma = st.checkbox("Simple MA", value=False, key="forecast_sma")
+                    use_sma = st.checkbox("Simple MA", value=True, key="forecast_sma")
                 with col2:
-                    use_ema = st.checkbox("Exponential MA", value=False, key="forecast_ema")
+                    use_ema = st.checkbox("Exponential MA", value=True, key="forecast_ema")
                 with col3:
-                    use_arima = st.checkbox("ARIMA", value=False, key="forecast_arima")
+                    use_arima = st.checkbox("ARIMA", value=True, key="forecast_arima")
                 with col4:
-                    use_ses = st.checkbox("SES", value=False, key="forecast_ses")
+                    use_ses = st.checkbox("SES", value=True, key="forecast_ses")
                 with col5:
-                    use_des = st.checkbox("DES/Holt", value=False, key="forecast_des")
+                    use_des = st.checkbox("DES/Holt", value=True, key="forecast_des")
                 with col6:
                     use_tes = st.checkbox("TES/HW", value=True, key="forecast_tes")
             else:
                 use_sma = use_ema = use_arima = use_ses = use_des = use_tes = False
-                st.info("Linear regression will be performed on yearly aggregated data (fiscal year totals).")
 
             st.markdown("---")
             st.subheader("⚙️ Configuration Options")
@@ -1173,10 +1302,15 @@ if st.session_state.data_loaded:
                 forecast_seasonal_period = 12
 
             if st.button("🔮 Generate Future Forecast", type="primary", use_container_width=True, key="generate_forecast"):
-                # Prepare data based on user selection
-                if use_all_data == "Use last N months only" and n_points_for_forecast is not None:
-                    forecast_data = material_data_full.iloc[-n_points_for_forecast:]
-                    st.info(f"📊 Using last {len(forecast_data)} months of data for forecasting (from {forecast_data.index[0].strftime('%b-%Y')} to {forecast_data.index[-1].strftime('%b-%Y')})")
+                if use_all_data == "Use last N years only" and n_years_for_forecast is not None:
+                    temp_df = pd.DataFrame({'Date': material_data_full.index, 'Demand': material_data_full.values})
+                    temp_df['Fiscal_Year'] = temp_df['Date'].apply(get_fiscal_year)
+                    available_years = sorted(temp_df['Fiscal_Year'].unique())
+                    last_n_years = available_years[-n_years_for_forecast:]
+                    fiscal_years_series = pd.Series(temp_df['Fiscal_Year'].values, index=material_data_full.index)
+                    mask = fiscal_years_series.isin(last_n_years)
+                    forecast_data = material_data_full[mask]
+                    st.info(f"📊 Using last {n_years_for_forecast} fiscal years of data for forecasting (from {forecast_data.index[0].strftime('%b-%Y')} to {forecast_data.index[-1].strftime('%b-%Y')})")
                 else:
                     forecast_data = material_data_full
                     st.info(f"📊 Using all {len(forecast_data)} months of data for forecasting")
@@ -1185,7 +1319,8 @@ if st.session_state.data_loaded:
                 ax.plot(forecast_data.index, forecast_data.values, label='Historical (Data used for forecasting)', color='#2E86AB', linewidth=2, marker='o')
 
                 future_forecasts = {}
-                color_map = {'SMA': '#F4A261', 'EMA': '#E76F51', 'ARIMA': '#E63946', 'SES': '#2A9D8F', 'DES': '#E9C46A', 'TES': '#9B5DE5', 'Linear (Yearly)': '#A569BD'}
+                color_map = {'SMA': '#F4A261', 'EMA': '#E76F51', 'ARIMA': '#E63946', 'SES': '#2A9D8F', 'DES': '#E9C46A', 'TES': '#9B5DE5', 
+                            'Linear (Yearly)': '#A569BD', 'Simple Average (Yearly)': '#1ABC9C', 'Weighted Average (Yearly)': '#E67E22'}
 
                 last_date = forecast_data.index[-1]
                 if hasattr(last_date, 'strftime'):
@@ -1193,51 +1328,102 @@ if st.session_state.data_loaded:
                 else:
                     future_dates = pd.date_range(start=pd.Timestamp.now(), periods=forecast_periods, freq='MS')
 
-                # Linear Forecast with Yearly Data
-                if use_linear:
-                    try:
-                        monthly_pred, yearly_pred, linear_model, yearly_data = linear_forecast_with_yearly_data(forecast_data, forecast_years, n_points_for_forecast if use_all_data == "Use last N months only" else None)
+                if "Annual Aggregation Methods" in forecast_type:
+                    if use_linear_method:
+                        try:
+                            monthly_pred, yearly_pred, linear_model, yearly_data = linear_forecast_with_yearly_data(
+                                forecast_data, forecast_years, 
+                                n_years_for_forecast if use_all_data == "Use last N years only" else None
+                            )
 
-                        if monthly_pred is not None:
-                            monthly_pred = monthly_pred[:forecast_periods]
-                            future_forecasts['Linear (Yearly)'] = pd.Series(monthly_pred, index=future_dates)
-                            ax.plot(future_dates, monthly_pred, label=f'Linear Regression (Yearly Data)', color=color_map['Linear (Yearly)'], linestyle='--', linewidth=2.5, marker='s')
+                            if monthly_pred is not None:
+                                monthly_pred = monthly_pred[:forecast_periods]
+                                future_forecasts['Linear (Yearly)'] = pd.Series(monthly_pred, index=future_dates)
+                                ax.plot(future_dates, monthly_pred, label=f'Linear Regression', color=color_map['Linear (Yearly)'], linestyle='--', linewidth=2.5, marker='s')
+                                linear_total = monthly_pred.sum()
+                                st.success(f"📊 **Linear Regression Total for {forecast_years} year(s): {linear_total:,.0f} units**")
 
-                            # Calculate total forecast
-                            linear_total = monthly_pred.sum()
-                            st.success(f"📊 **Linear Forecast (Yearly Aggregation) Total for {forecast_years} year(s): {linear_total:,.0f} units**")
-
-                            # Display yearly breakdown
-                            st.subheader("📈 Yearly Forecast Breakdown")
-                            yearly_breakdown = []
-                            for i, year_pred in enumerate(yearly_pred):
-                                yearly_breakdown.append({
-                                    "Year": f"Year {i+1}",
-                                    "Total Annual Demand": f"{year_pred:,.0f}",
-                                    "Monthly Average": f"{year_pred/12:,.0f}"
-                                })
-                            st.dataframe(pd.DataFrame(yearly_breakdown), use_container_width=True, hide_index=True)
-
-                            # Display historical yearly data
-                            if yearly_data is not None and len(yearly_data) > 0:
-                                with st.expander("📊 Historical Yearly Data (Used for Linear Regression)"):
-                                    yearly_df = pd.DataFrame({
-                                        'Fiscal Year': yearly_data.index,
-                                        'Total Annual Demand': yearly_data.values
+                                st.subheader("📈 Linear Regression - Yearly Forecast Breakdown")
+                                yearly_breakdown = []
+                                for i, year_pred in enumerate(yearly_pred):
+                                    yearly_breakdown.append({
+                                        "Year": f"Year {i+1}",
+                                        "Total Annual Demand": f"{year_pred:,.0f}",
+                                        "Monthly Average": f"{year_pred/12:,.0f}"
                                     })
-                                    st.dataframe(yearly_df, use_container_width=True, hide_index=True)
+                                st.dataframe(pd.DataFrame(yearly_breakdown), use_container_width=True, hide_index=True)
 
-                                    # Show regression equation
-                                    if linear_model is not None:
-                                        st.info(f"📐 **Regression Equation:** Yearly Demand = {linear_model.coef_[0]:.0f} × Year + {linear_model.intercept_:.0f}")
-                        else:
-                            st.warning("Not enough yearly data for linear forecast. Need at least 3 fiscal years of data.")
-                    except Exception as e:
-                        st.warning(f"Linear forecast failed: {str(e)[:200]}")
+                                if yearly_data is not None and len(yearly_data) > 0:
+                                    with st.expander("📊 Historical Yearly Data (Used for Linear Regression)"):
+                                        yearly_df = pd.DataFrame({
+                                            'Fiscal Year': yearly_data.index,
+                                            'Total Annual Demand': yearly_data.values
+                                        })
+                                        st.dataframe(yearly_df, use_container_width=True, hide_index=True)
+                                        if linear_model is not None:
+                                            st.info(f"📐 **Regression Equation:** Yearly Demand = {linear_model.coef_[0]:.0f} × Year + {linear_model.intercept_:.0f}")
+                            else:
+                                st.warning("Not enough yearly data for linear forecast. Need at least 3 fiscal years of data.")
+                        except Exception as e:
+                            st.warning(f"Linear forecast failed: {str(e)[:200]}")
 
-                # Monthly Models (SMA, EMA, ARIMA, etc.)
+                    if use_simple_avg_method:
+                        try:
+                            monthly_pred, yearly_pred = simple_average_forecast(
+                                forecast_data, forecast_years,
+                                n_years_for_forecast if use_all_data == "Use last N years only" else None
+                            )
+
+                            if monthly_pred is not None:
+                                monthly_pred = monthly_pred[:forecast_periods]
+                                future_forecasts['Simple Average (Yearly)'] = pd.Series(monthly_pred, index=future_dates)
+                                ax.plot(future_dates, monthly_pred, label=f'Simple Average', color=color_map['Simple Average (Yearly)'], linestyle='--', linewidth=2.5, marker='s')
+                                simple_total = monthly_pred.sum()
+                                st.success(f"📊 **Simple Average Total for {forecast_years} year(s): {simple_total:,.0f} units**")
+
+                                st.subheader("📈 Simple Average - Yearly Forecast Breakdown")
+                                yearly_breakdown = []
+                                for i, year_pred in enumerate(yearly_pred):
+                                    yearly_breakdown.append({
+                                        "Year": f"Year {i+1}",
+                                        "Total Annual Demand": f"{year_pred:,.0f}",
+                                        "Monthly Average": f"{year_pred/12:,.0f}"
+                                    })
+                                st.dataframe(pd.DataFrame(yearly_breakdown), use_container_width=True, hide_index=True)
+                            else:
+                                st.warning("Not enough yearly data for simple average forecast. Need at least 1 fiscal year of data.")
+                        except Exception as e:
+                            st.warning(f"Simple average forecast failed: {str(e)[:200]}")
+
+                    if use_weighted_avg_method:
+                        try:
+                            monthly_pred, yearly_pred = weighted_average_forecast(
+                                forecast_data, forecast_years,
+                                n_years_for_forecast if use_all_data == "Use last N years only" else None
+                            )
+
+                            if monthly_pred is not None:
+                                monthly_pred = monthly_pred[:forecast_periods]
+                                future_forecasts['Weighted Average (Yearly)'] = pd.Series(monthly_pred, index=future_dates)
+                                ax.plot(future_dates, monthly_pred, label=f'Weighted Average (Optimal)', color=color_map['Weighted Average (Yearly)'], linestyle='--', linewidth=2.5, marker='s')
+                                weighted_total = monthly_pred.sum()
+                                st.success(f"📊 **Weighted Average Total for {forecast_years} year(s): {weighted_total:,.0f} units**")
+
+                                st.subheader("📈 Weighted Average - Yearly Forecast Breakdown")
+                                yearly_breakdown = []
+                                for i, year_pred in enumerate(yearly_pred):
+                                    yearly_breakdown.append({
+                                        "Year": f"Year {i+1}",
+                                        "Total Annual Demand": f"{year_pred:,.0f}",
+                                        "Monthly Average": f"{year_pred/12:,.0f}"
+                                    })
+                                st.dataframe(pd.DataFrame(yearly_breakdown), use_container_width=True, hide_index=True)
+                            else:
+                                st.warning("Not enough yearly data for weighted average forecast. Need at least 2 fiscal years of data.")
+                        except Exception as e:
+                            st.warning(f"Weighted average forecast failed: {str(e)[:200]}")
+
                 if "Monthly Models" in forecast_type:
-                    # SMA Forecast
                     if use_sma:
                         try:
                             data_values = forecast_data.values
@@ -1275,7 +1461,6 @@ if st.session_state.data_loaded:
                         except Exception as e:
                             st.warning(f"SMA forecast failed: {str(e)[:100]}")
 
-                    # EMA Forecast
                     if use_ema:
                         try:
                             data_values = forecast_data.values
@@ -1313,7 +1498,6 @@ if st.session_state.data_loaded:
                         except Exception as e:
                             st.warning(f"EMA forecast failed: {str(e)[:100]}")
 
-                    # ARIMA Forecast
                     if use_arima:
                         try:
                             def find_best_arima_full(train_data):
@@ -1351,7 +1535,6 @@ if st.session_state.data_loaded:
                         except Exception as e:
                             st.warning(f"ARIMA forecast failed: {str(e)[:100]}")
 
-                    # SES Forecast
                     if use_ses:
                         try:
                             model = SimpleExpSmoothing(forecast_data.values).fit(optimized=True)
@@ -1362,7 +1545,6 @@ if st.session_state.data_loaded:
                         except Exception as e:
                             st.warning(f"SES forecast failed: {str(e)[:100]}")
 
-                    # DES Forecast
                     if use_des:
                         try:
                             if forecast_trend is None:
@@ -1380,7 +1562,6 @@ if st.session_state.data_loaded:
                         except Exception as e:
                             st.warning(f"DES forecast failed: {str(e)[:100]}")
 
-                    # TES Forecast
                     if use_tes:
                         try:
                             seasonal_periods_actual = min(forecast_seasonal_period, len(forecast_data) // 2)
@@ -1405,7 +1586,6 @@ if st.session_state.data_loaded:
                 plt.xticks(rotation=45)
                 st.pyplot(fig)
 
-                # Display total forecast summary
                 if future_forecasts:
                     st.subheader("📊 Total Forecast Summary")
                     total_summary = []
@@ -1432,11 +1612,9 @@ if st.session_state.data_loaded:
             forecasts = st.session_state['future_forecasts']
             forecast_df = pd.DataFrame(forecasts)
 
-            # Convert index to datetime if it's not already
             if not isinstance(forecast_df.index, pd.DatetimeIndex):
                 forecast_df.index = pd.to_datetime(forecast_df.index)
 
-            # Format dates for display
             forecast_df_display = forecast_df.copy()
             forecast_df_display.index = forecast_df_display.index.strftime('%b-%Y')
 
@@ -1462,31 +1640,22 @@ if st.session_state.data_loaded:
 
                     st.subheader(f"📋 Detailed Monthly Forecast ({start_date} to {end_date})")
 
-                    # Create transposed view (models as rows, dates as columns)
                     transposed_df = filtered_df_display.T
                     transposed_df.index.name = 'Model'
                     transposed_df.columns.name = 'Date'
-
-                    # Display transposed dataframe
                     st.dataframe(transposed_df, use_container_width=True)
 
-                    # YEARLY SPLIT SUMMARY - Group by fiscal year
                     st.subheader(f"📊 Yearly Split Summary (Fiscal Year - April to March)")
 
-                    # Function to get fiscal year for a date
                     def get_fiscal_year_from_date(date):
                         if date.month >= 4:
                             return f"FY {date.year}/{str(date.year+1)[-2:]}"
                         else:
                             return f"FY {date.year-1}/{str(date.year)[-2:]}"
 
-                    # Create a list to store yearly summary data for all models
                     all_yearly_summaries = []
-
                     for model_name in filtered_df.columns:
                         model_data = filtered_df[model_name]
-
-                        # Group by fiscal year
                         fiscal_year_dict = {}
                         for idx, value in model_data.items():
                             fiscal_year = get_fiscal_year_from_date(idx)
@@ -1494,7 +1663,6 @@ if st.session_state.data_loaded:
                                 fiscal_year_dict[fiscal_year] = []
                             fiscal_year_dict[fiscal_year].append(value)
 
-                        # Calculate yearly totals
                         for fiscal_year, values in fiscal_year_dict.items():
                             yearly_total = sum(values)
                             monthly_avg = yearly_total / len(values)
@@ -1506,14 +1674,11 @@ if st.session_state.data_loaded:
                                 "Number of Months": len(values)
                             })
 
-                    # Create and display yearly summary dataframe
                     if all_yearly_summaries:
                         yearly_summary_df = pd.DataFrame(all_yearly_summaries)
-                        # Sort by Model and Fiscal Year
                         yearly_summary_df = yearly_summary_df.sort_values(['Model', 'Fiscal Year'])
                         st.dataframe(yearly_summary_df, use_container_width=True, hide_index=True)
 
-                        # Pivot table view for better readability (models as rows, fiscal years as columns)
                         st.subheader("📊 Pivot View - Yearly Totals by Model")
                         pivot_df = yearly_summary_df.pivot(index='Model', columns='Fiscal Year', values='Total Demand')
                         st.dataframe(pivot_df, use_container_width=True)
@@ -1532,7 +1697,6 @@ if st.session_state.data_loaded:
 
                     st.dataframe(pd.DataFrame(summary_range_data), use_container_width=True, hide_index=True)
 
-                    # Create transposed CSV for download (models as rows, dates as columns)
                     csv_transposed = transposed_df.to_csv()
                     safe_name = re.sub(r'[^\w\s-]', '', selected_material[:30]).replace(' ', '_')
                     st.download_button(
@@ -1564,11 +1728,13 @@ else:
     - **DES** (Double Exponential Smoothing/Holt)
     - **TES** (Triple Exponential Smoothing/Holt-Winters)
     - **Linear Regression (Yearly)** - Uses fiscal year totals for forecasting
+    - **Simple Average (Yearly)** - Average of historical yearly totals
+    - **Weighted Average (Yearly)** - Optimal weights that minimize forecast error
 
     ### How to use:
     1. Upload your Excel file
     2. Select a material from the dropdown
-    3. Go to **Model Training**, ensure TES is checked, then click "Train Models"
+    3. Go to **Model Training**, ensure all models are checked (default), then click "Train Models"
     4. Go to **Forecasting**, choose data points to use, forecast approach, then click "Generate Future Forecast"
     5. Download results in **Results** tab
     """)
@@ -1577,7 +1743,7 @@ st.markdown("---")
 st.markdown(
     """
     <div style='text-align: center; color: gray; padding: 20px;'>
-    <b>Malaria Medicines Demand Forecasting Dashboard</b><br>
+    <b>Health Program Medicines Demand Forecasting Dashboard</b><br>
     Upload -> Select -> Train -> Forecast -> Download
     </div>
     """, 
