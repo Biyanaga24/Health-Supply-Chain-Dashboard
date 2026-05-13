@@ -3040,8 +3040,8 @@ else:
                                     <p><strong>📦 NSOH:</strong> {row.get('NSOH', 'N/A')}</p>
                                     <p><strong>📈 AMC:</strong> {row.get('AMC', 'N/A')}</p>
                                     <p><strong>⏰ NMOS:</strong> <span style='color: {border_color}; font-weight: bold;'>{row.get('NMOS', 'N/A')}</span></p>
-                                    <p><strong>📅 DOS:</strong> <span style='color: {"#ff4444" if dos_value > 0 else "#4CAF50"}; font-weight: bold;'>{dos_value} days</span></p>
-                                    <p><strong>📊 Status:</strong> {row.get('Stock Status', 'N/A')}</p>
+                                    <p><strong>📊 S/Status:</strong> {row.get('Stock Status', 'N/A')}</p>
+                                    <p><strong>📊 Status:</strong> {row.get('Status', 'N/A')}</p>
                                     <p><strong>🔄 TMOS:</strong> {row.get('TMOS', 'N/A')}</p>
                                     <p><strong>⚠️ Risk Type:</strong> <span style='color: {risk_color}; font-weight: bold;'>{risk_type_value}</span></p>
                                 </div>
@@ -4781,6 +4781,19 @@ else:
         else:
             st.info("No new deliveries data available. Please upload data to the New_deliveries table in Supabase.")
             st.caption("Expected columns: material_description, posting_date, purchase_order, quantity")
+import streamlit as st
+
+st.sidebar.markdown("## 🔗 Navigation")
+st.sidebar.markdown(
+    """
+    <a href="https://forecastpy-msmop6gp2g8mbxikad63af.streamlit.app/" target="_blank">
+        <button style="background-color:#4CAF50; color:white; padding:10px; border:none; border-radius:5px; cursor:pointer;">
+            📊 Open Forecast Dashboard
+        </button>
+    </a>
+    """,
+    unsafe_allow_html=True
+)
 
 # ---------------------------------------------------
 # Download Filtered Data
