@@ -5,6 +5,7 @@ import plotly.express as px
 import plotly.graph_objects as go
 from datetime import datetime
 from datetime import timedelta
+from datetime import date
 import sys
 import os
 import time
@@ -45,6 +46,165 @@ def check_supabase_connection():
         return False
     return False
 
+# ===================================================
+# DOS TRACKING SUPABASE FUNCTIONS (DEFINED EARLY)
+# ===================================================
+
+def save_dos_tracking_to_supabase(dos_tracking_dict):
+    """Save DOS tracking data to Supabase"""
+    try:
+        if st.session_state.get('supabase_client') is None:
+            return False
+
+        records = []
+        for material, tracking_data in dos_tracking_dict.items():
+            record = {
+                'material_description': material,
+                'start_date': tracking_data.get('start_date').isoformat() if tracking_data.get('start_date') else None,
+                'last_check_date': tracking_data.get('last_check_date').isoformat() if tracking_data.get('last_check_date') else None,
+                'current_dos': tracking_data.get('days', 0),
+                'is_out_of_stock': tracking_data.get('is_out_of_stock', False),
+                'last_nmos': tracking_data.get('last_nmos', 0)
+            }
+            records.append(record)
+
+        if records:
+            response = st.session_state.supabase_client.table("dos_tracking").upsert(records).execute()
+            return True
+        return False
+    except Exception as e:
+        st.error(f"Error saving DOS tracking to Supabase: {e}")
+        return False
+
+def load_dos_tracking_from_supabase():
+    """Load DOS tracking data from Supabase"""
+    try:
+        if st.session_state.get('supabase_client') is None:
+            return {}
+
+        response = st.session_state.supabase_client.table("dos_tracking").select("*").execute()
+
+        if response.data:
+            dos_tracking = {}
+            for record in response.data:
+                material = record['material_description']
+                start_date = None
+                if record.get('start_date'):
+                    try:
+                        start_date = datetime.fromisoformat(record['start_date'])
+                    except:
+                        start_date = None
+
+                last_check_date = None
+                if record.get('last_check_date'):
+                    try:
+                        last_check_date = datetime.fromisoformat(record['last_check_date'])
+                    except:
+                        last_check_date = None
+
+                dos_tracking[material] = {
+                    'start_date': start_date,
+                    'last_check_date': last_check_date,
+                    'days': record.get('current_dos', 0),
+                    'is_out_of_stock': record.get('is_out_of_stock', False),
+                    'last_nmos': record.get('last_nmos', 0)
+                }
+            return dos_tracking
+        return {}
+    except Exception as e:
+        # Table might not exist yet
+        if "relation" in str(e) and "does not exist" in str(e):
+            return {}
+        st.error(f"Error loading DOS tracking from Supabase: {e}")
+        return {}
+
+def clear_dos_tracking_in_supabase():
+    """Clear all DOS tracking data from Supabase"""
+    try:
+        if st.session_state.get('supabase_client') is None:
+            return False
+
+        response = st.session_state.supabase_client.table("dos_tracking").delete().neq("material_description", "").execute()
+        return True
+    except Exception as e:
+        st.error(f"Error clearing DOS tracking: {e}")
+        return False
+
+def reset_dos_tracking():
+    """Reset all DOS tracking data"""
+    if clear_dos_tracking_in_supabase():
+        st.session_state.dos_tracking = load_dos_tracking_from_supabase()
+        st.success("✅ DOS tracking data has been reset!")
+        return True
+    return False
+# ===================================================
+# PO REQUESTED DATES FUNCTIONS
+# ===================================================
+
+def save_po_requested_date(po_number, material_description, requested_date):
+    """Save or update requested date for a PO"""
+    try:
+        if st.session_state.get('supabase_client') is None:
+            return False
+
+        data = {
+            'po_number': po_number,
+            'material_description': material_description,
+            'requested_date': requested_date.isoformat() if requested_date else None,
+            'updated_at': datetime.now().isoformat()
+        }
+
+        # Use upsert to update if exists, insert if not
+        response = st.session_state.supabase_client.table("po_requested_dates").upsert(
+            data, 
+            on_conflict="po_number,material_description"
+        ).execute()
+
+        return True
+    except Exception as e:
+        st.error(f"Error saving requested date: {e}")
+        return False
+
+def delete_po_requested_date(po_number, material_description):
+    """Delete requested date for a PO"""
+    try:
+        if st.session_state.get('supabase_client') is None:
+            return False
+
+        response = st.session_state.supabase_client.table("po_requested_dates").delete().eq(
+            "po_number", po_number
+        ).eq("material_description", material_description).execute()
+
+        return True
+    except Exception as e:
+        st.error(f"Error deleting requested date: {e}")
+        return False
+
+def load_all_requested_dates():
+    """Load all requested dates from Supabase"""
+    try:
+        if st.session_state.get('supabase_client') is None:
+            return {}
+
+        response = st.session_state.supabase_client.table("po_requested_dates").select("*").execute()
+
+        requested_dates = {}
+        if response.data:
+            for record in response.data:
+                key = f"{record['po_number']}_{record['material_description']}"
+                requested_date = None
+                if record.get('requested_date'):
+                    try:
+                        requested_date = datetime.fromisoformat(record['requested_date']).date()
+                    except:
+                        requested_date = None
+                requested_dates[key] = requested_date
+
+        return requested_dates
+    except Exception as e:
+        if "relation" not in str(e):
+            st.error(f"Error loading requested dates: {e}")
+        return {}
 # Check authentication
 if 'auth' not in st.session_state:
     st.session_state['auth'] = False
@@ -291,7 +451,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ---------------------------------------------------
-# Initialize session state
+# Initialize session state (CORRECT ORDER)
 # ---------------------------------------------------
 if 'data_timestamp' not in st.session_state:
     st.session_state.data_timestamp = datetime.now()
@@ -307,8 +467,19 @@ if 'google_sheets_data' not in st.session_state:
     st.session_state.google_sheets_data = None
 if 'branch_amc_data' not in st.session_state:
     st.session_state.branch_amc_data = None
+
+# FIRST: Initialize supabase client
 if 'supabase_client' not in st.session_state:
     st.session_state.supabase_client = init_supabase()
+
+if 'lead_time_data' not in st.session_state:
+    st.session_state.temp_requested_dates = {}
+
+# SECOND: Load DOS tracking from Supabase (now client exists)
+if 'dos_tracking' not in st.session_state:
+    st.session_state.dos_tracking = load_dos_tracking_from_supabase()
+
+# Continue with other session state variables
 if 'branch_data' not in st.session_state:
     st.session_state.branch_data = None
 if 'search_query' not in st.session_state:
@@ -335,8 +506,6 @@ if 'user_activity' not in st.session_state:
     st.session_state.user_activity = []
 if 'notifications' not in st.session_state:
     st.session_state.notifications = []
-if 'dos_tracking' not in st.session_state:
-    st.session_state.dos_tracking = {}
 if 'previous_data_hash' not in st.session_state:
     st.session_state.previous_data_hash = None
 if 'action_plan_tab' not in st.session_state:
@@ -353,6 +522,8 @@ if 'last_analytics_tab' not in st.session_state:
     st.session_state.last_analytics_tab = None
 if 'last_summary_section' not in st.session_state:
     st.session_state.last_summary_section = None
+if 'requested_dates' not in st.session_state:
+    st.session_state.requested_dates = load_all_requested_dates()
 
 # Check connection periodically
 if st.session_state.supabase_client and not check_supabase_connection():
@@ -545,26 +716,77 @@ def load_national_data():
         return pd.DataFrame()
 
 @st.cache_data(ttl=300, show_spinner=False)
+@st.cache_data(ttl=300, show_spinner=False)
 def load_new_deliveries():
-    """Load new_deliveries data from Supabase"""
+    """Load ALL new_deliveries data from Supabase with pagination"""
+
     try:
         if st.session_state.supabase_client is None:
             return pd.DataFrame()
-        response = st.session_state.supabase_client.table("new_deliveries").select("*").execute()
-        if response.data:
-            df = pd.DataFrame(response.data)
-            if 'id' in df.columns:
-                df = df.drop(columns=['id'])
-            column_rename = {
-                'material_description': 'Material Description',
-                'posting_date': 'Posting Date',
-                'purchase_order': 'PO Number',
-                'quantity': 'Quantity'
-            }
-            existing_rename = {k: v for k, v in column_rename.items() if k in df.columns}
-            df = df.rename(columns=existing_rename)
-            return df
-        return pd.DataFrame()
+
+        all_data = []
+        page = 0
+        page_size = 1000
+
+        while True:
+
+            response = (
+                st.session_state.supabase_client
+                .table("new_deliveries")
+                .select("*")
+                .range(page * page_size, (page + 1) * page_size - 1)
+                .execute()
+            )
+
+            if not response.data:
+                break
+
+            all_data.extend(response.data)
+
+            # Stop when last page reached
+            if len(response.data) < page_size:
+                break
+
+            page += 1
+
+        if not all_data:
+            return pd.DataFrame()
+
+        df = pd.DataFrame(all_data)
+
+        # Remove id column
+        if 'id' in df.columns:
+            df = df.drop(columns=['id'])
+
+        # Convert purchase_order to string
+        if 'purchase_order' in df.columns:
+            df['purchase_order'] = df['purchase_order'].astype(str)
+
+        # Rename columns
+        df = df.rename(columns={
+            'material_description': 'Material Description',
+            'posting_date': 'Posting Date',
+            'purchase_order': 'PO Number',
+            'quantity': 'Quantity'
+        })
+
+        # Convert date
+        if 'Posting Date' in df.columns:
+            df['Posting Date'] = pd.to_datetime(
+                df['Posting Date'],
+                errors='coerce'
+            )
+
+        # Convert quantity
+        if 'Quantity' in df.columns:
+            df['Quantity'] = pd.to_numeric(
+                df['Quantity'],
+                errors='coerce'
+            )
+
+
+        return df
+
     except Exception as e:
         st.error(f"Error loading New_deliveries data: {e}")
         return pd.DataFrame()
@@ -752,7 +974,7 @@ def get_table_info():
         return None
 
 # ---------------------------------------------------
-# SINGLE CORRECTED calculate_stock_changes FUNCTION
+# calculate_stock_changes FUNCTION
 # ---------------------------------------------------
 def calculate_stock_changes(current_df, previous_df):
     """Calculate stock quantity changes - uses ONLY NSOH for comparison"""
@@ -833,7 +1055,7 @@ def calculate_stock_changes(current_df, previous_df):
     return result
 
 # ---------------------------------------------------
-# SINGLE CORRECTED load_national_data_with_hash FUNCTION
+# load_national_data_with_hash FUNCTION
 # ---------------------------------------------------
 @st.cache_data(ttl=300, show_spinner=False)
 def load_national_data_with_hash():
@@ -925,17 +1147,16 @@ def load_national_data_with_hash():
         return pd.DataFrame(), None
 
 # ---------------------------------------------------
-# DOS Tracking Function
+# DOS Tracking Function (UPDATED - NO DUPLICATE CODE)
 # ---------------------------------------------------
 def calculate_dos(current_df):
-    """Calculate Days Out of Stock - tracks persistently across data updates"""
-    from datetime import date, timedelta
+    """Calculate Days Out of Stock - stores persistently in Supabase"""
+    from datetime import date, datetime, timedelta
 
     current_date = date.today()
 
-    # Initialize tracking if not exists
-    if 'dos_tracking' not in st.session_state:
-        st.session_state.dos_tracking = {}
+    # Load existing DOS tracking from Supabase
+    dos_tracking = load_dos_tracking_from_supabase()
 
     # Get current NMOS values from DataFrame
     current_nmos = {}
@@ -956,14 +1177,23 @@ def calculate_dos(current_df):
 
         current_nmos[str(material)] = nmos
 
+    # Helper function to convert to date if needed
+    def ensure_date(d):
+        if d is None:
+            return None
+        if isinstance(d, datetime):
+            return d.date()
+        return d
+
     # Update DOS tracking based on current NMOS
+    updated_tracking = {}
     for material, nmos in current_nmos.items():
         is_out_of_stock = nmos < 1
 
-        if material not in st.session_state.dos_tracking:
+        if material not in dos_tracking:
             # Initialize tracking for this material
             if is_out_of_stock:
-                st.session_state.dos_tracking[material] = {
+                updated_tracking[material] = {
                     'start_date': current_date,
                     'days': 1,
                     'is_out_of_stock': True,
@@ -971,7 +1201,7 @@ def calculate_dos(current_df):
                     'last_check_date': current_date
                 }
             else:
-                st.session_state.dos_tracking[material] = {
+                updated_tracking[material] = {
                     'start_date': None,
                     'days': 0,
                     'is_out_of_stock': False,
@@ -979,14 +1209,13 @@ def calculate_dos(current_df):
                     'last_check_date': current_date
                 }
         else:
-            tracking = st.session_state.dos_tracking[material]
+            tracking = dos_tracking[material].copy()
+
+            # Convert dates to date objects for comparison
+            start_date = ensure_date(tracking.get('start_date'))
+            last_check = ensure_date(tracking.get('last_check_date', current_date))
             previous_status = tracking.get('is_out_of_stock', False)
             previous_nmos = tracking.get('last_nmos', 1)
-            last_check = tracking.get('last_check_date', current_date)
-
-            # Calculate days since last check
-            days_since_last_check = (current_date - last_check).days if last_check else 1
-            days_since_last_check = max(1, days_since_last_check)  # At least 1 day
 
             # Check if status changed
             if is_out_of_stock != previous_status:
@@ -1004,10 +1233,9 @@ def calculate_dos(current_df):
                 # Status unchanged
                 if is_out_of_stock:
                     # Still out of stock - increment days
-                    if tracking['start_date'] is not None:
+                    if start_date is not None:
                         # Calculate actual days from start date to today
-                        tracking['days'] = (current_date - tracking['start_date']).days
-                        # Ensure at least 1 day
+                        tracking['days'] = (current_date - start_date).days
                         if tracking['days'] < 1:
                             tracking['days'] = 1
                     else:
@@ -1023,10 +1251,18 @@ def calculate_dos(current_df):
             # Update last known values
             tracking['last_nmos'] = nmos
             tracking['last_check_date'] = current_date
+            updated_tracking[material] = tracking
+
+    # Keep any materials from previous tracking that aren't in current data
+    for material, tracking in dos_tracking.items():
+        if material not in updated_tracking:
+            updated_tracking[material] = tracking
+
+    # Save updated tracking to Supabase
+    save_dos_tracking_to_supabase(updated_tracking)
 
     # Return current DOS days for each material
-    return {material: st.session_state.dos_tracking[material]['days'] 
-            for material in st.session_state.dos_tracking}
+    return {material: tracking['days'] for material, tracking in updated_tracking.items()}
 
 # ---------------------------------------------------
 # Recommendation Functions
@@ -1683,7 +1919,6 @@ if st.session_state['user']['role'] == 'admin':
 if st.session_state['user']['role'] == 'admin':
     with st.sidebar.expander("📁 Supabase Management"):
         st.caption("Manage data in Supabase")
-
         table_info = get_table_info()
         if table_info:
             st.info(f"Current data: {table_info['rows']} rows, {table_info['columns']} columns")
@@ -1728,6 +1963,25 @@ if st.session_state['user']['role'] == 'admin':
 
         st.markdown("---")
         st.caption("Data stored in Supabase table: `health_data`")
+
+    # DOS TRACKING MANAGEMENT - Separate expander
+    with st.sidebar.expander("📊 DOS Tracking Management"):
+        st.caption("Manage Days Out of Stock tracking data")
+
+        # Get DOS stats
+        dos_tracking = load_dos_tracking_from_supabase()
+        active_dos = sum(1 for t in dos_tracking.values() if t.get('is_out_of_stock', False))
+        total_tracked = len(dos_tracking)
+
+        col1, col2 = st.columns(2)
+        with col1:
+            st.metric("📊 Materials Tracked", total_tracked)
+        with col2:
+            st.metric("🔴 Currently Out of Stock", active_dos)
+
+        if st.button("🗑️ Reset All DOS Tracking Data", use_container_width=True, type="secondary"):
+            if reset_dos_tracking():
+                st.rerun()
 
 # ---------------------------------------------------
 # Logout
@@ -1811,24 +2065,24 @@ elif page == "Advanced Analytics":
                             amc_values = amc_values.replace(0, 1)
                             branch_hmos = (stock_values / amc_values).values
 
-                            availability_count = np.sum(branch_hmos >= 0.5)
+                            Availability_count = np.sum(branch_hmos >= 0.5)
                             total_materials = len(branch_hmos)
-                            availability_pct = (availability_count / total_materials * 100) if total_materials > 0 else 0
+                            Availability_pct = (Availability_count / total_materials * 100) if total_materials > 0 else 0
                             valid_hmos = branch_hmos[branch_hmos > 0]
                             avg_hmos = np.mean(valid_hmos) if len(valid_hmos) > 0 else 0
-                            stock_out_materials = total_materials - availability_count
+                            stock_out_materials = total_materials - Availability_count
 
                             # Scoring System
-                            if availability_pct == 100:
-                                availability_points = 4
-                            elif availability_pct >= 85:
-                                availability_points = 3
-                            elif availability_pct >= 75:
-                                availability_points = 2
-                            elif availability_pct >= 55:
-                                availability_points = 1
+                            if Availability_pct == 100:
+                                Availability_points = 4
+                            elif Availability_pct >= 85:
+                                Availability_points = 3
+                            elif Availability_pct >= 75:
+                                Availability_points = 2
+                            elif Availability_pct >= 55:
+                                Availability_points = 1
                             else:
-                                availability_points = 0
+                                Availability_points = 0
 
                             if 2 <= avg_hmos <= 4:
                                 hmos_points = 2
@@ -1844,7 +2098,7 @@ elif page == "Advanced Analytics":
                             else:
                                 stockout_points = 0
 
-                            total_score = availability_points + hmos_points + stockout_points
+                            total_score = Availability_points + hmos_points + stockout_points
 
                             if total_score >= 8:
                                 rating = "🏆 EXCELLENT"
@@ -1859,8 +2113,8 @@ elif page == "Advanced Analytics":
 
                             rankings.append({
                                 'Branch': amc_branch,
-                                'Availability %': round(availability_pct, 1),
-                                'Availability Points': availability_points,
+                                'Availability %': round(Availability_pct, 1),
+                                'Availability Points': Availability_points,
                                 'Avg HMOS': round(avg_hmos, 2),
                                 'HMOS Points': hmos_points,
                                 'Stock-outs': stock_out_materials,
@@ -2184,18 +2438,18 @@ elif page == "Advanced Analytics":
                     nmos_values = pd.to_numeric(merged['NMOS'], errors='coerce').dropna()
 
                     if len(nmos_values) > 0:
-                        availability = (nmos_values > 1).mean() * 100
+                        Availability = (nmos_values > 1).mean() * 100
                         sap = ((nmos_values >= 6) & (nmos_values <= 18)).mean() * 100
                         stock_out_rate = (nmos_values < 1).mean() * 100
                         overstock_rate = (nmos_values > 18).mean() * 100
                         avg_nmos = nmos_values.mean()
                     else:
-                        availability = sap = stock_out_rate = overstock_rate = 0
+                        Availability = sap = stock_out_rate = overstock_rate = 0
                         avg_nmos = 0
 
                     program_metrics.append({
                         'Program': program_name,
-                        'Availability (%)': round(availability, 1),
+                        'Availability (%)': round(Availability, 1),
                         'SAP Achievement (%)': round(sap, 1),
                         'Stock-out Rate (%)': round(stock_out_rate, 1),
                         'Overstock Rate (%)': round(overstock_rate, 1),
@@ -2223,9 +2477,9 @@ elif page == "Advanced Analytics":
                 comparison_df = comparison_df.drop(columns=['Composite Score'])
 
                 top_program = comparison_df.iloc[0]['Program']
-                top_availability = comparison_df.iloc[0]['Availability (%)']
+                top_Availability = comparison_df.iloc[0]['Availability (%)']
                 bottom_program = comparison_df.iloc[-1]['Program']
-                bottom_availability = comparison_df.iloc[-1]['Availability (%)']
+                bottom_Availability = comparison_df.iloc[-1]['Availability (%)']
 
                 col_left, col_right = st.columns(2)
                 with col_left:
@@ -2233,7 +2487,7 @@ elif page == "Advanced Analytics":
                     <div style='background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%); border-radius: 15px; padding: 15px; text-align: center;'>
                         <div style='font-size: 32px;'>🏆</div>
                         <div style='font-size: 18px; font-weight: bold; color: white;'>{top_program}</div>
-                        <div><span style='font-size: 24px; font-weight: bold; color: white;'>{top_availability}%</span><span style='color: white;'> Availability</span></div>
+                        <div><span style='font-size: 24px; font-weight: bold; color: white;'>{top_Availability}%</span><span style='color: white;'> Availability</span></div>
                     </div>
                     """, unsafe_allow_html=True)
                 with col_right:
@@ -2241,7 +2495,7 @@ elif page == "Advanced Analytics":
                     <div style='background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%); border-radius: 15px; padding: 15px; text-align: center;'>
                         <div style='font-size: 32px;'>📉</div>
                         <div style='font-size: 18px; font-weight: bold; color: white;'>{bottom_program}</div>
-                        <div><span style='font-size: 24px; font-weight: bold; color: white;'>{bottom_availability}%</span><span style='color: white;'> Availability</span></div>
+                        <div><span style='font-size: 24px; font-weight: bold; color: white;'>{bottom_Availability}%</span><span style='color: white;'> Availability</span></div>
                     </div>
                     """, unsafe_allow_html=True)
 
@@ -2437,7 +2691,7 @@ elif page == "Executive Summary":
         st.stop()
 
     # Initialize variables with defaults to prevent NameError
-    availability = 0
+    Availability = 0
     sap_achievement = 0
     avg_avail_gap = 0
     total_cv_materials = 0
@@ -2461,7 +2715,7 @@ elif page == "Executive Summary":
     if 'NMOS' in df_filtered.columns:
         nmos_values = pd.to_numeric(df_filtered['NMOS'], errors='coerce').dropna()
 
-        availability = (nmos_values > 1).mean() * 100 if len(nmos_values) > 0 else 0
+        Availability = (nmos_values > 1).mean() * 100 if len(nmos_values) > 0 else 0
         sap_achievement = ((nmos_values >= 6) & (nmos_values <= 18)).mean() * 100 if len(nmos_values) > 0 else 0
 
         if 'Avail Gap' in df_filtered.columns:
@@ -2472,8 +2726,8 @@ elif page == "Executive Summary":
         with col1:
             st.markdown(f"""
             <div style='background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-radius: 15px; padding: 20px; color: white;'>
-                <h3 style='margin:0; font-size: 14px; opacity:0.9'>AVAILABILITY</h3>
-                <p style='font-size: 36px; font-weight: bold; margin:5px 0'>{availability:.1f}%</p>
+                <h3 style='margin:0; font-size: 14px; opacity:0.9'>Availability</h3>
+                <p style='font-size: 36px; font-weight: bold; margin:5px 0'>{Availability:.1f}%</p>
                 <p style='margin:0; font-size: 12px; opacity:0.8'>Target: 100%</p>
             </div>
             """, unsafe_allow_html=True)
@@ -2488,7 +2742,7 @@ elif page == "Executive Summary":
         with col3:
             st.markdown(f"""
             <div style='background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%); border-radius: 15px; padding: 20px; color: white;'>
-                <h3 style='margin:0; font-size: 14px; opacity:0.9'>AVAIL. GAP</h3>
+                <h3 style='margin:0; font-size: 14px; opacity:0.9'>Distr. Gap</h3>
                 <p style='font-size: 36px; font-weight: bold; margin:5px 0'>{avg_avail_gap:.1f}%</p>
                 <p style='margin:0; font-size: 12px; opacity:0.8'>Hubs% - Head Office%</p>
             </div>
@@ -2607,23 +2861,23 @@ elif page == "Executive Summary":
                         amc_values = amc_values.replace(0, 1)
                         branch_hmos = (stock_values / amc_values).values
 
-                        availability_count = np.sum(branch_hmos >= 0.5)
+                        Availability_count = np.sum(branch_hmos >= 0.5)
                         total_materials_branch = len(branch_hmos)
-                        availability_pct = (availability_count / total_materials_branch * 100) if total_materials_branch > 0 else 0
+                        Availability_pct = (Availability_count / total_materials_branch * 100) if total_materials_branch > 0 else 0
                         valid_hmos = branch_hmos[branch_hmos > 0]
                         avg_hmos = np.mean(valid_hmos) if len(valid_hmos) > 0 else 0
-                        stock_out_materials = total_materials_branch - availability_count
+                        stock_out_materials = total_materials_branch - Availability_count
 
-                        if availability_pct == 100:
-                            availability_points = 4
-                        elif availability_pct >= 85:
-                            availability_points = 3
-                        elif availability_pct >= 75:
-                            availability_points = 2
-                        elif availability_pct >= 55:
-                            availability_points = 1
+                        if Availability_pct == 100:
+                            Availability_points = 4
+                        elif Availability_pct >= 85:
+                            Availability_points = 3
+                        elif Availability_pct >= 75:
+                            Availability_points = 2
+                        elif Availability_pct >= 55:
+                            Availability_points = 1
                         else:
-                            availability_points = 0
+                            Availability_points = 0
 
                         if 2 <= avg_hmos <= 4:
                             hmos_points = 2
@@ -2639,7 +2893,7 @@ elif page == "Executive Summary":
                         else:
                             stockout_points = 0
 
-                        total_score = availability_points + hmos_points + stockout_points
+                        total_score = Availability_points + hmos_points + stockout_points
 
                         rankings.append({
                             'Branch': amc_branch,
@@ -2695,8 +2949,8 @@ elif page == "Executive Summary":
 
             if len(nmos_values) > 0:
                 composite_score = 0
-                availability_prog = (nmos_values > 1).mean() * 100
-                if availability_prog == 100:
+                Availability_prog = (nmos_values > 1).mean() * 100
+                if Availability_prog == 100:
                     composite_score += 1
                 sap_prog = ((nmos_values >= 6) & (nmos_values <= 18)).mean() * 100
                 if sap_prog >= 65:
@@ -2755,9 +3009,9 @@ Program: {sheet_name if sheet_name != 'All' else 'All Programs'}
 ================================================================================
 1. PERFORMANCE METRICS
 ================================================================================
-• Availability: {availability:.1f}% (Target: 100%)
+• Availability: {Availability:.1f}% (Target: 100%)
 • SAP Achievement: {sap_achievement:.1f}% (Target: 65%)
-• Avail. Gap: {avg_avail_gap:.1f}%
+• Distr. Gap: {avg_avail_gap:.1f}%
 
 ================================================================================
 2. STOCK STATUS
@@ -2838,11 +3092,11 @@ else:
 
     st.markdown("---")
 
-    # Quick Summary Section with Program Name
+        # Quick Summary Section with Program Name
     if not df_filtered.empty and 'NMOS' in df_filtered.columns:
         nmos_values = pd.to_numeric(df_filtered['NMOS'], errors='coerce').dropna()
 
-        availability = (nmos_values > 1).mean() * 100 if len(nmos_values) > 0 else 0
+        Availability = (nmos_values > 1).mean() * 100 if len(nmos_values) > 0 else 0
         sap = ((nmos_values >= 6) & (nmos_values <= 18)).mean() * 100 if len(nmos_values) > 0 else 0
 
         if 'Avail Gap' in df_filtered.columns:
@@ -2858,19 +3112,54 @@ else:
         else:
             program_name = sheet_name
 
-        # Quick Summary Box with Program Name
+        # Calculate Average Lead Time from new_deliveries
+        avg_lead_time_display = "N/A"
+        if not df_new_deliveries.empty:
+            # Calculate lead time values
+            temp_lead_df = df_new_deliveries.copy()
+            temp_lead_df['Posting Date'] = pd.to_datetime(temp_lead_df['Posting Date'], errors='coerce')
+            temp_lead_df['PO Number'] = temp_lead_df['PO Number'].astype(str)
+
+            temp_lead_df['Requested Date'] = temp_lead_df.apply(
+                lambda row: st.session_state.requested_dates.get(f"{row['PO Number']}_{row['Material Description']}", None) if 'requested_dates' in st.session_state else None,
+                axis=1
+            )
+
+            def calc_lead_val(row):
+                req_date = row['Requested Date']
+                posting = row['Posting Date']
+                if req_date and pd.notna(posting):
+                    try:
+                        if hasattr(req_date, 'date'):
+                            req_date = req_date.date()
+                        if hasattr(posting, 'date'):
+                            posting = posting.date()
+                        days = (posting - req_date).days
+                        return days if days >= 0 else None
+                    except:
+                        return None
+                return None
+
+            temp_lead_df['Lead Time Value'] = temp_lead_df.apply(calc_lead_val, axis=1)
+            lead_values = temp_lead_df['Lead Time Value'].dropna().tolist()
+
+            if lead_values:
+                avg_lead = sum(lead_values) / len(lead_values)
+                avg_lead_time_display = f"{avg_lead:.0f} days"
+
+        # Quick Summary Box with Program Name and 4 columns
         st.markdown(f"""
         <div style='background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%); border-radius: 15px; padding: 15px; border: 1px solid #dee2e6; margin-bottom: 15px;'>
             <h4 style='margin: 0 0 10px 0; font-size: 16px; font-weight: bold; color: #1a5276;'>📊 {program_name} Quick Summary</h4>
         </div>
         """, unsafe_allow_html=True)
 
-        col_a, col_s, col_g = st.columns(3)
+        col_a, col_s, col_g, col_lead = st.columns(4)
         with col_a:
             st.markdown(f"""
             <div style='text-align: center; padding: 10px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-radius: 10px; margin: 5px;'>
-                <p style='margin: 0; font-size: 16px; color: white; opacity: 0.9'>AVAILABILITY</p>
-                <p style='margin: 0; font-size: 24px; font-weight: bold; color: white;'>{availability:.1f}%</p>
+                <p style='margin: 0; font-size: 16px; color: white; opacity: 0.9'>Availability</p>
+                <p style='margin: 0; font-size: 24px; font-weight: bold; color: white;'>{Availability:.1f}%</p>
             </div>
             """, unsafe_allow_html=True)
         with col_s:
@@ -2883,8 +3172,15 @@ else:
         with col_g:
             st.markdown(f"""
             <div style='text-align: center; padding: 10px; background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%); border-radius: 10px; margin: 5px;'>
-                <p style='margin: 0; font-size: 16px; color: white; opacity: 0.9'>AVAIL. GAP</p>
+                <p style='margin: 0; font-size: 16px; color: white; opacity: 0.9'>Distr. Gap</p>
                 <p style='margin: 0; font-size: 24px; font-weight: bold; color: white;'>{avg_avail_gap:.1f}%</p>
+            </div>
+            """, unsafe_allow_html=True)
+        with col_lead:
+            st.markdown(f"""
+            <div style='text-align: center; padding: 10px; background: linear-gradient(135deg, #fa709a 0%, #fee140 100%); border-radius: 10px; margin: 5px;'>
+                <p style='margin: 0; font-size: 16px; color: white; opacity: 0.9'>Avg.Lead Time</p>
+                <p style='margin: 0; font-size: 24px; font-weight: bold; color: white;'>{avg_lead_time_display}</p>
             </div>
             """, unsafe_allow_html=True)
 
@@ -3001,7 +3297,7 @@ else:
 
             if st.session_state.view_mode == "card":
                 st.markdown("### 📇 Card View")
-                cols_per_row = 3
+                cols_per_row = 2
                 for i in range(0, len(search_df), cols_per_row):
                     card_cols = st.columns(cols_per_row)
                     for j, col in enumerate(card_cols):
@@ -3290,7 +3586,7 @@ else:
 
         if not df_filtered.empty and 'NMOS' in df_filtered.columns:
             nmos_values = pd.to_numeric(df_filtered['NMOS'], errors='coerce').dropna()
-            availability = (nmos_values > 1).mean() * 100 if len(nmos_values) > 0 else 0
+            Availability = (nmos_values > 1).mean() * 100 if len(nmos_values) > 0 else 0
             sap = ((nmos_values >= 6) & (nmos_values <= 18)).mean() * 100 if len(nmos_values) > 0 else 0
 
             if 'Avail Gap' in df_filtered.columns:
@@ -3299,7 +3595,7 @@ else:
             else:
                 avg_avail_gap = 0
 
-            avail_delta = availability - 100
+            avail_delta = Availability - 100
 
             if -5 <= avg_avail_gap <= 5:
                 avail_gap_status = "✅ Within Target (-5% to 5%)"
@@ -3313,13 +3609,13 @@ else:
 
             col1, col2, col3 = st.columns(3)
             with col1:
-                st.metric("📈 Availability", f"{availability:.1f}%", delta=f"{avail_delta:+.1f}%", delta_color="inverse")
+                st.metric("📈 Availability", f"{Availability:.1f}%", delta=f"{avail_delta:+.1f}%", delta_color="inverse")
                 st.caption("Target: 100%")
             with col2:
                 st.metric("🎯 SAP Achievement", f"{sap:.1f}%", delta=f"{sap - 65:.1f}%")
                 st.caption("Target: 65%")
             with col3:
-                st.metric("📊 Avail. Gap (Hubs% - Head Office%)", f"{avg_avail_gap:.1f}%", delta=avail_gap_delta, delta_color="inverse" if avg_avail_gap > 5 or avg_avail_gap < -5 else "off")
+                st.metric("📊 Distr. Gap (Hubs% - Head Office%)", f"{avg_avail_gap:.1f}%", delta=avail_gap_delta, delta_color="inverse" if avg_avail_gap > 5 or avg_avail_gap < -5 else "off")
                 st.caption(avail_gap_status)
 
             st.markdown("---")
@@ -3330,7 +3626,7 @@ else:
 
             col1, col2 = st.columns(2)
             with col1:
-                st.plotly_chart(create_kpi_fig(availability, 100, "Availability"), use_container_width=True)
+                st.plotly_chart(create_kpi_fig(Availability, 100, "Availability"), use_container_width=True)
             with col2:
                 st.plotly_chart(create_kpi_fig(sap, 65, "SAP"), use_container_width=True)
 
@@ -4585,199 +4881,587 @@ else:
             else:
                 st.info("No active purchase orders found")
 
-    # ---------------------------------------------------
-    # TAB 7 - New Deliveries
+         # ---------------------------------------------------
+    # TAB 7 - New Deliveries with Lead Time Tracking
     # ---------------------------------------------------
     with tab7:
         if not df_new_deliveries.empty and sheet_name != "All" and sheet_name in google_sheets:
             program_materials = google_sheets[sheet_name]['Material Description'].dropna().tolist()
             df_new_deliveries = df_new_deliveries[df_new_deliveries['Material Description'].isin(program_materials)]
 
-        st.markdown("<h3 style='font-size: 28px; font-weight: bold; font-family: Times New Roman;'>🚚 New Deliveries Tracking</h3>", unsafe_allow_html=True)
-        st.caption("Track incoming deliveries - Purchase Orders and Quantities")
+        st.markdown("<h3 style='font-size: 28px; font-weight: bold; font-family: Times New Roman;'>🚚 New Deliveries Tracking with Lead Time</h3>", unsafe_allow_html=True)
+        st.caption("Track incoming deliveries - Enter Requested Date for each PO to calculate Lead Time = Posting Date - Requested Date")
+
+        # Add CSS for shake animation on hover (SLOWED DOWN)
+        st.markdown("""
+        <style>
+        @keyframes shake {
+            0%, 100% { transform: translateX(0); }
+            10%, 30%, 50%, 70%, 90% { transform: translateX(-2px); }
+            20%, 40%, 60%, 80% { transform: translateX(2px); }
+        }
+        .stat-card:hover {
+            animation: shake 0.8s ease-in-out;
+            transform: scale(1.02);
+            transition: all 0.3s ease;
+        }
+        </style>
+        """, unsafe_allow_html=True)
 
         if not df_new_deliveries.empty:
             df_new_deliveries['Posting Date'] = pd.to_datetime(df_new_deliveries['Posting Date'], errors='coerce')
 
-            st.markdown("#### 📅 Date Range Filter")
-            col_date1, col_date2 = st.columns(2)
+            # Convert PO Number to string
+            df_new_deliveries['PO Number'] = df_new_deliveries['PO Number'].astype(str)
 
-            min_date = df_new_deliveries['Posting Date'].min().date() if not df_new_deliveries['Posting Date'].isna().all() else datetime.now().date()
-            max_date = df_new_deliveries['Posting Date'].max().date() if not df_new_deliveries['Posting Date'].isna().all() else datetime.now().date()
+            # ============================================
+            # CALCULATE LEAD TIME STATISTICS
+            # ============================================
+            temp_stats_df = df_new_deliveries.copy()
+            temp_stats_df['Requested Date'] = temp_stats_df.apply(
+                lambda row: st.session_state.requested_dates.get(f"{row['PO Number']}_{row['Material Description']}", None) if 'requested_dates' in st.session_state else None,
+                axis=1
+            )
 
-            with col_date1:
-                start_date = st.date_input("From Date", value=min_date, min_value=min_date, max_value=max_date, key="start_date")
-            with col_date2:
-                end_date = st.date_input("To Date", value=max_date, min_value=min_date, max_value=max_date, key="end_date")
+            def calc_lead_value(row):
+                req_date = row['Requested Date']
+                posting = row['Posting Date']
+                if req_date and pd.notna(posting):
+                    try:
+                        if hasattr(req_date, 'date'):
+                            req_date = req_date.date()
+                        if hasattr(posting, 'date'):
+                            posting = posting.date()
+                        days = (posting - req_date).days
+                        return days if days >= 0 else None
+                    except:
+                        return None
+                return None
 
-            mask_date = (df_new_deliveries['Posting Date'].dt.date >= start_date) & (df_new_deliveries['Posting Date'].dt.date <= end_date)
-            filtered_delivery_df = df_new_deliveries[mask_date].copy()
+            temp_stats_df['Lead Time Value'] = temp_stats_df.apply(calc_lead_value, axis=1)
+            lead_values = temp_stats_df['Lead Time Value'].dropna().tolist()
 
-            st.markdown("---")
+            if lead_values:
+                min_lead = round(min(lead_values))
+                max_lead = round(max(lead_values))
+                avg_lead = round(sum(lead_values) / len(lead_values))
+            else:
+                min_lead = max_lead = avg_lead = 0
+
+            total_deliveries = len(df_new_deliveries)
+            unique_pos_count = df_new_deliveries['PO Number'].nunique()
+
+            if not df_new_deliveries.empty and 'Posting Date' in df_new_deliveries.columns:
+                newest_row = df_new_deliveries.loc[df_new_deliveries['Posting Date'].idxmax()]
+                newest_po = newest_row.get('PO Number', 'N/A')
+                newest_date = newest_row.get('Posting Date', datetime.now()).strftime('%d/%m/%y')
+            else:
+                newest_po = "N/A"
+                newest_date = "N/A"
+
+            # ============================================
+            # STATISTICS - ROW 1 (3 cards, no Saved Dates)
+            # ============================================
+            st.markdown("### 📊 PO Delivery Statistics")
 
             col1, col2, col3 = st.columns(3)
             with col1:
-                st.metric("📦 Total Deliveries", len(filtered_delivery_df))
+                st.markdown(f"""
+                <div class="stat-card" style='background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-radius: 15px; padding: 20px; text-align: center; color: white; cursor: pointer;'>
+                    <p style='font-size: 14px; margin: 0; opacity: 0.9;'>📦 TOTAL DELIVERIES</p>
+                    <p style='font-size: 32px; font-weight: bold; margin: 5px 0;'>{total_deliveries:,}</p>
+                </div>
+                """, unsafe_allow_html=True)
             with col2:
-                unique_pos = filtered_delivery_df['PO Number'].nunique() if 'PO Number' in filtered_delivery_df.columns else 0
-                st.metric("📋 Unique POs", unique_pos)
+                st.markdown(f"""
+                <div class="stat-card" style='background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%); border-radius: 15px; padding: 20px; text-align: center; color: white; cursor: pointer;'>
+                    <p style='font-size: 14px; margin: 0; opacity: 0.9;'>📋 UNIQUE POs</p>
+                    <p style='font-size: 32px; font-weight: bold; margin: 5px 0;'>{unique_pos_count:,}</p>
+                </div>
+                """, unsafe_allow_html=True)
             with col3:
-                if not filtered_delivery_df.empty and 'Posting Date' in filtered_delivery_df.columns:
-                    newest_row = filtered_delivery_df.loc[filtered_delivery_df['Posting Date'].idxmax()]
-                    newest_po = newest_row.get('PO Number', 'N/A')
-                    newest_date = newest_row.get('Posting Date', datetime.now()).strftime('%d/%m/%y')
-                    st.metric("🆕 Newest PO", newest_po, delta=f"Date: {newest_date}")
-                else:
-                    st.metric("🆕 Newest PO", "N/A")
+                st.markdown(f"""
+                <div class="stat-card" style='background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%); border-radius: 15px; padding: 20px; text-align: center; color: white; cursor: pointer;'>
+                    <p style='font-size: 14px; margin: 0; opacity: 0.9;'>🆕 NEWEST PO</p>
+                    <p style='font-size: 20px; font-weight: bold; margin: 5px 0;'>{newest_po}</p>
+                    <p style='font-size: 12px; margin: 0; opacity: 0.8;'>{newest_date}</p>
+                </div>
+                """, unsafe_allow_html=True)
+
+            # Row 2: Lead Time Stats
+            st.markdown("<br>", unsafe_allow_html=True)
+            col4, col5, col6 = st.columns(3)
+            with col4:
+                lead_color = "#28a745" if min_lead < 60 else "#ffc107" if min_lead < 120 else "#dc3545"
+                st.markdown(f"""
+                <div class="stat-card" style='background: linear-gradient(135deg, #ffecd2 0%, #fcb69f 100%); border-radius: 15px; padding: 20px; text-align: center; cursor: pointer;'>
+                    <p style='font-size: 14px; margin: 0; opacity: 0.8;'>⏱️ MIN LEAD TIME</p>
+                    <p style='font-size: 32px; font-weight: bold; margin: 5px 0; color: {lead_color};'>{min_lead} days</p>
+                </div>
+                """, unsafe_allow_html=True)
+            with col5:
+                lead_color = "#28a745" if max_lead < 60 else "#ffc107" if max_lead < 120 else "#dc3545"
+                st.markdown(f"""
+                <div class="stat-card" style='background: linear-gradient(135deg, #a8edea 0%, #fed6e3 100%); border-radius: 15px; padding: 20px; text-align: center; cursor: pointer;'>
+                    <p style='font-size: 14px; margin: 0; opacity: 0.8;'>🐢 MAX LEAD TIME</p>
+                    <p style='font-size: 32px; font-weight: bold; margin: 5px 0; color: {lead_color};'>{max_lead} days</p>
+                </div>
+                """, unsafe_allow_html=True)
+            with col6:
+                lead_color = "#28a745" if avg_lead < 60 else "#ffc107" if avg_lead < 120 else "#dc3545"
+                st.markdown(f"""
+                <div class="stat-card" style='background: linear-gradient(135deg, #d4fc79 0%, #96e6a1 100%); border-radius: 15px; padding: 20px; text-align: center; cursor: pointer;'>
+                    <p style='font-size: 14px; margin: 0; opacity: 0.8;'>📊 Avg.Lead Time</p>
+                    <p style='font-size: 32px; font-weight: bold; margin: 5px 0; color: {lead_color};'>{avg_lead} days</p>
+                </div>
+                """, unsafe_allow_html=True)
 
             st.markdown("---")
 
-            search_delivery = st.text_input("🔍 Search by Material, PO Number", placeholder="e.g., 'artesunate' or 'PO-12345'")
+            # ============================================
+            # DATE RANGE FILTER (UPDATED TO WORK WITH REQUESTED DATE)
+            # ============================================
+            st.markdown("#### 📅 Date Range Filter")
 
-            if search_delivery:
+            # Add radio button to choose filter type
+            filter_type = st.radio(
+                "Filter by:",
+                ["Posting Date", "Requested Date (Saved Only)"],
+                horizontal=True,
+                key="date_filter_type"
+            )
+
+            col_date1, col_date2 = st.columns(2)
+
+            # Get available dates based on filter type
+            if filter_type == "Posting Date":
+                available_dates = df_new_deliveries['Posting Date'].dropna()
+                if not available_dates.empty:
+                    min_date = available_dates.min().date()
+                    max_date = available_dates.max().date()
+                else:
+                    min_date = datetime.now().date()
+                    max_date = datetime.now().date()
+
+                with col_date1:
+                    start_date = st.date_input("From Date", value=min_date, min_value=min_date, max_value=max_date, key="start_date_posting")
+                with col_date2:
+                    end_date = st.date_input("To Date", value=max_date, min_value=min_date, max_value=max_date, key="end_date_posting")
+
+                # Apply filter based on Posting Date
+                mask_date = (df_new_deliveries['Posting Date'].dt.date >= start_date) & (df_new_deliveries['Posting Date'].dt.date <= end_date)
+                filtered_delivery_df = df_new_deliveries[mask_date].copy()
+
+            else:  # Filter by Requested Date
+                # First, add requested dates to dataframe
+                temp_req_df = df_new_deliveries.copy()
+                temp_req_df['Requested Date'] = temp_req_df.apply(
+                    lambda row: st.session_state.requested_dates.get(f"{row['PO Number']}_{row['Material Description']}", None) if 'requested_dates' in st.session_state else None,
+                    axis=1
+                )
+
+                # Filter to only rows with requested dates
+                requested_rows = temp_req_df[temp_req_df['Requested Date'].notna()].copy()
+
+                if not requested_rows.empty:
+                    # Convert requested dates to datetime
+                    requested_rows['Requested Date'] = pd.to_datetime(requested_rows['Requested Date'])
+                    min_date = requested_rows['Requested Date'].min().date()
+                    max_date = requested_rows['Requested Date'].max().date()
+                else:
+                    min_date = datetime.now().date()
+                    max_date = datetime.now().date()
+                    st.info("No saved Requested Dates available to filter.")
+
+                with col_date1:
+                    start_date = st.date_input("From Date", value=min_date, min_value=min_date, max_value=max_date, key="start_date_requested")
+                with col_date2:
+                    end_date = st.date_input("To Date", value=max_date, min_value=min_date, max_value=max_date, key="end_date_requested")
+
+                # Apply filter based on Requested Date (only for rows with requested dates)
+                mask_date = (requested_rows['Requested Date'].dt.date >= start_date) & (requested_rows['Requested Date'].dt.date <= end_date)
+                filtered_requested = requested_rows[mask_date].copy()
+
+                # Also include deliveries that have NO requested date?
+                include_no_date = st.checkbox("Include deliveries without Requested Date", value=False, key="include_no_date")
+                if include_no_date:
+                    no_date_rows = temp_req_df[temp_req_df['Requested Date'].isna()].copy()
+                    filtered_delivery_df = pd.concat([filtered_requested, no_date_rows], ignore_index=True)
+                else:
+                    filtered_delivery_df = filtered_requested
+
+            st.markdown("---")
+
+            # ============================================
+            # ENTER REQUESTED DATE BY PO (MOVED HERE)
+            # ============================================
+            st.markdown("### ✏️ Enter Requested Date by PO")
+
+            # Use the original unfiltered df for PO selection to avoid confusion
+            unique_pos = df_new_deliveries['PO Number'].unique()
+            po_options = sorted(unique_pos)
+
+            selected_po = st.selectbox("Select Purchase Order:", ["-- Select a PO --"] + po_options, key="po_selector_leadtime")
+
+            if selected_po != "-- Select a PO --":
+                po_number = selected_po
+                po_materials = df_new_deliveries[df_new_deliveries['PO Number'] == po_number]
+
+                st.info(f"PO {po_number} has {len(po_materials)} material(s)")
+
+                for idx, row in po_materials.iterrows():
+                    material_name = row['Material Description']
+                    key = f"{po_number}_{material_name}"
+                    current_date = st.session_state.requested_dates.get(key, None) if 'requested_dates' in st.session_state else None
+
+                    unique_id = f"{po_number}_{idx}_{material_name.replace(' ', '_')[:30]}"
+
+                    col1, col2, col3 = st.columns([3, 1.5, 1])
+                    with col1:
+                        st.write(f"**{material_name}**")
+                        st.write(f"Quantity: {int(row['Quantity']):,}" if pd.notna(row['Quantity']) else "N/A")
+                    with col2:
+                        new_date = st.date_input(
+                            "Requested Date",
+                            value=current_date if current_date else datetime.now().date(),
+                            key=f"req_date_{unique_id}",
+                            label_visibility="collapsed"
+                        )
+                    with col3:
+                        if st.button(f"💾 Save", key=f"save_{unique_id}", use_container_width=True):
+                            if save_po_requested_date(po_number, material_name, new_date):
+                                if 'requested_dates' not in st.session_state:
+                                    st.session_state.requested_dates = {}
+                                st.session_state.requested_dates[key] = new_date
+                                st.success(f"✅ Saved for {material_name}")
+                                st.rerun()
+                            else:
+                                st.error("Error saving")
+
+                    if current_date:
+                        if st.button(f"🗑️ Clear", key=f"clear_{unique_id}"):
+                            if delete_po_requested_date(po_number, material_name):
+                                del st.session_state.requested_dates[key]
+                                st.success(f"✅ Cleared for {material_name}")
+                                st.rerun()
+                    st.markdown("---")
+
+            st.markdown("---")
+
+            # ============================================
+            # SEARCH FILTER
+            # ============================================
+            search_delivery = st.text_input("🔍 Search by Material, PO Number", placeholder="e.g., 'artesunate' or '4500006862'")
+
+            if search_delivery and not filtered_delivery_df.empty:
                 mask = filtered_delivery_df.astype(str).apply(
                     lambda col: col.str.contains(search_delivery, case=False, na=False)
                 ).any(axis=1)
                 filtered_delivery_df = filtered_delivery_df[mask]
                 st.info(f"Found {len(filtered_delivery_df)} matching deliveries")
 
-            display_df = filtered_delivery_df.copy()
-            if 'Quantity' in display_df.columns:
-                display_df['Quantity'] = pd.to_numeric(display_df['Quantity'], errors='coerce')
-                display_df['Quantity_display'] = display_df['Quantity'].apply(format_number_with_commas)
+            # ============================================
+            # MATERIALS WITH REQUESTED DATE ONLY
+            # ============================================
+            st.markdown("### 📋 Materials with Requested Date Only")
+
+            if not filtered_delivery_df.empty:
+                temp_df = filtered_delivery_df.copy()
+                temp_df['Requested Date'] = temp_df.apply(
+                    lambda row: st.session_state.requested_dates.get(f"{row['PO Number']}_{row['Material Description']}", None) if 'requested_dates' in st.session_state else None,
+                    axis=1
+                )
+
+                def calculate_lead_time_value(row):
+                    req_date = row['Requested Date']
+                    posting = row['Posting Date']
+                    if req_date and pd.notna(posting):
+                        try:
+                            if hasattr(req_date, 'date'):
+                                req_date = req_date.date()
+                            if hasattr(posting, 'date'):
+                                posting = posting.date()
+                            days = (posting - req_date).days
+                            return days if days >= 0 else None
+                        except:
+                            return None
+                    return None
+
+                temp_df['Lead Time Value'] = temp_df.apply(calculate_lead_time_value, axis=1)
+                requested_only_df = temp_df[temp_df['Requested Date'].notna()].copy()
+
+                if not requested_only_df.empty:
+                    requested_only_df['Requested Date Display'] = requested_only_df['Requested Date'].apply(
+                        lambda x: x.strftime('%Y-%m-%d') if hasattr(x, 'strftime') else str(x)
+                    )
+                    requested_only_df['Lead Time Display'] = requested_only_df['Lead Time Value'].apply(
+                        lambda x: f"{x} days" if x else ""
+                    )
+                    requested_only_df['Quantity Display'] = requested_only_df['Quantity'].apply(
+                        lambda x: f"{int(x):,}" if pd.notna(x) else "0"
+                    )
+                    if 'Posting Date' in requested_only_df.columns:
+                        requested_only_df['Posting Date Display'] = requested_only_df['Posting Date'].dt.strftime('%Y-%m-%d')
+
+                    display_cols_requested = ['Material Description', 'PO Number', 'Posting Date Display', 'Quantity Display', 'Requested Date Display', 'Lead Time Display']
+                    display_cols_requested = [col for col in display_cols_requested if col in requested_only_df.columns]
+
+                    st.dataframe(
+                        requested_only_df[display_cols_requested].rename(columns={
+                            'Posting Date Display': 'Posting Date',
+                            'Quantity Display': 'Quantity',
+                            'Lead Time Display': 'Lead Time'
+                        }),
+                        column_config={
+                            'Material Description': st.column_config.TextColumn('Material Description', width=350),
+                            'PO Number': st.column_config.TextColumn('PO Number', width=130),
+                            'Posting Date': st.column_config.TextColumn('Posting Date', width=100),
+                            'Quantity': st.column_config.TextColumn('Quantity', width=80),
+                            'Requested Date': st.column_config.TextColumn('Requested Date', width=100),
+                            'Lead Time': st.column_config.TextColumn('Lead Time', width=100)
+                        },
+                        use_container_width=True,
+                        hide_index=True
+                    )
+                else:
+                    st.info("No materials with Requested Date found in the filtered data.")
             else:
-                display_df['Quantity_display'] = 'N/A'
-
-            if 'Posting Date' in display_df.columns:
-                display_df['Posting Date'] = display_df['Posting Date'].dt.strftime('%Y-%m-%d')
-
-            st.markdown("### 📋 Table 1: Detailed Deliveries")
-
-            if 'Posting Date' in display_df.columns:
-                display_df = display_df.sort_values('Posting Date', ascending=False)
-
-            display_cols = ['Material Description', 'Posting Date', 'PO Number', 'Quantity_display']
-            display_cols = [col for col in display_cols if col in display_df.columns]
-            display_rename = {'Quantity_display': 'Quantity'}
-
-            st.dataframe(
-                display_df[display_cols].rename(columns=display_rename),
-                column_config={
-                    'Material Description': st.column_config.TextColumn('Material Description', width=300),
-                    'Posting Date': st.column_config.TextColumn('Posting Date', width=120),
-                    'PO Number': st.column_config.TextColumn('PO Number', width=150),
-                    'Quantity': st.column_config.TextColumn('Quantity', width=100)
-                },
-                use_container_width=True,
-                hide_index=True
-            )
+                st.info("No data available after filtering.")
 
             st.markdown("---")
-            st.markdown("### 📊 Table 2: Summarized Deliveries (Same Material + PO Combined)")
-            st.caption("When the same Material Description and PO Number appear multiple times, quantities are summed up")
 
-            summary_df = filtered_delivery_df.copy()
-            if 'Quantity' in summary_df.columns:
-                summary_df['Quantity'] = pd.to_numeric(summary_df['Quantity'], errors='coerce')
+            # ============================================
+            # TABLE 1: DETAILED DELIVERIES
+            # ============================================
+            if not filtered_delivery_df.empty:
+                display_df = filtered_delivery_df.copy()
+                if 'Quantity' in display_df.columns:
+                    display_df['Quantity'] = pd.to_numeric(display_df['Quantity'], errors='coerce')
+                    display_df['Quantity_display'] = display_df['Quantity'].apply(format_number_with_commas)
+                else:
+                    display_df['Quantity_display'] = 'N/A'
 
-            grouped_summary = summary_df.groupby(['Material Description', 'PO Number']).agg({
-                'Quantity': 'sum',
-                'Posting Date': 'count'
-            }).rename(columns={'Quantity': 'Total Quantity', 'Posting Date': 'Number of Deliveries'}).reset_index()
+                if 'Posting Date' in display_df.columns:
+                    display_df['Posting Date_display'] = display_df['Posting Date'].dt.strftime('%Y-%m-%d')
 
-            grouped_summary['Total Quantity'] = grouped_summary['Total Quantity'].apply(format_number_with_commas)
+                display_df['Requested Date'] = display_df.apply(
+                    lambda row: st.session_state.requested_dates.get(f"{row['PO Number']}_{row['Material Description']}", None) if 'requested_dates' in st.session_state else None,
+                    axis=1
+                )
 
-            st.dataframe(
-                grouped_summary,
-                column_config={
-                    'Material Description': st.column_config.TextColumn('Material Description', width=350),
-                    'PO Number': st.column_config.TextColumn('PO Number', width=180),
-                    'Total Quantity': st.column_config.TextColumn('Total Quantity', width=120),
-                    'Number of Deliveries': st.column_config.NumberColumn('Number of Deliveries', width=120)
-                },
-                use_container_width=True,
-                hide_index=True
-            )
+                display_df['Requested Date Display'] = display_df['Requested Date'].apply(
+                    lambda x: x.strftime('%Y-%m-%d') if hasattr(x, 'strftime') else (x if x else '')
+                )
 
-            st.markdown("---")
-            st.markdown("### 🏆 Top New Deliveries (Highest Quantity)")
+                def calculate_lead_time_display(row):
+                    req_date = row['Requested Date']
+                    posting = row['Posting Date']
+                    if req_date and pd.notna(posting):
+                        try:
+                            if hasattr(req_date, 'date'):
+                                req_date = req_date.date()
+                            if hasattr(posting, 'date'):
+                                posting = posting.date()
+                            days = (posting - req_date).days
+                            if days < 0:
+                                return "⚠️ Future"
+                            elif days < 120:
+                                return f"🟢 {days} days"
+                            elif days < 180:
+                                return f"🟡 {days} days"
+                            else:
+                                return f"🔴 {days} days"
+                        except:
+                            return "Error"
+                    elif req_date:
+                        return "⏳ Awaiting"
+                    elif pd.notna(posting):
+                        return "❌ No date"
+                    return ""
 
-            top_deliveries = filtered_delivery_df.copy()
-            if 'Quantity' in top_deliveries.columns:
-                top_deliveries['Quantity'] = pd.to_numeric(top_deliveries['Quantity'], errors='coerce')
+                display_df['Lead Time'] = display_df.apply(calculate_lead_time_display, axis=1)
 
-            top_grouped = top_deliveries.groupby('Material Description').agg({
-                'Quantity': 'sum'
-            }).reset_index().sort_values('Quantity', ascending=False).head(10)
+                st.markdown("### 📋 Table 1: Detailed Deliveries with Lead Time")
 
-            top_grouped['Quantity'] = top_grouped['Quantity'].apply(format_number_with_commas)
+                if 'Posting Date_display' in display_df.columns:
+                    display_df = display_df.sort_values('Posting Date_display', ascending=False)
 
-            col_top1, col_top2, col_top3, col_top4, col_top5 = st.columns(5)
-            for i, (idx, row) in enumerate(top_grouped.head(5).iterrows()):
-                with [col_top1, col_top2, col_top3, col_top4, col_top5][i]:
-                    st.metric(f"#{i+1}", row['Material Description'][:30], delta=row['Quantity'])
-
-            st.dataframe(
-                top_grouped,
-                column_config={
-                    'Material Description': st.column_config.TextColumn('Material Description', width=400),
-                    'Quantity': st.column_config.TextColumn('Total Quantity', width=150)
-                },
-                use_container_width=True,
-                hide_index=True
-            )
-
-            st.markdown("---")
-            st.markdown("### 🆕 Newest Purchase Orders (Last 10)")
-
-            newest_pos = filtered_delivery_df.copy()
-            if 'Posting Date' in newest_pos.columns:
-                newest_pos['Posting Date'] = pd.to_datetime(newest_pos['Posting Date'], errors='coerce')
-                newest_pos = newest_pos.sort_values('Posting Date', ascending=False).drop_duplicates(subset=['PO Number']).head(10)
-
-                newest_pos['Posting Date'] = newest_pos['Posting Date'].dt.strftime('%Y-%m-%d')
-                if 'Quantity' in newest_pos.columns:
-                    newest_pos['Quantity'] = pd.to_numeric(newest_pos['Quantity'], errors='coerce')
-                    newest_pos['Quantity'] = newest_pos['Quantity'].apply(format_number_with_commas)
-
-                newest_display_cols = ['PO Number', 'Posting Date', 'Material Description', 'Quantity']
-                newest_display_cols = [col for col in newest_display_cols if col in newest_pos.columns]
+                display_cols = ['Material Description', 'Posting Date_display', 'PO Number', 'Quantity_display', 'Requested Date Display', 'Lead Time']
+                display_cols = [col for col in display_cols if col in display_df.columns]
+                display_rename = {'Quantity_display': 'Quantity', 'Requested Date Display': 'Requested Date', 'Posting Date_display': 'Posting Date'}
 
                 st.dataframe(
-                    newest_pos[newest_display_cols],
+                    display_df[display_cols].rename(columns=display_rename),
                     column_config={
-                        'PO Number': st.column_config.TextColumn('PO Number', width=150),
-                        'Posting Date': st.column_config.TextColumn('Posting Date', width=120),
                         'Material Description': st.column_config.TextColumn('Material Description', width=300),
-                        'Quantity': st.column_config.TextColumn('Quantity', width=100)
+                        'Posting Date': st.column_config.TextColumn('Posting Date', width=100),
+                        'PO Number': st.column_config.TextColumn('PO Number', width=130),
+                        'Quantity': st.column_config.TextColumn('Quantity', width=80),
+                        'Requested Date': st.column_config.TextColumn('Requested Date', width=100),
+                        'Lead Time': st.column_config.TextColumn('Lead Time', width=100)
                     },
                     use_container_width=True,
                     hide_index=True
                 )
+
+                st.markdown("---")
+
+                # ============================================
+                # TABLE 2: SUMMARIZED DELIVERIES
+                # ============================================
+                st.markdown("### 📊 Table 2: Summarized Deliveries (Same Material + PO Combined)")
+                st.caption("When the same Material Description and PO Number appear multiple times, quantities are summed up")
+
+                summary_df = filtered_delivery_df.copy()
+                if 'Quantity' in summary_df.columns:
+                    summary_df['Quantity'] = pd.to_numeric(summary_df['Quantity'], errors='coerce')
+
+                grouped_summary = summary_df.groupby(['Material Description', 'PO Number']).agg({
+                    'Quantity': 'sum',
+                    'Posting Date': 'count'
+                }).rename(columns={'Quantity': 'Total Quantity', 'Posting Date': 'Number of Deliveries'}).reset_index()
+
+                grouped_summary['Total Quantity'] = grouped_summary['Total Quantity'].apply(format_number_with_commas)
+
+                st.dataframe(
+                    grouped_summary,
+                    column_config={
+                        'Material Description': st.column_config.TextColumn('Material Description', width=350),
+                        'PO Number': st.column_config.TextColumn('PO Number', width=150),
+                        'Total Quantity': st.column_config.TextColumn('Total Quantity', width=100),
+                        'Number of Deliveries': st.column_config.NumberColumn('Number of Deliveries', width=100)
+                    },
+                    use_container_width=True,
+                    hide_index=True
+                )
+
+                st.markdown("---")
+
+                # ============================================
+                # TOP NEW DELIVERIES
+                # ============================================
+                st.markdown("### 🏆 Top New Deliveries (Highest Quantity)")
+
+                top_deliveries = filtered_delivery_df.copy()
+                if 'Quantity' in top_deliveries.columns:
+                    top_deliveries['Quantity'] = pd.to_numeric(top_deliveries['Quantity'], errors='coerce')
+
+                top_grouped = top_deliveries.groupby('Material Description').agg({
+                    'Quantity': 'sum'
+                }).reset_index().sort_values('Quantity', ascending=False).head(10)
+
+                top_grouped['Quantity'] = top_grouped['Quantity'].apply(format_number_with_commas)
+
+                col_top1, col_top2, col_top3, col_top4, col_top5 = st.columns(5)
+                for i, (idx, row) in enumerate(top_grouped.head(5).iterrows()):
+                    with [col_top1, col_top2, col_top3, col_top4, col_top5][i]:
+                        st.metric(f"#{i+1}", row['Material Description'][:30], delta=row['Quantity'])
+
+                st.dataframe(
+                    top_grouped,
+                    column_config={
+                        'Material Description': st.column_config.TextColumn('Material Description', width=400),
+                        'Quantity': st.column_config.TextColumn('Total Quantity', width=150)
+                    },
+                    use_container_width=True,
+                    hide_index=True
+                )
+
+                st.markdown("---")
+
+                # ============================================
+                # NEWEST PURCHASE ORDERS
+                # ============================================
+                st.markdown("### 🆕 Newest Purchase Orders (Last 10)")
+
+                newest_pos = filtered_delivery_df.copy()
+                if 'Posting Date' in newest_pos.columns:
+                    newest_pos['Posting Date'] = pd.to_datetime(newest_pos['Posting Date'], errors='coerce')
+                    newest_pos = newest_pos.sort_values('Posting Date', ascending=False).drop_duplicates(subset=['PO Number']).head(10)
+
+                    newest_pos['Posting Date'] = newest_pos['Posting Date'].dt.strftime('%Y-%m-%d')
+                    if 'Quantity' in newest_pos.columns:
+                        newest_pos['Quantity'] = pd.to_numeric(newest_pos['Quantity'], errors='coerce')
+                        newest_pos['Quantity'] = newest_pos['Quantity'].apply(format_number_with_commas)
+
+                    newest_display_cols = ['PO Number', 'Posting Date', 'Material Description', 'Quantity']
+                    newest_display_cols = [col for col in newest_display_cols if col in newest_pos.columns]
+
+                    st.dataframe(
+                        newest_pos[newest_display_cols],
+                        column_config={
+                            'PO Number': st.column_config.TextColumn('PO Number', width=150),
+                            'Posting Date': st.column_config.TextColumn('Posting Date', width=120),
+                            'Material Description': st.column_config.TextColumn('Material Description', width=300),
+                            'Quantity': st.column_config.TextColumn('Quantity', width=100)
+                        },
+                        use_container_width=True,
+                        hide_index=True
+                    )
+                else:
+                    st.info("No posting date data available to determine newest POs")
+
+                st.markdown("---")
+
+                # ============================================
+                # EXPORT BUTTONS
+                # ============================================
+                col_dl1, col_dl2 = st.columns(2)
+                with col_dl1:
+                    export_cols = ['Material Description', 'Posting Date_display', 'PO Number', 'Quantity_display', 'Requested Date Display', 'Lead Time']
+                    export_cols = [col for col in export_cols if col in display_df.columns]
+                    st.download_button(
+                        label="📥 Download Detailed View (CSV)",
+                        data=display_df[export_cols].rename(columns=display_rename).to_csv(index=False),
+                        file_name=f"new_deliveries_detailed_{start_date}_{end_date}.csv",
+                        mime="text/csv",
+                        use_container_width=True
+                    )
+                with col_dl2:
+                    st.download_button(
+                        label="📥 Download Summarized View (CSV)",
+                        data=grouped_summary.to_csv(index=False),
+                        file_name=f"new_deliveries_summarized_{start_date}_{end_date}.csv",
+                        mime="text/csv",
+                        use_container_width=True
+                    )
+
+                if len(filtered_delivery_df) > len(grouped_summary):
+                    st.info(f"📊 {len(filtered_delivery_df)} detailed records combined into {len(grouped_summary)} summarized records")
+
+                # ============================================
+                # SAVED REQUESTED DATES SUMMARY
+                # ============================================
+                st.markdown("---")
+                st.markdown("### 📊 Saved Requested Dates Summary")
+
+                if 'requested_dates' in st.session_state and st.session_state.requested_dates:
+                    summary_rows = []
+                    for key, req_date in st.session_state.requested_dates.items():
+                        parts = key.split("_", 1)
+                        po = parts[0]
+                        material = parts[1] if len(parts) > 1 else ""
+                        summary_rows.append({
+                            'PO Number': po,
+                            'Material': material[:60],
+                            'Requested Date': req_date.strftime('%Y-%m-%d') if hasattr(req_date, 'strftime') else str(req_date)
+                        })
+                    st.dataframe(pd.DataFrame(summary_rows), use_container_width=True, hide_index=True)
+
+                    if st.button("🗑️ Clear All Saved Requested Dates", use_container_width=True):
+                        for key, req_date in st.session_state.requested_dates.items():
+                            parts = key.split("_", 1)
+                            po = parts[0]
+                            material = parts[1] if len(parts) > 1 else ""
+                            delete_po_requested_date(po, material)
+                        st.session_state.requested_dates = {}
+                        st.success("✅ All requested dates cleared!")
+                        st.rerun()
+                else:
+                    st.info("No saved requested dates. Select a PO above and click Save.")
             else:
-                st.info("No posting date data available to determine newest POs")
+                st.info("No data available after filtering. Please adjust your date range or include deliveries without Requested Date.")
 
-            st.markdown("---")
-            col_dl1, col_dl2 = st.columns(2)
-            with col_dl1:
-                st.download_button(
-                    label="📥 Download Detailed View (CSV)",
-                    data=display_df[display_cols].rename(columns=display_rename).to_csv(index=False),
-                    file_name=f"new_deliveries_detailed_{start_date}_{end_date}.csv",
-                    mime="text/csv",
-                    use_container_width=True
-                )
-            with col_dl2:
-                st.download_button(
-                    label="📥 Download Summarized View (CSV)",
-                    data=grouped_summary.to_csv(index=False),
-                    file_name=f"new_deliveries_summarized_{start_date}_{end_date}.csv",
-                    mime="text/csv",
-                    use_container_width=True
-                )
-
-            if len(filtered_delivery_df) > len(grouped_summary):
-                st.info(f"📊 {len(filtered_delivery_df)} detailed records combined into {len(grouped_summary)} summarized records")
         else:
             st.info("No new deliveries data available. Please upload data to the New_deliveries table in Supabase.")
             st.caption("Expected columns: material_description, posting_date, purchase_order, quantity")
