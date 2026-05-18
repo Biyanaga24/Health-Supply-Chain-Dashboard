@@ -37,7 +37,7 @@ def format_time_for_display(dt):
             return "Never"
         try:
             dt = datetime.fromisoformat(dt.replace('Z', '+00:00'))
-        except:
+        except Exception:
             return dt
     # Check if dt is a datetime object
     if hasattr(dt, 'tzinfo'):
@@ -799,20 +799,25 @@ def show_profile_page():
             st.markdown(f"""
             <div style="background: #f8f9fa; border-radius: 10px; padding: 20px;">
             <table style="width: 100%;">
-                <tr><td><strong>Full Name</strong></td>
-                <tr>{user.get('full_name', 'N/A')}</td>
+                <tr>
+                    <td><strong>Full Name</strong></td>
+                    <td>{user.get('full_name', 'N/A')}</td>
                 </tr>
-                <tr><td><strong>Email</strong></td>
-                <td>{user.get('email', 'N/A')}</td>
+                <tr>
+                    <td><strong>Email</strong></td>
+                    <td>{user.get('email', 'N/A')}</td>
                 </tr>
-                <tr><td><strong>Role</strong></td>
-                <td>{user.get('role', 'user').title()}</td>
+                <tr>
+                    <td><strong>Role</strong></td>
+                    <td>{user.get('role', 'user').title()}</td>
                 </tr>
-                <tr><td><strong>Last Active</strong></td>
-                <td>{last_active_display}</td>
+                <tr>
+                    <td><strong>Last Active</strong></td>
+                    <td>{last_active_display}</td>
                 </tr>
-                <tr><td><strong>Account Created</strong></td>
-                <td>{created_at_display}</td>
+                <tr>
+                    <td><strong>Account Created</strong></td>
+                    <td>{created_at_display}</td>
                 </tr>
             </table>
             </div>
