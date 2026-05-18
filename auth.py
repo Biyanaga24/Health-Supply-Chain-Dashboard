@@ -30,18 +30,23 @@ def get_current_time():
 
 def format_time_for_display(dt):
     """Format datetime for display in Addis Ababa time"""
-    if dt is None:
-        return "Unknown"
+    if dt is None or pd.isna(dt):
+        return "Never"
     if isinstance(dt, str):
+        if dt == 'None' or dt == '':
+            return "Never"
         try:
             dt = datetime.fromisoformat(dt.replace('Z', '+00:00'))
         except:
             return dt
-    if dt.tzinfo is None:
-        dt = pytz.UTC.localize(dt).astimezone(ADDIS_ABABA_TZ)
-    else:
-        dt = dt.astimezone(ADDIS_ABABA_TZ)
-    return dt.strftime("%Y-%m-%d %H:%M:%S")
+    # Check if dt is a datetime object
+    if hasattr(dt, 'tzinfo'):
+        if dt.tzinfo is None:
+            dt = pytz.UTC.localize(dt).astimezone(ADDIS_ABABA_TZ)
+        else:
+            dt = dt.astimezone(ADDIS_ABABA_TZ)
+        return dt.strftime("%Y-%m-%d %H:%M:%S")
+    return str(dt)
 
 # ============================================================
 # FOOTER FUNCTION
@@ -794,11 +799,21 @@ def show_profile_page():
             st.markdown(f"""
             <div style="background: #f8f9fa; border-radius: 10px; padding: 20px;">
             <table style="width: 100%;">
-                <tr><td><strong>Full Name</strong></td><td>{user.get('full_name', 'N/A')}</td></tr>
-                <tr><td><strong>Email</strong></td><td>{user.get('email', 'N/A')}</td></tr>
-                <tr><td><strong>Role</strong></td><td>{user.get('role', 'user').title()}</td></tr>
-                <tr><td><strong>Last Active</strong></td><td>{last_active_display}</td></tr>
-                <tr><td><strong>Account Created</strong></td><td>{created_at_display}</td></tr>
+                <tr><td><strong>Full Name</strong></td>
+                <tr>{user.get('full_name', 'N/A')}</td>
+                </tr>
+                <tr><td><strong>Email</strong></td>
+                <td>{user.get('email', 'N/A')}</td>
+                </tr>
+                <tr><td><strong>Role</strong></td>
+                <td>{user.get('role', 'user').title()}</td>
+                </tr>
+                <tr><td><strong>Last Active</strong></td>
+                <td>{last_active_display}</td>
+                </tr>
+                <tr><td><strong>Account Created</strong></td>
+                <td>{created_at_display}</td>
+                </tr>
             </table>
             </div>
             """, unsafe_allow_html=True)
@@ -839,7 +854,7 @@ def show_profile_page():
         st.warning("User data not found")
 
 def show_admin_panel():
-    """Display admin panel - User Management with Approval/Rejection"""
+    """Display admin panel - User Management with Approval/Rejection and Deletion"""
     st.markdown("<h1 style='font-size: 32px; font-weight: bold; color: #667eea;'>👑 Admin Panel - User Management</h1>", unsafe_allow_html=True)
 
     # Display current Addis Ababa time
@@ -903,14 +918,23 @@ def show_admin_panel():
         if not all_users.empty:
             # Convert timestamps to Addis Ababa time for display
             display_df = all_users.copy()
+
+            # Safely convert last_active column
             if 'last_active' in display_df.columns:
-                display_df['last_active'] = display_df['last_active'].apply(
-                    lambda x: format_time_for_display(x) if x and x != 'None' else 'Never'
-                )
+                def safe_format_last_active(x):
+                    if x is None or x == 'None' or pd.isna(x):
+                        return 'Never'
+                    return format_time_for_display(x)
+                display_df['last_active'] = display_df['last_active'].apply(safe_format_last_active)
+
+            # Safely convert created_at column
             if 'created_at' in display_df.columns:
-                display_df['created_at'] = display_df['created_at'].apply(
-                    lambda x: format_time_for_display(x) if x and x != 'None' else 'Unknown'
-                )
+                def safe_format_created_at(x):
+                    if x is None or x == 'None' or pd.isna(x):
+                        return 'Unknown'
+                    return format_time_for_display(x)
+                display_df['created_at'] = display_df['created_at'].apply(safe_format_created_at)
+
             # Show approval status
             if 'is_approved' in display_df.columns:
                 display_df['status'] = display_df['is_approved'].apply(lambda x: "✅ Approved" if x == 1 else "⏳ Pending")
@@ -933,9 +957,17 @@ def show_admin_panel():
 
             st.markdown("---")
             st.markdown("### 🗑️ Delete User")
+            st.warning("⚠️ Warning: Deleting a user will permanently remove their account. This action cannot be undone.")
 
-            user_to_delete = st.selectbox("Select user to delete", all_users['email'].tolist())
-            if st.button("🗑️ Delete User", type="secondary", use_container_width=True):
+            # Create two columns for delete user section
+            col1, col2 = st.columns([3, 1])
+            with col1:
+                user_to_delete = st.selectbox("Select user to delete", all_users['email'].tolist(), key="delete_user_select")
+            with col2:
+                st.markdown("<br>", unsafe_allow_html=True)
+                confirm_delete = st.checkbox("I confirm deletion", key="confirm_delete")
+
+            if st.button("🗑️ Delete Selected User", type="secondary", use_container_width=True, disabled=not confirm_delete):
                 if user_to_delete == st.session_state['user']['email']:
                     st.error("❌ You cannot delete your own account!")
                 else:
