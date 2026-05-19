@@ -22,9 +22,226 @@ st.set_page_config(
     layout="wide"
 )
 
-# Title
-st.title("📊 Health Program Medicines Forecasting Dashboard")
-st.markdown("### Time Series Analysis and Demand Forecasting")
+# Custom CSS for attractive styling with Times Roman
+st.markdown("""
+<style>
+    /* Global font settings */
+    @import url('https://fonts.googleapis.com/css2?family=Times+New+Roman&display=swap');
+
+    html, body, [class*="css"] {
+        font-family: 'Times New Roman', Times, serif;
+    }
+
+    /* Main header styling */
+    .main-header {
+        background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
+        padding: 0.8rem;
+        border-radius: 12px;
+        margin-bottom: 1rem;
+        box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+    }
+
+    .main-header h1 {
+        font-size: 1.6rem !important;
+        font-family: 'Times New Roman', Times, serif;
+        font-weight: bold;
+    }
+
+    .main-header p {
+        font-size: 0.85rem !important;
+        font-family: 'Times New Roman', Times, serif;
+    }
+
+    /* Section headers */
+    h2, .stMarkdown h2 {
+        font-size: 1.3rem !important;
+        font-family: 'Times New Roman', Times, serif;
+        font-weight: bold;
+        color: #1e3c72;
+        border-left: 4px solid #2a5298;
+        padding-left: 12px;
+        margin-top: 0.5rem;
+        margin-bottom: 0.75rem;
+    }
+
+    h3, .stMarkdown h3 {
+        font-size: 1.1rem !important;
+        font-family: 'Times New Roman', Times, serif;
+        font-weight: 600;
+        color: #2a5298;
+        margin-top: 0.4rem;
+        margin-bottom: 0.6rem;
+    }
+
+    h4, .stMarkdown h4 {
+        font-size: 0.95rem !important;
+        font-family: 'Times New Roman', Times, serif;
+        font-weight: 600;
+        color: #3a6b9e;
+        margin-top: 0.3rem;
+        margin-bottom: 0.5rem;
+    }
+
+    /* Metric card styling */
+    .metric-card {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        padding: 0.8rem;
+        border-radius: 10px;
+        color: white;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        transition: transform 0.2s;
+    }
+
+    .metric-card:hover {
+        transform: translateY(-2px);
+    }
+
+    .metric-card label {
+        font-size: 0.85rem !important;
+        font-family: 'Times New Roman', Times, serif;
+    }
+
+    .metric-card div {
+        font-size: 1.2rem !important;
+        font-weight: bold;
+    }
+
+    /* Sidebar styling */
+    [data-testid="stSidebar"] {
+        background: linear-gradient(180deg, #f8f9fa 0%, #e9ecef 100%);
+        border-right: 1px solid #dee2e6;
+    }
+
+    [data-testid="stSidebar"] h2 {
+        font-size: 1.1rem !important;
+        color: #1e3c72;
+    }
+
+    /* Button styling */
+    .stButton > button {
+        background: linear-gradient(90deg, #1e3c72 0%, #2a5298 100%);
+        color: white;
+        border: none;
+        border-radius: 8px;
+        padding: 0.4rem 0.8rem;
+        font-weight: bold;
+        font-family: 'Times New Roman', Times, serif;
+        font-size: 0.85rem;
+        transition: all 0.3s ease;
+    }
+
+    .stButton > button:hover {
+        background: linear-gradient(90deg, #2a5298 0%, #1e3c72 100%);
+        transform: scale(1.02);
+        box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+    }
+
+    /* Tab styling */
+    .stTabs [data-baseweb="tab-list"] {
+        gap: 4px;
+        background-color: #f0f2f6;
+        border-radius: 10px;
+        padding: 4px;
+    }
+
+    .stTabs [data-baseweb="tab"] {
+        border-radius: 8px;
+        padding: 6px 12px;
+        font-weight: 600;
+        font-family: 'Times New Roman', Times, serif;
+        font-size: 0.85rem;
+    }
+
+    .stTabs [aria-selected="true"] {
+        background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
+        color: white;
+    }
+
+    /* Info box styling */
+    .info-box {
+        background: linear-gradient(135deg, #e3f2fd 0%, #bbdef5 100%);
+        padding: 0.8rem;
+        border-radius: 10px;
+        margin: 0.8rem 0;
+        border-left: 4px solid #1e3c72;
+        font-family: 'Times New Roman', Times, serif;
+        font-size: 0.85rem;
+    }
+
+    /* Success box styling */
+    .success-box {
+        background: linear-gradient(135deg, #c8e6c9 0%, #a5d6a7 100%);
+        padding: 0.8rem;
+        border-radius: 10px;
+        margin: 0.8rem 0;
+        border-left: 4px solid #2e7d32;
+        font-family: 'Times New Roman', Times, serif;
+        font-size: 0.85rem;
+    }
+
+    /* Warning box styling */
+    .warning-box {
+        background: linear-gradient(135deg, #fff3e0 0%, #ffe0b2 100%);
+        padding: 0.8rem;
+        border-radius: 10px;
+        margin: 0.8rem 0;
+        border-left: 4px solid #e65100;
+        font-family: 'Times New Roman', Times, serif;
+        font-size: 0.85rem;
+    }
+
+    /* Dataframe styling */
+    .dataframe {
+        font-family: 'Times New Roman', Times, serif;
+        font-size: 0.8rem;
+    }
+
+    /* Metric container */
+    [data-testid="stMetricValue"] {
+        font-size: 1.1rem !important;
+        font-family: 'Times New Roman', Times, serif;
+        font-weight: bold;
+    }
+
+    [data-testid="stMetricLabel"] {
+        font-size: 0.8rem !important;
+        font-family: 'Times New Roman', Times, serif;
+    }
+
+    /* Selectbox styling */
+    .stSelectbox label {
+        font-size: 0.85rem !important;
+        font-family: 'Times New Roman', Times, serif;
+        font-weight: 500;
+    }
+
+    /* Expander styling */
+    .streamlit-expanderHeader {
+        font-family: 'Times New Roman', Times, serif;
+        font-size: 0.85rem;
+        font-weight: 600;
+        background-color: #f8f9fa;
+        border-radius: 8px;
+    }
+
+    /* Alert/info messages */
+    .stAlert {
+        font-family: 'Times New Roman', Times, serif;
+        font-size: 0.85rem;
+    }
+
+    /* Caption text */
+    .caption {
+        font-size: 0.75rem;
+        color: #6c757d;
+        font-family: 'Times New Roman', Times, serif;
+        font-style: italic;
+    }
+</style>
+""", unsafe_allow_html=True)
+
+# Title with gradient styling - smaller font
+st.markdown('<div class="main-header"><h1 style="color: white; margin: 0;">📊 Health Program Medicines Forecasting Dashboard</h1><p style="color: white; margin: 0; opacity: 0.9;">Time Series Analysis and Demand Forecasting</p></div>', unsafe_allow_html=True)
 
 # Initialize session state
 if 'data_loaded' not in st.session_state:
@@ -35,7 +252,8 @@ if 'materials' not in st.session_state:
     st.session_state.materials = []
 
 # Sidebar for file upload
-st.sidebar.header("📁 Data Upload")
+st.sidebar.markdown("## 📁 Data Upload")
+st.sidebar.markdown("---")
 
 uploaded_file = st.sidebar.file_uploader(
     "Choose an Excel file",
@@ -318,7 +536,7 @@ if st.session_state.data_loaded:
     df = st.session_state.df
     materials = st.session_state.materials
 
-    st.subheader("📦 Select Material for Analysis")
+    st.markdown("## 📦 Select Material for Analysis")
     selected_material = st.selectbox(
         "Choose a material description",
         materials,
@@ -328,37 +546,44 @@ if st.session_state.data_loaded:
     material_data_full = df[selected_material]
     material_data = material_data_full[material_data_full > 0]
 
-    st.header("📊 Data Overview")
+    st.markdown("## 📊 Data Overview")
 
     if len(material_data) > 0:
         col1, col2, col3, col4 = st.columns(4)
         with col1:
-            st.metric("Total Records (with demand)", len(material_data))
+            st.markdown('<div class="metric-card">', unsafe_allow_html=True)
+            st.metric("📋 Total Records (with demand)", len(material_data))
+            st.markdown('</div>', unsafe_allow_html=True)
         with col2:
-            st.metric("Total Months in Timeline", len(material_data_full))
+            st.markdown('<div class="metric-card">', unsafe_allow_html=True)
+            st.metric("📅 Total Months in Timeline", len(material_data_full))
+            st.markdown('</div>', unsafe_allow_html=True)
         with col3:
             start_date = material_data.index[0].strftime('%b-%Y') if hasattr(material_data.index[0], 'strftime') else str(material_data.index[0])
-            st.metric("Start Date", start_date)
+            st.markdown('<div class="metric-card">', unsafe_allow_html=True)
+            st.metric("📅 Start Date", start_date)
+            st.markdown('</div>', unsafe_allow_html=True)
         with col4:
             end_date = material_data.index[-1].strftime('%b-%Y') if hasattr(material_data.index[-1], 'strftime') else str(material_data.index[-1])
-            st.metric("End Date", end_date)
+            st.markdown('<div class="metric-card">', unsafe_allow_html=True)
+            st.metric("📅 End Date", end_date)
+            st.markdown('</div>', unsafe_allow_html=True)
     else:
         st.warning("No valid data for this material")
         st.stop()
 
-    # Create 7 tabs
-    tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
+    # Create 6 tabs (combined stationarity and decomposition)
+    tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
         "📈 Data Explorer", 
         "📅 Fiscal Year Comparison",
-        "🔍 Stationarity Test",
-        "📊 Seasonal Decomposition",
+        "🔍 Stationarity & Decomposition",
         "📉 Model Training & Comparison",
         "🔮 Forecasting",
         "📊 Results"
     ])
 
     with tab1:
-        st.subheader(f"Data Preview - {selected_material[:50]}...")
+        st.markdown(f"### Data Preview - {selected_material[:50]}...")
 
         display_df = material_data_full.to_frame(name="Demand")
         if hasattr(display_df.index, 'strftime'):
@@ -368,7 +593,7 @@ if st.session_state.data_loaded:
         transposed_display = display_df.T
         st.dataframe(transposed_display, use_container_width=True)
 
-        st.subheader("📈 Time Series Plot with Trend Line")
+        st.markdown("### 📈 Time Series Plot with Trend Line")
         fig, ax = plt.subplots(figsize=(14, 6))
 
         ax.plot(material_data_full.index, material_data_full.values, 
@@ -401,16 +626,17 @@ if st.session_state.data_loaded:
                            bbox=dict(boxstyle='round,pad=0.2', facecolor='white', alpha=0.7))
                 prev_y = value
 
-        ax.set_xlabel("Date", fontsize=12)
-        ax.set_ylabel("Demand Quantity", fontsize=12)
-        ax.set_title(f"{selected_material[:60]}...", fontsize=14)
-        ax.legend(loc='best')
+        ax.set_xlabel("Date", fontsize=11)
+        ax.set_ylabel("Demand Quantity", fontsize=11)
+        ax.set_title(f"{selected_material[:60]}...", fontsize=12)
+        ax.legend(loc='best', fontsize=9)
         ax.grid(True, alpha=0.3)
-        plt.xticks(rotation=45)
+        plt.xticks(rotation=45, fontsize=9)
+        plt.yticks(fontsize=9)
         plt.tight_layout()
         st.pyplot(fig)
 
-        st.subheader("📊 Demand Distribution")
+        st.markdown("### 📊 Demand Distribution")
         fig2, ax2 = plt.subplots(figsize=(14, 6))
 
         n_bins = min(20, len(material_data))
@@ -426,34 +652,39 @@ if st.session_state.data_loaded:
         ax2.axvline(mean_val, color='#2A9D8F', linestyle='--', linewidth=2, label=f'Mean: {mean_val:,.0f}')
         ax2.axvline(median_val, color='#E9C46A', linestyle='--', linewidth=2, label=f'Median: {median_val:,.0f}')
 
-        ax2.set_xlabel("Demand Quantity", fontsize=12)
-        ax2.set_ylabel("Density", fontsize=12)
-        ax2.set_title("Demand Distribution with Density Curve", fontsize=14)
-        ax2.legend(loc='best')
+        ax2.set_xlabel("Demand Quantity", fontsize=11)
+        ax2.set_ylabel("Density", fontsize=11)
+        ax2.set_title("Demand Distribution with Density Curve", fontsize=12)
+        ax2.legend(loc='best', fontsize=9)
         ax2.grid(True, alpha=0.3)
         plt.tight_layout()
         st.pyplot(fig2)
 
-        st.subheader("📋 Summary Statistics (Non-Zero Values)")
+        # Summary statistics side by side with explanation
+        col_left, col_right = st.columns([1, 1])
 
-        stats_summary = material_data.describe()
-        cv = (stats_summary['std'] / stats_summary['mean']) * 100 if stats_summary['mean'] > 0 else 0
-        skewness = material_data.skew()
-        q1 = material_data.quantile(0.25)
-        q3 = material_data.quantile(0.75)
-        iqr = q3 - q1
+        with col_left:
+            st.markdown("### 📋 Summary Statistics (Non-Zero Values)")
+            stats_summary = material_data.describe()
+            cv = (stats_summary['std'] / stats_summary['mean']) * 100 if stats_summary['mean'] > 0 else 0
+            skewness = material_data.skew()
+            q1 = material_data.quantile(0.25)
+            q3 = material_data.quantile(0.75)
+            iqr = q3 - q1
 
-        stats_df = pd.DataFrame({
-            "Metric": ["Count", "Mean", "Median", "Std Dev", "Min", "Q1 (25th)", "Q3 (75th)", "Max", "IQR", "CV (%)", "Skewness"],
-            "Value": [
-                f"{stats_summary['count']:,.0f}", f"{stats_summary['mean']:,.0f}", f"{median_val:,.0f}",
-                f"{stats_summary['std']:,.0f}", f"{stats_summary['min']:,.0f}", f"{q1:,.0f}",
-                f"{q3:,.0f}", f"{stats_summary['max']:,.0f}", f"{iqr:,.0f}", f"{cv:.1f}%", f"{skewness:.2f}"
-            ]
-        })
-        st.dataframe(stats_df, hide_index=True, use_container_width=True)
+            stats_df = pd.DataFrame({
+                "Metric": ["Count", "Mean", "Median", "Std Dev", "Min", "Q1 (25th)", "Q3 (75th)", "Max", "IQR", "CV (%)", "Skewness"],
+                "Value": [
+                    f"{stats_summary['count']:,.0f}", f"{stats_summary['mean']:,.0f}", f"{median_val:,.0f}",
+                    f"{stats_summary['std']:,.0f}", f"{stats_summary['min']:,.0f}", f"{q1:,.0f}",
+                    f"{q3:,.0f}", f"{stats_summary['max']:,.0f}", f"{iqr:,.0f}", f"{cv:.1f}%", f"{skewness:.2f}"
+                ]
+            })
+            st.dataframe(stats_df, hide_index=True, use_container_width=True)
 
-        with st.expander("📖 Understanding the Statistics"):
+        with col_right:
+            st.markdown('<div class="info-box">', unsafe_allow_html=True)
+            st.markdown("### 📖 Understanding the Statistics")
             st.markdown("""
             **Key Statistics Explained:**
             - **Mean**: Average demand - sensitive to outliers
@@ -461,15 +692,17 @@ if st.session_state.data_loaded:
             - **CV < 30%**: Low variability | **CV 30-60%**: Moderate | **CV > 60%**: High variability
             - **Skewness**: Positive = right-skewed (more low values, few high spikes)
             """)
+            st.markdown('</div>', unsafe_allow_html=True)
 
-        st.subheader("🔍 Outlier Detection (Box Plot)")
+        st.markdown("### 🔍 Outlier Detection (Box Plot)")
         fig3, ax3 = plt.subplots(figsize=(14, 5))
         ax3.boxplot(material_data.values, vert=True, patch_artist=True,
                    boxprops=dict(facecolor='#2E86AB', alpha=0.7),
                    medianprops=dict(color='#E63946', linewidth=2))
-        ax3.set_ylabel("Demand Quantity", fontsize=12)
-        ax3.set_title(f"Box Plot - {selected_material[:50]}...", fontsize=14)
+        ax3.set_ylabel("Demand Quantity", fontsize=11)
+        ax3.set_title(f"Box Plot - {selected_material[:50]}...", fontsize=12)
         ax3.grid(True, alpha=0.3, axis='y')
+        ax3.tick_params(labelsize=9)
 
         q1_val = material_data.quantile(0.25)
         q3_val = material_data.quantile(0.75)
@@ -478,14 +711,14 @@ if st.session_state.data_loaded:
         outliers = material_data[material_data > upper_bound]
         if len(outliers) > 0:
             ax3.text(1.1, upper_bound, f'Upper bound: {upper_bound:,.0f}\nOutliers: {len(outliers)}', 
-                    fontsize=9, verticalalignment='bottom')
+                    fontsize=8, verticalalignment='bottom')
 
         plt.tight_layout()
         st.pyplot(fig3)
 
     with tab2:
-        st.subheader(f"📅 Fiscal Year Comparison (April-March) - {selected_material[:50]}...")
-        st.info("This chart compares demand across different fiscal years (April to March), helping identify year-over-year trends and seasonal patterns.")
+        st.markdown(f"### 📅 Fiscal Year Comparison (April-March) - {selected_material[:50]}...")
+        st.markdown('<div class="info-box">This chart compares demand across different fiscal years (April to March), helping identify year-over-year trends and seasonal patterns.</div>', unsafe_allow_html=True)
 
         if len(material_data_full) >= 12:
             df_fiscal = pd.DataFrame({
@@ -509,7 +742,7 @@ if st.session_state.data_loaded:
             colors = ['#2E86AB', '#E63946', '#2A9D8F', '#E9C46A', '#9B5DE5', '#F4A261']
             markers = ['o', 's', '^', 'D', 'v', '<']
 
-            st.markdown("### 📈 Monthly Demand Pattern by Fiscal Year")
+            st.markdown("#### 📈 Monthly Demand Pattern by Fiscal Year")
             fig1, ax1 = plt.subplots(figsize=(14, 7))
 
             years_sorted = sorted(fiscal_pivot.columns, key=lambda x: int(x.split('/')[0].split()[-1]))
@@ -531,20 +764,21 @@ if st.session_state.data_loaded:
                                        xy=(month, value), 
                                        xytext=(0, offset),
                                        textcoords='offset points',
-                                       fontsize=9,
+                                       fontsize=8,
                                        ha='center',
                                        bbox=dict(boxstyle='round,pad=0.2', facecolor='white', alpha=0.8, edgecolor='gray', linewidth=0.5))
 
-            ax1.set_xlabel("Month", fontsize=12)
-            ax1.set_ylabel("Demand Quantity", fontsize=12)
-            ax1.set_title(f"Monthly Demand by Fiscal Year\n{selected_material[:60]}", fontsize=14)
-            ax1.legend(loc='upper left', bbox_to_anchor=(1, 1), fontsize=10)
+            ax1.set_xlabel("Month", fontsize=11)
+            ax1.set_ylabel("Demand Quantity", fontsize=11)
+            ax1.set_title(f"Monthly Demand by Fiscal Year\n{selected_material[:60]}", fontsize=12)
+            ax1.legend(loc='upper left', bbox_to_anchor=(1, 1), fontsize=9)
             ax1.grid(True, alpha=0.3)
+            ax1.tick_params(labelsize=9)
             plt.xticks(rotation=45)
             plt.tight_layout()
             st.pyplot(fig1)
 
-            st.markdown("### 📊 Average Monthly Demand Across All Fiscal Years")
+            st.markdown("#### 📊 Average Monthly Demand Across All Fiscal Years")
             fig4, ax4 = plt.subplots(figsize=(14, 7))
 
             monthly_avg = fiscal_pivot.mean(axis=1)
@@ -559,18 +793,19 @@ if st.session_state.data_loaded:
                                 textcoords="offset points",
                                 ha='center',
                                 va='bottom',
-                                fontsize=10,
+                                fontsize=9,
                                 fontweight='bold')
 
-            ax4.set_xlabel("Month", fontsize=12)
-            ax4.set_ylabel("Average Demand", fontsize=12)
-            ax4.set_title("Average Monthly Demand Across All Fiscal Years", fontsize=14)
+            ax4.set_xlabel("Month", fontsize=11)
+            ax4.set_ylabel("Average Demand", fontsize=11)
+            ax4.set_title("Average Monthly Demand Across All Fiscal Years", fontsize=12)
             ax4.grid(True, alpha=0.3, axis='y')
+            ax4.tick_params(labelsize=9)
             plt.xticks(rotation=45)
             plt.tight_layout()
             st.pyplot(fig4)
 
-            st.markdown("### 📊 Year-over-Year Total Demand Comparison")
+            st.markdown("#### 📊 Year-over-Year Total Demand Comparison")
             fig2, ax2 = plt.subplots(figsize=(14, 7))
 
             yearly_totals = df_fiscal.groupby('Fiscal_Year_Label')['Demand'].sum().sort_index(key=lambda x: x.str.extract(r'(\d+)')[0].astype(int))
@@ -588,18 +823,19 @@ if st.session_state.data_loaded:
                             textcoords="offset points",
                             ha='center',
                             va='bottom',
-                            fontsize=11,
+                            fontsize=9,
                             fontweight='bold')
 
-            ax2.set_xlabel("Fiscal Year", fontsize=12)
-            ax2.set_ylabel("Total Annual Demand", fontsize=12)
-            ax2.set_title("Year-over-Year Total Demand Comparison", fontsize=14)
+            ax2.set_xlabel("Fiscal Year", fontsize=11)
+            ax2.set_ylabel("Total Annual Demand", fontsize=11)
+            ax2.set_title("Year-over-Year Total Demand Comparison", fontsize=12)
             ax2.grid(True, alpha=0.3, axis='y')
-            plt.setp(ax2.xaxis.get_majorticklabels(), rotation=45, ha='right', fontsize=10)
+            ax2.tick_params(labelsize=9)
+            plt.setp(ax2.xaxis.get_majorticklabels(), rotation=45, ha='right')
             plt.tight_layout()
             st.pyplot(fig2)
 
-            st.markdown("### 📅 Monthly Demand Timeline (Chronological Order)")
+            st.markdown("#### 📅 Monthly Demand Timeline (Chronological Order)")
             fig3, ax3 = plt.subplots(figsize=(14, 7))
 
             fiscal_years_chrono = sorted(df_fiscal['Fiscal_Year_Label'].unique(), 
@@ -625,16 +861,17 @@ if st.session_state.data_loaded:
                                        ha='center',
                                        bbox=dict(boxstyle='round,pad=0.2', facecolor='white', alpha=0.7))
 
-            ax3.set_xlabel("Date (Month-Year)", fontsize=12)
-            ax3.set_ylabel("Demand Quantity", fontsize=12)
-            ax3.set_title(f"Monthly Demand with Fiscal Year Coloring (Chronological Order)\n{selected_material[:60]}", fontsize=14)
-            ax3.legend(loc='upper left', bbox_to_anchor=(1, 1), fontsize=10)
+            ax3.set_xlabel("Date (Month-Year)", fontsize=11)
+            ax3.set_ylabel("Demand Quantity", fontsize=11)
+            ax3.set_title(f"Monthly Demand with Fiscal Year Coloring (Chronological Order)\n{selected_material[:60]}", fontsize=12)
+            ax3.legend(loc='upper left', bbox_to_anchor=(1, 1), fontsize=9)
             ax3.grid(True, alpha=0.3)
+            ax3.tick_params(labelsize=9)
             plt.setp(ax3.xaxis.get_majorticklabels(), rotation=45, ha='right')
             plt.tight_layout()
             st.pyplot(fig3)
 
-            st.subheader("📊 Fiscal Year Summary")
+            st.markdown("#### 📊 Fiscal Year Summary")
 
             summary_data = []
             for year in fiscal_pivot.columns:
@@ -654,7 +891,7 @@ if st.session_state.data_loaded:
                 st.dataframe(summary_df, use_container_width=True, hide_index=True)
 
             if len(fiscal_pivot.columns) >= 2:
-                st.subheader("📈 Year-over-Year Growth Analysis")
+                st.markdown("#### 📈 Year-over-Year Growth Analysis")
                 cols = list(fiscal_pivot.columns)
                 growth_rates = []
 
@@ -682,7 +919,7 @@ if st.session_state.data_loaded:
                     elif growth_value < -10:
                         st.info(f"ℹ️ **Significant decrease detected:** {last_growth['Period']}: {last_growth['Growth Rate']}. Investigate potential causes.")
 
-            st.subheader("📊 Monthly Pattern Analysis")
+            st.markdown("#### 📊 Monthly Pattern Analysis")
             col1, col2, col3 = st.columns(3)
 
             with col1:
@@ -711,9 +948,9 @@ if st.session_state.data_loaded:
         else:
             st.warning(f"Not enough data for fiscal year comparison. Need at least 12 months of data. Currently have {len(material_data_full)} months.")
 
-        # stationarity
+    # Combined Stationarity and Decomposition tab
     with tab3:
-        st.subheader(f"Stationarity Test - {selected_material[:50]}...")
+        st.markdown(f"### Stationarity Test - {selected_material[:50]}...")
 
         if len(material_data) >= 3:
             from statsmodels.graphics.tsaplots import plot_acf, plot_pacf
@@ -757,16 +994,17 @@ if st.session_state.data_loaded:
                 ax.axhline(y=0, color='red', linestyle='--', alpha=0.5)
 
                 # Labels
-                ax.set_xlabel("Date", fontsize=12)
-                ax.set_ylabel("Differenced Quantity", fontsize=12)
+                ax.set_xlabel("Date", fontsize=11)
+                ax.set_ylabel("Differenced Quantity", fontsize=11)
 
                 # Dynamic title
                 ax.set_title(
                     "Stationarity Visualization (Points Only - No Connecting Lines)",
-                    fontsize=13
+                    fontsize=12
                 )
 
-                ax.legend()
+                ax.legend(fontsize=9)
+                ax.tick_params(labelsize=9)
 
                 # Grid
                 ax.grid(True, alpha=0.3)
@@ -781,7 +1019,7 @@ if st.session_state.data_loaded:
 
             # ACF and PACF Plots
             st.markdown("---")
-            st.subheader("📊 Autocorrelation (ACF) and Partial Autocorrelation (PACF) Plots")
+            st.markdown("#### 📊 Autocorrelation (ACF) and Partial Autocorrelation (PACF) Plots")
             st.info("ACF and PACF plots help identify AR and MA terms for ARIMA modeling.")
 
             col1, col2 = st.columns(2)
@@ -790,10 +1028,11 @@ if st.session_state.data_loaded:
                 # ACF Plot
                 fig_acf, ax_acf = plt.subplots(figsize=(10, 6))
                 plot_acf(material_data.values, lags=min(20, len(material_data)//2), ax=ax_acf, alpha=0.05)
-                ax_acf.set_title("Autocorrelation Function (ACF)", fontsize=12)
+                ax_acf.set_title("Autocorrelation Function (ACF)", fontsize=11)
                 ax_acf.set_xlabel("Lags", fontsize=10)
                 ax_acf.set_ylabel("Autocorrelation", fontsize=10)
                 ax_acf.grid(True, alpha=0.3)
+                ax_acf.tick_params(labelsize=9)
                 plt.tight_layout()
                 st.pyplot(fig_acf)
 
@@ -801,10 +1040,11 @@ if st.session_state.data_loaded:
                 # PACF Plot
                 fig_pacf, ax_pacf = plt.subplots(figsize=(10, 6))
                 plot_pacf(material_data.values, lags=min(20, len(material_data)//2), ax=ax_pacf, alpha=0.05, method='ywm')
-                ax_pacf.set_title("Partial Autocorrelation Function (PACF)", fontsize=12)
+                ax_pacf.set_title("Partial Autocorrelation Function (PACF)", fontsize=11)
                 ax_pacf.set_xlabel("Lags", fontsize=10)
                 ax_pacf.set_ylabel("Partial Autocorrelation", fontsize=10)
                 ax_pacf.grid(True, alpha=0.3)
+                ax_pacf.tick_params(labelsize=9)
                 plt.tight_layout()
                 st.pyplot(fig_pacf)
 
@@ -831,8 +1071,8 @@ if st.session_state.data_loaded:
         else:
             st.warning(f"Not enough data for stationarity test (need at least 3 data points). Currently have {len(material_data)}.")
 
-    with tab4:
-        st.subheader(f"Seasonal Decomposition - {selected_material[:50]}...")
+        st.markdown("---")
+        st.markdown(f"### Seasonal Decomposition - {selected_material[:50]}...")
 
         if len(material_data_full) >= 12:
             st.info("Seasonal decomposition helps identify trend, seasonal patterns, and residuals in your time series data.")
@@ -866,25 +1106,29 @@ if st.session_state.data_loaded:
                     fig, axes = plt.subplots(4, 1, figsize=(14, 12))
 
                     axes[0].plot(material_data_full.index, material_data_full.values, color='#2E86AB')
-                    axes[0].set_title('Original Series', fontsize=12)
-                    axes[0].set_ylabel('Demand')
+                    axes[0].set_title('Original Series', fontsize=11)
+                    axes[0].set_ylabel('Demand', fontsize=10)
                     axes[0].grid(True, alpha=0.3)
+                    axes[0].tick_params(labelsize=9)
 
                     axes[1].plot(material_data_full.index, decomposition.trend, color='#E9C46A')
-                    axes[1].set_title('Trend Component', fontsize=12)
-                    axes[1].set_ylabel('Trend')
+                    axes[1].set_title('Trend Component', fontsize=11)
+                    axes[1].set_ylabel('Trend', fontsize=10)
                     axes[1].grid(True, alpha=0.3)
+                    axes[1].tick_params(labelsize=9)
 
                     axes[2].plot(material_data_full.index, decomposition.seasonal, color='#2A9D8F')
-                    axes[2].set_title('Seasonal Component', fontsize=12)
-                    axes[2].set_ylabel('Seasonal')
+                    axes[2].set_title('Seasonal Component', fontsize=11)
+                    axes[2].set_ylabel('Seasonal', fontsize=10)
                     axes[2].grid(True, alpha=0.3)
+                    axes[2].tick_params(labelsize=9)
 
                     axes[3].plot(material_data_full.index, decomposition.resid, color='#E63946')
-                    axes[3].set_title('Residual Component', fontsize=12)
-                    axes[3].set_ylabel('Residual')
-                    axes[3].set_xlabel('Date')
+                    axes[3].set_title('Residual Component', fontsize=11)
+                    axes[3].set_ylabel('Residual', fontsize=10)
+                    axes[3].set_xlabel('Date', fontsize=10)
                     axes[3].grid(True, alpha=0.3)
+                    axes[3].tick_params(labelsize=9)
 
                     plt.tight_layout()
                     st.pyplot(fig)
@@ -908,8 +1152,8 @@ if st.session_state.data_loaded:
         else:
             st.warning(f"Not enough data for seasonal decomposition. Need at least 12 months. Currently have {len(material_data_full)} months.")
 
-    with tab5:
-        st.subheader(f"Model Training & Comparison - {selected_material[:50]}...")
+    with tab4:
+        st.markdown(f"### Model Training & Comparison - {selected_material[:50]}...")
 
         if len(material_data) < 6:
             st.warning(f"Not enough data for model training. Need at least 6 months of data. Currently have {len(material_data)} months.")
@@ -935,7 +1179,7 @@ if st.session_state.data_loaded:
                 st.warning("Not enough data for testing. Please reduce training percentage.")
                 st.stop()
 
-            st.subheader("Select Models to Train")
+            st.markdown("#### Select Models to Train")
             col1, col2, col3, col4, col5, col6 = st.columns(6)
             with col1:
                 run_sma = st.checkbox("Simple MA", value=True, key="train_sma")
@@ -951,7 +1195,7 @@ if st.session_state.data_loaded:
                 run_tes = st.checkbox("TES/HW", value=True, key="train_tes")
 
             st.markdown("---")
-            st.subheader("⚙️ Exponential Smoothing Configuration (For DES & TES)")
+            st.markdown("#### ⚙️ Exponential Smoothing Configuration (For DES & TES)")
             st.info("Change these options to see how different configurations affect model performance!")
 
             col1, col2, col3 = st.columns(3)
@@ -1171,7 +1415,7 @@ if st.session_state.data_loaded:
 
                         metrics.append(metric_dict)
 
-                    st.subheader("📊 Model Performance Metrics")
+                    st.markdown("#### 📊 Model Performance Metrics")
                     st.dataframe(pd.DataFrame(metrics), use_container_width=True, hide_index=True)
 
                     valid_metrics = [m for m in metrics if m['MAPE'] not in ['inf', 'nan', 'inf%'] and 'inf' not in m['MAPE']]
@@ -1189,11 +1433,12 @@ if st.session_state.data_loaded:
                                 forecast_values = np.maximum(forecast_values, 0)
                                 ax.plot(forecast_dates, forecast_values, label=name, color=color_map[name], linestyle='--', linewidth=2, marker='s')
 
-                        ax.set_xlabel("Date", fontsize=12)
-                        ax.set_ylabel("Quantity", fontsize=12)
-                        ax.set_title(f"{selected_material[:60]} - Model Comparison", fontsize=14)
-                        ax.legend()
+                        ax.set_xlabel("Date", fontsize=11)
+                        ax.set_ylabel("Quantity", fontsize=11)
+                        ax.set_title(f"{selected_material[:60]} - Model Comparison", fontsize=12)
+                        ax.legend(fontsize=9)
                         ax.grid(True, alpha=0.3)
+                        ax.tick_params(labelsize=9)
                         plt.xticks(rotation=45)
                         st.pyplot(fig)
 
@@ -1205,11 +1450,11 @@ if st.session_state.data_loaded:
                 else:
                     st.error("No models were successfully trained.")
 
-    with tab6:
-        st.subheader(f"Future Forecasting - {selected_material[:50]}...")
+    with tab5:
+        st.markdown(f"### Future Forecasting - {selected_material[:50]}...")
 
         if len(material_data) >= 3:
-            st.subheader("📊 Forecast Configuration")
+            st.markdown("#### 📊 Forecast Configuration")
             col1, col2 = st.columns(2)
             with col1:
                 forecast_type = st.radio(
@@ -1224,7 +1469,7 @@ if st.session_state.data_loaded:
                 forecast_years = st.number_input("Number of years to forecast", min_value=1, max_value=10, value=3, key="forecast_years")
                 forecast_periods = forecast_years * 12
 
-                st.subheader("📊 Select Annual Forecasting Methods")
+                st.markdown("#### 📊 Select Annual Forecasting Methods")
                 col1, col2, col3 = st.columns(3)
                 with col1:
                     use_linear_method = st.checkbox("Linear Regression", value=True, key="use_linear")
@@ -1233,7 +1478,7 @@ if st.session_state.data_loaded:
                 with col3:
                     use_weighted_avg_method = st.checkbox("Weighted Average (Optimal)", value=True, key="use_weighted_avg")
 
-            st.subheader("📊 Data Points Selection for Forecasting")
+            st.markdown("#### 📊 Data Points Selection for Forecasting")
             col1, col2 = st.columns(2)
             with col1:
                 use_all_data = st.radio(
@@ -1258,7 +1503,7 @@ if st.session_state.data_loaded:
                     )
                     st.info(f"Using last {n_years_for_forecast} fiscal years of data for forecasting")
 
-            st.subheader("Select Models for Forecasting")
+            st.markdown("#### Select Models for Forecasting")
             if "Monthly Models" in forecast_type:
                 col1, col2, col3, col4, col5, col6 = st.columns(6)
                 with col1:
@@ -1277,7 +1522,7 @@ if st.session_state.data_loaded:
                 use_sma = use_ema = use_arima = use_ses = use_des = use_tes = False
 
             st.markdown("---")
-            st.subheader("⚙️ Configuration Options")
+            st.markdown("#### ⚙️ Configuration Options")
 
             if "Monthly Models" in forecast_type:
                 st.info("Configure the monthly forecasting models below:")
@@ -1343,7 +1588,7 @@ if st.session_state.data_loaded:
                                 linear_total = monthly_pred.sum()
                                 st.success(f"📊 **Linear Regression Total for {forecast_years} year(s): {linear_total:,.0f} units**")
 
-                                st.subheader("📈 Linear Regression - Yearly Forecast Breakdown")
+                                st.markdown("#### 📈 Linear Regression - Yearly Forecast Breakdown")
                                 yearly_breakdown = []
                                 for i, year_pred in enumerate(yearly_pred):
                                     yearly_breakdown.append({
@@ -1381,7 +1626,7 @@ if st.session_state.data_loaded:
                                 simple_total = monthly_pred.sum()
                                 st.success(f"📊 **Simple Average Total for {forecast_years} year(s): {simple_total:,.0f} units**")
 
-                                st.subheader("📈 Simple Average - Yearly Forecast Breakdown")
+                                st.markdown("#### 📈 Simple Average - Yearly Forecast Breakdown")
                                 yearly_breakdown = []
                                 for i, year_pred in enumerate(yearly_pred):
                                     yearly_breakdown.append({
@@ -1409,7 +1654,7 @@ if st.session_state.data_loaded:
                                 weighted_total = monthly_pred.sum()
                                 st.success(f"📊 **Weighted Average Total for {forecast_years} year(s): {weighted_total:,.0f} units**")
 
-                                st.subheader("📈 Weighted Average - Yearly Forecast Breakdown")
+                                st.markdown("#### 📈 Weighted Average - Yearly Forecast Breakdown")
                                 yearly_breakdown = []
                                 for i, year_pred in enumerate(yearly_pred):
                                     yearly_breakdown.append({
@@ -1578,16 +1823,17 @@ if st.session_state.data_loaded:
                         except Exception as e:
                             st.warning(f"TES forecast failed: {str(e)[:100]}")
 
-                ax.set_xlabel("Date", fontsize=12)
-                ax.set_ylabel("Quantity", fontsize=12)
-                ax.set_title(f"{selected_material[:60]} - Future Forecast", fontsize=14)
-                ax.legend(loc='best')
+                ax.set_xlabel("Date", fontsize=11)
+                ax.set_ylabel("Quantity", fontsize=11)
+                ax.set_title(f"{selected_material[:60]} - Future Forecast", fontsize=12)
+                ax.legend(loc='best', fontsize=9)
                 ax.grid(True, alpha=0.3)
+                ax.tick_params(labelsize=9)
                 plt.xticks(rotation=45)
                 st.pyplot(fig)
 
                 if future_forecasts:
-                    st.subheader("📊 Total Forecast Summary")
+                    st.markdown("#### 📊 Total Forecast Summary")
                     total_summary = []
                     for model_name, forecast_series in future_forecasts.items():
                         total_summary.append({
@@ -1605,8 +1851,8 @@ if st.session_state.data_loaded:
         else:
             st.warning(f"Not enough data for forecasting. Need at least 3 months. Currently have {len(material_data)}.")
 
-    with tab7:
-        st.subheader(f"Forecast Results - {selected_material[:50]}...")
+    with tab6:
+        st.markdown(f"### Forecast Results - {selected_material[:50]}...")
 
         if 'future_forecasts' in st.session_state and st.session_state['future_forecasts']:
             forecasts = st.session_state['future_forecasts']
@@ -1618,7 +1864,7 @@ if st.session_state.data_loaded:
             forecast_df_display = forecast_df.copy()
             forecast_df_display.index = forecast_df_display.index.strftime('%b-%Y')
 
-            st.subheader("🎯 Select Time Range for Detailed View")
+            st.markdown("#### 🎯 Select Time Range for Detailed View")
             col1, col2 = st.columns(2)
 
             with col1:
@@ -1638,14 +1884,14 @@ if st.session_state.data_loaded:
                     filtered_df = forecast_df.iloc[start_pos:end_pos+1]
                     filtered_df_display = forecast_df_display.iloc[start_pos:end_pos+1]
 
-                    st.subheader(f"📋 Detailed Monthly Forecast ({start_date} to {end_date})")
+                    st.markdown(f"#### 📋 Detailed Monthly Forecast ({start_date} to {end_date})")
 
                     transposed_df = filtered_df_display.T
                     transposed_df.index.name = 'Model'
                     transposed_df.columns.name = 'Date'
                     st.dataframe(transposed_df, use_container_width=True)
 
-                    st.subheader(f"📊 Yearly Split Summary (Fiscal Year - April to March)")
+                    st.markdown(f"#### 📊 Yearly Split Summary (Fiscal Year - April to March)")
 
                     def get_fiscal_year_from_date(date):
                         if date.month >= 4:
@@ -1679,11 +1925,11 @@ if st.session_state.data_loaded:
                         yearly_summary_df = yearly_summary_df.sort_values(['Model', 'Fiscal Year'])
                         st.dataframe(yearly_summary_df, use_container_width=True, hide_index=True)
 
-                        st.subheader("📊 Pivot View - Yearly Totals by Model")
+                        st.markdown("#### 📊 Pivot View - Yearly Totals by Model")
                         pivot_df = yearly_summary_df.pivot(index='Model', columns='Fiscal Year', values='Total Demand')
                         st.dataframe(pivot_df, use_container_width=True)
 
-                    st.subheader(f"📊 Selected Range Summary ({start_date} to {end_date})")
+                    st.markdown(f"#### 📊 Selected Range Summary ({start_date} to {end_date})")
                     summary_range_data = []
                     for model_name in filtered_df.columns:
                         summary_range_data.append({
@@ -1712,39 +1958,40 @@ if st.session_state.data_loaded:
             st.info("👈 Please generate forecasts in the 'Forecasting' tab first.")
 
 else:
-    st.info("""
-    ## 👈 Please upload your Excel file to begin
+    st.markdown("""
+    <div class="info-box">
+    <h3>👈 Please upload your Excel file to begin</h3>
+    <p><strong>Your file should have:</strong><br>
+    - <strong>First column</strong>: Material Description (product names)<br>
+    - <strong>Other columns</strong>: Monthly data columns (can be dates or month names)<br>
+    - <strong>Values</strong>: Demand quantities (can have commas like "2,353")</p>
 
-    ### Your file should have:
-    - **First column**: Material Description (product names)
-    - **Other columns**: Monthly data columns (can be dates or month names)
-    - **Values**: Demand quantities (can have commas like "2,353")
+    <p><strong>Models Available:</strong><br>
+    - <strong>SMA</strong> (Simple Moving Average) - Rolling window, drops oldest each time<br>
+    - <strong>EMA</strong> (Exponential Moving Average) - More weight to recent<br>
+    - <strong>ARIMA</strong> (AutoRegressive Integrated Moving Average)<br>
+    - <strong>SES</strong> (Simple Exponential Smoothing)<br>
+    - <strong>DES</strong> (Double Exponential Smoothing/Holt)<br>
+    - <strong>TES</strong> (Triple Exponential Smoothing/Holt-Winters)<br>
+    - <strong>Linear Regression (Yearly)</strong> - Uses fiscal year totals for forecasting<br>
+    - <strong>Simple Average (Yearly)</strong> - Average of historical yearly totals<br>
+    - <strong>Weighted Average (Yearly)</strong> - Optimal weights that minimize forecast error</p>
 
-    ### Models Available:
-    - **SMA** (Simple Moving Average) - Rolling window, drops oldest each time
-    - **EMA** (Exponential Moving Average) - More weight to recent
-    - **ARIMA** (AutoRegressive Integrated Moving Average)
-    - **SES** (Simple Exponential Smoothing)
-    - **DES** (Double Exponential Smoothing/Holt)
-    - **TES** (Triple Exponential Smoothing/Holt-Winters)
-    - **Linear Regression (Yearly)** - Uses fiscal year totals for forecasting
-    - **Simple Average (Yearly)** - Average of historical yearly totals
-    - **Weighted Average (Yearly)** - Optimal weights that minimize forecast error
-
-    ### How to use:
-    1. Upload your Excel file
-    2. Select a material from the dropdown
-    3. Go to **Model Training**, ensure all models are checked (default), then click "Train Models"
-    4. Go to **Forecasting**, choose data points to use, forecast approach, then click "Generate Future Forecast"
-    5. Download results in **Results** tab
-    """)
+    <p><strong>How to use:</strong><br>
+    1. Upload your Excel file<br>
+    2. Select a material from the dropdown<br>
+    3. Go to <strong>Model Training</strong>, ensure all models are checked (default), then click "Train Models"<br>
+    4. Go to <strong>Forecasting</strong>, choose data points to use, forecast approach, then click "Generate Future Forecast"<br>
+    5. Download results in <strong>Results</strong> tab</p>
+    </div>
+    """, unsafe_allow_html=True)
 
 st.markdown("---")
 st.markdown(
     """
-    <div style='text-align: center; color: gray; padding: 20px;'>
+    <div style='text-align: center; color: #6c757d; padding: 15px; font-family: "Times New Roman", Times, serif; font-size: 0.8rem;'>
     <b>Health Program Medicines Demand Forecasting Dashboard</b><br>
-    Upload -> Select -> Train -> Forecast -> Download
+    Upload → Select → Train → Forecast → Download
     </div>
     """, 
     unsafe_allow_html=True
