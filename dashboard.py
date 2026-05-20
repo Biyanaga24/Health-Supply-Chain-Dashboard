@@ -3070,7 +3070,6 @@ else:
     col_logo, col_title, col_settings = st.columns([1, 3, 1])
 
     with col_logo:
-        # Fallback if file not found - removed hardcoded path
         st.markdown("<div style='background:#1a5276;border-radius:15px;padding:10px;text-align:center;width:60px'><p style='color:white;font-weight:bold;margin:0'>EPSS</p></div>", unsafe_allow_html=True)
 
     with col_title:
@@ -3092,10 +3091,17 @@ else:
 
     st.markdown("---")
 
-        # Quick Summary Section with Program Name
+    # Quick Summary Section
+    if sheet_name == "All":
+        program_name = "All Programs"
+    elif subcategory_filter != "All":
+        program_name = f"{sheet_name} - {subcategory_filter}"
+    else:
+        program_name = sheet_name
+
+    # Calculate metrics
     if not df_filtered.empty and 'NMOS' in df_filtered.columns:
         nmos_values = pd.to_numeric(df_filtered['NMOS'], errors='coerce').dropna()
-
         Availability = (nmos_values > 1).mean() * 100 if len(nmos_values) > 0 else 0
         sap = ((nmos_values >= 6) & (nmos_values <= 18)).mean() * 100 if len(nmos_values) > 0 else 0
 
@@ -3105,17 +3111,9 @@ else:
         else:
             avg_avail_gap = 0
 
-        if sheet_name == "All":
-            program_name = "All Programs"
-        elif subcategory_filter != "All":
-            program_name = f"{sheet_name} - {subcategory_filter}"
-        else:
-            program_name = sheet_name
-
-        # Calculate Average Lead Time from new_deliveries
+        # Calculate Average Lead Time
         avg_lead_time_display = "N/A"
         if not df_new_deliveries.empty:
-            # Calculate lead time values
             temp_lead_df = df_new_deliveries.copy()
             temp_lead_df['Posting Date'] = pd.to_datetime(temp_lead_df['Posting Date'], errors='coerce')
             temp_lead_df['PO Number'] = temp_lead_df['PO Number'].astype(str)
@@ -3147,72 +3145,141 @@ else:
                 avg_lead = sum(lead_values) / len(lead_values)
                 avg_lead_time_display = f"{avg_lead:.0f} days"
 
-        # Quick Summary Box with Program Name and 4 columns
-        st.markdown(f"""
-        <div style='background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%); border-radius: 15px; padding: 15px; border: 1px solid #dee2e6; margin-bottom: 15px;'>
-            <h4 style='margin: 0 0 10px 0; font-size: 16px; font-weight: bold; color: #1a5276;'>📊 {program_name} Quick Summary</h4>
-        </div>
-        """, unsafe_allow_html=True)
-
-        col_a, col_s, col_g, col_lead = st.columns(4)
-        with col_a:
-            st.markdown(f"""
-            <div style='text-align: center; padding: 10px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-radius: 10px; margin: 5px;'>
-                <p style='margin: 0; font-size: 16px; color: white; opacity: 0.9'>Availability</p>
-                <p style='margin: 0; font-size: 24px; font-weight: bold; color: white;'>{Availability:.1f}%</p>
-            </div>
-            """, unsafe_allow_html=True)
-        with col_s:
-            st.markdown(f"""
-            <div style='text-align: center; padding: 10px; background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%); border-radius: 10px; margin: 5px;'>
-                <p style='margin: 0; font-size: 16px; color: white; opacity: 0.9'>SAP</p>
-                <p style='margin: 0; font-size: 24px; font-weight: bold; color: white;'>{sap:.1f}%</p>
-            </div>
-            """, unsafe_allow_html=True)
-        with col_g:
-            st.markdown(f"""
-            <div style='text-align: center; padding: 10px; background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%); border-radius: 10px; margin: 5px;'>
-                <p style='margin: 0; font-size: 16px; color: white; opacity: 0.9'>Distr. Gap</p>
-                <p style='margin: 0; font-size: 24px; font-weight: bold; color: white;'>{avg_avail_gap:.1f}%</p>
-            </div>
-            """, unsafe_allow_html=True)
-        with col_lead:
-            st.markdown(f"""
-            <div style='text-align: center; padding: 10px; background: linear-gradient(135deg, #fa709a 0%, #fee140 100%); border-radius: 10px; margin: 5px;'>
-                <p style='margin: 0; font-size: 16px; color: white; opacity: 0.9'>Avg.Lead Time</p>
-                <p style='margin: 0; font-size: 24px; font-weight: bold; color: white;'>{avg_lead_time_display}</p>
-            </div>
-            """, unsafe_allow_html=True)
-
-    st.markdown("---")
-
-    # Original 5-COLUMN QUICK STATS
-    if not df_filtered.empty:
-        col1, col2, col3, col4, col5 = st.columns(5)
-
+        # Calculate stock status counts
         total_items = len(df_filtered)
         stock_out = len(df_filtered[df_filtered['Stock Status'] == 'Stock Out']) if 'Stock Status' in df_filtered.columns else 0
         understock = len(df_filtered[df_filtered['Stock Status'] == 'Understock']) if 'Stock Status' in df_filtered.columns else 0
         normal = len(df_filtered[df_filtered['Stock Status'] == 'Normal Stock']) if 'Stock Status' in df_filtered.columns else 0
         overstock = len(df_filtered[df_filtered['Stock Status'] == 'Overstock']) if 'Stock Status' in df_filtered.columns else 0
 
-        if sheet_name == "All":
-            program_display = "All Programs"
-        elif subcategory_filter != "All":
-            program_display = f"{sheet_name} - {subcategory_filter}"
-        else:
-            program_display = sheet_name
+        # Calculate Decision Brief metrics
+        stock_out_items = len(df_filtered[df_filtered['Stock Status'] == 'Stock Out']) if 'Stock Status' in df_filtered.columns else 0
+        at_risk_stock_out = len(df_filtered[df_filtered['Risk Type'] == 'Risk of Stock out']) if 'Risk Type' in df_filtered.columns else 0
+        at_risk_expiry = len(df_filtered[df_filtered['Risk Type'] == 'Expiry Risk']) + len(df_filtered[df_filtered['Risk Type'] == 'Critical Risk']) if 'Risk Type' in df_filtered.columns else 0
 
-        with col1:
-            st.metric(f"📊 {program_display} Total Items", total_items)
-        with col2:
-            st.metric("🔴 Stock Out", stock_out, delta=f"-{stock_out}" if stock_out > 0 else "0", delta_color="inverse")
-        with col3:
-            st.metric("🟡 Understock", understock, delta=f"-{understock}" if understock > 0 else "0", delta_color="inverse")
-        with col4:
-            st.metric("🟢 Normal Stock", normal, delta=f"+{normal}" if normal > 0 else "0", delta_color="normal")
-        with col5:
-            st.metric("🔵 Overstock", overstock, delta=f"-{overstock}" if overstock > 0 else "0", delta_color="inverse")
+        # Items with Problems = SUM of all problems
+        items_with_problems = stock_out_items + at_risk_stock_out + at_risk_expiry
+
+        # Quick Summary Box with Total Items in title
+        st.markdown(f"""
+        <div style='background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%); border-radius: 15px; padding: 15px; border: 1px solid #dee2e6; margin-bottom: 15px;'>
+            <h4 style='margin: 0 0 10px 0; font-size: 16px; font-weight: bold; color: #1a5276;'>📊 {program_name} Quick Summary  |  📦 Total Items: {total_items}</h4>
+        </div>
+        """, unsafe_allow_html=True)
+
+        # ========== ROW 1: KPIs (Gradient Background, White Text) ==========
+        st.markdown("<p style='font-size: 14px; font-weight: bold; color: #1a5276; margin-bottom: 5px;'>📈 KPIs</p>", unsafe_allow_html=True)
+        col_a, col_s, col_g, col_lead = st.columns(4)
+        with col_a:
+            st.markdown(f"""
+            <div style='text-align: center; padding: 10px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-radius: 10px; margin: 5px; transition: all 0.3s ease; cursor: pointer;'>
+                <p style='margin: 0; font-size: 14px; color: white; opacity: 0.9'>Availability</p>
+                <p style='margin: 0; font-size: 24px; font-weight: bold; color: white;'>{Availability:.1f}%</p>
+            </div>
+            """, unsafe_allow_html=True)
+        with col_s:
+            st.markdown(f"""
+            <div style='text-align: center; padding: 10px; background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%); border-radius: 10px; margin: 5px; transition: all 0.3s ease; cursor: pointer;'>
+                <p style='margin: 0; font-size: 14px; color: white; opacity: 0.9'>SAP</p>
+                <p style='margin: 0; font-size: 24px; font-weight: bold; color: white;'>{sap:.1f}%</p>
+            </div>
+            """, unsafe_allow_html=True)
+        with col_g:
+            st.markdown(f"""
+            <div style='text-align: center; padding: 10px; background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%); border-radius: 10px; margin: 5px; transition: all 0.3s ease; cursor: pointer;'>
+                <p style='margin: 0; font-size: 14px; color: white; opacity: 0.9'>Distr. Gap</p>
+                <p style='margin: 0; font-size: 24px; font-weight: bold; color: white;'>{avg_avail_gap:.1f}%</p>
+            </div>
+            """, unsafe_allow_html=True)
+        with col_lead:
+            st.markdown(f"""
+            <div style='text-align: center; padding: 10px; background: linear-gradient(135deg, #fa709a 0%, #fee140 100%); border-radius: 10px; margin: 5px; transition: all 0.3s ease; cursor: pointer;'>
+                <p style='margin: 0; font-size: 14px; color: white; opacity: 0.9'>Avg.Lead Time</p>
+                <p style='margin: 0; font-size: 24px; font-weight: bold; color: white;'>{avg_lead_time_display}</p>
+            </div>
+            """, unsafe_allow_html=True)
+
+        # ========== ROW 2: Stock Status (White Background, Black Text) ==========
+        st.markdown("<p style='font-size: 14px; font-weight: bold; color: #1a5276; margin: 15px 0 5px 0;'>📊 Stock Status</p>", unsafe_allow_html=True)
+        col_t1, col_t2, col_t3, col_t4 = st.columns(4)
+        with col_t1:
+            st.markdown(f"""
+            <div style='text-align: center; padding: 10px; background: white; border-radius: 10px; margin: 5px; transition: all 0.3s ease; box-shadow: 0 2px 4px rgba(0,0,0,0.1); cursor: pointer;'>
+                <p style='margin: 0; font-size: 14px; color: #e74c3c; font-weight: bold;'>Stock Out</p>
+                <p style='margin: 0; font-size: 24px; font-weight: bold; color: #333;'>{stock_out}</p>
+            </div>
+            """, unsafe_allow_html=True)
+        with col_t2:
+            st.markdown(f"""
+            <div style='text-align: center; padding: 10px; background: white; border-radius: 10px; margin: 5px; transition: all 0.3s ease; box-shadow: 0 2px 4px rgba(0,0,0,0.1); cursor: pointer;'>
+                <p style='margin: 0; font-size: 14px; color: #f39c12; font-weight: bold;'>Understock</p>
+                <p style='margin: 0; font-size: 24px; font-weight: bold; color: #333;'>{understock}</p>
+            </div>
+            """, unsafe_allow_html=True)
+        with col_t3:
+            st.markdown(f"""
+            <div style='text-align: center; padding: 10px; background: white; border-radius: 10px; margin: 5px; transition: all 0.3s ease; box-shadow: 0 2px 4px rgba(0,0,0,0.1); cursor: pointer;'>
+                <p style='margin: 0; font-size: 14px; color: #27ae60; font-weight: bold;'>Normal Stock</p>
+                <p style='margin: 0; font-size: 24px; font-weight: bold; color: #333;'>{normal}</p>
+            </div>
+            """, unsafe_allow_html=True)
+        with col_t4:
+            st.markdown(f"""
+            <div style='text-align: center; padding: 10px; background: white; border-radius: 10px; margin: 5px; transition: all 0.3s ease; box-shadow: 0 2px 4px rgba(0,0,0,0.1); cursor: pointer;'>
+                <p style='margin: 0; font-size: 14px; color: #2980b9; font-weight: bold;'>Overstock</p>
+                <p style='margin: 0; font-size: 24px; font-weight: bold; color: #333;'>{overstock}</p>
+            </div>
+            """, unsafe_allow_html=True)
+
+        # ========== ROW 3: Items with Problems (Black Background, White Text, Rounded Box) ==========
+        st.markdown("<p style='font-size: 14px; font-weight: bold; color: #1a5276; margin: 15px 0 5px 0;'>⚠️ Items with Problems</p>", unsafe_allow_html=True)
+        col_p1, col_p2, col_p3, col_p4 = st.columns(4)
+        with col_p1:
+            st.markdown(f"""
+            <div style='text-align: center; padding: 12px; background: #1a1a2e; border-radius: 25px; margin: 5px; border: 1px solid #333; transition: all 0.3s ease; cursor: pointer;'>
+                <p style='margin: 0; font-size: 13px; color: #9b59b6; font-weight: bold;'>Items with Problems</p>
+                <p style='margin: 5px 0 0 0; font-size: 26px; font-weight: bold; color: white;'>{items_with_problems}</p>
+            </div>
+            """, unsafe_allow_html=True)
+        with col_p2:
+            st.markdown(f"""
+            <div style='text-align: center; padding: 12px; background: #1a1a2e; border-radius: 25px; margin: 5px; border: 1px solid #333; transition: all 0.3s ease; cursor: pointer;'>
+                <p style='margin: 0; font-size: 13px; color: #e74c3c; font-weight: bold;'>Stock Out Items</p>
+                <p style='margin: 5px 0 0 0; font-size: 26px; font-weight: bold; color: white;'>{stock_out_items}</p>
+            </div>
+            """, unsafe_allow_html=True)
+        with col_p3:
+            st.markdown(f"""
+            <div style='text-align: center; padding: 12px; background: #1a1a2e; border-radius: 25px; margin: 5px; border: 1px solid #333; transition: all 0.3s ease; cursor: pointer;'>
+                <p style='margin: 0; font-size: 13px; color: #f39c12; font-weight: bold;'>At Risk of Stock Out</p>
+                <p style='margin: 5px 0 0 0; font-size: 26px; font-weight: bold; color: white;'>{at_risk_stock_out}</p>
+            </div>
+            """, unsafe_allow_html=True)
+        with col_p4:
+            st.markdown(f"""
+            <div style='text-align: center; padding: 12px; background: #1a1a2e; border-radius: 25px; margin: 5px; border: 1px solid #333; transition: all 0.3s ease; cursor: pointer;'>
+                <p style='margin: 0; font-size: 13px; color: #e67e22; font-weight: bold;'>At Risk of Expiry</p>
+                <p style='margin: 5px 0 0 0; font-size: 26px; font-weight: bold; color: white;'>{at_risk_expiry}</p>
+            </div>
+            """, unsafe_allow_html=True)
+
+        # Add CSS for shake animation on all rows
+        st.markdown("""
+        <style>
+        div[style*="cursor: pointer;"]:hover {
+            animation: gentle-shake 0.3s ease-in-out;
+            transform: translateY(-3px);
+            transition: all 0.3s ease;
+        }
+        @keyframes gentle-shake {
+            0%, 100% { transform: translateX(0); }
+            25%, 75% { transform: translateX(-3px); }
+            50% { transform: translateX(3px); }
+        }
+        </style>
+        """, unsafe_allow_html=True)
+
+        st.markdown("---")
 
     # Auto-navigate to selected dashboard tab
     if st.session_state.get('go_to_dashboard_tab') is not None:
