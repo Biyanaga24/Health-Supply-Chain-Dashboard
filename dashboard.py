@@ -1605,11 +1605,11 @@ if not df.empty:
         valid_mask = nsoh_vals.notna() & (nsoh_vals > 0)
         df['Hubs%'] = np.where(valid_mask, (hubs_vals / nsoh_vals * 100).round(1), np.nan)
         df['Head Office%'] = np.where(valid_mask, (ho_vals / nsoh_vals * 100).round(1), np.nan)
-        df['Avail Gap'] = np.where(valid_mask, (df['Hubs%'] - df['Head Office%']).round(1), np.nan)
+        df['Distr. Gap'] = np.where(valid_mask, (df['Hubs%'] - df['Head Office%']).round(1), np.nan)
     else:
         df['Hubs%'] = np.nan
         df['Head Office%'] = np.nan
-        df['Avail Gap'] = np.nan
+        df['Distr. Gap'] = np.nan
 
     if not branch_amc_data.empty and 'Material Description' in branch_amc_data.columns:
         branch_cols = [col for col in df.columns if 'Branch' in col or col == 'Material Description']
@@ -1702,14 +1702,14 @@ if not df.empty:
         text_columns_to_preserve.append('Hubs%')
     if 'Head Office%' in display_df.columns:
         text_columns_to_preserve.append('Head Office%')
-    if 'Avail Gap' in display_df.columns:
-        text_columns_to_preserve.append('Avail Gap')
+    if 'Distr. Gap' in display_df.columns:
+        text_columns_to_preserve.append('Distr. Gap')
 
     for col in display_df.columns:
         if col not in text_columns_to_preserve:
             if col in ['NMOS', 'GIT_MOS', 'LC_MOS', 'WB_MOS', 'TMD_MOS', 'TMOS']:
                 display_df[col] = display_df[col].apply(format_mos_with_decimals)
-            elif col in ['Hubs%', 'Head Office%', 'Avail Gap']:
+            elif col in ['Hubs%', 'Head Office%', 'Distr. Gap']:
                 display_df[col] = display_df[col].apply(lambda x: f"{x:.1f}%" if pd.notna(x) else "")
             else:
                 display_df[col] = display_df[col].apply(format_number_with_commas)
@@ -2718,8 +2718,8 @@ elif page == "Executive Summary":
         Availability = (nmos_values > 1).mean() * 100 if len(nmos_values) > 0 else 0
         sap_achievement = ((nmos_values >= 6) & (nmos_values <= 18)).mean() * 100 if len(nmos_values) > 0 else 0
 
-        if 'Avail Gap' in df_filtered.columns:
-            avail_gap_values = pd.to_numeric(df_filtered['Avail Gap'], errors='coerce').dropna()
+        if 'Distr. Gap' in df_filtered.columns:
+            avail_gap_values = pd.to_numeric(df_filtered['Distr. Gap'], errors='coerce').dropna()
             avg_avail_gap = avail_gap_values.mean() if len(avail_gap_values) > 0 else 0
 
         col1, col2, col3 = st.columns(3)
@@ -3099,8 +3099,8 @@ else:
         Availability = (nmos_values > 1).mean() * 100 if len(nmos_values) > 0 else 0
         sap = ((nmos_values >= 6) & (nmos_values <= 18)).mean() * 100 if len(nmos_values) > 0 else 0
 
-        if 'Avail Gap' in df_filtered.columns:
-            avail_gap_values = pd.to_numeric(df_filtered['Avail Gap'], errors='coerce').dropna()
+        if 'Distr. Gap' in df_filtered.columns:
+            avail_gap_values = pd.to_numeric(df_filtered['Distr. Gap'], errors='coerce').dropna()
             avg_avail_gap = avail_gap_values.mean() if len(avail_gap_values) > 0 else 0
         else:
             avg_avail_gap = 0
@@ -3413,7 +3413,7 @@ else:
             all_columns = list(df_filtered.columns)
 
             # EXCLUDE DOS from the download report
-            columns_to_exclude = ['Stock Status', 'Risk of Stock', 'Hubs%', 'Head Office%', 'Avail Gap', 'CV (%)', 'CV Category', 'Has Expiry Risk', 'Expiry Risk Details', 'Assigned Subcategory', 'Risk Type', 'DOS']
+            columns_to_exclude = ['Stock Status', 'Risk of Stock', 'Hubs%', 'Head Office%', 'Distr. Gap', 'CV (%)', 'CV Category', 'Has Expiry Risk', 'Expiry Risk Details', 'Assigned Subcategory', 'Risk Type', 'DOS']
 
             if 'Material Description' in all_columns and 'TMOS' in all_columns:
                 mat_index = all_columns.index('Material Description')
@@ -3589,8 +3589,8 @@ else:
             Availability = (nmos_values > 1).mean() * 100 if len(nmos_values) > 0 else 0
             sap = ((nmos_values >= 6) & (nmos_values <= 18)).mean() * 100 if len(nmos_values) > 0 else 0
 
-            if 'Avail Gap' in df_filtered.columns:
-                avail_gap_values = pd.to_numeric(df_filtered['Avail Gap'], errors='coerce').dropna()
+            if 'Distr. Gap' in df_filtered.columns:
+                avail_gap_values = pd.to_numeric(df_filtered['Distr. Gap'], errors='coerce').dropna()
                 avg_avail_gap = avail_gap_values.mean() if len(avail_gap_values) > 0 else 0
             else:
                 avg_avail_gap = 0
@@ -3897,282 +3897,344 @@ else:
             st.info("No data available.")
 
     # ---------------------------------------------------
-    # TAB 4 - Hubs Distribution
-    # ---------------------------------------------------
-    with tab4:
-        try:
-            if not df.empty:
-                if branch_amc_data is not None and 'Material Description' in df.columns and 'Material Description' in branch_amc_data.columns and not branch_amc_data.empty:
-                    branch_cols = [col for col in df.columns if 'Branch' in col or col == 'Material Description']
-                    gh = df[branch_cols].copy() if branch_cols else pd.DataFrame()
+# TAB 4 - Hubs Distribution
+# ---------------------------------------------------
+with tab4:
+    try:
+        if not df.empty:
+            if branch_amc_data is not None and 'Material Description' in df.columns and 'Material Description' in branch_amc_data.columns and not branch_amc_data.empty:
+                branch_cols = [col for col in df.columns if 'Branch' in col or col == 'Material Description']
+                gh = df[branch_cols].copy() if branch_cols else pd.DataFrame()
 
-                    st.markdown("<h4 style='font-size: 24px; font-weight: bold; font-family: Times New Roman;'>Stock Distribution Across Hubs by MOS</h4>", unsafe_allow_html=True)
+                st.markdown("<h4 style='font-size: 24px; font-weight: bold; font-family: Times New Roman;'>Stock Distribution Across Hubs by MOS</h4>", unsafe_allow_html=True)
 
-                    merged_df = pd.merge(gh, branch_amc_data, on='Material Description', how='inner', suffixes=('_gh', '_cf'))
+                merged_df = pd.merge(gh, branch_amc_data, on='Material Description', how='inner', suffixes=('_gh', '_cf'))
 
-                    if not merged_df.empty:
-                        gh_cols = [col for col in gh.columns if col != 'Material Description']
-                        cf_cols = [col for col in branch_amc_data.columns if col != 'Material Description']
-                        division_data = {'Material Description': merged_df['Material Description']}
+                if not merged_df.empty:
+                    gh_cols = [col for col in gh.columns if col != 'Material Description']
+                    cf_cols = [col for col in branch_amc_data.columns if col != 'Material Description']
+                    division_data = {'Material Description': merged_df['Material Description']}
 
-                        min_cols = min(len(gh_cols), len(cf_cols))
+                    min_cols = min(len(gh_cols), len(cf_cols))
 
-                        for i in range(min_cols):
-                            gh_col = gh_cols[i]
-                            cf_col = cf_cols[i]
-                            display_col_name = gh_col
-                            gh_values = pd.to_numeric(merged_df[f"{gh_col}_gh"], errors='coerce')
-                            cf_values = pd.to_numeric(merged_df[f"{cf_col}_cf"], errors='coerce')
-                            with np.errstate(divide='ignore', invalid='ignore'):
-                                division_result = np.where(cf_values != 0, gh_values / cf_values, np.nan)
-                            division_data[display_col_name] = division_result
+                    for i in range(min_cols):
+                        gh_col = gh_cols[i]
+                        cf_col = cf_cols[i]
+                        display_col_name = gh_col
+                        gh_values = pd.to_numeric(merged_df[f"{gh_col}_gh"], errors='coerce')
+                        cf_values = pd.to_numeric(merged_df[f"{cf_col}_cf"], errors='coerce')
+                        with np.errstate(divide='ignore', invalid='ignore'):
+                            division_result = np.where(cf_values != 0, gh_values / cf_values, np.nan)
+                        division_data[display_col_name] = division_result
 
-                        division_df = pd.DataFrame(division_data)
-                        division_df = division_df.replace([np.inf, -np.inf], np.nan).round(2)
+                    division_df = pd.DataFrame(division_data)
+                    division_df = division_df.replace([np.inf, -np.inf], np.nan).round(2)
 
-                        if division_df.shape[1] > 1:
-                            branch_cols_list = [col for col in division_df.columns if col != 'Material Description']
-                            division_df['CV (%)'] = division_df[branch_cols_list].apply(lambda row: calculate_coefficient_of_variation(row), axis=1)
-                            division_df['CV (%)'] = division_df['CV (%)'].round(1)
-                            cols = ['Material Description', 'CV (%)'] + branch_cols_list
-                            division_df = division_df[cols]
+                    if division_df.shape[1] > 1:
+                        branch_cols_list = [col for col in division_df.columns if col != 'Material Description']
+                        division_df['CV (%)'] = division_df[branch_cols_list].apply(lambda row: calculate_coefficient_of_variation(row), axis=1)
+                        division_df['CV (%)'] = division_df['CV (%)'].round(1)
+                        cols = ['Material Description', 'CV (%)'] + branch_cols_list
+                        division_df = division_df[cols]
 
-                            def categorize_cv(cv_value):
-                                if pd.isna(cv_value):
-                                    return "Unknown"
-                                elif cv_value < 50:
-                                    return "Low variation"
-                                elif cv_value <= 100:
-                                    return "Moderate variation"
-                                else:
-                                    return "High variation"
+                        def categorize_cv(cv_value):
+                            if pd.isna(cv_value):
+                                return "Unknown"
+                            elif cv_value < 50:
+                                return "Low variation"
+                            elif cv_value <= 100:
+                                return "Moderate variation"
+                            else:
+                                return "High variation"
 
-                            division_df['CV Category'] = division_df['CV (%)'].apply(categorize_cv)
-                            cv_counts = division_df['CV Category'].value_counts()
+                        division_df['CV Category'] = division_df['CV (%)'].apply(categorize_cv)
+                        cv_counts = division_df['CV Category'].value_counts()
 
+                        col1, col2, col3, col4 = st.columns(4)
+                        with col1:
+                            st.metric("Total Materials", len(division_df))
+                        if 'Low variation' in cv_counts:
+                            with col2:
+                                low_count = cv_counts['Low variation']
+                                low_pct = (low_count / len(division_df) * 100) if len(division_df) > 0 else 0
+                                st.metric("Low Variation (<50%)", f"{low_count} ({low_pct:.1f}%)")
+                        if 'Moderate variation' in cv_counts:
+                            with col3:
+                                mod_count = cv_counts['Moderate variation']
+                                mod_pct = (mod_count / len(division_df) * 100) if len(division_df) > 0 else 0
+                                st.metric("Moderate Variation (50-100%)", f"{mod_count} ({mod_pct:.1f}%)")
+                        if 'High variation' in cv_counts:
+                            with col4:
+                                high_count = cv_counts['High variation']
+                                high_pct = (high_count / len(division_df) * 100) if len(division_df) > 0 else 0
+                                st.metric("High Variation (>100%)", f"{high_count} ({high_pct:.1f}%)")
+
+                        # ============================================
+                        # GET MASTER MATERIAL ORDER FROM PROGRAM
+                        # ============================================
+                        master_material_order = []
+
+                        # Define program order (Malaria first, then HIV, OI, TB, etc.)
+                        program_order_list = ["Malaria", "HIV", "OI", "Hepatitis", "STI", "TB", "Drug Susceptible -TB Medicine (DS-TB)", "Drug Resisitance -TB Medicine (DR-TB)", "Leprosy Medicines", "Nutrition"]
+
+                        if google_sheets:
+                            # Collect materials in program order
+                            for prog in program_order_list:
+                                if prog in google_sheets:
+                                    prog_df = google_sheets[prog]
+                                    if 'Material Description' in prog_df.columns:
+                                        for material in prog_df['Material Description'].dropna().tolist():
+                                            if material not in master_material_order:
+                                                # Skip subcategory headers
+                                                is_header = False
+                                                if prog in PROGRAM_HIERARCHY:
+                                                    subcategory_list = PROGRAM_HIERARCHY[prog]["subcategories"]
+                                                    if material in subcategory_list:
+                                                        is_header = True
+                                                if not is_header:
+                                                    master_material_order.append(material)
+
+                            # Add any remaining programs not in the predefined list
+                            for prog in google_sheets.keys():
+                                if prog not in program_order_list:
+                                    prog_df = google_sheets[prog]
+                                    if 'Material Description' in prog_df.columns:
+                                        for material in prog_df['Material Description'].dropna().tolist():
+                                            if material not in master_material_order:
+                                                master_material_order.append(material)
+
+                        # If no program order found, use sorted order
+                        if not master_material_order:
+                            master_material_order = sorted(df['Material Description'].dropna().unique())
+
+                        # ============================================
+                        # MOS Heatmap - Using master program order
+                        # ============================================
+                        if division_df.shape[1] > 2:
+                            branch_cols_list = [col for col in division_df.columns if col not in ['Material Description', 'CV (%)', 'CV Category']]
+                            heatmap_df = division_df.copy()
+
+                            # Reorder materials according to master program order
+                            heatmap_df = heatmap_df.set_index('Material Description')
+                            heatmap_df = heatmap_df.reindex([m for m in master_material_order if m in heatmap_df.index])
+                            heatmap_df = heatmap_df.reset_index()
+
+                            heatmap_df_indexed = heatmap_df.set_index('Material Description')
+                            heatmap_df_indexed = heatmap_df_indexed[branch_cols_list]
+                            heatmap_df_transposed = heatmap_df_indexed.T
+                            total_materials = len(heatmap_df_transposed.columns)
+                            materials_per_page = 11
+
+                            if total_materials > materials_per_page:
+                                total_pages = (total_materials + materials_per_page - 1) // materials_per_page
+                                col1, col2, col3 = st.columns([1, 3, 1])
+                                with col1:
+                                    if st.button("◀ Previous", key="heatmap_prev"):
+                                        if st.session_state.heatmap_page > 1:
+                                            st.session_state.heatmap_page -= 1
+                                            st.rerun()
+                                with col2:
+                                    st.markdown(f"<h5 style='text-align: center;'>Page {st.session_state.heatmap_page} of {total_pages}</h5>", unsafe_allow_html=True)
+                                with col3:
+                                    if st.button("Next ▶", key="heatmap_next"):
+                                        if st.session_state.heatmap_page < total_pages:
+                                            st.session_state.heatmap_page += 1
+                                            st.rerun()
+                                start_idx = (st.session_state.heatmap_page - 1) * materials_per_page
+                                end_idx = min(start_idx + materials_per_page, total_materials)
+                                page_materials = heatmap_df_transposed.columns[start_idx:end_idx]
+                                heatmap_page_df = heatmap_df_transposed[page_materials]
+                                st.info(f"Showing materials {start_idx + 1} to {end_idx} of {total_materials}")
+                            else:
+                                heatmap_page_df = heatmap_df_transposed
+
+                            fig = go.Figure(data=go.Heatmap(
+                                z=heatmap_page_df.values, y=heatmap_page_df.index, x=heatmap_page_df.columns,
+                                colorscale=[[0.0, 'red'], [0.125, 'yellow'], [0.5, 'green'], [1.0, 'skyblue']],
+                                zmin=0, zmax=8, text=heatmap_page_df.values.round(1), texttemplate='%{text}', textfont={"size": 14},
+                                colorbar=dict(title="MOS", tickvals=[0.5, 1, 2, 4, 6, 8], ticktext=['0.5', '1', '2', '4', '6', '8+']),
+                                hovertemplate='<b>Material:</b> %{x}<br><b>Branch:</b> %{y}<br><b>MOS:</b> %{z:.2f} months<br><extra></extra>'
+                            ))
+                            fig.update_layout(xaxis={'title': 'Material Description', 'tickangle': -45, 'tickfont': {'size': 12}}, 
+                                            yaxis={'title': 'Branches', 'tickfont': {'size': 12}}, height=650, margin=dict(l=120, r=120, t=50, b=200))
+                            st.plotly_chart(fig, use_container_width=True)
+
+                            st.markdown("#### MOS Thresholds:")
                             col1, col2, col3, col4 = st.columns(4)
                             with col1:
-                                st.metric("Total Materials", len(division_df))
-                            if 'Low variation' in cv_counts:
-                                with col2:
-                                    low_count = cv_counts['Low variation']
-                                    low_pct = (low_count / len(division_df) * 100) if len(division_df) > 0 else 0
-                                    st.metric("Low Variation (<50%)", f"{low_count} ({low_pct:.1f}%)")
-                            if 'Moderate variation' in cv_counts:
-                                with col3:
-                                    mod_count = cv_counts['Moderate variation']
-                                    mod_pct = (mod_count / len(division_df) * 100) if len(division_df) > 0 else 0
-                                    st.metric("Moderate Variation (50-100%)", f"{mod_count} ({mod_pct:.1f}%)")
-                            if 'High variation' in cv_counts:
-                                with col4:
-                                    high_count = cv_counts['High variation']
-                                    high_pct = (high_count / len(division_df) * 100) if len(division_df) > 0 else 0
-                                    st.metric("High Variation (>100%)", f"{high_count} ({high_pct:.1f}%)")
+                                st.markdown("🔴 **< 0.5** : Stock Out")
+                            with col2:
+                                st.markdown("🟡 **0.5 - 1** : Understock")
+                            with col3:
+                                st.markdown("🟢 **1 - 4** : Normal Stock")
+                            with col4:
+                                st.markdown("🔵 **> 4** : Overstock")
 
-                            # MOS Heatmap
-                            if division_df.shape[1] > 2:
-                                branch_cols_list = [col for col in division_df.columns if col not in ['Material Description', 'CV (%)', 'CV Category']]
-                                heatmap_df = division_df.copy()
-                                heatmap_df = heatmap_df.sort_values('Material Description')
-                                heatmap_df_indexed = heatmap_df.set_index('Material Description')
-                                heatmap_df_indexed = heatmap_df_indexed[branch_cols_list]
-                                heatmap_df_transposed = heatmap_df_indexed.T
-                                total_materials = len(heatmap_df_transposed.columns)
-                                materials_per_page = 11
+                            # ============================================
+                            # EPSS Hubs SOH Heatmap - ALPHABETICAL HUBS, NO CAPTIONS
+                            # ============================================
+                            st.markdown("---")
+                            st.markdown("<h5 style='font-size: 20px; font-weight: bold;'>🔥 EPSS Stock on Hand (SOH) Heatmap</h5>", unsafe_allow_html=True)
 
-                                if total_materials > materials_per_page:
-                                    total_pages = (total_materials + materials_per_page - 1) // materials_per_page
-                                    col1, col2, col3 = st.columns([1, 3, 1])
-                                    with col1:
-                                        if st.button("◀ Previous", key="heatmap_prev"):
-                                            if st.session_state.heatmap_page > 1:
-                                                st.session_state.heatmap_page -= 1
-                                                st.rerun()
-                                    with col2:
-                                        st.markdown(f"<h5 style='text-align: center;'>Page {st.session_state.heatmap_page} of {total_pages}</h5>", unsafe_allow_html=True)
-                                    with col3:
-                                        if st.button("Next ▶", key="heatmap_next"):
-                                            if st.session_state.heatmap_page < total_pages:
-                                                st.session_state.heatmap_page += 1
-                                                st.rerun()
-                                    start_idx = (st.session_state.heatmap_page - 1) * materials_per_page
-                                    end_idx = min(start_idx + materials_per_page, total_materials)
-                                    page_materials = heatmap_df_transposed.columns[start_idx:end_idx]
-                                    heatmap_page_df = heatmap_df_transposed[page_materials]
-                                    st.info(f"Showing materials {start_idx + 1} to {end_idx} of {total_materials}")
+                            # Add filter option - WITH HEAD OFFICE AS DEFAULT
+                            heatmap_filter = st.radio(
+                                "Select View:",
+                                ["🏪 Hubs Only", "🏢 With Head Office"],
+                                horizontal=True,
+                                key="soh_heatmap_filter",
+                                index=1
+                            )
+
+                            branch_soh_cols = []
+                            for col in df.columns:
+                                if 'Branch' in col:
+                                    branch_soh_cols.append(col)
+                                elif col.startswith('Hub') and col not in ['Hubs', 'Hubs%']:
+                                    branch_soh_cols.append(col)
+
+                            branch_soh_cols = list(set(branch_soh_cols))
+                            branch_soh_cols = [col for col in branch_soh_cols if col != 'Material Description']
+
+                            # Sort hubs alphabetically
+                            branch_soh_cols = sorted(branch_soh_cols)
+
+                            if branch_soh_cols:
+                                # Create heatmap data with branches
+                                heatmap_data = df[['Material Description'] + branch_soh_cols].copy()
+
+                                for col in branch_soh_cols:
+                                    heatmap_data[col] = pd.to_numeric(heatmap_data[col], errors='coerce').fillna(0)
+
+                                # Reorder using SAME master program order
+                                heatmap_data_indexed = heatmap_data.set_index('Material Description')
+                                heatmap_data_indexed = heatmap_data_indexed.reindex([m for m in master_material_order if m in heatmap_data_indexed.index])
+                                heatmap_data_indexed = heatmap_data_indexed.fillna(0)
+                                heatmap_data_transposed = heatmap_data_indexed.T
+
+                                # Add Head Office based on filter selection (Head Office at the end/last row)
+                                if heatmap_filter == "🏢 With Head Office" and 'Head Office' in df.columns:
+                                    head_office_data = df[['Material Description', 'Head Office']].copy()
+                                    head_office_data['Head Office'] = pd.to_numeric(head_office_data['Head Office'], errors='coerce').fillna(0)
+                                    head_office_data = head_office_data.set_index('Material Description')
+
+                                    # Reindex to match master program order
+                                    head_office_data = head_office_data.reindex([m for m in master_material_order if m in head_office_data.index])
+                                    head_office_data = head_office_data.fillna(0)
+                                    head_office_data = head_office_data.T
+                                    head_office_data.index = ['🏢 Head Office']
+
+                                    # Ensure columns match
+                                    common_materials = heatmap_data_transposed.columns.intersection(head_office_data.columns)
+                                    heatmap_data_transposed = heatmap_data_transposed[common_materials]
+                                    head_office_aligned = head_office_data[common_materials]
+
+                                    # Combine: Hubs first (alphabetical), then Head Office at the end
+                                    combined_heatmap = pd.concat([heatmap_data_transposed, head_office_aligned])
                                 else:
-                                    heatmap_page_df = heatmap_df_transposed
+                                    combined_heatmap = heatmap_data_transposed
 
-                                fig = go.Figure(data=go.Heatmap(
-                                    z=heatmap_page_df.values, y=heatmap_page_df.index, x=heatmap_page_df.columns,
-                                    colorscale=[[0.0, 'red'], [0.125, 'yellow'], [0.5, 'green'], [1.0, 'skyblue']],
-                                    zmin=0, zmax=8, text=heatmap_page_df.values.round(1), texttemplate='%{text}', textfont={"size": 14},
-                                    colorbar=dict(title="MOS", tickvals=[0.5, 1, 2, 4, 6, 8], ticktext=['0.5', '1', '2', '4', '6', '8+']),
-                                    hovertemplate='<b>Material:</b> %{x}<br><b>Branch:</b> %{y}<br><b>MOS:</b> %{z:.2f} months<br><extra></extra>'
-                                ))
-                                fig.update_layout(xaxis={'title': 'Material Description', 'tickangle': -45, 'tickfont': {'size': 12}}, 
-                                                yaxis={'title': 'Branches', 'tickfont': {'size': 12}}, height=650, margin=dict(l=120, r=120, t=50, b=200))
-                                st.plotly_chart(fig, use_container_width=True)
+                                total_materials_soh = len(combined_heatmap.columns)
+                                materials_per_page_soh = 10
 
-                                st.markdown("#### MOS Thresholds:")
-                                col1, col2, col3, col4 = st.columns(4)
-                                with col1:
-                                    st.markdown("🔴 **< 0.5** : Stock Out")
-                                with col2:
-                                    st.markdown("🟡 **0.5 - 1** : Understock")
-                                with col3:
-                                    st.markdown("🟢 **1 - 4** : Normal Stock")
-                                with col4:
-                                    st.markdown("🔵 **> 4** : Overstock")
+                                if 'soh_heatmap_page' not in st.session_state:
+                                    st.session_state.soh_heatmap_page = 1
 
-                                # EPSS Hubs SOH Heatmap
-                                st.markdown("---")
-                                st.markdown("<h5 style='font-size: 20px; font-weight: bold;'>🔥 EPSS Hubs Stock on Hand (SOH) Heatmap</h5>", unsafe_allow_html=True)
-                                st.caption("🔴 Red shades indicate higher stock levels | Lighter shades indicate lower stock levels")
+                                if total_materials_soh > materials_per_page_soh:
+                                    total_pages_soh = (total_materials_soh + materials_per_page_soh - 1) // materials_per_page_soh
 
-                                branch_soh_cols = []
-                                for col in df.columns:
-                                    if 'Branch' in col:
-                                        branch_soh_cols.append(col)
-                                    elif col.startswith('Hub') and col not in ['Hubs', 'Hubs%']:
-                                        branch_soh_cols.append(col)
+                                    col_prev, col_page, col_next = st.columns([1, 3, 1])
+                                    with col_prev:
+                                        if st.button("◀ Previous", key="soh_heatmap_prev"):
+                                            if st.session_state.soh_heatmap_page > 1:
+                                                st.session_state.soh_heatmap_page -= 1
+                                                st.rerun()
+                                    with col_page:
+                                        st.markdown(f"<p style='text-align: center;'>Page {st.session_state.soh_heatmap_page} of {total_pages_soh}</p>", unsafe_allow_html=True)
+                                    with col_next:
+                                        if st.button("Next ▶", key="soh_heatmap_next"):
+                                            if st.session_state.soh_heatmap_page < total_pages_soh:
+                                                st.session_state.soh_heatmap_page += 1
+                                                st.rerun()
 
-                                branch_soh_cols = list(set(branch_soh_cols))
-                                branch_soh_cols = [col for col in branch_soh_cols if col != 'Material Description']
-
-                                if branch_soh_cols:
-                                    heatmap_data = df[['Material Description'] + branch_soh_cols].copy()
-
-                                    for col in branch_soh_cols:
-                                        heatmap_data[col] = pd.to_numeric(heatmap_data[col], errors='coerce').fillna(0)
-
-                                    heatmap_data = heatmap_data.set_index('Material Description')
-                                    heatmap_data_transposed = heatmap_data.T
-
-                                    total_materials_soh = len(heatmap_data_transposed.columns)
-                                    materials_per_page_soh = 10
-
-                                    if 'soh_heatmap_page' not in st.session_state:
-                                        st.session_state.soh_heatmap_page = 1
-
-                                    if total_materials_soh > materials_per_page_soh:
-                                        total_pages_soh = (total_materials_soh + materials_per_page_soh - 1) // materials_per_page_soh
-
-                                        col_prev, col_page, col_next = st.columns([1, 3, 1])
-                                        with col_prev:
-                                            if st.button("◀ Previous", key="soh_heatmap_prev"):
-                                                if st.session_state.soh_heatmap_page > 1:
-                                                    st.session_state.soh_heatmap_page -= 1
-                                                    st.rerun()
-                                        with col_page:
-                                            st.markdown(f"<p style='text-align: center;'>Page {st.session_state.soh_heatmap_page} of {total_pages_soh}</p>", unsafe_allow_html=True)
-                                        with col_next:
-                                            if st.button("Next ▶", key="soh_heatmap_next"):
-                                                if st.session_state.soh_heatmap_page < total_pages_soh:
-                                                    st.session_state.soh_heatmap_page += 1
-                                                    st.rerun()
-
-                                        start_idx_soh = (st.session_state.soh_heatmap_page - 1) * materials_per_page_soh
-                                        end_idx_soh = min(start_idx_soh + materials_per_page_soh, total_materials_soh)
-                                        page_materials_soh = heatmap_data_transposed.columns[start_idx_soh:end_idx_soh]
-                                        heatmap_page_df_soh = heatmap_data_transposed[page_materials_soh]
-                                        st.info(f"Showing materials {start_idx_soh + 1} to {end_idx_soh} of {total_materials_soh}")
-                                    else:
-                                        heatmap_page_df_soh = heatmap_data_transposed
-
-                                    if not heatmap_page_df_soh.empty:
-                                        fig_soh = go.Figure(data=go.Heatmap(
-                                            z=heatmap_page_df_soh.values,
-                                            y=heatmap_page_df_soh.index,
-                                            x=heatmap_page_df_soh.columns,
-                                            colorscale='Reds',
-                                            zmin=0,
-                                            zmax=heatmap_page_df_soh.max().max(),
-                                            text=heatmap_page_df_soh.values,
-                                            texttemplate='%{text:,.0f}',
-                                            textfont={"size": 12},
-                                            colorbar=dict(title="Stock on Hand (Units)", title_side="right", ticks="outside"),
-                                            hovertemplate='<b>Material:</b> %{x}<br><b>Branch:</b> %{y}<br><b>SOH:</b> %{z:,.0f} units<br><extra></extra>'
-                                        ))
-
-                                        fig_soh.update_layout(
-                                            title="EPSS Hubs Stock on Hand Distribution",
-                                            xaxis={'title': 'Material Description', 'tickangle': -45, 'tickfont': {'size': 10}, 'automargin': True},
-                                            yaxis={'title': 'Branches / Hubs', 'tickfont': {'size': 11}},
-                                            height=max(500, 35 * len(heatmap_page_df_soh.index)),
-                                            margin=dict(l=150, r=50, t=80, b=200)
-                                        )
-
-                                        st.plotly_chart(fig_soh, use_container_width=True)
-
-                                        st.markdown("**Summary Statistics for Current Page:**")
-                                        col_h1, col_h2, col_h3, col_h4 = st.columns(4)
-                                        with col_h1:
-                                            page_total = heatmap_page_df_soh.sum().sum()
-                                            st.metric("📦 Total Stock (Page)", f"{int(page_total):,}")
-                                        with col_h2:
-                                            max_branch = heatmap_page_df_soh.sum(axis=1).idxmax() if not heatmap_page_df_soh.empty else "N/A"
-                                            max_branch_value = int(heatmap_page_df_soh.sum(axis=1).max()) if not heatmap_page_df_soh.empty else 0
-                                            st.metric("🏆 Hub with Most Stock", max_branch, delta=f"{max_branch_value:,} units")
-                                        with col_h3:
-                                            max_material = heatmap_page_df_soh.sum(axis=0).idxmax() if not heatmap_page_df_soh.empty else "N/A"
-                                            max_material_value = int(heatmap_page_df_soh.sum(axis=0).max()) if not heatmap_page_df_soh.empty else 0
-                                            st.metric("🥇 Material with Most Stock", max_material[:25], delta=f"{max_material_value:,} units")
-                                        with col_h4:
-                                            avg_stock = heatmap_page_df_soh.mean(axis=0).mean() if not heatmap_page_df_soh.empty else 0
-                                            st.metric("📊 Avg Stock per Material", f"{int(avg_stock):,}")
-
-                                        with st.expander("📊 View Overall Summary (All Materials)"):
-                                            total_stock_all = heatmap_data.sum().sum()
-                                            hub_max_all = heatmap_data.T.sum(axis=1).idxmax()
-                                            hub_max_value_all = int(heatmap_data.T.sum(axis=1).max())
-                                            material_max_all = heatmap_data.sum(axis=1).idxmax()
-                                            material_max_value_all = int(heatmap_data.sum(axis=1).max())
-
-                                            col_a, col_b, col_c = st.columns(3)
-                                            with col_a:
-                                                st.metric("📦 Total Stock All Hubs", f"{int(total_stock_all):,}")
-                                            with col_b:
-                                                st.metric("🏆 Hub with Most Stock (Overall)", hub_max_all, delta=f"{hub_max_value_all:,} units")
-                                            with col_c:
-                                                st.metric("🥇 Material with Most Stock (Overall)", material_max_all[:35], delta=f"{material_max_value_all:,} units")
-                                    else:
-                                        st.info("No data available for heatmap")
+                                    start_idx_soh = (st.session_state.soh_heatmap_page - 1) * materials_per_page_soh
+                                    end_idx_soh = min(start_idx_soh + materials_per_page_soh, total_materials_soh)
+                                    page_materials_soh = combined_heatmap.columns[start_idx_soh:end_idx_soh]
+                                    heatmap_page_df_soh = combined_heatmap[page_materials_soh]
+                                    # REMOVED: st.info(f"Showing materials {start_idx_soh + 1} to {end_idx_soh} of {total_materials_soh}")
                                 else:
-                                    st.info("No branch/hub stock data available for heatmap")
+                                    heatmap_page_df_soh = combined_heatmap
 
-                                st.markdown("---")
-                                st.markdown("<h5 style='font-size: 20px; font-weight: bold;'>Full Branch MOS Data with CV</h5>", unsafe_allow_html=True)
-                                display_division_df = division_df.copy()
-                                display_division_df['CV (%)'] = display_division_df['CV (%)'].apply(lambda x: f"{x:.1f}%" if pd.notna(x) else "")
-                                st.dataframe(display_division_df, use_container_width=True, height=400, hide_index=True)
-                                st.download_button(label="Download Hubs MOS with CV", data=division_df.to_csv(index=False), file_name="hubs_mos_distribution_with_cv.csv", mime="text/csv")
+                                if not heatmap_page_df_soh.empty:
+                                    # Create the heatmap
+                                    fig_soh = go.Figure(data=go.Heatmap(
+                                        z=heatmap_page_df_soh.values,
+                                        y=heatmap_page_df_soh.index,
+                                        x=heatmap_page_df_soh.columns,
+                                        colorscale='Reds',
+                                        zmin=0,
+                                        zmax=heatmap_page_df_soh.max().max() if not heatmap_page_df_soh.empty else 1,
+                                        text=heatmap_page_df_soh.values,
+                                        texttemplate='%{text:,.0f}',
+                                        textfont={"size": 11},
+                                        colorbar=dict(title="Stock on Hand (Units)", title_side="right", ticks="outside"),
+                                        hovertemplate='<b>Material:</b> %{x}<br><b>Location:</b> %{y}<br><b>SOH:</b> %{z:,.0f} units<br><extra></extra>'
+                                    ))
 
-                                st.markdown("---")
-                                st.markdown("<h5 style='font-size: 20px; font-weight: bold;'>EPSS Hubs SOH</h5>", unsafe_allow_html=True)
-                                st.dataframe(gh, use_container_width=True, height=400, hide_index=True)
+                                    # Update layout
+                                    fig_soh.update_layout(
+                                        title="EPSS Stock on Hand Distribution",
+                                        xaxis={
+                                            'title': 'Material Description', 
+                                            'tickangle': -45, 
+                                            'tickfont': {'size': 9}, 
+                                            'automargin': True,
+                                        },
+                                        yaxis={
+                                            'title': 'Location', 
+                                            'tickfont': {'size': 11}
+                                        },
+                                        height=max(500, 35 * len(heatmap_page_df_soh.index) + 60),
+                                        margin=dict(l=150, r=50, t=80, b=280)
+                                    )
 
-                                st.markdown("---")
-                                st.markdown("<h5 style='font-size: 20px; font-weight: bold;'>EPSS Hubs AMC Data (from Google Sheets)</h5>", unsafe_allow_html=True)
-                                st.dataframe(branch_amc_data, use_container_width=True, height=400, hide_index=True)
+                                    st.plotly_chart(fig_soh, use_container_width=True)
+                                else:
+                                    st.info("No data available for heatmap")
                             else:
-                                st.warning("Not enough branch columns for heatmap")
-                        else:
-                            st.warning("No matching Material Description found")
-                    elif branch_amc_data is None or branch_amc_data.empty:
-                        st.info("Branch AMC data is currently unavailable.")
-                        if not df.empty and 'Material Description' in df.columns:
-                            branch_cols = [col for col in df.columns if 'Branch' in col or col == 'Material Description']
-                            gh = df[branch_cols].copy() if branch_cols else df[['Material Description']].copy()
+                                st.info("No branch/hub stock data available for heatmap")
+
+                            st.markdown("---")
+                            st.markdown("<h5 style='font-size: 20px; font-weight: bold;'>Full Branch MOS Data with CV</h5>", unsafe_allow_html=True)
+                            display_division_df = division_df.copy()
+                            display_division_df['CV (%)'] = display_division_df['CV (%)'].apply(lambda x: f"{x:.1f}%" if pd.notna(x) else "")
+                            st.dataframe(display_division_df, use_container_width=True, height=400, hide_index=True)
+                            st.download_button(label="Download Hubs MOS with CV", data=division_df.to_csv(index=False), file_name="hubs_mos_distribution_with_cv.csv", mime="text/csv")
+
+                            st.markdown("---")
+                            st.markdown("<h5 style='font-size: 20px; font-weight: bold;'>EPSS Hubs SOH</h5>", unsafe_allow_html=True)
                             st.dataframe(gh, use_container_width=True, height=400, hide_index=True)
+
+                            st.markdown("---")
+                            st.markdown("<h5 style='font-size: 20px; font-weight: bold;'>EPSS Hubs AMC Data (from Google Sheets)</h5>", unsafe_allow_html=True)
+                            st.dataframe(branch_amc_data, use_container_width=True, height=400, hide_index=True)
+                        else:
+                            st.warning("Not enough branch columns for heatmap")
                     else:
-                        st.error("'Material Description' column not found")
+                        st.warning("No matching Material Description found")
+                elif branch_amc_data is None or branch_amc_data.empty:
+                    st.info("Branch AMC data is currently unavailable.")
+                    if not df.empty and 'Material Description' in df.columns:
+                        branch_cols = [col for col in df.columns if 'Branch' in col or col == 'Material Description']
+                        gh = df[branch_cols].copy() if branch_cols else df[['Material Description']].copy()
+                        st.dataframe(gh, use_container_width=True, height=400, hide_index=True)
                 else:
-                    st.warning("Main dataframe is empty.")
+                    st.error("'Material Description' column not found")
             else:
                 st.warning("Main dataframe is empty.")
-        except Exception as e:
-            st.error(f"Error processing files: {e}")
+        else:
+            st.warning("Main dataframe is empty.")
+    except Exception as e:
+        st.error(f"Error processing files: {e}")
 
     # ---------------------------------------------------
     # TAB 5 - Supply Planning
