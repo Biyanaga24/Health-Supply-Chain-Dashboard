@@ -3808,117 +3808,204 @@ else:
             st.info("No data available for KPI calculations.")
 
     # ---------------------------------------------------
-    # TAB 3 - Decision Briefs
-    # ---------------------------------------------------
-    with tab3:
-        if sheet_name == "All":
-            st.markdown("<h3 style='font-size: 28px; font-weight: bold; font-family: Times New Roman;'>All Programs - Medicines Needing Immediate Action</h3>", unsafe_allow_html=True)
-        else:
-            st.markdown(f"<h3 style='font-size: 28px; font-weight: bold; font-family: Times New Roman;'>{program_display} Medicines Needing Immediate Action</h3>", unsafe_allow_html=True)
+# TAB 3 - Decision Briefs (UPDATED)
+# ---------------------------------------------------
+with tab3:
+    if sheet_name == "All":
+        st.markdown("<h3 style='font-size: 28px; font-weight: bold; font-family: Times New Roman;'>All Programs - Medicines Needing Immediate Action</h3>", unsafe_allow_html=True)
+    else:
+        st.markdown(f"<h3 style='font-size: 28px; font-weight: bold; font-family: Times New Roman;'>{program_display} Medicines Needing Immediate Action</h3>", unsafe_allow_html=True)
 
-        if not df_filtered.empty and 'Material Description' in df_filtered.columns:
-            decision_df = df_filtered[['Material Description', 'NSOH', 'Expiry', 'AMC', 'NMOS', 'Status', 'Risk Type', 'Stock Status', 'Expiry Risk Details', 
-                                       'GIT_MOS', 'LC_MOS', 'WB_MOS', 'TMD_MOS', 'GIT_PO', 'LC_PO', 'WB_PO', 'TMD_PO', 'Hubs%', 'Head Office%', 'CV Category']].copy()
+    if not df_filtered.empty and 'Material Description' in df_filtered.columns:
+        decision_df = df_filtered[['Material Description', 'NSOH', 'Expiry', 'AMC', 'NMOS', 'Status', 'Risk Type', 'Stock Status', 'Expiry Risk Details', 
+                                   'GIT_MOS', 'LC_MOS', 'WB_MOS', 'TMD_MOS', 'GIT_PO', 'LC_PO', 'WB_PO', 'TMD_PO', 'Hubs%', 'Head Office%', 'CV Category']].copy()
 
-            def get_identified_problems(row):
-                if row.get('Stock Status') == 'Stock Out':
-                    return "Stock Out"
-                risk = row.get('Risk Type', '')
-                if risk and risk != '':
-                    return risk
-                return ''
+        def get_identified_problems(row):
+            if row.get('Stock Status') == 'Stock Out':
+                return "Stock Out"
+            risk = row.get('Risk Type', '')
+            if risk and risk != '':
+                risk = risk.replace('[', '').replace(']', '')
+                return risk
+            return ''
 
-            decision_df['Identified Problems'] = decision_df.apply(get_identified_problems, axis=1)
+        decision_df['Identified Problems'] = decision_df.apply(get_identified_problems, axis=1)
 
-            def get_automated_recommendation(row):
-                problem = row.get('Identified Problems', '')
-                if problem == 'Expiry Risk':
-                    cv_cat = row.get('CV Category', 'Unknown')
-                    return get_expiry_risk_recommendation(row, cv_cat)
-                elif problem == 'Critical Risk':
-                    stock_rec = get_stock_out_recommendation(row)
-                    cv_cat = row.get('CV Category', 'Unknown')
-                    expiry_rec = get_expiry_risk_recommendation(row, cv_cat)
-                    return f"{stock_rec}\n{expiry_rec}"
-                elif problem in ['Risk of Stock out', 'Stock Out']:
-                    return get_stock_out_recommendation(row)
-                return ''
+        def get_automated_recommendation(row):
+            problem = row.get('Identified Problems', '')
+            if problem == 'Expiry Risk':
+                cv_cat = row.get('CV Category', 'Unknown')
+                return get_expiry_risk_recommendation(row, cv_cat)
+            elif problem == 'Critical Risk':
+                stock_rec = get_stock_out_recommendation(row)
+                cv_cat = row.get('CV Category', 'Unknown')
+                expiry_rec = get_expiry_risk_recommendation(row, cv_cat)
+                return f"{stock_rec}\n{expiry_rec}"
+            elif problem in ['Risk of Stock out', 'Stock Out']:
+                return get_stock_out_recommendation(row)
+            return ''
 
-            decision_df['Recommendation'] = decision_df.apply(get_automated_recommendation, axis=1)
-            decision_df = decision_df[decision_df['Identified Problems'] != ''].copy()
+        decision_df['Recommendation'] = decision_df.apply(get_automated_recommendation, axis=1)
+        decision_df = decision_df[decision_df['Identified Problems'] != ''].copy()
 
-            if len(decision_df) > 0:
-                for col in ['NSOH', 'AMC']:
-                    if col in decision_df.columns:
-                        decision_df[col] = decision_df[col].apply(format_number_with_commas)
-                if 'NMOS' in decision_df.columns:
-                    decision_df['NMOS'] = decision_df['NMOS'].apply(format_mos_with_decimals)
-                if 'Hubs%' in decision_df.columns:
-                    decision_df['Hubs%'] = decision_df['Hubs%'].apply(lambda x: f"{x:.1f}%" if pd.notna(x) else "")
-                if 'Head Office%' in decision_df.columns:
-                    decision_df['Head Office%'] = decision_df['Head Office%'].apply(lambda x: f"{x:.1f}%" if pd.notna(x) else "")
+        if len(decision_df) > 0:
+            for col in ['NSOH', 'AMC']:
+                if col in decision_df.columns:
+                    decision_df[col] = decision_df[col].apply(format_number_with_commas)
+            if 'NMOS' in decision_df.columns:
+                decision_df['NMOS'] = decision_df['NMOS'].apply(format_mos_with_decimals)
+            if 'Hubs%' in decision_df.columns:
+                decision_df['Hubs%'] = decision_df['Hubs%'].apply(lambda x: f"{x:.1f}%" if pd.notna(x) else "")
+            if 'Head Office%' in decision_df.columns:
+                decision_df['Head Office%'] = decision_df['Head Office%'].apply(lambda x: f"{x:.1f}%" if pd.notna(x) else "")
 
-                st.markdown("<h4 style='font-size: 24px; font-weight: bold; font-family: Times New Roman;'>Quick Summary</h4>", unsafe_allow_html=True)
-                col1, col2, col3, col4 = st.columns(4)
-                with col1:
-                    st.metric("Items with Problems", len(decision_df))
-                with col2:
-                    st.metric("Stock Out Items", len(decision_df[decision_df['Identified Problems'] == 'Stock Out']))
-                with col3:
-                    st.metric("At Risk of Stock Out", len(decision_df[decision_df['Identified Problems'] == 'Risk of Stock out']))
-                with col4:
-                    st.metric("At Risk of Expiry", len(decision_df[decision_df['Identified Problems'] == 'Expiry Risk']) + len(decision_df[decision_df['Identified Problems'] == 'Critical Risk']))
+            # ============================================
+            # COLORFUL QUICK SUMMARY
+            # ============================================
+            st.markdown("<h4 style='font-size: 24px; font-weight: bold; font-family: Times New Roman; margin-bottom: 15px;'>Quick Summary</h4>", unsafe_allow_html=True)
 
-                st.markdown("---")
+            col1, col2, col3, col4 = st.columns(4)
+            with col1:
+                st.markdown(f"""
+                <div style='background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-radius: 15px; padding: 20px; text-align: center; color: white; box-shadow: 0 4px 6px rgba(0,0,0,0.1);'>
+                    <p style='margin: 0; font-size: 14px; opacity: 0.9;'>📋 Items with Problems</p>
+                    <p style='margin: 5px 0 0 0; font-size: 32px; font-weight: bold;'>{len(decision_df)}</p>
+                </div>
+                """, unsafe_allow_html=True)
+            with col2:
+                stock_out_count = len(decision_df[decision_df['Identified Problems'] == 'Stock Out'])
+                st.markdown(f"""
+                <div style='background: linear-gradient(135deg, #ff4444 0%, #cc0000 100%); border-radius: 15px; padding: 20px; text-align: center; color: white; box-shadow: 0 4px 6px rgba(0,0,0,0.1);'>
+                    <p style='margin: 0; font-size: 14px; opacity: 0.9;'>🔴 Stock Out</p>
+                    <p style='margin: 5px 0 0 0; font-size: 32px; font-weight: bold;'>{stock_out_count}</p>
+                </div>
+                """, unsafe_allow_html=True)
+            with col3:
+                risk_count = len(decision_df[decision_df['Identified Problems'] == 'Risk of Stock out'])
+                st.markdown(f"""
+                <div style='background: linear-gradient(135deg, #ffa500 0%, #ff6b00 100%); border-radius: 15px; padding: 20px; text-align: center; color: white; box-shadow: 0 4px 6px rgba(0,0,0,0.1);'>
+                    <p style='margin: 0; font-size: 14px; opacity: 0.9;'>🟡 Risk of Stock Out</p>
+                    <p style='margin: 5px 0 0 0; font-size: 32px; font-weight: bold;'>{risk_count}</p>
+                </div>
+                """, unsafe_allow_html=True)
+            with col4:
+                expiry_count = len(decision_df[decision_df['Identified Problems'] == 'Expiry Risk']) + len(decision_df[decision_df['Identified Problems'] == 'Critical Risk'])
+                st.markdown(f"""
+                <div style='background: linear-gradient(135deg, #9b59b6 0%, #7d3c98 100%); border-radius: 15px; padding: 20px; text-align: center; color: white; box-shadow: 0 4px 6px rgba(0,0,0,0.1);'>
+                    <p style='margin: 0; font-size: 14px; opacity: 0.9;'>⚠️ Expiry Risk</p>
+                    <p style='margin: 5px 0 0 0; font-size: 32px; font-weight: bold;'>{expiry_count}</p>
+                </div>
+                """, unsafe_allow_html=True)
 
-                st.markdown("### ✏️ Sales and Operational Planning")
-                st.info("💡 Recommendations are auto-generated based on pipeline status (with PO numbers) and distribution patterns. You can edit them as needed.")
+            st.markdown("---")
 
-                display_columns = ['Material Description', 'NSOH', 'Expiry', 'AMC', 'NMOS', 'Status', 'CV Category', 'Identified Problems', 'Recommendation']
-                available_display_columns = [col for col in display_columns if col in decision_df.columns]
+            # ============================================
+            # PROBLEM CHECKBOX FILTERS (NO INFO TEXT, NO SELECT/CLEAR BUTTONS)
+            # ============================================
+            st.markdown("### 🔍 Filter by Problem Type")
 
-                column_config = {
-                    "Material Description": st.column_config.TextColumn("Material", width=250, disabled=True, pinned=True),
-                    "NSOH": st.column_config.TextColumn("NSOH", width=100, disabled=True),
-                    "Expiry": st.column_config.TextColumn("Expiry", width=120, disabled=True),
-                    "AMC": st.column_config.TextColumn("AMC", width=100, disabled=True),
-                    "NMOS": st.column_config.TextColumn("NMOS", width=80, disabled=True),
-                    "Status": st.column_config.TextColumn("Status", width=100, disabled=True),
-                    "CV Category": st.column_config.TextColumn("CV Category", width=120, disabled=True, help="Coefficient of Variation category from hub distribution"),
-                    "Identified Problems": st.column_config.TextColumn("Problem", width=120, disabled=True),
-                    "Recommendation": st.column_config.TextColumn("Recommendation", width=450, disabled=False, help="Editable field - modify recommendation as needed")
+            problem_types = sorted(decision_df['Identified Problems'].unique())
+            problem_filters = {}
+
+            # Create 2 columns for checkboxes
+            col_left, col_right = st.columns(2)
+
+            mid_point = (len(problem_types) + 1) // 2
+
+            for idx, problem in enumerate(problem_types):
+                count = len(decision_df[decision_df['Identified Problems'] == problem])
+                checkbox_key = f"filter_problem_{problem.replace(' ', '_').replace('/', '_')}"
+
+                if checkbox_key not in st.session_state:
+                    st.session_state[checkbox_key] = True
+
+                if idx < mid_point:
+                    with col_left:
+                        st.session_state[checkbox_key] = st.checkbox(
+                            f"{problem} ({count})",
+                            value=st.session_state[checkbox_key],
+                            key=f"cb_{checkbox_key}"
+                        )
+                        problem_filters[problem] = st.session_state[checkbox_key]
+                else:
+                    with col_right:
+                        st.session_state[checkbox_key] = st.checkbox(
+                            f"{problem} ({count})",
+                            value=st.session_state[checkbox_key],
+                            key=f"cb_{checkbox_key}"
+                        )
+                        problem_filters[problem] = st.session_state[checkbox_key]
+
+            # Apply filters
+            selected_problems = [problem for problem, is_checked in problem_filters.items() if is_checked]
+
+            if selected_problems:
+                decision_df_filtered = decision_df[decision_df['Identified Problems'].isin(selected_problems)]
+            else:
+                decision_df_filtered = decision_df
+
+            st.markdown("---")
+
+            st.markdown("### ✏️ Sales and Operational Planning")
+            st.info("💡 Recommendations are auto-generated based on pipeline status (with PO numbers) and distribution patterns. You can edit them as needed.")
+
+            display_columns = ['Material Description', 'NSOH', 'Expiry', 'AMC', 'NMOS', 'Status', 'CV Category', 'Identified Problems', 'Recommendation']
+            available_display_columns = [col for col in display_columns if col in decision_df_filtered.columns]
+
+            column_config = {
+                "Material Description": st.column_config.TextColumn("Material", width=250, disabled=True, pinned=True),
+                "NSOH": st.column_config.TextColumn("NSOH", width=100, disabled=True),
+                "Expiry": st.column_config.TextColumn("Expiry", width=120, disabled=True),
+                "AMC": st.column_config.TextColumn("AMC", width=100, disabled=True),
+                "NMOS": st.column_config.TextColumn("NMOS", width=80, disabled=True),
+                "Status": st.column_config.TextColumn("Status", width=100, disabled=True),
+                "CV Category": st.column_config.TextColumn("CV Category", width=120, disabled=True),
+                "Identified Problems": st.column_config.TextColumn("Problem", width=120, disabled=True),
+                "Recommendation": st.column_config.TextColumn("Recommendation", width=450, disabled=False)
+            }
+
+            edited_result = st.data_editor(
+                decision_df_filtered[available_display_columns],
+                column_config=column_config,
+                use_container_width=True, 
+                hide_index=True, 
+                height=min(600, (len(decision_df_filtered) + 1) * 45), 
+                num_rows="fixed"
+            )
+
+            for idx, row in edited_result.iterrows():
+                st.session_state.saved_recommendations[row['Material Description']] = {
+                    'recommendation': row['Recommendation']
                 }
 
-                edited_result = st.data_editor(
-                    decision_df[available_display_columns],
-                    column_config=column_config,
-                    use_container_width=True, 
-                    hide_index=True, 
-                    height=min(600, (len(decision_df) + 1) * 45), 
-                    num_rows="fixed"
-                )
-
-                for idx, row in edited_result.iterrows():
-                    st.session_state.saved_recommendations[row['Material Description']] = {
-                        'recommendation': row['Recommendation']
-                    }
-
+            col_download1, col_download2 = st.columns(2)
+            with col_download1:
                 st.download_button(
-                    label="📥 Download Decision Briefs (CSV)", 
+                    label="📥 Download Current View (CSV)", 
                     data=edited_result.to_csv(index=False), 
                     file_name=f"{sheet_name}_decision_briefs_{datetime.now().strftime('%Y%m%d')}.csv".replace(" ", "_"), 
                     mime="text/csv",
                     use_container_width=True
                 )
+            with col_download2:
+                st.download_button(
+                    label="📊 Download Full Data (CSV)", 
+                    data=decision_df.to_csv(index=False), 
+                    file_name=f"{sheet_name}_decision_briefs_full_{datetime.now().strftime('%Y%m%d')}.csv".replace(" ", "_"), 
+                    mime="text/csv",
+                    use_container_width=True
+                )
 
-                if st.button("🗑️ Clear All Recommendations", use_container_width=True):
-                    st.session_state.saved_recommendations = {}
-                    st.rerun()
+            if st.button("🗑️ Clear All Recommendations", use_container_width=True):
+                st.session_state.saved_recommendations = {}
+                st.rerun()
 
-                st.markdown("---")
+            st.markdown("---")
+
+            if len(decision_df_filtered) > 0:
                 st.markdown("### 📇 Card View with Recommendations")
 
-                for idx, row in decision_df.iterrows():
+                for idx, row in decision_df_filtered.iterrows():
                     identified_problem = row.get('Identified Problems', '')
 
                     if identified_problem == "Critical Risk":
@@ -3958,10 +4045,12 @@ else:
                     </div>
                     """, unsafe_allow_html=True)
             else:
-                st.success("✅ No medicines with identified problems! All items are within normal stock levels.")
-                st.balloons()
+                st.warning("No items match the selected problem filters.")
         else:
-            st.info("No data available.")
+            st.success("✅ No medicines with identified problems! All items are within normal stock levels.")
+            st.balloons()
+    else:
+        st.info("No data available.")
 
     # ---------------------------------------------------
 # TAB 4 - Hubs Distribution
@@ -5221,34 +5310,44 @@ with tab4:
 
             st.markdown("---")
 
-            # ============================================
+                        # ============================================
             # ENTER REQUESTED DATE BY PO (MOVED HERE)
             # ============================================
             st.markdown("### ✏️ Enter Requested Date by PO")
 
             # Use the original unfiltered df for PO selection to avoid confusion
-            unique_pos = df_new_deliveries['PO Number'].unique()
+            # Filter out NaN values from PO Number column
+            unique_pos = df_new_deliveries['PO Number'].dropna().unique()
+            # Convert all to string and filter out any 'nan' strings
+            unique_pos = [str(po) for po in unique_pos if str(po).lower() != 'nan' and po != '']
             po_options = sorted(unique_pos)
 
             selected_po = st.selectbox("Select Purchase Order:", ["-- Select a PO --"] + po_options, key="po_selector_leadtime")
 
             if selected_po != "-- Select a PO --":
                 po_number = selected_po
-                po_materials = df_new_deliveries[df_new_deliveries['PO Number'] == po_number]
+                po_materials = df_new_deliveries[df_new_deliveries['PO Number'].astype(str) == po_number]
 
                 st.info(f"PO {po_number} has {len(po_materials)} material(s)")
 
                 for idx, row in po_materials.iterrows():
                     material_name = row['Material Description']
+                    if pd.isna(material_name):
+                        continue
+
                     key = f"{po_number}_{material_name}"
                     current_date = st.session_state.requested_dates.get(key, None) if 'requested_dates' in st.session_state else None
 
-                    unique_id = f"{po_number}_{idx}_{material_name.replace(' ', '_')[:30]}"
+                    unique_id = f"{po_number}_{idx}_{str(material_name).replace(' ', '_')[:30]}"
 
                     col1, col2, col3 = st.columns([3, 1.5, 1])
                     with col1:
                         st.write(f"**{material_name}**")
-                        st.write(f"Quantity: {int(row['Quantity']):,}" if pd.notna(row['Quantity']) else "N/A")
+                        qty = row['Quantity']
+                        if pd.notna(qty):
+                            st.write(f"Quantity: {int(qty):,}" if qty else "N/A")
+                        else:
+                            st.write("Quantity: N/A")
                     with col2:
                         new_date = st.date_input(
                             "Requested Date",
@@ -5258,7 +5357,7 @@ with tab4:
                         )
                     with col3:
                         if st.button(f"💾 Save", key=f"save_{unique_id}", use_container_width=True):
-                            if save_po_requested_date(po_number, material_name, new_date):
+                            if save_po_requested_date(po_number, str(material_name), new_date):
                                 if 'requested_dates' not in st.session_state:
                                     st.session_state.requested_dates = {}
                                 st.session_state.requested_dates[key] = new_date
@@ -5269,13 +5368,12 @@ with tab4:
 
                     if current_date:
                         if st.button(f"🗑️ Clear", key=f"clear_{unique_id}"):
-                            if delete_po_requested_date(po_number, material_name):
-                                del st.session_state.requested_dates[key]
+                            if delete_po_requested_date(po_number, str(material_name)):
+                                if key in st.session_state.requested_dates:
+                                    del st.session_state.requested_dates[key]
                                 st.success(f"✅ Cleared for {material_name}")
                                 st.rerun()
                     st.markdown("---")
-
-            st.markdown("---")
 
             # ============================================
             # SEARCH FILTER
