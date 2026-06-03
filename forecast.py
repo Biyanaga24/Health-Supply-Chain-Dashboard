@@ -5,6 +5,7 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 from statsmodels.tsa.stattools import adfuller
 from statsmodels.tsa.arima.model import ARIMA
+from statsmodels.tsa.statespace.sarimax import SARIMAX
 from statsmodels.tsa.holtwinters import ExponentialSmoothing, SimpleExpSmoothing, Holt
 from statsmodels.tsa.seasonal import seasonal_decompose
 from sklearn.metrics import mean_absolute_error, mean_squared_error, mean_absolute_percentage_error
@@ -12,12 +13,13 @@ from sklearn.linear_model import LinearRegression
 import warnings
 import re
 import datetime
+import time
 from scipy import stats
 warnings.filterwarnings("ignore")
 
 # Page configuration
 st.set_page_config(
-    page_title="Health Program Medicines Forecasting Dashboard",
+    page_title="Pharmaceuticals Advanced Forecasting Tool",
     page_icon="📊",
     layout="wide"
 )
@@ -190,6 +192,17 @@ st.markdown("""
         font-size: 0.85rem;
     }
 
+    /* Expert decision box styling */
+    .expert-box {
+        background: linear-gradient(135deg, #ffe0b2 0%, #ffcc80 100%);
+        padding: 0.8rem;
+        border-radius: 10px;
+        margin: 0.8rem 0;
+        border-left: 4px solid #e65100;
+        font-family: 'Times New Roman', Times, serif;
+        font-size: 0.85rem;
+    }
+
     /* Dataframe styling */
     .dataframe {
         font-family: 'Times New Roman', Times, serif;
@@ -237,11 +250,81 @@ st.markdown("""
         font-family: 'Times New Roman', Times, serif;
         font-style: italic;
     }
+
+    /* Candidate box styling */
+    .candidate-box {
+        background: linear-gradient(135deg, #f0f4f8 0%, #e2e8f0 100%);
+        border-radius: 12px;
+        padding: 1rem;
+        margin: 1rem 0;
+        border-left: 4px solid #1e3c72;
+    }
+
+    .model-badge {
+        display: inline-block;
+        background: #1e3c72;
+        color: white;
+        padding: 4px 12px;
+        border-radius: 20px;
+        margin: 4px;
+        font-size: 0.85rem;
+        font-weight: bold;
+    }
+
+    .char-badge {
+        display: inline-block;
+        background: linear-gradient(135deg, #2a5298 0%, #1e3c72 100%);
+        color: white;
+        padding: 6px 14px;
+        border-radius: 25px;
+        margin: 5px;
+        font-size: 0.8rem;
+        font-weight: 600;
+        box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+    }
+
+    /* Rule card styling */
+    .rule-card {
+        background: white;
+        border-radius: 10px;
+        padding: 0.6rem;
+        margin: 0.4rem 0;
+        border-left: 3px solid;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+        font-size: 0.8rem;
+    }
+
+    .rule-sma { border-left-color: #F4A261; }
+    .rule-ema { border-left-color: #E76F51; }
+    .rule-ses { border-left-color: #2A9D8F; }
+    .rule-des { border-left-color: #E9C46A; }
+    .rule-tes { border-left-color: #9B5DE5; }
+    .rule-arima { border-left-color: #E63946; }
+    .rule-sarima { border-left-color: #1E88E5; }
+
+    /* Decision table styling */
+    .decision-table {
+        font-size: 0.8rem;
+        width: 100%;
+        border-collapse: collapse;
+    }
+    .decision-table th, .decision-table td {
+        border: 1px solid #ddd;
+        padding: 8px;
+        text-align: left;
+    }
+    .decision-table th {
+        background-color: #1e3c72;
+        color: white;
+    }
+    .decision-table tr:nth-child(even) {
+        background-color: #f2f2f2;
+    }
 </style>
 """, unsafe_allow_html=True)
 
 # Title with gradient styling - smaller font
-st.markdown('<div class="main-header"><h1 style="color: white; margin: 0;">📊 Health Program Medicines Forecasting Dashboard</h1><p style="color: white; margin: 0; opacity: 0.9;">Time Series Analysis and Demand Forecasting</p></div>', unsafe_allow_html=True)
+st.markdown('<div class="main-header"><h1 style="color: white; margin: 0;">📊 Pharmaceuticals Advanced Forecasting Tools</h1><p style="color: white; margin: 0; opacity: 0.9;">Time Series Analysis and Demand Forecasting</p></div>', unsafe_allow_html=True)
 
 # Initialize session state
 if 'data_loaded' not in st.session_state:
@@ -250,6 +333,12 @@ if 'df' not in st.session_state:
     st.session_state.df = None
 if 'materials' not in st.session_state:
     st.session_state.materials = []
+if 'data_characteristics' not in st.session_state:
+    st.session_state.data_characteristics = None
+if 'candidate_models' not in st.session_state:
+    st.session_state.candidate_models = []
+if 'candidate_reasons' not in st.session_state:
+    st.session_state.candidate_reasons = []
 
 # Sidebar for file upload
 st.sidebar.markdown("## 📁 Data Upload")
@@ -511,6 +600,340 @@ def weighted_average_forecast(data_series, forecast_years=3, n_points=None):
 
     return np.array(monthly_predictions), yearly_predictions
 
+def calculate_trend_strength(data_series):
+    x = np.arange(len(data_series))
+    y = data_series.values
+    slope, intercept, r_value, p_value, std_err = stats.linregress(x, y)
+    return r_value ** 2, slope, p_value
+
+def classify_volatility(cv):
+    """Classify volatility level based on Coefficient of Variation"""
+    if cv < 0.3:
+        return "Low"
+    elif cv < 0.6:
+        return "Moderate"
+    else:
+        return "High"
+
+def analyze_data_characteristics(data_series):
+    """Analyze data characteristics: stationarity, trend, seasonality, volatility"""
+    results = {
+        'is_stationary': False,
+        'has_trend': False,
+        'has_seasonality': False,
+        'trend_strength': 0,
+        'seasonal_strength': 0,
+        'trend_direction': 'none',
+        'trend_slope': 0,
+        'trend_pvalue': 1.0,
+        'cv': 0,
+        'volatility_level': 'Low',
+        'adf_pvalue': 1.0,
+        'adf_statistic': 0,
+        'trend_ambiguous': False,
+        'seasonal_ambiguous': False,
+        'expert_decision_needed': False
+    }
+
+    data_clean = data_series[data_series > 0]
+    if len(data_clean) < 6:
+        return results
+
+    # ADF Stationarity Test
+    try:
+        adf_result = adfuller(data_clean.values)
+        results['is_stationary'] = adf_result[1] < 0.05
+        results['adf_pvalue'] = adf_result[1]
+        results['adf_statistic'] = adf_result[0]
+    except:
+        results['is_stationary'] = False
+
+    # Trend Analysis (threshold 0.35, ambiguous 0.3-0.5)
+    try:
+        trend_strength, slope, p_value = calculate_trend_strength(data_clean)
+        results['trend_strength'] = trend_strength
+        results['trend_slope'] = slope
+        results['trend_pvalue'] = p_value
+        results['trend_direction'] = 'up' if slope > 0 else 'down' if slope < 0 else 'none'
+        results['has_trend'] = trend_strength > 0.35 and p_value < 0.05
+        # Check if trend is ambiguous (0.3 to 0.5)
+        results['trend_ambiguous'] = 0.3 <= trend_strength <= 0.5
+    except:
+        results['has_trend'] = False
+
+    # Seasonality Analysis (threshold 0.35, ambiguous 0.3-0.5)
+    results['has_seasonality'] = False
+    results['seasonal_strength'] = 0
+    if len(data_clean) >= 24:
+        try:
+            decomp = seasonal_decompose(data_clean.values, model='additive', period=12, extrapolate_trend='freq')
+            seasonal_var = np.var(decomp.seasonal)
+            resid_var = np.var(decomp.resid)
+            total_var = seasonal_var + resid_var
+            if total_var > 0:
+                results['seasonal_strength'] = 1 - (resid_var / total_var)
+            results['has_seasonality'] = results['seasonal_strength'] > 0.35
+            # Check if seasonality is ambiguous (0.3 to 0.5)
+            results['seasonal_ambiguous'] = 0.3 <= results['seasonal_strength'] <= 0.5
+        except:
+            pass
+
+    # Set expert decision needed flag
+    results['expert_decision_needed'] = results['trend_ambiguous'] or results['seasonal_ambiguous']
+
+    # Volatility Analysis using CV
+    results['cv'] = data_clean.std() / (data_clean.mean() + 1e-6)
+    results['volatility_level'] = classify_volatility(results['cv'])
+
+    return results
+
+def get_candidate_models(chars):
+    """
+    Generate candidate models based on the decision table with 2nd and 3rd candidates:
+
+    | Stationary | Trend | Seasonality | Volatility | 1st Choice | 2nd Choice | 3rd Choice |
+    | Yes | No | No | Low | SES | SMA | - |
+    | Yes | No | No | Moderate | EMA | SES | - |
+    | Yes | No | No | High | EMA | ARIMA | SES |
+    | Yes | Yes | No | Any | DES | SES | SMA |
+    | Yes | Yes | Yes | Low/Moderate | TES | SARIMA | DES |
+    | Yes | Yes | Yes | High | SARIMA | TES | ARIMA |
+    | No | No | No | High | ARIMA | SES | EMA |
+    | No | Yes | No | High | ARIMA | DES | SES |
+    | No | Yes | Yes | High | SARIMA | ARIMA | TES |
+    | No | No | Yes | High | SARIMA | TES | ARIMA |
+    """
+    candidates = []
+    reasons = []
+
+    # Case 1: Stationary, No Trend, No Seasonality, Low Volatility
+    if chars['is_stationary'] and not chars['has_trend'] and not chars['has_seasonality'] and chars['volatility_level'] == 'Low':
+        candidates = ['SES', 'SMA']
+        reasons = ['SES (1st): Stationary, No Trend, No Seasonality, LOW volatility - Best for stable demand', 
+                   'SMA (2nd): Simple moving average benchmark']
+
+    # Case 2: Stationary, No Trend, No Seasonality, Moderate Volatility
+    elif chars['is_stationary'] and not chars['has_trend'] and not chars['has_seasonality'] and chars['volatility_level'] == 'Moderate':
+        candidates = ['EMA', 'SES']
+        reasons = ['EMA (1st): Stationary, No Trend, No Seasonality, MODERATE volatility - Responds better to changes', 
+                   'SES (2nd): Baseline exponential smoothing']
+
+    # Case 3: Stationary, No Trend, No Seasonality, High Volatility
+    elif chars['is_stationary'] and not chars['has_trend'] and not chars['has_seasonality'] and chars['volatility_level'] == 'High':
+        candidates = ['EMA', 'ARIMA', 'SES']
+        reasons = ['EMA (1st): Stationary, No Trend, No Seasonality, HIGH volatility - Adapts quickly', 
+                   'ARIMA (2nd): Can model complex volatile patterns',
+                   'SES (3rd): Baseline comparison']
+
+    # Case 4: Stationary, Trend, No Seasonality (Any volatility)
+    elif chars['is_stationary'] and chars['has_trend'] and not chars['has_seasonality']:
+        candidates = ['DES', 'SES', 'SMA']
+        reasons = ['DES (1st): Stationary with TREND - Holt\'s linear trend method', 
+                   'SES (2nd): Baseline for comparison (ignores trend)',
+                   'SMA (3rd): Simple moving average benchmark']
+
+    # Case 5: Stationary, Trend, Seasonality, Low/Moderate volatility
+    elif chars['is_stationary'] and chars['has_trend'] and chars['has_seasonality'] and chars['volatility_level'] in ['Low', 'Moderate']:
+        candidates = ['TES', 'SARIMA', 'DES']
+        reasons = ['TES (1st): Stationary with TREND + SEASONALITY, Low/Moderate volatility - Holt-Winters method', 
+                   'SARIMA (2nd): Statistical seasonal model alternative',
+                   'DES (3rd): Trend-only fallback']
+
+    # Case 6: Stationary, Trend, Seasonality, High volatility
+    elif chars['is_stationary'] and chars['has_trend'] and chars['has_seasonality'] and chars['volatility_level'] == 'High':
+        candidates = ['SARIMA', 'TES', 'ARIMA']
+        reasons = ['SARIMA (1st): Stationary with TREND + SEASONALITY, HIGH volatility - Robust seasonal model', 
+                   'TES (2nd): Exponential smoothing alternative',
+                   'ARIMA (3rd): Non-seasonal fallback']
+
+    # Case 7: Non-stationary, No Trend, No Seasonality, High volatility
+    elif not chars['is_stationary'] and not chars['has_trend'] and not chars['has_seasonality']:
+        candidates = ['ARIMA', 'SES', 'EMA']
+        reasons = ['ARIMA (1st): NON-STATIONARY, No Trend, No Seasonality - Designed for differencing', 
+                   'SES (2nd): Baseline smoothing',
+                   'EMA (3rd): Recent-weighted alternative']
+
+    # Case 8: Non-stationary, Trend, No Seasonality, High volatility
+    elif not chars['is_stationary'] and chars['has_trend'] and not chars['has_seasonality']:
+        candidates = ['ARIMA', 'DES', 'SES']
+        reasons = ['ARIMA (1st): NON-STATIONARY with TREND - Can model trend through differencing', 
+                   'DES (2nd): Double exponential smoothing alternative',
+                   'SES (3rd): Simple baseline']
+
+    # Case 9: Non-stationary, Trend, Seasonality, High volatility
+    elif not chars['is_stationary'] and chars['has_trend'] and chars['has_seasonality']:
+        candidates = ['SARIMA', 'ARIMA', 'TES']
+        reasons = ['SARIMA (1st): NON-STATIONARY with TREND + SEASONALITY - Full seasonal ARIMA', 
+                   'ARIMA (2nd): Non-seasonal fallback',
+                   'TES (3rd): Exponential smoothing alternative']
+
+    # Case 10: Non-stationary, No Trend, Seasonality, High volatility
+    elif not chars['is_stationary'] and not chars['has_trend'] and chars['has_seasonality']:
+        candidates = ['SARIMA', 'TES', 'ARIMA']
+        reasons = ['SARIMA (1st): NON-STATIONARY with SEASONALITY - Seasonal ARIMA', 
+                   'TES (2nd): Exponential smoothing with seasonality',
+                   'ARIMA (3rd): Non-seasonal fallback']
+
+    # Fallback if no candidates selected
+    if len(candidates) == 0:
+        candidates = ['SES', 'SMA', 'ARIMA']
+        reasons = ['Default fallback models for unclear characteristics']
+
+    # Ensure we don't return more than 3 models (keep top 3)
+    if len(candidates) > 3:
+        candidates = candidates[:3]
+        reasons = reasons[:3]
+
+    return candidates, reasons
+
+# Fast optimized model training functions
+def train_sma_fast(train_data, test_data):
+    """Faster SMA training with limited window search"""
+    best_mae = float('inf')
+    best_forecast = None
+    best_window = 3
+    for window in [2, 3, 4]:
+        if window > len(train_data):
+            continue
+        forecasts = []
+        last_values = list(train_data.values[-window:])
+        for i in range(len(test_data)):
+            forecast = np.mean(last_values[-window:])
+            forecasts.append(forecast)
+            last_values.append(forecast)
+        mae = mean_absolute_error(test_data.values[:len(forecasts)], forecasts)
+        if mae < best_mae:
+            best_mae = mae
+            best_forecast = forecasts
+            best_window = window
+    return np.array(best_forecast), best_window
+
+def train_ema_fast(train_data, test_data):
+    """Faster EMA training with limited span search"""
+    best_mae = float('inf')
+    best_forecast = None
+    best_span = 3
+    for span in [2, 3, 4]:
+        if span > len(train_data):
+            continue
+        alpha = 2 / (span + 1)
+        forecasts = []
+        ema_value = np.mean(train_data.values[-span:])
+        for i in range(len(test_data)):
+            if i == 0:
+                ema_value = alpha * train_data.values[-1] + (1 - alpha) * ema_value
+            else:
+                ema_value = alpha * forecasts[-1] + (1 - alpha) * ema_value
+            forecasts.append(ema_value)
+        mae = mean_absolute_error(test_data.values[:len(forecasts)], forecasts)
+        if mae < best_mae:
+            best_mae = mae
+            best_forecast = forecasts
+            best_span = span
+    return np.array(best_forecast), best_span
+
+# ============= IMPROVED ARIMA WITH AUTOMATIC ORDER SELECTION =============
+def find_best_arima_auto(train_data, max_p=2, max_d=2, max_q=2):
+    """
+    Automatically find the best ARIMA order using AIC/BIC
+    Searches through p,d,q combinations and selects the one with lowest AIC
+    """
+    best_aic = float('inf')
+    best_bic = float('inf')
+    best_order = None
+    best_model = None
+
+    for p in range(max_p + 1):
+        for d in range(max_d + 1):
+            for q in range(max_q + 1):
+                try:
+                    model = ARIMA(train_data, order=(p, d, q))
+                    fitted = model.fit(method_kwargs={'disp': False, 'maxiter': 100})
+
+                    if fitted.aic < best_aic:
+                        best_aic = fitted.aic
+                        best_bic = fitted.bic
+                        best_order = (p, d, q)
+                        best_model = fitted
+
+                except Exception as e:
+                    continue
+
+    return best_model, best_order, best_aic, best_bic
+
+def find_best_arima_adaptive(train_data):
+    """
+    Adaptive ARIMA that adjusts search space based on data length
+    Short series: smaller search space (faster)
+    Long series: larger search space (more accurate)
+    """
+    n = len(train_data)
+
+    if n < 12:
+        max_p, max_d, max_q = 1, 1, 1
+    elif n < 24:
+        max_p, max_d, max_q = 1, 1, 1
+    elif n < 48:
+        max_p, max_d, max_q = 2, 1, 2
+    else:
+        max_p, max_d, max_q = 2, 2, 2
+
+    return find_best_arima_auto(train_data, max_p, max_d, max_q)
+
+# ============= IMPROVED SARIMA WITH AUTOMATIC ORDER SELECTION =============
+def find_best_sarima_auto(train_data, seasonal_period=12, max_p=1, max_d=1, max_q=1, max_P=1, max_D=1, max_Q=1):
+    """
+    Automatically find the best SARIMA order using AIC/BIC
+    Searches through p,d,q and P,D,Q combinations
+    """
+    best_aic = float('inf')
+    best_bic = float('inf')
+    best_model = None
+    best_order = None
+    best_seasonal_order = None
+
+    for p in range(max_p + 1):
+        for d in range(max_d + 1):
+            for q in range(max_q + 1):
+                for P in range(max_P + 1):
+                    for D in range(max_D + 1):
+                        for Q in range(max_Q + 1):
+                            try:
+                                model = SARIMAX(train_data, order=(p, d, q), seasonal_order=(P, D, Q, seasonal_period))
+                                fitted = model.fit(disp=False, maxiter=100)
+
+                                if fitted.aic < best_aic:
+                                    best_aic = fitted.aic
+                                    best_bic = fitted.bic
+                                    best_model = fitted
+                                    best_order = (p, d, q)
+                                    best_seasonal_order = (P, D, Q, seasonal_period)
+
+                            except Exception as e:
+                                continue
+
+    return best_model, best_order, best_seasonal_order, best_aic, best_bic
+
+def find_best_sarima_adaptive(train_data, seasonal_period=12):
+    """
+    Adaptive SARIMA that adjusts search space based on data length
+    """
+    n = len(train_data)
+
+    if n < 24:
+        return None, None, None, None, None
+    elif n < 36:
+        max_p, max_d, max_q = 1, 1, 1
+        max_P, max_D, max_Q = 1, 1, 1
+    elif n < 60:
+        max_p, max_d, max_q = 1, 1, 1
+        max_P, max_D, max_Q = 1, 1, 1
+    else:
+        max_p, max_d, max_q = 2, 1, 2
+        max_P, max_D, max_Q = 1, 1, 1
+
+    return find_best_sarima_auto(train_data, seasonal_period, max_p, max_d, max_q, max_P, max_D, max_Q)
+
 if uploaded_file is not None:
     with st.spinner("Loading data..."):
         df, materials = parse_and_load_data(uploaded_file)
@@ -546,6 +969,11 @@ if st.session_state.data_loaded:
     material_data_full = df[selected_material]
     material_data = material_data_full[material_data_full > 0]
 
+    # Analyze data characteristics for the selected material
+    chars = analyze_data_characteristics(material_data)
+    st.session_state.data_characteristics = chars
+    st.session_state.candidate_models, st.session_state.candidate_reasons = get_candidate_models(chars)
+
     st.markdown("## 📊 Data Overview")
 
     if len(material_data) > 0:
@@ -572,7 +1000,7 @@ if st.session_state.data_loaded:
         st.warning("No valid data for this material")
         st.stop()
 
-    # Create 6 tabs (combined stationarity and decomposition)
+    # Create 6 tabs
     tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
         "📈 Data Explorer", 
         "📅 Fiscal Year Comparison",
@@ -1095,66 +1523,195 @@ if st.session_state.data_loaded:
                 )
 
             if st.button("Run Seasonal Decomposition", key="run_decomp"):
-                try:
-                    decomposition = seasonal_decompose(
-                        material_data_full.values, 
-                        model=decomp_model_type,
-                        period=min(decomp_period, len(material_data_full) // 2),
-                        extrapolate_trend='freq'
-                    )
+                with st.spinner("Running seasonal decomposition..."):
+                    start_time = time.time()
+                    try:
+                        decomposition = seasonal_decompose(
+                            material_data_full.values, 
+                            model=decomp_model_type,
+                            period=min(decomp_period, len(material_data_full) // 2),
+                            extrapolate_trend='freq'
+                        )
 
-                    fig, axes = plt.subplots(4, 1, figsize=(14, 12))
+                        fig, axes = plt.subplots(4, 1, figsize=(14, 12))
 
-                    axes[0].plot(material_data_full.index, material_data_full.values, color='#2E86AB')
-                    axes[0].set_title('Original Series', fontsize=11)
-                    axes[0].set_ylabel('Demand', fontsize=10)
-                    axes[0].grid(True, alpha=0.3)
-                    axes[0].tick_params(labelsize=9)
+                        axes[0].plot(material_data_full.index, material_data_full.values, color='#2E86AB')
+                        axes[0].set_title('Original Series', fontsize=11)
+                        axes[0].set_ylabel('Demand', fontsize=10)
+                        axes[0].grid(True, alpha=0.3)
+                        axes[0].tick_params(labelsize=9)
 
-                    axes[1].plot(material_data_full.index, decomposition.trend, color='#E9C46A')
-                    axes[1].set_title('Trend Component', fontsize=11)
-                    axes[1].set_ylabel('Trend', fontsize=10)
-                    axes[1].grid(True, alpha=0.3)
-                    axes[1].tick_params(labelsize=9)
+                        axes[1].plot(material_data_full.index, decomposition.trend, color='#E9C46A')
+                        axes[1].set_title('Trend Component', fontsize=11)
+                        axes[1].set_ylabel('Trend', fontsize=10)
+                        axes[1].grid(True, alpha=0.3)
+                        axes[1].tick_params(labelsize=9)
 
-                    axes[2].plot(material_data_full.index, decomposition.seasonal, color='#2A9D8F')
-                    axes[2].set_title('Seasonal Component', fontsize=11)
-                    axes[2].set_ylabel('Seasonal', fontsize=10)
-                    axes[2].grid(True, alpha=0.3)
-                    axes[2].tick_params(labelsize=9)
+                        axes[2].plot(material_data_full.index, decomposition.seasonal, color='#2A9D8F')
+                        axes[2].set_title('Seasonal Component', fontsize=11)
+                        axes[2].set_ylabel('Seasonal', fontsize=10)
+                        axes[2].grid(True, alpha=0.3)
+                        axes[2].tick_params(labelsize=9)
 
-                    axes[3].plot(material_data_full.index, decomposition.resid, color='#E63946')
-                    axes[3].set_title('Residual Component', fontsize=11)
-                    axes[3].set_ylabel('Residual', fontsize=10)
-                    axes[3].set_xlabel('Date', fontsize=10)
-                    axes[3].grid(True, alpha=0.3)
-                    axes[3].tick_params(labelsize=9)
+                        axes[3].plot(material_data_full.index, decomposition.resid, color='#E63946')
+                        axes[3].set_title('Residual Component', fontsize=11)
+                        axes[3].set_ylabel('Residual', fontsize=10)
+                        axes[3].set_xlabel('Date', fontsize=10)
+                        axes[3].grid(True, alpha=0.3)
+                        axes[3].tick_params(labelsize=9)
 
-                    plt.tight_layout()
-                    st.pyplot(fig)
+                        plt.tight_layout()
+                        st.pyplot(fig)
 
-                    seasonal_strength = 1 - (np.var(decomposition.resid) / np.var(decomposition.seasonal + decomposition.resid))
-                    trend_strength = 1 - (np.var(decomposition.resid) / np.var(decomposition.trend + decomposition.resid))
+                        seasonal_strength = 1 - (np.var(decomposition.resid) / (np.var(decomposition.seasonal + decomposition.resid) + 1e-6))
+                        trend_strength = 1 - (np.var(decomposition.resid) / (np.var(decomposition.trend + decomposition.resid) + 1e-6))
 
-                    col1, col2, col3 = st.columns(3)
-                    with col1:
-                        st.metric("Seasonal Strength", f"{seasonal_strength:.3f}")
-                    with col2:
-                        st.metric("Trend Strength", f"{trend_strength:.3f}")
-                    with col3:
-                        recommendation = "Use multiplicative" if seasonal_strength > 0.5 and trend_strength > 0.5 else "Use additive"
-                        st.metric("Recommendation", recommendation)
+                        col1, col2, col3 = st.columns(3)
+                        with col1:
+                            st.metric("Seasonal Strength", f"{seasonal_strength:.3f}")
+                        with col2:
+                            st.metric("Trend Strength", f"{trend_strength:.3f}")
+                        with col3:
+                            recommendation = "Use multiplicative" if seasonal_strength > 0.5 and trend_strength > 0.5 else "Use additive"
+                            st.metric("Recommendation", recommendation)
 
-                    st.session_state['decomposition_results'] = decomposition
+                        st.session_state['decomposition_results'] = decomposition
+                        st.success(f"✅ Decomposition completed in {time.time() - start_time:.2f} seconds")
 
-                except Exception as e:
-                    st.error(f"Decomposition failed: {str(e)}")
+                    except Exception as e:
+                        st.error(f"Decomposition failed: {str(e)}")
         else:
             st.warning(f"Not enough data for seasonal decomposition. Need at least 12 months. Currently have {len(material_data_full)} months.")
 
+    # ============= TAB 4: Model Training & Comparison (WITH NEW DECISION TABLE LOGIC) =============
     with tab4:
         st.markdown(f"### Model Training & Comparison - {selected_material[:50]}...")
 
+        # ============= DATA CHARACTERISTICS VIEW =============
+        st.markdown("### 📊 Data Characteristics Analysis")
+        col1, col2, col3, col4 = st.columns(4)
+        with col1:
+            stationarity_text = "Stationary" if chars['is_stationary'] else "Non-Stationary"
+            st.markdown(f'<div class="char-badge">📌 Stationarity: {stationarity_text}<br><span style="font-size:0.7rem;">p={chars["adf_pvalue"]:.4f}</span></div>', unsafe_allow_html=True)
+        with col2:
+            trend_text = "Yes" if chars['has_trend'] else "No"
+            strength_color = "🔴" if chars['trend_ambiguous'] else "🟢"
+            st.markdown(f'<div class="char-badge">📈 Trend: {trend_text}<br><span style="font-size:0.7rem;">Strength: {chars["trend_strength"]:.3f} {strength_color}</span></div>', unsafe_allow_html=True)
+        with col3:
+            season_text = "Yes" if chars['has_seasonality'] else "No"
+            strength_color = "🔴" if chars['seasonal_ambiguous'] else "🟢"
+            st.markdown(f'<div class="char-badge">📅 Seasonality: {season_text}<br><span style="font-size:0.7rem;">Strength: {chars["seasonal_strength"]:.3f} {strength_color}</span></div>', unsafe_allow_html=True)
+        with col4:
+            st.markdown(f'<div class="char-badge">⚡ Volatility: {chars["volatility_level"]}<br><span style="font-size:0.7rem;">CV: {chars["cv"]:.3f}</span></div>', unsafe_allow_html=True)
+
+        # ============= DECISION TABLE DISPLAY =============
+        st.markdown("### 📋 Model Selection Decision Table")
+        st.markdown("""
+        <table class="decision-table">
+            <tr>
+                <th>Stationary</th>
+                <th>Trend</th>
+                <th>Seasonality</th>
+                <th>Volatility</th>
+                <th>Recommended Models</th>
+            </tr>
+            <tr>
+                <td>Yes</td>
+                <td>No</td>
+                <td>No</td>
+                <td>Low</td>
+                <td>SES, SMA</td>
+            </tr>
+            <tr>
+                <td>Yes</td>
+                <td>No</td>
+                <td>No</td>
+                <td>Moderate</td>
+                <td>EMA, SES</td>
+            </tr>
+            <tr>
+                <td>Yes</td>
+                <td>Yes</td>
+                <td>No</td>
+                <td>Any</td>
+                <td>DES</td>
+            </tr>
+            <tr>
+                <td>Yes</td>
+                <td>Yes</td>
+                <td>Yes</td>
+                <td>Low/Moderate</td>
+                <td>TES</td>
+            </tr>
+            <tr>
+                <td>No</td>
+                <td>No</td>
+                <td>No</td>
+                <td>High</td>
+                <td>ARIMA</td>
+            </tr>
+            <tr>
+                <td>No</td>
+                <td>Yes</td>
+                <td>No</td>
+                <td>High</td>
+                <td>ARIMA</td>
+            </tr>
+            <tr>
+                <td>No</td>
+                <td>Yes</td>
+                <td>Yes</td>
+                <td>High</td>
+                <td>SARIMA</td>
+            </tr>
+        </table>
+        """, unsafe_allow_html=True)
+
+        st.markdown("---")
+
+        # ============= CANDIDATE MODELS VIEW =============
+        st.markdown("### 🎯 Candidate Models Selected Based on Decision Table")
+        st.markdown('<div class="candidate-box">', unsafe_allow_html=True)
+
+        st.markdown("**✅ Selected Candidates with Reasons:**")
+
+        for model, reason in zip(st.session_state.candidate_models, st.session_state.candidate_reasons):
+            # Color code based on model
+            if model == 'SMA':
+                color = "#F4A261"
+            elif model == 'EMA':
+                color = "#E76F51"
+            elif model == 'SES':
+                color = "#2A9D8F"
+            elif model == 'DES':
+                color = "#E9C46A"
+            elif model == 'TES':
+                color = "#9B5DE5"
+            elif model == 'ARIMA':
+                color = "#E63946"
+            elif model == 'SARIMA':
+                color = "#1E88E5"
+            else:
+                color = "#1e3c72"
+
+            st.markdown(f'<span class="model-badge" style="background: {color};">{model}</span> <span style="font-size:0.9rem;">→ {reason}</span><br>', unsafe_allow_html=True)
+
+        # ============= EXPERT DECISION NEEDED WARNING =============
+        if chars['expert_decision_needed']:
+            st.markdown("""
+            <div class="expert-box">
+            ⚠️ <strong>EXPERT DECISION NEEDED</strong><br>
+            Trend strength or seasonality strength is between 0.3 and 0.5 (ambiguous zone).<br>
+            The data characteristics are not definitive. Consider testing multiple models and using business knowledge for final selection.<br>
+            <strong>Recommendation:</strong> Train all relevant models and compare performance metrics carefully.
+            </div>
+            """, unsafe_allow_html=True)
+
+        st.markdown('</div>', unsafe_allow_html=True)
+
+        st.markdown("---")
+
+        # ============= MODEL TRAINING CONTENT =============
         if len(material_data) < 6:
             st.warning(f"Not enough data for model training. Need at least 6 months of data. Currently have {len(material_data)} months.")
         else:
@@ -1180,18 +1737,20 @@ if st.session_state.data_loaded:
                 st.stop()
 
             st.markdown("#### Select Models to Train")
-            col1, col2, col3, col4, col5, col6 = st.columns(6)
+            col1, col2, col3, col4, col5, col6, col7 = st.columns(7)
             with col1:
-                run_sma = st.checkbox("Simple MA", value=True, key="train_sma")
+                run_sma = st.checkbox("SMA", value=True, key="train_sma")
             with col2:
-                run_ema = st.checkbox("Exponential MA", value=True, key="train_ema")
+                run_ema = st.checkbox("EMA", value=True, key="train_ema")
             with col3:
                 run_arima = st.checkbox("ARIMA", value=True, key="train_arima")
             with col4:
-                run_ses = st.checkbox("SES", value=True, key="train_ses")
+                run_sarima = st.checkbox("SARIMA", value=True, key="train_sarima")
             with col5:
-                run_des = st.checkbox("DES/Holt", value=True, key="train_des")
+                run_ses = st.checkbox("SES", value=True, key="train_ses")
             with col6:
+                run_des = st.checkbox("DES/Holt", value=True, key="train_des")
+            with col7:
                 run_tes = st.checkbox("TES/HW", value=True, key="train_tes")
 
             st.markdown("---")
@@ -1217,153 +1776,143 @@ if st.session_state.data_loaded:
 
             with col3:
                 seasonal_period = st.number_input(
-                    "Seasonal Period (months) - for TES",
+                    "Seasonal Period (months) - for TES/SARIMA",
                     min_value=2,
                     max_value=24,
                     value=12,
                     key="seasonal_period_select"
                 )
 
-            def find_best_arima(train_data, max_p=2, max_d=1, max_q=2):
-                best_aic = float('inf')
-                best_order = None
-                best_model = None
-
-                for p in range(max_p + 1):
-                    for d in range(max_d + 1):
-                        for q in range(max_q + 1):
-                            try:
-                                model = ARIMA(train_data, order=(p, d, q))
-                                fitted = model.fit()
-                                if fitted.aic < best_aic:
-                                    best_aic = fitted.aic
-                                    best_order = (p, d, q)
-                                    best_model = fitted
-                            except:
-                                continue
-                return best_model, best_order, best_aic
-
             if st.button(f"🚀 Train Models", type="primary", use_container_width=True, key="train_button"):
                 results = {}
+                progress_bar = st.progress(0)
                 progress_text = st.empty()
 
-                if run_sma:
-                    progress_text.text("Training Simple Moving Average model...")
-                    try:
-                        best_mae = float('inf')
-                        best_forecast_sma = None
-                        best_window = 3
+                models_to_train = []
+                if run_sma: models_to_train.append('SMA')
+                if run_ema: models_to_train.append('EMA')
+                if run_arima: models_to_train.append('ARIMA')
+                if run_sarima: models_to_train.append('SARIMA')
+                if run_ses: models_to_train.append('SES')
+                if run_des: models_to_train.append('DES')
+                if run_tes: models_to_train.append('TES')
 
-                        for window in range(2, min(7, len(train) + 1)):
-                            forecasts = []
-                            for i in range(len(test)):
-                                if i == 0:
-                                    window_data = train.values[-window:]
-                                else:
-                                    window_data = list(train.values[-(window):]) + forecasts[:i] if len(train.values) >= window else list(train.values) + forecasts[:i]
-                                    window_data = window_data[-window:]
+                total_models = len(models_to_train)
 
-                                forecast = np.mean(window_data)
-                                forecasts.append(forecast)
+                for idx, model_name in enumerate(models_to_train):
+                    progress_text.text(f"Training {model_name}... ({idx+1}/{total_models})")
+                    progress_bar.progress(idx / total_models)
 
-                            mae = mean_absolute_error(test.values[:len(forecasts)], forecasts)
-                            if mae < best_mae:
-                                best_mae = mae
-                                best_forecast_sma = forecasts
-                                best_window = window
+                    if model_name == 'SMA':
+                        try:
+                            forecast, window = train_sma_fast(train, test)
+                            if forecast is not None:
+                                results['SMA'] = {'forecast': forecast, 'window': window}
+                        except Exception as e:
+                            st.warning(f"SMA failed: {str(e)[:100]}")
 
-                        results['SMA'] = {'forecast': np.array(best_forecast_sma)[:len(test)], 'window': best_window}
-                    except Exception as e:
-                        st.warning(f"Simple Moving Average failed: {str(e)[:100]}")
+                    elif model_name == 'EMA':
+                        try:
+                            forecast, span = train_ema_fast(train, test)
+                            if forecast is not None:
+                                results['EMA'] = {'forecast': forecast, 'span': span}
+                        except Exception as e:
+                            st.warning(f"EMA failed: {str(e)[:100]}")
 
-                if run_ema:
-                    progress_text.text("Training Exponential Moving Average model...")
-                    try:
-                        best_mae = float('inf')
-                        best_forecast_ema = None
-                        best_span = 3
+                    elif model_name == 'ARIMA':
+                        try:
+                            model_arima, order, aic, bic = find_best_arima_adaptive(train.values)
+                            if model_arima:
+                                forecast_arima = model_arima.forecast(steps=len(test))
+                                results['ARIMA'] = {
+                                    'forecast': forecast_arima, 
+                                    'order': order, 
+                                    'aic': aic,
+                                    'bic': bic
+                                }
+                                st.info(f"📊 ARIMA selected order {order} with AIC={aic:.1f}")
+                            else:
+                                model_arima = ARIMA(train.values, order=(1, 1, 1)).fit(method_kwargs={'disp': False, 'maxiter': 100})
+                                forecast_arima = model_arima.forecast(steps=len(test))
+                                results['ARIMA'] = {
+                                    'forecast': forecast_arima, 
+                                    'order': (1, 1, 1), 
+                                    'aic': model_arima.aic,
+                                    'bic': model_arima.bic
+                                }
+                        except Exception as e:
+                            st.warning(f"ARIMA failed: {str(e)[:100]}")
 
-                        for span in range(2, min(7, len(train) + 1)):
-                            alpha = 2 / (span + 1)
-                            forecasts = []
-                            ema_value = np.mean(train.values[-span:])
+                    elif model_name == 'SARIMA':
+                        try:
+                            model_sarima, order, seasonal_order, aic, bic = find_best_sarima_adaptive(train.values, seasonal_period)
+                            if model_sarima:
+                                forecast_sarima = model_sarima.forecast(steps=len(test))
+                                results['SARIMA'] = {
+                                    'forecast': forecast_sarima, 
+                                    'order': order, 
+                                    'seasonal_order': seasonal_order, 
+                                    'aic': aic,
+                                    'bic': bic
+                                }
+                                st.info(f"📊 SARIMA selected order {order} seasonal {seasonal_order} with AIC={aic:.1f}")
+                            else:
+                                if len(train) >= seasonal_period * 2:
+                                    model_sarima = SARIMAX(train.values, order=(1, 1, 1), seasonal_order=(1, 1, 1, seasonal_period)).fit(disp=False, maxiter=100)
+                                    forecast_sarima = model_sarima.forecast(steps=len(test))
+                                    results['SARIMA'] = {
+                                        'forecast': forecast_sarima, 
+                                        'order': (1, 1, 1), 
+                                        'seasonal_order': (1, 1, 1, seasonal_period), 
+                                        'aic': model_sarima.aic,
+                                        'bic': model_sarima.bic
+                                    }
+                        except Exception as e:
+                            st.warning(f"SARIMA failed: {str(e)[:100]}")
 
-                            for i in range(len(test)):
-                                if i == 0:
-                                    ema_value = alpha * train.values[-1] + (1 - alpha) * ema_value
-                                else:
-                                    ema_value = alpha * forecasts[-1] + (1 - alpha) * ema_value
-                                forecasts.append(ema_value)
+                    elif model_name == 'SES':
+                        try:
+                            model_ses = SimpleExpSmoothing(train.values).fit(optimized=True)
+                            forecast_ses = model_ses.forecast(steps=len(test))
+                            results['SES'] = {'forecast': forecast_ses, 'alpha': model_ses.params.get('smoothing_level')}
+                        except Exception as e:
+                            st.warning(f"SES failed: {str(e)[:100]}")
 
-                            mae = mean_absolute_error(test.values[:len(forecasts)], forecasts)
-                            if mae < best_mae:
-                                best_mae = mae
-                                best_forecast_ema = forecasts
-                                best_span = span
+                    elif model_name == 'DES':
+                        try:
+                            if trend_type is None:
+                                model_des = SimpleExpSmoothing(train.values).fit(optimized=True)
+                                results['DES'] = {'forecast': model_des.forecast(steps=len(test)), 'alpha': model_des.params.get('smoothing_level'), 'trend_type': 'none'}
+                            elif trend_type == 'add':
+                                model_des = Holt(train.values).fit(optimized=True)
+                                results['DES'] = {'forecast': model_des.forecast(steps=len(test)), 'alpha': model_des.params.get('smoothing_level'), 'beta': model_des.params.get('smoothing_trend'), 'trend_type': 'additive'}
+                            else:
+                                model_des = ExponentialSmoothing(train.values, trend='mul', seasonal=None).fit(optimized=True)
+                                results['DES'] = {'forecast': model_des.forecast(steps=len(test)), 'alpha': model_des.params.get('smoothing_level'), 'beta': model_des.params.get('smoothing_trend'), 'trend_type': 'multiplicative'}
+                        except Exception as e:
+                            st.warning(f"DES failed: {str(e)[:100]}")
 
-                        results['EMA'] = {'forecast': np.array(best_forecast_ema)[:len(test)], 'span': best_span}
-                    except Exception as e:
-                        st.warning(f"Exponential Moving Average failed: {str(e)[:100]}")
+                    elif model_name == 'TES':
+                        try:
+                            seasonal_periods_actual = min(seasonal_period, len(train) // 2)
+                            if seasonal_periods_actual >= 2:
+                                model_tes = ExponentialSmoothing(train.values, trend=trend_type if trend_type else None, seasonal=seasonal_type if seasonal_type else None, seasonal_periods=seasonal_periods_actual).fit(optimized=True)
+                                forecast_tes = model_tes.forecast(steps=len(test))
+                                results['TES'] = {'forecast': forecast_tes, 'alpha': model_tes.params.get('smoothing_level'), 'beta': model_tes.params.get('smoothing_trend'), 'gamma': model_tes.params.get('smoothing_seasonal'), 'trend_type': trend_type, 'seasonal_type': seasonal_type, 'seasonal_periods': seasonal_periods_actual}
+                            else:
+                                st.info(f"Not enough data for seasonal model. Need at least {seasonal_period * 2} months.")
+                        except Exception as e:
+                            st.warning(f"TES failed: {str(e)[:100]}")
 
-                if run_arima:
-                    progress_text.text("Training ARIMA model...")
-                    try:
-                        model_arima, order, aic = find_best_arima(train.values)
-                        if model_arima:
-                            forecast_arima = model_arima.forecast(steps=len(test))
-                            results['ARIMA'] = {'forecast': forecast_arima, 'order': order, 'aic': aic}
-                        else:
-                            model_arima = ARIMA(train.values, order=(1, 1, 1)).fit()
-                            forecast_arima = model_arima.forecast(steps=len(test))
-                            results['ARIMA'] = {'forecast': forecast_arima, 'order': (1, 1, 1), 'aic': model_arima.aic}
-                    except Exception as e:
-                        st.warning(f"ARIMA failed: {str(e)[:100]}")
-
-                if run_ses:
-                    progress_text.text("Training Simple Exponential Smoothing (SES)...")
-                    try:
-                        model_ses = SimpleExpSmoothing(train.values).fit(optimized=True)
-                        forecast_ses = model_ses.forecast(steps=len(test))
-                        results['SES'] = {'forecast': forecast_ses, 'alpha': model_ses.params['smoothing_level'] if hasattr(model_ses, 'params') else None}
-                    except Exception as e:
-                        st.warning(f"SES failed: {str(e)[:100]}")
-
-                if run_des:
-                    trend_text = "additive" if trend_type == "add" else "multiplicative" if trend_type == "mul" else "no"
-                    progress_text.text(f"Training Double Exponential Smoothing (DES) with {trend_text} trend...")
-                    try:
-                        if trend_type is None:
-                            model_des = SimpleExpSmoothing(train.values).fit(optimized=True)
-                            results['DES'] = {'forecast': model_des.forecast(steps=len(test)), 'alpha': model_des.params['smoothing_level'] if hasattr(model_des, 'params') else None, 'beta': None, 'trend_type': 'none'}
-                        elif trend_type == 'add':
-                            model_des = Holt(train.values).fit(optimized=True)
-                            results['DES'] = {'forecast': model_des.forecast(steps=len(test)), 'alpha': model_des.params['smoothing_level'] if hasattr(model_des, 'params') else None, 'beta': model_des.params['smoothing_trend'] if hasattr(model_des, 'params') and 'smoothing_trend' in model_des.params else None, 'trend_type': 'additive'}
-                        else:
-                            model_des = ExponentialSmoothing(train.values, trend='mul', seasonal=None).fit(optimized=True)
-                            results['DES'] = {'forecast': model_des.forecast(steps=len(test)), 'alpha': model_des.params['smoothing_level'] if hasattr(model_des, 'params') else None, 'beta': model_des.params['smoothing_trend'] if hasattr(model_des, 'params') and 'smoothing_trend' in model_des.params else None, 'trend_type': 'multiplicative'}
-                    except Exception as e:
-                        st.warning(f"DES failed: {str(e)[:100]}")
-
-                if run_tes:
-                    trend_text = "additive" if trend_type == "add" else "multiplicative" if trend_type == "mul" else "none"
-                    season_text = "additive" if seasonal_type == "add" else "multiplicative" if seasonal_type == "mul" else "none"
-                    progress_text.text(f"Training Triple Exponential Smoothing (TES) with {trend_text} trend and {season_text} seasonality...")
-                    try:
-                        seasonal_periods_actual = min(seasonal_period, len(train) // 2)
-                        if seasonal_periods_actual >= 2:
-                            model_tes = ExponentialSmoothing(train.values, trend=trend_type if trend_type else None, seasonal=seasonal_type if seasonal_type else None, seasonal_periods=seasonal_periods_actual).fit(optimized=True)
-                            forecast_tes = model_tes.forecast(steps=len(test))
-                            results['TES'] = {'forecast': forecast_tes, 'alpha': model_tes.params['smoothing_level'] if hasattr(model_tes, 'params') else None, 'beta': model_tes.params['smoothing_trend'] if hasattr(model_tes, 'params') and 'smoothing_trend' in model_tes.params else None, 'gamma': model_tes.params['smoothing_seasonal'] if hasattr(model_tes, 'params') and 'smoothing_seasonal' in model_tes.params else None, 'trend_type': trend_type, 'seasonal_type': seasonal_type, 'seasonal_periods': seasonal_periods_actual}
-                        else:
-                            st.info(f"Not enough data for seasonal model. Need at least {seasonal_period * 2} months.")
-                    except Exception as e:
-                        st.warning(f"TES failed: {str(e)[:100]}")
-
+                progress_bar.progress(1.0)
+                progress_text.text("✅ All models trained!")
+                time.sleep(0.5)
+                progress_bar.empty()
                 progress_text.empty()
 
                 if results:
                     metrics = []
-                    color_map = {'SMA': '#F4A261', 'EMA': '#E76F51', 'ARIMA': '#E63946', 'SES': '#2A9D8F', 'DES': '#E9C46A', 'TES': '#9B5DE5'}
+                    color_map = {'SMA': '#F4A261', 'EMA': '#E76F51', 'ARIMA': '#E63946', 'SARIMA': '#1E88E5', 'SES': '#2A9D8F', 'DES': '#E9C46A', 'TES': '#9B5DE5'}
 
                     for name, result in results.items():
                         forecast = result['forecast'][:len(test)]
@@ -1374,7 +1923,7 @@ if st.session_state.data_loaded:
                         rmse = np.sqrt(mse)
                         mape = mean_absolute_percentage_error(test.values, forecast) * 100
 
-                        metric_dict = {"Model": name, "MAE": f"{mae:,.0f}", "MSE": f"{mse:,.0f}", "RMSE": f"{rmse:,.0f}", "MAPE": f"{mape:.2f}%"}
+                        metric_dict = {"Model": name, "MAE": f"{mae:,.0f}", "RMSE": f"{rmse:,.0f}", "MAPE": f"{mape:.2f}%"}
 
                         params_str = ""
                         if name == 'SMA' and 'window' in result:
@@ -1383,24 +1932,30 @@ if st.session_state.data_loaded:
                             params_str = f"Span={result['span']}"
                         elif name == 'ARIMA' and 'order' in result:
                             params_str = f"ARIMA{result['order']}"
-                        elif name == 'SES' and 'alpha' in result and result['alpha'] is not None:
+                            if 'aic' in result:
+                                params_str += f" (AIC={result['aic']:.1f})"
+                        elif name == 'SARIMA' and 'order' in result:
+                            params_str = f"SARIMA{result['order']} seasonal={result.get('seasonal_order', '')}"
+                            if 'aic' in result:
+                                params_str += f" (AIC={result['aic']:.1f})"
+                        elif name == 'SES' and result.get('alpha'):
                             params_str = f"α={result['alpha']:.4f}"
                         elif name == 'DES':
                             params = []
-                            if result.get('alpha') is not None:
+                            if result.get('alpha'):
                                 params.append(f"α={result['alpha']:.4f}")
-                            if result.get('beta') is not None:
+                            if result.get('beta'):
                                 params.append(f"β={result['beta']:.4f}")
                             if result.get('trend_type'):
                                 params.append(f"trend={result['trend_type']}")
                             params_str = ", ".join(params)
                         elif name == 'TES':
                             params = []
-                            if result.get('alpha') is not None:
+                            if result.get('alpha'):
                                 params.append(f"α={result['alpha']:.4f}")
-                            if result.get('beta') is not None:
+                            if result.get('beta'):
                                 params.append(f"β={result['beta']:.4f}")
-                            if result.get('gamma') is not None:
+                            if result.get('gamma'):
                                 params.append(f"γ={result['gamma']:.4f}")
                             if result.get('trend_type'):
                                 params.append(f"trend={result['trend_type']}")
@@ -1459,7 +2014,7 @@ if st.session_state.data_loaded:
             with col1:
                 forecast_type = st.radio(
                     "Select forecast approach:",
-                    ["Monthly Models (SMA, EMA, ARIMA, SES, DES, TES)", "Annual Aggregation Methods (Linear, Simple Avg, Weighted Avg)"],
+                    ["Monthly Models (SMA, EMA, ARIMA, SARIMA, SES, DES, TES)", "Annual Aggregation Methods (Linear, Simple Avg, Weighted Avg)"],
                     key="forecast_type_radio"
                 )
 
@@ -1505,21 +2060,23 @@ if st.session_state.data_loaded:
 
             st.markdown("#### Select Models for Forecasting")
             if "Monthly Models" in forecast_type:
-                col1, col2, col3, col4, col5, col6 = st.columns(6)
+                col1, col2, col3, col4, col5, col6, col7 = st.columns(7)
                 with col1:
-                    use_sma = st.checkbox("Simple MA", value=True, key="forecast_sma")
+                    use_sma = st.checkbox("SMA", value=True, key="forecast_sma")
                 with col2:
-                    use_ema = st.checkbox("Exponential MA", value=True, key="forecast_ema")
+                    use_ema = st.checkbox("EMA", value=True, key="forecast_ema")
                 with col3:
                     use_arima = st.checkbox("ARIMA", value=True, key="forecast_arima")
                 with col4:
-                    use_ses = st.checkbox("SES", value=True, key="forecast_ses")
+                    use_sarima = st.checkbox("SARIMA", value=True, key="forecast_sarima")
                 with col5:
-                    use_des = st.checkbox("DES/Holt", value=True, key="forecast_des")
+                    use_ses = st.checkbox("SES", value=True, key="forecast_ses")
                 with col6:
+                    use_des = st.checkbox("DES/Holt", value=True, key="forecast_des")
+                with col7:
                     use_tes = st.checkbox("TES/HW", value=True, key="forecast_tes")
             else:
-                use_sma = use_ema = use_arima = use_ses = use_des = use_tes = False
+                use_sma = use_ema = use_arima = use_sarima = use_ses = use_des = use_tes = False
 
             st.markdown("---")
             st.markdown("#### ⚙️ Configuration Options")
@@ -1537,14 +2094,73 @@ if st.session_state.data_loaded:
                         forecast_season = None
 
                 with col3:
-                    if use_tes:
-                        forecast_seasonal_period = st.number_input("Seasonal Period (months)", min_value=2, max_value=24, value=12, key="forecast_seasonal_period")
-                    else:
-                        forecast_seasonal_period = 12
+                    forecast_seasonal_period = st.number_input("Seasonal Period (months)", min_value=2, max_value=24, value=12, key="forecast_seasonal_period")
             else:
                 forecast_trend = None
                 forecast_season = None
                 forecast_seasonal_period = 12
+
+            def generate_forecast_for_model(data_series, model_name, forecast_months, trend_type='add', seasonal_type='add', seasonal_period=12):
+                data_positive = data_series[data_series > 0]
+                if len(data_positive) < 3:
+                    return None, None
+
+                try:
+                    if model_name == 'SMA':
+                        window = 3
+                        forecast_values = []
+                        last_values = list(data_positive.values[-window:])
+                        for _ in range(forecast_months):
+                            fcast = np.mean(last_values[-window:])
+                            forecast_values.append(fcast)
+                            last_values.append(fcast)
+                    elif model_name == 'EMA':
+                        span = 3
+                        alpha = 2 / (span + 1)
+                        forecast_values = []
+                        ema_value = np.mean(data_positive.values[-span:])
+                        for i in range(forecast_months):
+                            if i == 0:
+                                ema_value = alpha * data_positive.values[-1] + (1 - alpha) * ema_value
+                            else:
+                                ema_value = alpha * forecast_values[-1] + (1 - alpha) * ema_value
+                            forecast_values.append(ema_value)
+                    elif model_name == 'ARIMA':
+                        model = ARIMA(data_positive.values, order=(1, 1, 1)).fit(method_kwargs={'disp': False, 'maxiter': 100})
+                        forecast_values = model.forecast(steps=forecast_months)
+                    elif model_name == 'SARIMA':
+                        model = SARIMAX(data_positive.values, order=(1, 1, 1), seasonal_order=(1, 1, 1, seasonal_period)).fit(disp=False, maxiter=100)
+                        forecast_values = model.forecast(steps=forecast_months)
+                    elif model_name == 'SES':
+                        model = SimpleExpSmoothing(data_positive.values).fit(optimized=True)
+                        forecast_values = model.forecast(steps=forecast_months)
+                    elif model_name == 'DES':
+                        if trend_type is None:
+                            model = SimpleExpSmoothing(data_positive.values).fit(optimized=True)
+                        elif trend_type == 'add':
+                            model = Holt(data_positive.values).fit(optimized=True)
+                        else:
+                            model = ExponentialSmoothing(data_positive.values, trend='mul', seasonal=None).fit(optimized=True)
+                        forecast_values = model.forecast(steps=forecast_months)
+                    elif model_name == 'TES':
+                        period = min(seasonal_period, len(data_positive) // 2)
+                        if period >= 2:
+                            trend = trend_type if trend_type else 'add'
+                            season = seasonal_type if seasonal_type else 'add'
+                            model = ExponentialSmoothing(data_positive.values, trend=trend, seasonal=season, seasonal_periods=period).fit(optimized=True)
+                            forecast_values = model.forecast(steps=forecast_months)
+                        else:
+                            model = Holt(data_positive.values).fit(optimized=True)
+                            forecast_values = model.forecast(steps=forecast_months)
+                    else:
+                        return None, None
+
+                    forecast_values = np.maximum(forecast_values, 0)
+                    last_date = data_positive.index[-1]
+                    future_dates = pd.date_range(start=last_date, periods=forecast_months + 1, freq='MS')[1:]
+                    return forecast_values, future_dates
+                except Exception as e:
+                    return None, None
 
             if st.button("🔮 Generate Future Forecast", type="primary", use_container_width=True, key="generate_forecast"):
                 if use_all_data == "Use last N years only" and n_years_for_forecast is not None:
@@ -1564,7 +2180,7 @@ if st.session_state.data_loaded:
                 ax.plot(forecast_data.index, forecast_data.values, label='Historical (Data used for forecasting)', color='#2E86AB', linewidth=2, marker='o')
 
                 future_forecasts = {}
-                color_map = {'SMA': '#F4A261', 'EMA': '#E76F51', 'ARIMA': '#E63946', 'SES': '#2A9D8F', 'DES': '#E9C46A', 'TES': '#9B5DE5', 
+                color_map = {'SMA': '#F4A261', 'EMA': '#E76F51', 'ARIMA': '#E63946', 'SARIMA': '#1E88E5', 'SES': '#2A9D8F', 'DES': '#E9C46A', 'TES': '#9B5DE5', 
                             'Linear (Yearly)': '#A569BD', 'Simple Average (Yearly)': '#1ABC9C', 'Weighted Average (Yearly)': '#E67E22'}
 
                 last_date = forecast_data.index[-1]
@@ -1745,40 +2361,29 @@ if st.session_state.data_loaded:
 
                     if use_arima:
                         try:
-                            def find_best_arima_full(train_data):
-                                best_aic = float('inf')
-                                best_order = None
-                                best_model = None
-                                max_p = min(3, len(train_data) // 3)
-                                max_q = min(3, len(train_data) // 3)
-
-                                for p in range(max_p + 1):
-                                    for d in range(2):
-                                        for q in range(max_q + 1):
-                                            try:
-                                                model = ARIMA(train_data, order=(p, d, q))
-                                                fitted = model.fit()
-                                                if fitted.aic < best_aic:
-                                                    best_aic = fitted.aic
-                                                    best_order = (p, d, q)
-                                                    best_model = fitted
-                                            except:
-                                                continue
-                                return best_model, best_order, best_aic
-
                             data_for_forecast = forecast_data.values
-                            model, order, aic = find_best_arima_full(data_for_forecast)
-                            if model:
-                                forecast = model.forecast(steps=forecast_periods)
-                            else:
-                                model = ARIMA(data_for_forecast, order=(1, 1, 1)).fit()
-                                forecast = model.forecast(steps=forecast_periods)
-
+                            model = ARIMA(data_for_forecast, order=(1, 1, 1)).fit(method_kwargs={'disp': False, 'maxiter': 100})
+                            forecast = model.forecast(steps=forecast_periods)
                             forecast = np.maximum(forecast, 0)
                             future_forecasts['ARIMA'] = pd.Series(forecast, index=future_dates)
                             ax.plot(future_dates, forecast, label='ARIMA Forecast', color=color_map['ARIMA'], linestyle='--', linewidth=2, marker='s')
                         except Exception as e:
                             st.warning(f"ARIMA forecast failed: {str(e)[:100]}")
+
+                    if use_sarima:
+                        try:
+                            data_for_forecast = forecast_data.values
+                            period = min(forecast_seasonal_period, len(data_for_forecast) // 2)
+                            if period >= 2:
+                                model = SARIMAX(data_for_forecast, order=(1, 1, 1), seasonal_order=(1, 1, 1, period)).fit(disp=False, maxiter=100)
+                                forecast = model.forecast(steps=forecast_periods)
+                                forecast = np.maximum(forecast, 0)
+                                future_forecasts['SARIMA'] = pd.Series(forecast, index=future_dates)
+                                ax.plot(future_dates, forecast, label='SARIMA Forecast', color=color_map['SARIMA'], linestyle='--', linewidth=2, marker='s')
+                            else:
+                                st.info(f"Not enough data for SARIMA. Need at least {forecast_seasonal_period * 2} months.")
+                        except Exception as e:
+                            st.warning(f"SARIMA forecast failed: {str(e)[:100]}")
 
                     if use_ses:
                         try:
@@ -1966,16 +2571,29 @@ else:
     - <strong>Other columns</strong>: Monthly data columns (can be dates or month names)<br>
     - <strong>Values</strong>: Demand quantities (can have commas like "2,353")</p>
 
-    <p><strong>Models Available:</strong><br>
+    <p><strong>Models Available (with Automatic Order Selection):</strong><br>
     - <strong>SMA</strong> (Simple Moving Average) - Rolling window, drops oldest each time<br>
     - <strong>EMA</strong> (Exponential Moving Average) - More weight to recent<br>
-    - <strong>ARIMA</strong> (AutoRegressive Integrated Moving Average)<br>
+    - <strong>ARIMA</strong> (AutoRegressive Integrated Moving Average) - <strong>Automatically selects best p,d,q using AIC</strong><br>
+    - <strong>SARIMA</strong> (Seasonal ARIMA) - <strong>Automatically selects best p,d,q and P,D,Q using AIC</strong><br>
     - <strong>SES</strong> (Simple Exponential Smoothing)<br>
     - <strong>DES</strong> (Double Exponential Smoothing/Holt)<br>
     - <strong>TES</strong> (Triple Exponential Smoothing/Holt-Winters)<br>
     - <strong>Linear Regression (Yearly)</strong> - Uses fiscal year totals for forecasting<br>
     - <strong>Simple Average (Yearly)</strong> - Average of historical yearly totals<br>
     - <strong>Weighted Average (Yearly)</strong> - Optimal weights that minimize forecast error</p>
+
+    <p><strong>Decision Logic Used:</strong></p>
+    <table class="decision-table">
+        <tr><th>Stationary</th><th>Trend</th><th>Seasonality</th><th>Volatility</th><th>Recommended Models</th></tr>
+        <tr><td>Yes</td><td>No</td><td>No</td><td>Low</td><td>SES, SMA</td></tr>
+        <tr><td>Yes</td><td>No</td><td>No</td><td>Moderate</td><td>EMA, SES</td></tr>
+        <tr><td>Yes</td><td>Yes</td><td>No</td><td>Any</td><td>DES</td></tr>
+        <tr><td>Yes</td><td>Yes</td><td>Yes</td><td>Low/Moderate</td><td>TES</td></tr>
+        <tr><td>No</td><td>No</td><td>No</td><td>High</td><td>ARIMA</td></tr>
+        <tr><td>No</td><td>Yes</td><td>No</td><td>High</td><td>ARIMA</td></tr>
+        <tr><td>No</td><td>Yes</td><td>Yes</td><td>High</td><td>SARIMA</td></tr>
+    </table>
 
     <p><strong>How to use:</strong><br>
     1. Upload your Excel file<br>
