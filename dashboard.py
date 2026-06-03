@@ -531,6 +531,7 @@ if st.session_state.supabase_client and not check_supabase_connection():
     st.session_state.supabase_client = init_supabase()
 
 # ---------------------------------------------------
+# ---------------------------------------------------
 # Program Hierarchy Configuration
 # ---------------------------------------------------
 PROGRAM_HIERARCHY = {
@@ -540,6 +541,14 @@ PROGRAM_HIERARCHY = {
     },
     "TB": {
         "subcategories": ["Drug Susceptible -TB Medicine (DS-TB)", "Drug Resisitance -TB Medicine (DR-TB)", "Leprosy Medicines", "Nutrition"],
+        "is_parent": True
+    },
+    "Lab TB": {
+        "subcategories": ["TB diagnostics& Laboratory reagent", "TB Lab Supplies"],
+        "is_parent": True
+    },
+    "HIV Lab": {
+        "subcategories": ["HIV VL Reagents", "CD4 ,AHD &HIV RTKs"],
         "is_parent": True
     }
 }
@@ -4131,7 +4140,8 @@ with tab4:
                         master_material_order = []
 
                         # Define program order (Malaria first, then HIV, OI, TB, etc.)
-                        program_order_list = ["Malaria", "HIV", "OI", "Hepatitis", "STI", "TB", "Drug Susceptible -TB Medicine (DS-TB)", "Drug Resisitance -TB Medicine (DR-TB)", "Leprosy Medicines", "Nutrition"]
+                        program_order_list = ["Malaria", "HIV", "OI", "Hepatitis", "STI", "TB", "Drug Susceptible -TB Medicine (DS-TB)", "Drug Resisitance -TB Medicine (DR-TB)",
+                                              "Leprosy Medicines", "Nutrition","Lab TB","TB diagnostics& Laboratory reagent","TB Lab Supplies","HIV VL Reagents","CD4 _AHD _HIV_RTKs"]
 
                         if google_sheets:
                             # Collect materials in program order
