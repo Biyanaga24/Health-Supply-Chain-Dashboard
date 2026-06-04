@@ -491,7 +491,7 @@ if 'saved_recommendations' not in st.session_state:
 if 'view_mode' not in st.session_state:
     st.session_state.view_mode = "table"
 if 'risk_type_filter' not in st.session_state:
-    st.session_state.risk_type_filter = "All"
+    st.session_state.risk_type_filter = ["All"] 
 if 'subcategory_filter' not in st.session_state:
     st.session_state.subcategory_filter = "All"
 if 'previous_nsoh_data' not in st.session_state:
@@ -1723,7 +1723,7 @@ if not df.empty:
             else:
                 display_df[col] = display_df[col].apply(format_number_with_commas)
 
-    # ========== MATERIAL FILTER SECTION ==========
+    # ========== MATERIAL FILTER SECTION WITH MULTI-SELECT ==========
 if 'Material Description' in df.columns:
     # Handle NaN values in Material Description for sorting
     unique_materials = df['Material Description'].dropna().astype(str).unique()
@@ -1738,11 +1738,26 @@ if 'Material Description' in df.columns:
     statuses = ["All"] + sorted([s for s in df['Stock Status'].unique() if s != "" and pd.notna(s)]) if 'Stock Status' in df.columns else ["All"]
 
     risk_type_options = ["All", "Risk of Stock out", "Expiry Risk", "Critical Risk"]
-    risk_type_filter = st.sidebar.selectbox("Risk Type", risk_type_options, index=risk_type_options.index(st.session_state.risk_type_filter) if st.session_state.risk_type_filter in risk_type_options else 0)
+
+    # MULTI-SELECT FILTERS
+    risk_type_filter = st.sidebar.multiselect(
+        "Risk Type", 
+        risk_type_options, 
+        default=st.session_state.risk_type_filter if isinstance(st.session_state.risk_type_filter, list) else ["All"]
+    )
     st.session_state.risk_type_filter = risk_type_filter
 
-    material_filter = st.sidebar.selectbox("Material Description", materials)
-    status_filter = st.sidebar.selectbox("Stock Status", statuses)
+    material_filter = st.sidebar.multiselect(
+        "Material Description", 
+        materials, 
+        default=[]
+    )
+
+    status_filter = st.sidebar.multiselect(
+        "Stock Status", 
+        statuses, 
+        default=[]
+    )
 
     df_filtered = df.copy()
     display_df_filtered = display_df.copy()
@@ -1754,37 +1769,58 @@ if 'Material Description' in df.columns:
         df_filtered = df_filtered[mask].copy()
         display_df_filtered = display_df_filtered[mask].copy()
 
-    if material_filter != "All":
-        df_filtered = df_filtered[df_filtered['Material Description'] == material_filter]
-        display_df_filtered = display_df_filtered[display_df_filtered['Material Description'] == material_filter]
-        # Track material view for popular materials analytics
-        if material_filter not in st.session_state.material_views:
-            st.session_state.material_views[material_filter] = 0
-        st.session_state.material_views[material_filter] += 1
+    # ========== APPLY MATERIAL FILTER (MULTI-SELECT) ==========
+    if material_filter and "All" not in material_filter:
+        df_filtered = df_filtered[df_filtered['Material Description'].isin(material_filter)]
+        display_df_filtered = display_df_filtered[display_df_filtered['Material Description'].isin(material_filter)]
 
-        # Track user activity
-        if 'user' in st.session_state:
-            st.session_state.user_activity.append({
-                'user': st.session_state['user']['email'],
-                'role': st.session_state['user']['role'],
-                'action': 'view_material',
-                'material': material_filter,
-                'timestamp': datetime.now().isoformat()
-            })
+        # Track material views for each selected material
+        for material in material_filter:
+            if material not in st.session_state.material_views:
+                st.session_state.material_views[material] = 0
+            st.session_state.material_views[material] += 1
 
-    if status_filter != "All" and 'Stock Status' in df_filtered.columns:
-        df_filtered = df_filtered[df_filtered['Stock Status'] == status_filter]
-        display_df_filtered = display_df_filtered[display_df_filtered['Stock Status'] == status_filter]
+            # Track user activity
+            if 'user' in st.session_state:
+                st.session_state.user_activity.append({
+                    'user': st.session_state['user']['email'],
+                    'role': st.session_state['user']['role'],
+                    'action': 'view_material',
+                    'material': material,
+                    'timestamp': datetime.now().isoformat()
+                })
 
-    if risk_type_filter == "Risk of Stock out":
-        df_filtered = df_filtered[df_filtered['Risk Type'] == "Risk of Stock out"]
-        display_df_filtered = display_df_filtered[display_df_filtered['Risk Type'] == "Risk of Stock out"]
-    elif risk_type_filter == "Expiry Risk":
-        df_filtered = df_filtered[df_filtered['Risk Type'] == "Expiry Risk"]
-        display_df_filtered = display_df_filtered[display_df_filtered['Risk Type'] == "Expiry Risk"]
-    elif risk_type_filter == "Critical Risk":
-        df_filtered = df_filtered[df_filtered['Risk Type'] == "Critical Risk"]
-        display_df_filtered = display_df_filtered[display_df_filtered['Risk Type'] == "Critical Risk"]
+    # ========== APPLY STOCK STATUS FILTER (MULTI-SELECT) ==========
+    if status_filter and "All" not in status_filter and 'Stock Status' in df_filtered.columns:
+        df_filtered = df_filtered[df_filtered['Stock Status'].isin(status_filter)]
+        display_df_filtered = display_df_filtered[display_df_filtered['Stock Status'].isin(status_filter)]
+
+    # ========== APPLY RISK TYPE FILTER (MULTI-SELECT) ==========
+    if risk_type_filter and "All" not in risk_type_filter:
+        df_filtered = df_filtered[df_filtered['Risk Type'].isin(risk_type_filter)]
+        display_df_filtered = display_df_filtered[display_df_filtered['Risk Type'].isin(risk_type_filter)]
+
+    # ========== OPTIONAL: SHOW ACTIVE FILTERS SUMMARY ==========
+    active_filters = []
+    if risk_type_filter and "All" not in risk_type_filter:
+        active_filters.append(f"Risk: {', '.join(risk_type_filter)}")
+    if status_filter and "All" not in status_filter:
+        active_filters.append(f"Status: {', '.join(status_filter)}")
+    if material_filter and "All" not in material_filter:
+        active_filters.append(f"Materials: {len(material_filter)} selected")
+
+    if active_filters:
+        st.sidebar.markdown("---")
+        st.sidebar.markdown("### 🔍 Active Filters")
+        for filter_text in active_filters:
+            st.sidebar.markdown(f"- {filter_text}")
+
+    # ========== CLEAR FILTERS BUTTON ==========
+    if st.sidebar.button("🗑️ Clear All Filters", use_container_width=True):
+        st.session_state.risk_type_filter = ["All"]
+        st.session_state.search_query = ""
+        st.rerun()
+
 else:
     st.error("Material Description column not found in the data")
     df_filtered = pd.DataFrame()
@@ -3120,39 +3156,47 @@ else:
         else:
             avg_avail_gap = 0
 
-        # Calculate Average Lead Time
-        avg_lead_time_display = "N/A"
-        if not df_new_deliveries.empty:
-            temp_lead_df = df_new_deliveries.copy()
-            temp_lead_df['Posting Date'] = pd.to_datetime(temp_lead_df['Posting Date'], errors='coerce')
-            temp_lead_df['PO Number'] = temp_lead_df['PO Number'].astype(str)
+        # Calculate Average Lead Time (PROGRAM-SPECIFIC)
+avg_lead_time_display = "N/A"
+if not df_new_deliveries.empty:
+    # Get materials for the selected program
+    if sheet_name != "All" and sheet_name in google_sheets:
+        program_materials = google_sheets[sheet_name]['Material Description'].dropna().tolist()
+        # Filter deliveries by program materials
+        filtered_lead_df = df_new_deliveries[df_new_deliveries['Material Description'].isin(program_materials)].copy()
+    else:
+        filtered_lead_df = df_new_deliveries.copy()
 
-            temp_lead_df['Requested Date'] = temp_lead_df.apply(
-                lambda row: st.session_state.requested_dates.get(f"{row['PO Number']}_{row['Material Description']}", None) if 'requested_dates' in st.session_state else None,
-                axis=1
-            )
+    if not filtered_lead_df.empty:
+        filtered_lead_df['Posting Date'] = pd.to_datetime(filtered_lead_df['Posting Date'], errors='coerce')
+        filtered_lead_df['PO Number'] = filtered_lead_df['PO Number'].astype(str)
 
-            def calc_lead_val(row):
-                req_date = row['Requested Date']
-                posting = row['Posting Date']
-                if req_date and pd.notna(posting):
-                    try:
-                        if hasattr(req_date, 'date'):
-                            req_date = req_date.date()
-                        if hasattr(posting, 'date'):
-                            posting = posting.date()
-                        days = (posting - req_date).days
-                        return days if days >= 0 else None
-                    except:
-                        return None
-                return None
+        filtered_lead_df['Requested Date'] = filtered_lead_df.apply(
+            lambda row: st.session_state.requested_dates.get(f"{row['PO Number']}_{row['Material Description']}", None) if 'requested_dates' in st.session_state else None,
+            axis=1
+        )
 
-            temp_lead_df['Lead Time Value'] = temp_lead_df.apply(calc_lead_val, axis=1)
-            lead_values = temp_lead_df['Lead Time Value'].dropna().tolist()
+        def calc_lead_val(row):
+            req_date = row['Requested Date']
+            posting = row['Posting Date']
+            if req_date and pd.notna(posting):
+                try:
+                    if hasattr(req_date, 'date'):
+                        req_date = req_date.date()
+                    if hasattr(posting, 'date'):
+                        posting = posting.date()
+                    days = (posting - req_date).days
+                    return days if days >= 0 else None
+                except:
+                    return None
+            return None
 
-            if lead_values:
-                avg_lead = sum(lead_values) / len(lead_values)
-                avg_lead_time_display = f"{avg_lead:.0f} days"
+        filtered_lead_df['Lead Time Value'] = filtered_lead_df.apply(calc_lead_val, axis=1)
+        lead_values = filtered_lead_df['Lead Time Value'].dropna().tolist()
+
+        if lead_values:
+            avg_lead = sum(lead_values) / len(lead_values)
+            avg_lead_time_display = f"{avg_lead:.0f} days"
 
         # Calculate stock status counts
         total_items = len(df_filtered)
