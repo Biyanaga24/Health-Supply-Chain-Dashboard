@@ -3120,47 +3120,39 @@ else:
         else:
             avg_avail_gap = 0
 
-        # Calculate Average Lead Time (PROGRAM-SPECIFIC)
-avg_lead_time_display = "N/A"
-if not df_new_deliveries.empty:
-    # Get materials for the selected program
-    if sheet_name != "All" and sheet_name in google_sheets:
-        program_materials = google_sheets[sheet_name]['Material Description'].dropna().tolist()
-        # Filter deliveries by program materials
-        filtered_lead_df = df_new_deliveries[df_new_deliveries['Material Description'].isin(program_materials)].copy()
-    else:
-        filtered_lead_df = df_new_deliveries.copy()
+        # Calculate Average Lead Time
+        avg_lead_time_display = "N/A"
+        if not df_new_deliveries.empty:
+            temp_lead_df = df_new_deliveries.copy()
+            temp_lead_df['Posting Date'] = pd.to_datetime(temp_lead_df['Posting Date'], errors='coerce')
+            temp_lead_df['PO Number'] = temp_lead_df['PO Number'].astype(str)
 
-    if not filtered_lead_df.empty:
-        filtered_lead_df['Posting Date'] = pd.to_datetime(filtered_lead_df['Posting Date'], errors='coerce')
-        filtered_lead_df['PO Number'] = filtered_lead_df['PO Number'].astype(str)
+            temp_lead_df['Requested Date'] = temp_lead_df.apply(
+                lambda row: st.session_state.requested_dates.get(f"{row['PO Number']}_{row['Material Description']}", None) if 'requested_dates' in st.session_state else None,
+                axis=1
+            )
 
-        filtered_lead_df['Requested Date'] = filtered_lead_df.apply(
-            lambda row: st.session_state.requested_dates.get(f"{row['PO Number']}_{row['Material Description']}", None) if 'requested_dates' in st.session_state else None,
-            axis=1
-        )
+            def calc_lead_val(row):
+                req_date = row['Requested Date']
+                posting = row['Posting Date']
+                if req_date and pd.notna(posting):
+                    try:
+                        if hasattr(req_date, 'date'):
+                            req_date = req_date.date()
+                        if hasattr(posting, 'date'):
+                            posting = posting.date()
+                        days = (posting - req_date).days
+                        return days if days >= 0 else None
+                    except:
+                        return None
+                return None
 
-        def calc_lead_val(row):
-            req_date = row['Requested Date']
-            posting = row['Posting Date']
-            if req_date and pd.notna(posting):
-                try:
-                    if hasattr(req_date, 'date'):
-                        req_date = req_date.date()
-                    if hasattr(posting, 'date'):
-                        posting = posting.date()
-                    days = (posting - req_date).days
-                    return days if days >= 0 else None
-                except:
-                    return None
-            return None
+            temp_lead_df['Lead Time Value'] = temp_lead_df.apply(calc_lead_val, axis=1)
+            lead_values = temp_lead_df['Lead Time Value'].dropna().tolist()
 
-        filtered_lead_df['Lead Time Value'] = filtered_lead_df.apply(calc_lead_val, axis=1)
-        lead_values = filtered_lead_df['Lead Time Value'].dropna().tolist()
-
-        if lead_values:
-            avg_lead = sum(lead_values) / len(lead_values)
-            avg_lead_time_display = f"{avg_lead:.0f} days"
+            if lead_values:
+                avg_lead = sum(lead_values) / len(lead_values)
+                avg_lead_time_display = f"{avg_lead:.0f} days"
 
         # Calculate stock status counts
         total_items = len(df_filtered)
