@@ -197,6 +197,72 @@ def fast_trend_strength(data_series):
     slope = numerator / np.sum((x - x_mean)**2)
     return r2, slope, p_value
 
+# Function to get recommended model based on decision criteria
+def get_recommended_model_by_criteria(chars):
+    """
+    Returns the recommended model based on the decision tree logic:
+
+    Stationary?
+    │
+    ├── No
+    │   ├── Seasonality = Yes → SARIMA
+    │   └── Seasonality = No  → ARIMA
+    │
+    └── Yes
+        ├── Trend + Seasonality → TES
+        ├── Trend Only          → DES
+        └── No Trend
+            ├── Seasonality = Yes
+            │   ├── High Volatility → SARIMA
+            │   └── Low/Moderate Volatility → TES
+            └── No Seasonality
+                ├── Low Volatility      → SMA
+                ├── Moderate Volatility → EMA
+                └── High Volatility     → SES
+    """
+    stationary = chars['is_stationary']
+    trend = chars['has_trend']
+    seasonality = chars['has_seasonality']
+    volatility = chars['volatility_level']
+
+    # Non-stationary branch
+    if not stationary:
+        if seasonality:
+            return "SARIMA"
+        else:
+            return "ARIMA"
+
+    # Stationary branch
+    else:
+        # Trend + Seasonality
+        if trend and seasonality:
+            return "TES"
+
+        # Trend Only
+        elif trend and not seasonality:
+            return "DES"
+
+        # No Trend
+        elif not trend:
+            # Has Seasonality
+            if seasonality:
+                if volatility == "High":
+                    return "SARIMA"
+                else:  # Low or Moderate volatility
+                    return "TES"
+
+            # No Seasonality
+            else:
+                if volatility == "Low":
+                    return "SMA"
+                elif volatility == "Moderate":
+                    return "EMA"
+                elif volatility == "High":
+                    return "SES"
+
+    # Default fallback
+    return "SES"
+
 # Batch processing with ThreadPoolExecutor
 def process_material_batch(material_list, df, train_pct, forecast_months):
     """Process multiple materials in parallel"""
@@ -230,6 +296,10 @@ def process_single_material_optimized(material_name, data_series, train_pct, for
 
         # Use faster characteristic analysis
         chars = analyze_data_characteristics_optimized(material_data)
+
+        # Get recommended model based on criteria (for summary table)
+        recommended_model_criteria = get_recommended_model_by_criteria(chars)
+
         candidates = get_candidate_models(chars)
 
         train_size = max(3, int(len(material_data) * train_pct / 100))
@@ -343,6 +413,7 @@ def process_single_material_optimized(material_name, data_series, train_pct, for
             'material_name': material_name,
             'characteristics': chars,
             'candidate_models': candidates,
+            'recommended_model_criteria': recommended_model_criteria,
             'trained_models': trained_models,
             'best_model': best_model_name,
             'all_forecasts': all_forecasts,
@@ -477,35 +548,60 @@ def find_best_arima_auto_fast(train_data):
     return best_model, best_order, best_aic
 
 def train_sarima_with_params(train_data, test_data):
-    """Fast SARIMA training with parameter capture - FIXED"""
-    if len(train_data) < 24:
+    """SARIMA training with parameter capture - WORKS WITH SMALLER DATASETS"""
+    # Reduced minimum requirement from 24 to 12 months
+    if len(train_data) < 12:
         return None
+
     best_aic = float('inf')
     best_model = None
     best_order = None
     best_seasonal_order = None
 
+    # Determine max parameters based on data length
+    max_p = 1 if len(train_data) < 18 else 2
+    max_q = 1 if len(train_data) < 18 else 2
+    # Only try seasonal parameters if we have enough data (at least 24 months)
+    try_seasonal = len(train_data) >= 24
+
     # Search for best SARIMA parameters
-    for p in [0, 1]:
+    for p in range(max_p + 1):
         for d in [0, 1]:
-            for q in [0, 1]:
-                for P in [0, 1]:
-                    for D in [0, 1]:
-                        for Q in [0, 1]:
-                            try:
-                                model = SARIMAX(train_data.values, 
-                                              order=(p, d, q), 
-                                              seasonal_order=(P, D, Q, 12),
-                                              enforce_stationarity=False,
-                                              enforce_invertibility=False)
-                                fitted = model.fit(disp=False, maxiter=100)
-                                if fitted.aic < best_aic:
-                                    best_aic = fitted.aic
-                                    best_model = fitted
-                                    best_order = (p, d, q)
-                                    best_seasonal_order = (P, D, Q, 12)
-                            except:
-                                continue
+            for q in range(max_q + 1):
+                if try_seasonal:
+                    for P in [0, 1]:
+                        for D in [0, 1]:
+                            for Q in [0, 1]:
+                                try:
+                                    model = SARIMAX(train_data.values, 
+                                                  order=(p, d, q), 
+                                                  seasonal_order=(P, D, Q, 12),
+                                                  enforce_stationarity=False,
+                                                  enforce_invertibility=False)
+                                    fitted = model.fit(disp=False, maxiter=100)
+                                    if fitted.aic < best_aic:
+                                        best_aic = fitted.aic
+                                        best_model = fitted
+                                        best_order = (p, d, q)
+                                        best_seasonal_order = (P, D, Q, 12)
+                                except:
+                                    continue
+                else:
+                    # Try non-seasonal SARIMA (same as ARIMA but with SARIMAX)
+                    try:
+                        model = SARIMAX(train_data.values, 
+                                      order=(p, d, q), 
+                                      seasonal_order=(0, 0, 0, 12),
+                                      enforce_stationarity=False,
+                                      enforce_invertibility=False)
+                        fitted = model.fit(disp=False, maxiter=100)
+                        if fitted.aic < best_aic:
+                            best_aic = fitted.aic
+                            best_model = fitted
+                            best_order = (p, d, q)
+                            best_seasonal_order = (0, 0, 0, 12)
+                    except:
+                        continue
 
     if best_model is not None:
         try:
@@ -586,8 +682,13 @@ def generate_future_forecast_fast(data_series, model_name, forecast_months):
             model = ARIMA(data_positive.values, order=(1, 1, 1)).fit(method_kwargs={'disp': False})
             forecast_values = model.forecast(steps=forecast_months)
         elif model_name == 'SARIMA':
-            model = SARIMAX(data_positive.values, order=(1, 1, 1), seasonal_order=(1, 1, 1, 12)).fit(disp=False)
-            forecast_values = model.forecast(steps=forecast_months)
+            try:
+                model = SARIMAX(data_positive.values, order=(1, 1, 1), seasonal_order=(1, 1, 1, 12)).fit(disp=False)
+                forecast_values = model.forecast(steps=forecast_months)
+            except:
+                # Fallback to ARIMA if SARIMA fails
+                model = ARIMA(data_positive.values, order=(1, 1, 1)).fit(method_kwargs={'disp': False})
+                forecast_values = model.forecast(steps=forecast_months)
         elif model_name == 'SES':
             model = SimpleExpSmoothing(data_positive.values).fit(optimized=True)
             forecast_values = model.forecast(steps=forecast_months)
@@ -613,26 +714,26 @@ def generate_future_forecast_fast(data_series, model_name, forecast_months):
 def get_candidate_models(chars):
     candidates = []
 
-    if chars['is_stationary'] and not chars['has_trend'] and not chars['has_seasonality'] and chars['volatility_level'] == 'Low':
-        candidates = ['SES', 'SMA']
-    elif chars['is_stationary'] and not chars['has_trend'] and not chars['has_seasonality'] and chars['volatility_level'] == 'Moderate':
-        candidates = ['EMA', 'SES']
-    elif chars['is_stationary'] and not chars['has_trend'] and not chars['has_seasonality'] and chars['volatility_level'] == 'High':
-        candidates = ['EMA', 'ARIMA', 'SES']
+    if chars['is_stationary'] and chars['has_trend'] and chars['has_seasonality']:
+        candidates = ['TES', 'SARIMA']
     elif chars['is_stationary'] and chars['has_trend'] and not chars['has_seasonality']:
-        candidates = ['DES', 'SES', 'SMA']
-    elif chars['is_stationary'] and chars['has_trend'] and chars['has_seasonality'] and chars['volatility_level'] in ['Low', 'Moderate']:
-        candidates = ['TES', 'SARIMA', 'DES']
-    elif chars['is_stationary'] and chars['has_trend'] and chars['has_seasonality'] and chars['volatility_level'] == 'High':
-        candidates = ['SARIMA', 'TES', 'ARIMA']
-    elif not chars['is_stationary'] and not chars['has_trend'] and not chars['has_seasonality']:
-        candidates = ['ARIMA', 'SES', 'EMA']
-    elif not chars['is_stationary'] and chars['has_trend'] and not chars['has_seasonality']:
-        candidates = ['ARIMA', 'DES', 'SES']
-    elif not chars['is_stationary'] and chars['has_trend'] and chars['has_seasonality']:
-        candidates = ['SARIMA', 'ARIMA', 'TES']
-    elif not chars['is_stationary'] and not chars['has_trend'] and chars['has_seasonality']:
-        candidates = ['SARIMA', 'TES', 'ARIMA']
+        candidates = ['DES', 'SES']
+    elif chars['is_stationary'] and not chars['has_trend'] and chars['has_seasonality']:
+        if chars['volatility_level'] == 'High':
+            candidates = ['SARIMA', 'TES']
+        else:
+            candidates = ['TES', 'SARIMA']
+    elif chars['is_stationary'] and not chars['has_trend'] and not chars['has_seasonality']:
+        if chars['volatility_level'] == 'Low':
+            candidates = ['SMA', 'SES']
+        elif chars['volatility_level'] == 'Moderate':
+            candidates = ['EMA', 'SES']
+        else:
+            candidates = ['SES', 'ARIMA']
+    elif not chars['is_stationary'] and chars['has_seasonality']:
+        candidates = ['SARIMA', 'ARIMA']
+    elif not chars['is_stationary'] and not chars['has_seasonality']:
+        candidates = ['ARIMA', 'SES']
     else:
         candidates = ['SES', 'SMA', 'ARIMA']
 
@@ -761,16 +862,72 @@ if st.session_state.processing_complete and st.session_state.all_materials_data:
         decision_html = """
         <table class="decision-table">
             <thead>
-                <tr><th>Stationary</th><th>Trend</th><th>Seasonality</th><th>Volatility</th><th>Recommended Models</th></tr>
+                <tr><th>Stationary</th><th>Trend</th><th>Seasonality</th><th>Volatility</th><th>Recommended Model</th></tr>
             </thead>
             <tbody>
-                <tr><td>Yes</td><td>No</td><td>No</td><td>Low</td><td>SES, SMA</td></tr>
-                <tr><td>Yes</td><td>No</td><td>No</td><td>Moderate</td><td>EMA, SES</td></tr>
-                <tr><td>Yes</td><td>Yes</td><td>No</td><td>Any</td><td>DES</td></tr>
-                <tr><td>Yes</td><td>Yes</td><td>Yes</td><td>Low/Moderate</td><td>TES</td></tr>
-                <tr><td>No</td><td>No</td><td>No</td><td>High</td><td>ARIMA</td></tr>
-                <tr><td>No</td><td>Yes</td><td>No</td><td>High</td><td>ARIMA</td></tr>
-                <tr><td>No</td><td>Yes</td><td>Yes</td><td>High</td><td>SARIMA</td></tr>
+                <tr style="background-color: #f5f9ff;">
+                    <td style="text-align: center;">No</td>
+                    <td style="text-align: center;">Any</td>
+                    <td style="text-align: center;">Yes</td>
+                    <td style="text-align: center;">Any</td>
+                    <td style="text-align: center;"><b>SARIMA</b></td>
+                </tr>
+                <tr>
+                    <td style="text-align: center;">No</td>
+                    <td style="text-align: center;">Any</td>
+                    <td style="text-align: center;">No</td>
+                    <td style="text-align: center;">Any</td>
+                    <td style="text-align: center;"><b>ARIMA</b></td>
+                </tr>
+                <tr style="background-color: #f5f9ff;">
+                    <td style="text-align: center;">Yes</td>
+                    <td style="text-align: center;">Yes</td>
+                    <td style="text-align: center;">Yes</td>
+                    <td style="text-align: center;">Any</td>
+                    <td style="text-align: center;"><b>TES</b></td>
+                </tr>
+                <tr>
+                    <td style="text-align: center;">Yes</td>
+                    <td style="text-align: center;">Yes</td>
+                    <td style="text-align: center;">No</td>
+                    <td style="text-align: center;">Any</td>
+                    <td style="text-align: center;"><b>DES</b></td>
+                </tr>
+                <tr style="background-color: #f5f9ff;">
+                    <td style="text-align: center;">Yes</td>
+                    <td style="text-align: center;">No</td>
+                    <td style="text-align: center;">Yes</td>
+                    <td style="text-align: center;">High</td>
+                    <td style="text-align: center;"><b>SARIMA</b></td>
+                </tr>
+                <tr>
+                    <td style="text-align: center;">Yes</td>
+                    <td style="text-align: center;">No</td>
+                    <td style="text-align: center;">Yes</td>
+                    <td style="text-align: center;">Low/Moderate</td>
+                    <td style="text-align: center;"><b>TES</b></td>
+                </tr>
+                <tr style="background-color: #f5f9ff;">
+                    <td style="text-align: center;">Yes</td>
+                    <td style="text-align: center;">No</td>
+                    <td style="text-align: center;">No</td>
+                    <td style="text-align: center;">Low</td>
+                    <td style="text-align: center;"><b>SMA</b></td>
+                </tr>
+                <tr>
+                    <td style="text-align: center;">Yes</td>
+                    <td style="text-align: center;">No</td>
+                    <td style="text-align: center;">No</td>
+                    <td style="text-align: center;">Moderate</td>
+                    <td style="text-align: center;"><b>EMA</b></td>
+                </tr>
+                <tr style="background-color: #f5f9ff;">
+                    <td style="text-align: center;">Yes</td>
+                    <td style="text-align: center;">No</td>
+                    <td style="text-align: center;">No</td>
+                    <td style="text-align: center;">High</td>
+                    <td style="text-align: center;"><b>SES</b></td>
+                </tr>
             </tbody>
         </table>
         """
@@ -778,26 +935,34 @@ if st.session_state.processing_complete and st.session_state.all_materials_data:
 
         st.markdown("---")
         st.markdown("## 📊 All Materials Summary with Forecast")
+        st.markdown("*Models recommended based on the decision table above.*")
 
         # Build summary data with enhanced columns
         summary_data = []
         for material, data in st.session_state.all_materials_data.items():
             chars = data['characteristics']
 
-            # Get recommended model and its forecast total
-            recommended_model = data['candidate_models'][0] if data['candidate_models'] else "N/A"
+            # Get recommended model based on decision criteria
+            recommended_model = data.get('recommended_model_criteria', 'N/A')
+
+            # Get forecast total for the recommended model
             forecast_total = "N/A"
-            if recommended_model in data['all_forecasts']:
+            if recommended_model != 'N/A' and recommended_model in data['all_forecasts']:
                 forecast_total = f"{data['all_forecasts'][recommended_model]['total']:,.0f}"
+
+            # Determine volatility display
+            volatility_display = f"{chars['cv']:.3f} ({chars['volatility_level']})"
 
             summary_data.append({
                 "Material": material[:50],
                 "Records": len(data['data_series']),
                 "P-value": f"{chars['adf_pvalue']:.4f}",
                 "Stationary": "Yes" if chars['is_stationary'] else "No",
+                "Trend": "Yes" if chars['has_trend'] else "No",
+                "Seasonality": "Yes" if chars['has_seasonality'] else "No",
                 "Trend Strength": f"{chars['trend_strength']:.3f}",
                 "Seasonal Strength": f"{chars['seasonal_strength']:.3f}",
-                "Volatility": f"{chars['cv']:.3f} ({chars['volatility_level']})",
+                "Volatility": volatility_display,
                 "Recommended Model": recommended_model,
                 "Forecast Total (Next 12 Months)": forecast_total
             })
@@ -827,7 +992,7 @@ if st.session_state.processing_complete and st.session_state.all_materials_data:
             with col1:
                 st.markdown(f'<div class="char-badge">📌 Stationarity: {"Stationary" if chars["is_stationary"] else "Non-Stationary"}<br>p={chars["adf_pvalue"]:.4f}</div>', unsafe_allow_html=True)
             with col2:
-                st.markdown(f'<div class="char-badge">📈 Trend: {"Yes" if chars["has_trend"] else "No"}<br>Strength: {chars["trend_strength"]:.3f}</div>', unsafe_allow_html=True)
+                st.markdown(f'<div class="char-badge">📈 Trend: {"Yes" if chars["has_trend"] else "No"}<br>Strength: {chars["trend_strength"]:.3f}<br>Direction: {chars["trend_direction"]}</div>', unsafe_allow_html=True)
             with col3:
                 st.markdown(f'<div class="char-badge">📅 Seasonality: {"Yes" if chars["has_seasonality"] else "No"}<br>Strength: {chars["seasonal_strength"]:.3f}</div>', unsafe_allow_html=True)
             with col4:
@@ -836,12 +1001,47 @@ if st.session_state.processing_complete and st.session_state.all_materials_data:
             if chars['expert_decision_needed']:
                 st.warning("⚠️ **Expert Decision Needed:** Trend or seasonality strength is between 0.3-0.5. Review metrics carefully.")
 
+            # Show decision path for this material
+            st.markdown("### 🧭 Decision Path Applied")
+
+            # Build decision path display
+            decision_path = ""
+            if not chars['is_stationary']:
+                decision_path = "Non-Stationary → "
+                if chars['has_seasonality']:
+                    decision_path += "Seasonality = Yes → **SARIMA**"
+                else:
+                    decision_path += "Seasonality = No → **ARIMA**"
+            else:
+                decision_path = "Stationary → "
+                if chars['has_trend'] and chars['has_seasonality']:
+                    decision_path += "Trend + Seasonality → **TES**"
+                elif chars['has_trend'] and not chars['has_seasonality']:
+                    decision_path += "Trend Only → **DES**"
+                elif not chars['has_trend'] and chars['has_seasonality']:
+                    decision_path += "No Trend + Seasonality → "
+                    if chars['volatility_level'] == 'High':
+                        decision_path += "High Volatility → **SARIMA**"
+                    else:
+                        decision_path += f"{chars['volatility_level']} Volatility → **TES**"
+                else:
+                    decision_path += "No Trend + No Seasonality → "
+                    if chars['volatility_level'] == 'Low':
+                        decision_path += "Low Volatility → **SMA**"
+                    elif chars['volatility_level'] == 'Moderate':
+                        decision_path += "Moderate Volatility → **EMA**"
+                    else:
+                        decision_path += "High Volatility → **SES**"
+
+            st.info(f"📌 **Decision Path:** {decision_path}")
+
             # ============ MODEL PERFORMANCE COMPARISON (WITH SARIMA INCLUDED) ============
             if data['trained_models']:
                 st.markdown("### 📊 Model Performance Comparison (Validation Data)")
                 st.markdown("*Lower values are better for MAE, RMSE, MAPE. Higher R² is better.*")
 
                 perf_data = []
+                # Include ALL 7 models including SARIMA
                 model_order = ['SMA', 'EMA', 'SES', 'DES', 'TES', 'ARIMA', 'SARIMA']
                 for name in model_order:
                     if name in data['trained_models']:
@@ -902,6 +1102,10 @@ if st.session_state.processing_complete and st.session_state.all_materials_data:
                     html_table += '</tbody></table>'
                     st.markdown(html_table, unsafe_allow_html=True)
 
+                    # Highlight the recommended model
+                    recommended = data.get('recommended_model_criteria', 'SES')
+                    st.success(f"⭐ **Decision Table Recommendation for this material:** *{recommended}*")
+
             # ============ MANUAL MODEL SELECTION ============
             st.markdown("### 🎯 Manual Model Selection (All Models)")
             st.markdown("*Check the models you want to use for forecasting. You can select multiple models to compare.*")
@@ -913,9 +1117,10 @@ if st.session_state.processing_complete and st.session_state.all_materials_data:
             material_key = f"checkbox_{selected_material}"
             if material_key not in st.session_state.checkbox_states:
                 st.session_state.checkbox_states[material_key] = {model: False for model in available_models}
-                # Auto-select recommended model
-                if data['candidate_models'] and data['candidate_models'][0] in st.session_state.checkbox_states[material_key]:
-                    st.session_state.checkbox_states[material_key][data['candidate_models'][0]] = True
+                # Auto-select recommended model based on criteria
+                criteria_model = data.get('recommended_model_criteria', 'SES')
+                if criteria_model in st.session_state.checkbox_states[material_key]:
+                    st.session_state.checkbox_states[material_key][criteria_model] = True
 
             st.markdown('<div class="checkbox-group">', unsafe_allow_html=True)
             st.markdown('<div class="all-models-header">📊 Select Forecasting Models:</div>', unsafe_allow_html=True)
@@ -1009,8 +1214,25 @@ if not st.session_state.data_loaded:
     <p><strong>Evaluation Metrics:</strong> MAE, RMSE, MAPE, R² are all displayed for informed model selection.</p>
     <p><strong>Optimal Parameters:</strong> Each model shows its optimized hyperparameters for transparency.</p>
     <p><strong>SARIMA included:</strong> Seasonal ARIMA is now fully integrated in performance comparison.</p>
+    <p><strong>Decision Table Logic:</strong></p>
+    <table class="decision-table" style="width: 100%; font-size: 12px;">
+        <thead>
+            <tr><th>Stationary</th><th>Trend</th><th>Seasonality</th><th>Volatility</th><th>Recommended Model</th></tr>
+        </thead>
+        <tbody>
+            <tr><td style="text-align: center;">No</td><td style="text-align: center;">Any</td><td style="text-align: center;">Yes</td><td style="text-align: center;">Any</td><td style="text-align: center;"><b>SARIMA</b></td></tr>
+            <tr><td style="text-align: center;">No</td><td style="text-align: center;">Any</td><td style="text-align: center;">No</td><td style="text-align: center;">Any</td><td style="text-align: center;"><b>ARIMA</b></td></tr>
+            <tr><td style="text-align: center;">Yes</td><td style="text-align: center;">Yes</td><td style="text-align: center;">Yes</td><td style="text-align: center;">Any</td><td style="text-align: center;"><b>TES</b></td></tr>
+            <tr><td style="text-align: center;">Yes</td><td style="text-align: center;">Yes</td><td style="text-align: center;">No</td><td style="text-align: center;">Any</td><td style="text-align: center;"><b>DES</b></td></tr>
+            <tr><td style="text-align: center;">Yes</td><td style="text-align: center;">No</td><td style="text-align: center;">Yes</td><td style="text-align: center;">High</td><td style="text-align: center;"><b>SARIMA</b></td></tr>
+            <tr><td style="text-align: center;">Yes</td><td style="text-align: center;">No</td><td style="text-align: center;">Yes</td><td style="text-align: center;">Low/Moderate</td><td style="text-align: center;"><b>TES</b></td></tr>
+            <tr><td style="text-align: center;">Yes</td><td style="text-align: center;">No</td><td style="text-align: center;">No</td><td style="text-align: center;">Low</td><td style="text-align: center;"><b>SMA</b></td></tr>
+            <tr><td style="text-align: center;">Yes</td><td style="text-align: center;">No</td><td style="text-align: center;">No</td><td style="text-align: center;">Moderate</td><td style="text-align: center;"><b>EMA</b></td></tr>
+            <tr><td style="text-align: center;">Yes</td><td style="text-align: center;">No</td><td style="text-align: center;">No</td><td style="text-align: center;">High</td><td style="text-align: center;"><b>SES</b></td></tr>
+        </tbody>
+    </table>
     </div>
     """, unsafe_allow_html=True)
 
 st.markdown("---")
-st.markdown('<div style="text-align: center; color: #6c757d; padding: 15px;">🏥 Health Program Medicines Demand Forecasting Dashboard | Parallel Processing | All 7 Models including SARIMA with Optimal Parameters</div>', unsafe_allow_html=True)
+st.markdown('<div style="text-align: center; color: #6c757d; padding: 15px;">🏥 Health Program Medicines Demand Forecasting Dashboard | Parallel Processing | All 7 Models including SARIMA with Optimal Parameters | Decision Table-Based Model Recommendations</div>', unsafe_allow_html=True)
