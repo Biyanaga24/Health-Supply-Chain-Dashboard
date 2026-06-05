@@ -8,6 +8,9 @@ from supabase import create_client
 import time
 import uuid
 import pytz
+import plotly.express as px
+import plotly.graph_objects as go
+from plotly.subplots import make_subplots
 
 # Suppress warnings
 warnings.filterwarnings("ignore")
@@ -284,6 +287,80 @@ def get_online_users():
         print(f"Error getting online users: {e}")
         return []
 
+def get_user_activity_stats():
+    """Get detailed user activity statistics - FIXED datetime comparison"""
+    try:
+        all_users = get_all_users()
+        if all_users.empty:
+            return {}
+
+        # Calculate basic statistics
+        stats = {
+            'total_users': len(all_users),
+            'approved_users': len(all_users[all_users['is_approved'] == 1]) if 'is_approved' in all_users else 0,
+            'pending_users': len(all_users[all_users['is_approved'] == 0]) if 'is_approved' in all_users else 0,
+            'admin_users': len(all_users[all_users['role'] == 'admin']) if 'role' in all_users else 0,
+            'regular_users': len(all_users[all_users['role'] == 'user']) if 'role' in all_users else 0,
+        }
+
+        # Activity trends (last 7 days) - FIXED datetime comparison
+        if 'last_active' in all_users.columns:
+            # Convert to datetime with error handling
+            all_users['last_active_date'] = pd.to_datetime(all_users['last_active'], errors='coerce', utc=True)
+
+            # Drop NaN values
+            all_users_clean = all_users.dropna(subset=['last_active_date'])
+
+            if not all_users_clean.empty:
+                # Get current time in UTC for comparison
+                current_time_utc = datetime.now(pytz.UTC)
+                last_7_days_utc = current_time_utc - timedelta(days=7)
+
+                # Filter users active in last 7 days - both are now timezone-aware
+                active_mask = all_users_clean['last_active_date'] > last_7_days_utc
+                stats['active_last_7_days'] = active_mask.sum()
+                stats['inactive_last_7_days'] = stats['total_users'] - stats['active_last_7_days']
+            else:
+                stats['active_last_7_days'] = 0
+                stats['inactive_last_7_days'] = stats['total_users']
+        else:
+            stats['active_last_7_days'] = 0
+            stats['inactive_last_7_days'] = stats['total_users']
+
+        # Registration trends by date
+        if 'created_at' in all_users.columns:
+            all_users['created_date'] = pd.to_datetime(all_users['created_at'], errors='coerce', utc=True)
+            # Drop NaT values
+            all_users_clean = all_users.dropna(subset=['created_date'])
+            if not all_users_clean.empty:
+                # Convert to date for grouping
+                all_users_clean['created_date_only'] = all_users_clean['created_date'].dt.date
+                daily_registrations = all_users_clean.groupby('created_date_only').size().reset_index(name='count')
+                daily_registrations.columns = ['created_date', 'count']
+                stats['daily_registrations'] = daily_registrations
+            else:
+                stats['daily_registrations'] = pd.DataFrame(columns=['created_date', 'count'])
+
+        # Activity by hour of day
+        if 'last_active' in all_users.columns:
+            # Convert to datetime and extract hour
+            all_users['active_datetime'] = pd.to_datetime(all_users['last_active'], errors='coerce', utc=True)
+            # Drop NaT values
+            all_users_clean = all_users.dropna(subset=['active_datetime'])
+            if not all_users_clean.empty:
+                all_users_clean['active_hour'] = all_users_clean['active_datetime'].dt.hour
+                hourly_activity = all_users_clean.groupby('active_hour').size().reset_index(name='count')
+                stats['hourly_activity'] = hourly_activity
+            else:
+                stats['hourly_activity'] = pd.DataFrame(columns=['active_hour', 'count'])
+
+        return stats
+    except Exception as e:
+        st.error(f"Error getting user stats: {e}")
+        import traceback
+        st.error(f"Details: {traceback.format_exc()}")
+        return {}
+
 def init_session_state():
     """Initialize all session state variables needed by dashboard"""
     if 'auth' not in st.session_state:
@@ -352,6 +429,8 @@ def init_session_state():
         st.session_state['last_summary_section'] = None
     if 'action_plan_tab' not in st.session_state:
         st.session_state['action_plan_tab'] = "📋 All Issues"
+    if 'font_size' not in st.session_state:
+        st.session_state.font_size = "medium"
 
 def check_session_validity():
     """Update user's last active timestamp with Addis Ababa time"""
@@ -858,6 +937,296 @@ def show_profile_page():
     else:
         st.warning("User data not found")
 
+def show_user_statistics():
+    """Display interactive user statistics dashboard"""
+    st.markdown("### 📊 User Analytics Dashboard")
+
+    stats = get_user_activity_stats()
+
+    if not stats or stats.get('total_users', 0) == 0:
+        st.warning("No user data available for statistics")
+        return
+
+    # Filter options
+    col1, col2, col3 = st.columns([1, 1, 2])
+    with col1:
+        show_chart_type = st.selectbox(
+            "Chart Style",
+            ["Modern", "Classic", "Minimalist"],
+            key="chart_style"
+        )
+    with col2:
+        time_range = st.selectbox(
+            "Time Range",
+            ["Last 7 Days", "Last 30 Days", "All Time"],
+            key="time_range"
+        )
+    with col3:
+        st.markdown("### ")
+        if st.button("🔄 Refresh Statistics", use_container_width=True):
+            st.rerun()
+
+    # Key Metrics Row with enhanced styling
+    col1, col2, col3, col4, col5 = st.columns(5)
+
+    metric_style = """
+    <div style="background: linear-gradient(135deg, {color1}, {color2}); 
+                border-radius: 15px; 
+                padding: 15px; 
+                text-align: center;
+                color: white;
+                box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+                transition: transform 0.3s;">
+        <div style="font-size: 32px; margin-bottom: 5px;">{icon}</div>
+        <div style="font-size: 24px; font-weight: bold;">{value}</div>
+        <div style="font-size: 12px; opacity: 0.9;">{label}</div>
+    </div>
+    """
+
+    with col1:
+        st.markdown(metric_style.format(
+            icon="👥", value=stats.get('total_users', 0),
+            label="Total Users", color1="#667eea", color2="#764ba2"
+        ), unsafe_allow_html=True)
+
+    with col2:
+        st.markdown(metric_style.format(
+            icon="✅", value=stats.get('approved_users', 0),
+            label="Approved", color1="#11998e", color2="#38ef7d"
+        ), unsafe_allow_html=True)
+
+    with col3:
+        st.markdown(metric_style.format(
+            icon="⏳", value=stats.get('pending_users', 0),
+            label="Pending", color1="#f093fb", color2="#f5576c"
+        ), unsafe_allow_html=True)
+
+    with col4:
+        st.markdown(metric_style.format(
+            icon="👑", value=stats.get('admin_users', 0),
+            label="Admins", color1="#fa709a", color2="#fee140"
+        ), unsafe_allow_html=True)
+
+    with col5:
+        st.markdown(metric_style.format(
+            icon="🟢", value=stats.get('active_last_7_days', 0),
+            label="Active (7d)", color1="#4facfe", color2="#00f2fe"
+        ), unsafe_allow_html=True)
+
+    st.markdown("---")
+
+    # Create two columns for charts
+    col1, col2 = st.columns(2)
+
+    with col1:
+        st.markdown("#### 📈 User Role Distribution")
+
+        # Role distribution pie chart
+        role_data = pd.DataFrame({
+            'Role': ['Admin Users', 'Regular Users'],
+            'Count': [stats.get('admin_users', 0), stats.get('regular_users', 0)]
+        })
+
+        colors = ['#764ba2', '#667eea']
+
+        fig = px.pie(role_data, values='Count', names='Role',
+                     title='User Roles',
+                     color_discrete_sequence=colors,
+                     hole=0.4)
+
+        fig.update_layout(
+            showlegend=True,
+            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="center", x=0.5),
+            height=400,
+            margin=dict(t=50, l=0, r=0, b=0),
+            paper_bgcolor='rgba(0,0,0,0)',
+            plot_bgcolor='rgba(0,0,0,0)'
+        )
+
+        fig.update_traces(textposition='inside', textinfo='percent+label')
+        st.plotly_chart(fig, use_container_width=True)
+
+        st.markdown("#### ✅ Approval Status")
+
+        # Approval status donut chart
+        approval_data = pd.DataFrame({
+            'Status': ['Approved', 'Pending'],
+            'Count': [stats.get('approved_users', 0), stats.get('pending_users', 0)]
+        })
+
+        fig2 = px.pie(approval_data, values='Count', names='Status',
+                      title='Account Approval Status',
+                      color_discrete_sequence=['#11998e', '#f5576c'],
+                      hole=0.4)
+
+        fig2.update_layout(
+            showlegend=True,
+            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="center", x=0.5),
+            height=400,
+            margin=dict(t=50, l=0, r=0, b=0),
+            paper_bgcolor='rgba(0,0,0,0)',
+            plot_bgcolor='rgba(0,0,0,0)'
+        )
+
+        fig2.update_traces(textposition='inside', textinfo='percent+label')
+        st.plotly_chart(fig2, use_container_width=True)
+
+    with col2:
+        st.markdown("#### 📅 User Activity (Last 7 Days)")
+
+        if 'active_last_7_days' in stats:
+            activity_data = pd.DataFrame({
+                'Category': ['Active Users', 'Inactive Users'],
+                'Count': [stats['active_last_7_days'], stats['inactive_last_7_days']]
+            })
+
+            fig3 = px.bar(activity_data, x='Category', y='Count',
+                         title='User Activity Status',
+                         color='Category',
+                         color_discrete_sequence=['#38ef7d', '#f5576c'],
+                         text='Count')
+
+            fig3.update_traces(textposition='outside')
+            fig3.update_layout(
+                showlegend=False,
+                height=400,
+                margin=dict(t=50, l=0, r=0, b=0),
+                paper_bgcolor='rgba(0,0,0,0)',
+                plot_bgcolor='rgba(0,0,0,0)',
+                xaxis_title="",
+                yaxis_title="Number of Users"
+            )
+            st.plotly_chart(fig3, use_container_width=True)
+
+        st.markdown("#### ⏰ Hourly Activity Pattern")
+
+        if 'hourly_activity' in stats and not stats['hourly_activity'].empty:
+            hourly_df = stats['hourly_activity'].copy()
+            hourly_df = hourly_df.dropna()
+
+            if not hourly_df.empty:
+                fig4 = px.line(hourly_df, x='active_hour', y='count',
+                              title='User Activity by Hour of Day',
+                              markers=True,
+                              line_shape='spline')
+
+                fig4.update_traces(line=dict(color='#667eea', width=3),
+                                  marker=dict(size=8, color='#764ba2'))
+
+                fig4.update_layout(
+                    height=400,
+                    margin=dict(t=50, l=0, r=0, b=0),
+                    paper_bgcolor='rgba(0,0,0,0)',
+                    plot_bgcolor='rgba(0,0,0,0)',
+                    xaxis_title="Hour of Day (0-23)",
+                    yaxis_title="Number of Active Users",
+                    xaxis=dict(tickmode='linear', tick0=0, dtick=2)
+                )
+                st.plotly_chart(fig4, use_container_width=True)
+            else:
+                st.info("No hourly activity data available")
+        else:
+            st.info("No hourly activity data available")
+
+    # Registration trends over time
+    st.markdown("---")
+    st.markdown("#### 📊 User Registration Trends")
+
+    if 'daily_registrations' in stats and not stats['daily_registrations'].empty:
+        reg_df = stats['daily_registrations'].copy()
+        reg_df['created_date'] = pd.to_datetime(reg_df['created_date'])
+        reg_df = reg_df.sort_values('created_date')
+
+        # Apply time range filter
+        if time_range == "Last 7 Days":
+            cutoff = get_current_time().date() - timedelta(days=7)
+            reg_df = reg_df[reg_df['created_date'].dt.date >= cutoff]
+        elif time_range == "Last 30 Days":
+            cutoff = get_current_time().date() - timedelta(days=30)
+            reg_df = reg_df[reg_df['created_date'].dt.date >= cutoff]
+
+        if not reg_df.empty:
+            fig5 = go.Figure()
+
+            # Add bar chart
+            fig5.add_trace(go.Bar(
+                x=reg_df['created_date'],
+                y=reg_df['count'],
+                name='New Users',
+                marker_color='#667eea',
+                text=reg_df['count'],
+                textposition='outside'
+            ))
+
+            # Add trend line if enough data points
+            if len(reg_df) >= 3:
+                fig5.add_trace(go.Scatter(
+                    x=reg_df['created_date'],
+                    y=reg_df['count'].rolling(window=3, min_periods=1).mean(),
+                    name='Trend (3-day MA)',
+                    line=dict(color='#f5576c', width=2, dash='dash'),
+                    mode='lines+markers'
+                ))
+
+            fig5.update_layout(
+                title='New User Registrations Over Time',
+                xaxis_title='Date',
+                yaxis_title='Number of Registrations',
+                height=450,
+                hovermode='x unified',
+                showlegend=True,
+                legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="center", x=0.5),
+                paper_bgcolor='rgba(0,0,0,0)',
+                plot_bgcolor='rgba(0,0,0,0)'
+            )
+
+            st.plotly_chart(fig5, use_container_width=True)
+
+            # Show statistics summary
+            with st.expander("📈 Detailed Statistics"):
+                col1, col2, col3 = st.columns(3)
+                with col1:
+                    avg_registrations = reg_df['count'].mean()
+                    st.metric("Average Daily Registrations", f"{avg_registrations:.1f}")
+                with col2:
+                    max_registrations = reg_df['count'].max()
+                    max_date = reg_df[reg_df['count'] == max_registrations]['created_date'].iloc[0].strftime('%Y-%m-%d')
+                    st.metric("Peak Registrations", f"{max_registrations} (on {max_date})")
+                with col3:
+                    total_period = reg_df['count'].sum()
+                    st.metric(f"Total Registrations ({time_range})", total_period)
+        else:
+            st.info("No registration data available for the selected time range")
+    else:
+        st.info("No registration data available")
+
+    # Export functionality
+    st.markdown("---")
+    col1, col2, col3 = st.columns([1, 1, 2])
+    with col1:
+        if st.button("📥 Export Statistics Report", use_container_width=True):
+            # Create report data
+            report_data = {
+                'Metric': ['Total Users', 'Approved Users', 'Pending Users', 'Admin Users', 'Regular Users', 'Active Last 7 Days'],
+                'Value': [stats.get('total_users', 0), stats.get('approved_users', 0), 
+                         stats.get('pending_users', 0), stats.get('admin_users', 0),
+                         stats.get('regular_users', 0), stats.get('active_last_7_days', 0)]
+            }
+            report_df = pd.DataFrame(report_data)
+
+            # Convert to CSV
+            csv = report_df.to_csv(index=False)
+            st.download_button(
+                label="📥 Download CSV",
+                data=csv,
+                file_name=f"user_statistics_{get_current_time().strftime('%Y%m%d_%H%M%S')}.csv",
+                mime="text/csv",
+                use_container_width=True
+            )
+    with col2:
+        if st.button("📸 Export Charts", use_container_width=True):
+            st.info("Charts exported - Use browser screenshot or Plotly save functionality")
+
 def show_admin_panel():
     """Display admin panel - User Management with Approval/Rejection and Deletion"""
     st.markdown("<h1 style='font-size: 32px; font-weight: bold; color: #667eea;'>👑 Admin Panel - User Management</h1>", unsafe_allow_html=True)
@@ -888,9 +1257,13 @@ def show_admin_panel():
 
     st.markdown("---")
 
-    tab1, tab2, tab3, tab4 = st.tabs(["⏳ Pending Approvals", "🟢 Online Users", "📋 All Users", "➕ Add New User"])
+    # Create tabs with statistics dashboard
+    tab1, tab2, tab3, tab4, tab5 = st.tabs(["📊 User Statistics", "⏳ Pending Approvals", "🟢 Online Users", "📋 All Users", "➕ Add New User"])
 
     with tab1:
+        show_user_statistics()
+
+    with tab2:
         st.markdown("### ⏳ Users Awaiting Approval")
         if not pending_df.empty:
             for idx, row in pending_df.iterrows():
@@ -916,10 +1289,10 @@ def show_admin_panel():
         else:
             st.success("✅ No pending approvals. All users have been approved.")
 
-    with tab2:
+    with tab3:
         show_online_users()
 
-    with tab3:
+    with tab4:
         if not all_users.empty:
             # Convert timestamps to Addis Ababa time for display
             display_df = all_users.copy()
@@ -986,7 +1359,7 @@ def show_admin_panel():
         else:
             st.info("No users found")
 
-    with tab4:
+    with tab5:
         with st.form("add_user_form"):
             col1, col2 = st.columns(2)
             with col1:

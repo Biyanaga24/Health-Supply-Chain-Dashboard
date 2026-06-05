@@ -2735,10 +2735,23 @@ elif page == "Executive Summary":
         st.warning("No data available for the selected filters.")
         st.stop()
 
-    # Initialize variables with defaults to prevent NameError
+    # Calculate metrics only if data exists
     Availability = 0
     sap_achievement = 0
     avg_avail_gap = 0
+
+    if 'NMOS' in df_filtered.columns and not df_filtered.empty:
+        nmos_values = pd.to_numeric(df_filtered['NMOS'], errors='coerce').dropna()
+        if len(nmos_values) > 0:
+            Availability = (nmos_values > 1).mean() * 100
+            sap_achievement = ((nmos_values >= 6) & (nmos_values <= 18)).mean() * 100
+
+        if 'Distr. Gap' in df_filtered.columns:
+            avail_gap_values = pd.to_numeric(df_filtered['Distr. Gap'], errors='coerce').dropna()
+            if len(avail_gap_values) > 0:
+                avg_avail_gap = avail_gap_values.mean()
+
+    # Initialize other variables
     total_cv_materials = 0
     low_variation = 0
     moderate_variation = 0
@@ -2752,46 +2765,38 @@ elif page == "Executive Summary":
     bottom_score = 0
     top_program = "N/A"
     bottom_program = "N/A"
+    top_program_score = 0
+    bottom_program_score = 0
 
     # SECTION 1: PERFORMANCE METRICS
     st.markdown("---")
     st.markdown("<h2 style='font-size: 28px; font-weight: bold;'>🎯 1. Performance Metrics</h2>", unsafe_allow_html=True)
 
-    if 'NMOS' in df_filtered.columns:
-        nmos_values = pd.to_numeric(df_filtered['NMOS'], errors='coerce').dropna()
-
-        Availability = (nmos_values > 1).mean() * 100 if len(nmos_values) > 0 else 0
-        sap_achievement = ((nmos_values >= 6) & (nmos_values <= 18)).mean() * 100 if len(nmos_values) > 0 else 0
-
-        if 'Distr. Gap' in df_filtered.columns:
-            avail_gap_values = pd.to_numeric(df_filtered['Distr. Gap'], errors='coerce').dropna()
-            avg_avail_gap = avail_gap_values.mean() if len(avail_gap_values) > 0 else 0
-
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            st.markdown(f"""
-            <div style='background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-radius: 15px; padding: 20px; color: white;'>
-                <h3 style='margin:0; font-size: 14px; opacity:0.9'>Availability</h3>
-                <p style='font-size: 36px; font-weight: bold; margin:5px 0'>{Availability:.1f}%</p>
-                <p style='margin:0; font-size: 12px; opacity:0.8'>Target: 100%</p>
-            </div>
-            """, unsafe_allow_html=True)
-        with col2:
-            st.markdown(f"""
-            <div style='background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%); border-radius: 15px; padding: 20px; color: white;'>
-                <h3 style='margin:0; font-size: 14px; opacity:0.9'>SAP ACHIEVEMENT</h3>
-                <p style='font-size: 36px; font-weight: bold; margin:5px 0'>{sap_achievement:.1f}%</p>
-                <p style='margin:0; font-size: 12px; opacity:0.8'>Target: 65%</p>
-            </div>
-            """, unsafe_allow_html=True)
-        with col3:
-            st.markdown(f"""
-            <div style='background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%); border-radius: 15px; padding: 20px; color: white;'>
-                <h3 style='margin:0; font-size: 14px; opacity:0.9'>Distr. Gap</h3>
-                <p style='font-size: 36px; font-weight: bold; margin:5px 0'>{avg_avail_gap:.1f}%</p>
-                <p style='margin:0; font-size: 12px; opacity:0.8'>Hubs% - Head Office%</p>
-            </div>
-            """, unsafe_allow_html=True)
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        st.markdown(f"""
+        <div style='background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-radius: 15px; padding: 20px; color: white;'>
+            <h3 style='margin:0; font-size: 14px; opacity:0.9'>Availability</h3>
+            <p style='margin:0; font-size: 36px; font-weight: bold;'>{Availability:.1f}%</p>
+            <p style='margin:0; font-size: 12px; opacity:0.8'>Target: 100%</p>
+        </div>
+        """, unsafe_allow_html=True)
+    with col2:
+        st.markdown(f"""
+        <div style='background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%); border-radius: 15px; padding: 20px; color: white;'>
+            <h3 style='margin:0; font-size: 14px; opacity:0.9'>SAP ACHIEVEMENT</h3>
+            <p style='margin:0; font-size: 36px; font-weight: bold;'>{sap_achievement:.1f}%</p>
+            <p style='margin:0; font-size: 12px; opacity:0.8'>Target: 65%</p>
+        </div>
+        """, unsafe_allow_html=True)
+    with col3:
+        st.markdown(f"""
+        <div style='background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%); border-radius: 15px; padding: 20px; color: white;'>
+            <h3 style='margin:0; font-size: 14px; opacity:0.9'>Distr. Gap</h3>
+            <p style='margin:0; font-size: 36px; font-weight: bold;'>{avg_avail_gap:.1f}%</p>
+            <p style='margin:0; font-size: 12px; opacity:0.8'>Hubs% - Head Office%</p>
+        </div>
+        """, unsafe_allow_html=True)
 
     st.markdown("<br>", unsafe_allow_html=True)
 
@@ -2800,7 +2805,7 @@ elif page == "Executive Summary":
 
     total_materials = len(df_filtered)
     stock_out_count = len(df_filtered[df_filtered['Stock Status'] == 'Stock Out']) if 'Stock Status' in df_filtered.columns else 0
-    understock_count = len(df_filtered[df_filtered['Stock Status'] == 'Understock']) if 'Stock Status' in df_filtered.columns else 0
+    understock_count = len(df_filtered[dfiltered['Stock Status'] == 'Understock']) if 'Stock Status' in df_filtered.columns else 0
     normal_count = len(df_filtered[df_filtered['Stock Status'] == 'Normal Stock']) if 'Stock Status' in df_filtered.columns else 0
     overstock_count = len(df_filtered[df_filtered['Stock Status'] == 'Overstock']) if 'Stock Status' in df_filtered.columns else 0
 
@@ -2830,25 +2835,25 @@ elif page == "Executive Summary":
             <th style='padding: 15px; font-size: 18px; border-radius: 10px 0 0 0;'>🔴 CRITICAL RISK</th>
             <th style='padding: 15px; font-size: 18px; background-color: #ffa500;'>🟡 RISK OF STOCK OUT</th>
             <th style='padding: 15px; font-size: 18px; background-color: #ff9800; border-radius: 0 10px 0 0;'>⚠️ EXPIRY RISK</th>
-        </td>
+         </tr>
         <tr style='text-align: center; background-color: #f8f9fa;'>
             <td style='padding: 20px; font-size: 42px; font-weight: bold; color: #ff4444;'>{critical_risk}</td>
             <td style='padding: 20px; font-size: 42px; font-weight: bold; color: #ffa500;'>{risk_stock_out}</td>
             <td style='padding: 20px; font-size: 42px; font-weight: bold; color: #ff9800;'>{expiry_risk}</td>
-        </tr>
+         </tr>
         <tr style='text-align: center; background-color: #ffffff;'>
             <td style='padding: 10px; font-size: 14px;'>require URGENT attention</td>
             <td style='padding: 10px; font-size: 14px;'>need expediting</td>
             <td style='padding: 10px; font-size: 14px;'>approaching expiration</td>
-        </tr>
-    </table>
+         </tr>
+     </table>
     """, unsafe_allow_html=True)
 
     # SECTION 4: HUBS DISTRIBUTION
     st.markdown("---")
     st.markdown("<h2 style='font-size: 28px; font-weight: bold;'>📍 4. Stock Distribution Across Hubs by MOS</h2>", unsafe_allow_html=True)
 
-    if 'CV Category' in df_filtered.columns:
+    if 'CV Category' in df_filtered.columns and not df_filtered.empty:
         cv_counts = df_filtered['CV Category'].value_counts()
         total_cv_materials = len(df_filtered[df_filtered['CV Category'] != 'Unknown'])
 
@@ -2856,9 +2861,10 @@ elif page == "Executive Summary":
         moderate_variation = cv_counts.get('Moderate variation', 0)
         high_variation = cv_counts.get('High variation', 0)
 
-        low_pct = (low_variation / total_cv_materials * 100) if total_cv_materials > 0 else 0
-        mod_pct = (moderate_variation / total_cv_materials * 100) if total_cv_materials > 0 else 0
-        high_pct = (high_variation / total_cv_materials * 100) if total_cv_materials > 0 else 0
+        if total_cv_materials > 0:
+            low_pct = (low_variation / total_cv_materials * 100)
+            mod_pct = (moderate_variation / total_cv_materials * 100)
+            high_pct = (high_variation / total_cv_materials * 100)
 
         col1, col2, col3, col4 = st.columns(4)
         with col1:
@@ -2878,8 +2884,8 @@ elif page == "Executive Summary":
     st.caption("Availability = materials with HMOS ≥ 0.5 (at least 2 weeks of stock)")
     st.caption("Ranking based on: Availability Score (0-4) + Avg HMOS Score (0-2) + Stock-out Score (0-3) = Max 9 points")
 
-    # Calculate branch rankings (same as in Advanced Analytics)
-    if branch_amc_data is not None and not branch_amc_data.empty:
+    # Calculate branch rankings
+    if branch_amc_data is not None and not branch_amc_data.empty and not df.empty:
         branch_stock_cols = [col for col in df.columns if 'Branch' in col and col != 'Material Description']
         amc_branch_cols = [col for col in branch_amc_data.columns if col != 'Material Description']
         rankings = []
@@ -2891,11 +2897,11 @@ elif page == "Executive Summary":
                     stock_col = bc
                     break
 
-            if stock_col:
+            if stock_col and stock_col in df.columns and amc_branch in branch_amc_data.columns:
                 try:
                     merged = pd.merge(
-                        df[['Material Description', stock_col]], 
-                        branch_amc_data[['Material Description', amc_branch]], 
+                        df[['Material Description', stock_col]].dropna(subset=['Material Description']), 
+                        branch_amc_data[['Material Description', amc_branch]].dropna(subset=['Material Description']), 
                         on='Material Description', 
                         how='inner'
                     )
@@ -2908,19 +2914,23 @@ elif page == "Executive Summary":
 
                         Availability_count = np.sum(branch_hmos >= 0.5)
                         total_materials_branch = len(branch_hmos)
-                        Availability_pct = (Availability_count / total_materials_branch * 100) if total_materials_branch > 0 else 0
                         valid_hmos = branch_hmos[branch_hmos > 0]
                         avg_hmos = np.mean(valid_hmos) if len(valid_hmos) > 0 else 0
                         stock_out_materials = total_materials_branch - Availability_count
 
-                        if Availability_pct == 100:
-                            Availability_points = 4
-                        elif Availability_pct >= 85:
-                            Availability_points = 3
-                        elif Availability_pct >= 75:
-                            Availability_points = 2
-                        elif Availability_pct >= 55:
-                            Availability_points = 1
+                        # Scoring System
+                        if total_materials_branch > 0:
+                            Availability_pct = (Availability_count / total_materials_branch * 100)
+                            if Availability_pct == 100:
+                                Availability_points = 4
+                            elif Availability_pct >= 85:
+                                Availability_points = 3
+                            elif Availability_pct >= 75:
+                                Availability_points = 2
+                            elif Availability_pct >= 55:
+                                Availability_points = 1
+                            else:
+                                Availability_points = 0
                         else:
                             Availability_points = 0
 
@@ -2944,7 +2954,7 @@ elif page == "Executive Summary":
                             'Branch': amc_branch,
                             'Total Score': total_score
                         })
-                except Exception:
+                except Exception as e:
                     continue
 
         if rankings:
@@ -2959,16 +2969,16 @@ elif page == "Executive Summary":
                 st.markdown(f"""
                 <div style='background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%); border-radius: 15px; padding: 20px; color: white; text-align: center;'>
                     <h3 style='margin:0; font-size: 16px; opacity:0.9'>🏆 TOP BRANCH</h3>
-                    <p style='font-size: 28px; font-weight: bold; margin: 10px 0;'>{top_branch}</p>
-                    <p style='margin:0; font-size: 14px;'>Score: {top_score}/9 points</p>
+                    <p style='margin: 10px 0 0 0; font-size: 28px; font-weight: bold;'>{top_branch}</p>
+                    <p style='margin: 0; font-size: 14px;'>Score: {top_score}/9 points</p>
                 </div>
                 """, unsafe_allow_html=True)
             with col2:
                 st.markdown(f"""
                 <div style='background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%); border-radius: 15px; padding: 20px; color: white; text-align: center;'>
                     <h3 style='margin:0; font-size: 16px; opacity:0.9'>📉 BOTTOM BRANCH</h3>
-                    <p style='font-size: 28px; font-weight: bold; margin: 10px 0;'>{bottom_branch}</p>
-                    <p style='margin:0; font-size: 14px;'>Score: {bottom_score}/9 points</p>
+                    <p style='margin: 10px 0 0 0; font-size: 28px; font-weight: bold;'>{bottom_branch}</p>
+                    <p style='margin: 0; font-size: 14px;'>Score: {bottom_score}/9 points</p>
                 </div>
                 """, unsafe_allow_html=True)
         else:
@@ -2981,7 +2991,7 @@ elif page == "Executive Summary":
     st.markdown("<h2 style='font-size: 28px; font-weight: bold;'>📊 6. Program Performance</h2>", unsafe_allow_html=True)
     st.caption("Ranking based on: Availability (100%=1), SAP (≥65%=1), Stock-out Rate (0%=1), Overstock Rate (0%=1), Avg NMOS (6-18 months=1) = Max 5 points")
 
-    if google_sheets and len(google_sheets) > 0:
+    if google_sheets and len(google_sheets) > 0 and not df.empty:
         program_metrics = []
         for program_name, program_df in google_sheets.items():
             if program_df.empty or 'Material Description' not in program_df.columns:
@@ -3019,24 +3029,24 @@ elif page == "Executive Summary":
             prog_df = pd.DataFrame(program_metrics).sort_values('Composite Score', ascending=False)
             top_program = prog_df.iloc[0]['Program']
             bottom_program = prog_df.iloc[-1]['Program']
-            top_score = prog_df.iloc[0]['Composite Score']
-            bottom_score = prog_df.iloc[-1]['Composite Score']
+            top_program_score = prog_df.iloc[0]['Composite Score']
+            bottom_program_score = prog_df.iloc[-1]['Composite Score']
 
             col1, col2 = st.columns(2)
             with col1:
                 st.markdown(f"""
                 <div style='background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%); border-radius: 15px; padding: 20px; color: white; text-align: center;'>
                     <h3 style='margin:0; font-size: 16px; opacity:0.9'>🥇 TOP PROGRAM</h3>
-                    <p style='font-size: 28px; font-weight: bold; margin: 10px 0;'>{top_program}</p>
-                    <p style='margin:0; font-size: 14px;'>Score: {top_score}/5 points</p>
+                    <p style='margin: 10px 0 0 0; font-size: 28px; font-weight: bold;'>{top_program}</p>
+                    <p style='margin: 0; font-size: 14px;'>Score: {top_program_score}/5 points</p>
                 </div>
                 """, unsafe_allow_html=True)
             with col2:
                 st.markdown(f"""
                 <div style='background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%); border-radius: 15px; padding: 20px; color: white; text-align: center;'>
                     <h3 style='margin:0; font-size: 16px; opacity:0.9'>📉 BOTTOM PROGRAM</h3>
-                    <p style='font-size: 28px; font-weight: bold; margin: 10px 0;'>{bottom_program}</p>
-                    <p style='margin:0; font-size: 14px;'>Score: {bottom_score}/5 points</p>
+                    <p style='margin: 10px 0 0 0; font-size: 28px; font-weight: bold;'>{bottom_program}</p>
+                    <p style='margin: 0; font-size: 14px;'>Score: {bottom_program_score}/5 points</p>
                 </div>
                 """, unsafe_allow_html=True)
         else:
@@ -3091,8 +3101,8 @@ Program: {sheet_name if sheet_name != 'All' else 'All Programs'}
 ================================================================================
 6. PROGRAM PERFORMANCE
 ================================================================================
-• Top Program: {top_program} ({top_score}/5 points)
-• Bottom Program: {bottom_program} ({bottom_score}/5 points)
+• Top Program: {top_program} ({top_program_score}/5 points)
+• Bottom Program: {bottom_program} ({bottom_program_score}/5 points)
 ================================================================================
     """
 
@@ -3106,7 +3116,6 @@ Program: {sheet_name if sheet_name != 'All' else 'All Programs'}
     )
 
     st.stop()
-
 # ===================================================
 # MAIN DASHBOARD (7 Tabs)
 # ===================================================
@@ -3157,46 +3166,46 @@ else:
             avg_avail_gap = 0
 
         # Calculate Average Lead Time (PROGRAM-SPECIFIC)
-avg_lead_time_display = "N/A"
-if not df_new_deliveries.empty:
-    # Get materials for the selected program
-    if sheet_name != "All" and sheet_name in google_sheets:
-        program_materials = google_sheets[sheet_name]['Material Description'].dropna().tolist()
-        # Filter deliveries by program materials
-        filtered_lead_df = df_new_deliveries[df_new_deliveries['Material Description'].isin(program_materials)].copy()
-    else:
-        filtered_lead_df = df_new_deliveries.copy()
+        avg_lead_time_display = "N/A"
+        if not df_new_deliveries.empty:
+            # Get materials for the selected program
+            if sheet_name != "All" and sheet_name in google_sheets:
+                program_materials = google_sheets[sheet_name]['Material Description'].dropna().tolist()
+                # Filter deliveries by program materials
+                filtered_lead_df = df_new_deliveries[df_new_deliveries['Material Description'].isin(program_materials)].copy()
+            else:
+                filtered_lead_df = df_new_deliveries.copy()
 
-    if not filtered_lead_df.empty:
-        filtered_lead_df['Posting Date'] = pd.to_datetime(filtered_lead_df['Posting Date'], errors='coerce')
-        filtered_lead_df['PO Number'] = filtered_lead_df['PO Number'].astype(str)
+            if not filtered_lead_df.empty:
+                filtered_lead_df['Posting Date'] = pd.to_datetime(filtered_lead_df['Posting Date'], errors='coerce')
+                filtered_lead_df['PO Number'] = filtered_lead_df['PO Number'].astype(str)
 
-        filtered_lead_df['Requested Date'] = filtered_lead_df.apply(
-            lambda row: st.session_state.requested_dates.get(f"{row['PO Number']}_{row['Material Description']}", None) if 'requested_dates' in st.session_state else None,
-            axis=1
-        )
+                filtered_lead_df['Requested Date'] = filtered_lead_df.apply(
+                    lambda row: st.session_state.requested_dates.get(f"{row['PO Number']}_{row['Material Description']}", None) if 'requested_dates' in st.session_state else None,
+                    axis=1
+                )
 
-        def calc_lead_val(row):
-            req_date = row['Requested Date']
-            posting = row['Posting Date']
-            if req_date and pd.notna(posting):
-                try:
-                    if hasattr(req_date, 'date'):
-                        req_date = req_date.date()
-                    if hasattr(posting, 'date'):
-                        posting = posting.date()
-                    days = (posting - req_date).days
-                    return days if days >= 0 else None
-                except:
+                def calc_lead_val(row):
+                    req_date = row['Requested Date']
+                    posting = row['Posting Date']
+                    if req_date and pd.notna(posting):
+                        try:
+                            if hasattr(req_date, 'date'):
+                                req_date = req_date.date()
+                            if hasattr(posting, 'date'):
+                                posting = posting.date()
+                            days = (posting - req_date).days
+                            return days if days >= 0 else None
+                        except:
+                            return None
                     return None
-            return None
 
-        filtered_lead_df['Lead Time Value'] = filtered_lead_df.apply(calc_lead_val, axis=1)
-        lead_values = filtered_lead_df['Lead Time Value'].dropna().tolist()
+                filtered_lead_df['Lead Time Value'] = filtered_lead_df.apply(calc_lead_val, axis=1)
+                lead_values = filtered_lead_df['Lead Time Value'].dropna().tolist()
 
-        if lead_values:
-            avg_lead = sum(lead_values) / len(lead_values)
-            avg_lead_time_display = f"{avg_lead:.0f} days"
+                if lead_values:
+                    avg_lead = sum(lead_values) / len(lead_values)
+                    avg_lead_time_display = f"{avg_lead:.0f} days"
 
         # Calculate stock status counts
         total_items = len(df_filtered)
