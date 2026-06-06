@@ -2805,7 +2805,7 @@ elif page == "Executive Summary":
 
     total_materials = len(df_filtered)
     stock_out_count = len(df_filtered[df_filtered['Stock Status'] == 'Stock Out']) if 'Stock Status' in df_filtered.columns else 0
-    understock_count = len(df_filtered[dfiltered['Stock Status'] == 'Understock']) if 'Stock Status' in df_filtered.columns else 0
+    understock_count = len(df_filtered[df_filtered['Stock Status'] == 'Understock']) if 'Stock Status' in df_filtered.columns else 0
     normal_count = len(df_filtered[df_filtered['Stock Status'] == 'Normal Stock']) if 'Stock Status' in df_filtered.columns else 0
     overstock_count = len(df_filtered[df_filtered['Stock Status'] == 'Overstock']) if 'Stock Status' in df_filtered.columns else 0
 
@@ -2835,18 +2835,18 @@ elif page == "Executive Summary":
             <th style='padding: 15px; font-size: 18px; border-radius: 10px 0 0 0;'>🔴 CRITICAL RISK</th>
             <th style='padding: 15px; font-size: 18px; background-color: #ffa500;'>🟡 RISK OF STOCK OUT</th>
             <th style='padding: 15px; font-size: 18px; background-color: #ff9800; border-radius: 0 10px 0 0;'>⚠️ EXPIRY RISK</th>
-         </tr>
+        </tr>
         <tr style='text-align: center; background-color: #f8f9fa;'>
             <td style='padding: 20px; font-size: 42px; font-weight: bold; color: #ff4444;'>{critical_risk}</td>
             <td style='padding: 20px; font-size: 42px; font-weight: bold; color: #ffa500;'>{risk_stock_out}</td>
             <td style='padding: 20px; font-size: 42px; font-weight: bold; color: #ff9800;'>{expiry_risk}</td>
-         </tr>
+        </tr>
         <tr style='text-align: center; background-color: #ffffff;'>
             <td style='padding: 10px; font-size: 14px;'>require URGENT attention</td>
             <td style='padding: 10px; font-size: 14px;'>need expediting</td>
             <td style='padding: 10px; font-size: 14px;'>approaching expiration</td>
-         </tr>
-     </table>
+        </tr>
+    </table>
     """, unsafe_allow_html=True)
 
     # SECTION 4: HUBS DISTRIBUTION
