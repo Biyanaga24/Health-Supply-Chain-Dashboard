@@ -899,9 +899,7 @@ def validate_upload_data(df):
         df = df.drop_duplicates(subset=['Material Description'], keep='first')
 
     return True
-# Add this function after the other load functions (around line 400)
 
-# ---------------------------------------------------
 # Load Issue Data from Supabase (Optimized for large datasets)
 # ---------------------------------------------------
 @st.cache_data(ttl=600, show_spinner=False)  # Cache for 10 minutes
@@ -921,7 +919,7 @@ def load_issue_data():
                 response = (
                     st.session_state.supabase_client
                     .table("issue_data")
-                    .select("material_descr, plant, region_descr, quantity")
+                    .select("material_descr, plant, region_descr, quantity,id")
                     .range(page * page_size, (page + 1) * page_size - 1)
                     .execute()
                 )
@@ -947,7 +945,8 @@ def load_issue_data():
             'material_descr': 'Material Description',
             'plant': 'Plant',
             'region_descr': 'Region',
-            'quantity': 'Quantity'
+            'quantity': 'Quantity',
+            'id':'ID'
         })
 
         # Convert quantity to numeric
@@ -2141,25 +2140,51 @@ elif page == "Admin Panel" and st.session_state['user']['role'] == 'admin':
     st.stop()
 elif page == "Issue Data":
     # ===================================================
-    # ISSUE DATA PAGE - Standalone Implementation
+    # ISSUE DATA PAGE - WITH PROGRAM ORDER & PLANT A_AMC SECTION
     # ===================================================
     st.markdown("<h1 style='font-size: 32px; font-weight: bold; font-family: Times New Roman;' class='gradient-text'>📊 Issue Data Analysis</h1>", unsafe_allow_html=True)
     st.caption(f"Data as of: {st.session_state.data_timestamp.strftime('%Y-%m-%d %H:%M:%S')}")
+
+    # Define Program Order
+    PROGRAM_ORDER_LIST = [
+        "Malaria",
+        "HIV", 
+        "OI and Hepatitis",
+        "Hepatitis",
+        "STI",
+        "TB",
+        "Drug Susceptible -TB Medicine (DS-TB)",
+        "Drug Resisitance -TB Medicine (DR-TB)",
+        "Leprosy Medicines",
+        "Nutrition",
+        "Lab TB",
+        "TB diagnostics& Laboratory reagent",
+        "TB Lab Supplies",
+        "HIV Lab",
+        "HIV VL Reagents",
+        "CD4 ,AHD &HIV RTKs"
+    ]
 
     # Check if Google Sheets data is available
     if google_sheets is None or len(google_sheets) == 0:
         st.error("Google Sheets data not available. Please check your Google Sheets connection.")
         st.stop()
 
-    # Get materials from selected program
+    # Get materials from selected program in PROGRAM ORDER
     with st.spinner("Loading program materials from Google Sheets..."):
         if sheet_name == "All":
             all_program_materials = []
-            for prog_name, prog_df in google_sheets.items():
-                if 'Material Description' in prog_df.columns:
-                    materials = prog_df['Material Description'].dropna().tolist()
+            # Follow program order
+            for prog_name in PROGRAM_ORDER_LIST:
+                if prog_name in google_sheets and 'Material Description' in google_sheets[prog_name].columns:
+                    materials = google_sheets[prog_name]['Material Description'].dropna().tolist()
                     all_program_materials.extend(materials)
-            program_materials = list(set(all_program_materials))
+            # Add any remaining programs not in the list
+            for prog_name in google_sheets.keys():
+                if prog_name not in PROGRAM_ORDER_LIST and 'Material Description' in google_sheets[prog_name].columns:
+                    materials = google_sheets[prog_name]['Material Description'].dropna().tolist()
+                    all_program_materials.extend(materials)
+            program_materials = list(dict.fromkeys(all_program_materials))  # Preserve order, remove duplicates
         else:
             if sheet_name in google_sheets and 'Material Description' in google_sheets[sheet_name].columns:
                 program_materials = google_sheets[sheet_name]['Material Description'].dropna().tolist()
@@ -2167,7 +2192,7 @@ elif page == "Issue Data":
                 st.error(f"No material data found for program: {sheet_name}")
                 st.stop()
 
-    # Load issue data from Supabase
+    # Load ALL issue data from Supabase
     if st.session_state.supabase_client is None:
         st.error("Supabase client not initialized")
         st.stop()
@@ -2175,27 +2200,29 @@ elif page == "Issue Data":
     with st.spinner("Loading issue data from Supabase..."):
         all_data = []
         start = 0
-        batch_size = 5000
-        progress_bar = st.progress(0)
-        status_text = st.empty()
+        batch_size = 1000
 
         while True:
-            status_text.text(f"Loading batch {start//batch_size + 1}...")
-            result = (
-                st.session_state.supabase_client.table("issue_data")
-                .select("*")
-                .range(start, start + batch_size - 1)
-                .execute()
-            )
-            if not result.data:
-                break
-            all_data.extend(result.data)
-            start += batch_size
-            progress_bar.progress(min(start / 150000, 0.99))
+            try:
+                result = (
+                    st.session_state.supabase_client.table("issue_data")
+                    .select("*")
+                    .range(start, start + batch_size - 1)
+                    .execute()
+                )
 
-        progress_bar.progress(1.0)
-        status_text.empty()
-        progress_bar.empty()
+                if not result.data:
+                    break
+
+                all_data.extend(result.data)
+                start += batch_size
+
+                if len(result.data) < batch_size:
+                    break
+
+            except Exception as e:
+                st.error(f"Error loading data: {e}")
+                break
 
         if not all_data:
             st.info("No issue data available. Please upload data to the issue_data table.")
@@ -2218,29 +2245,18 @@ elif page == "Issue Data":
     if 'Delivery Date' in issue_df.columns:
         issue_df['Delivery Date'] = pd.to_datetime(issue_df['Delivery Date'], errors='coerce')
 
-    # ========== CALCULATE A_AMC FROM LAST 3 MONTHS ==========
-    a_amc_data = pd.DataFrame(columns=['Material Description', 'A_AMC'])
+    # Filter by program materials
+    issue_df = issue_df[issue_df['Material Description'].isin(program_materials)]
 
-    if 'Delivery Date' in issue_df.columns and issue_df['Delivery Date'].notna().any():
-        latest_date = issue_df['Delivery Date'].max()
-        three_months_before = latest_date - timedelta(days=90)
-        last_3_months = issue_df[issue_df['Delivery Date'] >= three_months_before]
+    if issue_df.empty:
+        st.warning("No matching materials found between Issue Data and Google Sheets.")
+        st.stop()
 
-        if not last_3_months.empty:
-            last_3_months['YearMonth'] = last_3_months['Delivery Date'].dt.strftime('%Y-%m')
-            monthly_totals = last_3_months.groupby(['Material Description', 'YearMonth'])['Quantity'].sum().reset_index()
-            a_amc_calc = monthly_totals.groupby('Material Description')['Quantity'].mean().round(2)
-            a_amc_data = pd.DataFrame({
-                'Material Description': a_amc_calc.index,
-                'A_AMC': a_amc_calc.values
-            })
-            st.success(f"✅ A_AMC calculated from {three_months_before.strftime('%d %b %Y')} to {latest_date.strftime('%d %b %Y')} for {len(a_amc_data)} materials")
-
-    # Remove Head Office
+    # Remove Head Office from plants
     issue_df = issue_df[~issue_df['Plant'].str.contains('Head Office|HO01', case=False, na=False)]
 
     # ========== DATE RANGE FILTER ==========
-    st.markdown("### 📅 Date Range Filter")
+    st.markdown("### 📅 Filter by Time (Delivery Date)")
     col_date1, col_date2 = st.columns(2)
 
     if 'Delivery Date' in issue_df.columns and issue_df['Delivery Date'].notna().any():
@@ -2254,67 +2270,280 @@ elif page == "Issue Data":
 
         mask = (issue_df['Delivery Date'].dt.date >= start_date) & (issue_df['Delivery Date'].dt.date <= end_date)
         display_issue_df = issue_df[mask].copy()
-        st.info(f"📆 Showing {len(display_issue_df):,} records from {start_date.strftime('%d %b %Y')} to {end_date.strftime('%d %b %Y')}")
     else:
         display_issue_df = issue_df.copy()
 
-    # Filter by program materials
-    with st.spinner("Filtering by program materials..."):
-        display_issue_df = display_issue_df[display_issue_df['Material Description'].isin(program_materials)]
-        if display_issue_df.empty:
-            st.warning("No matching materials found between Issue Data and Google Sheets.")
-            st.stop()
-        st.success(f"✅ Filtered to {len(display_issue_df):,} rows")
+    st.markdown("---")
 
-    # Summary stats
-    col1, col2, col3, col4, col5 = st.columns(5)
-    with col1:
-        st.metric("📋 Total Records", f"{len(display_issue_df):,}")
-    with col2:
-        st.metric("📦 Total Quantity", f"{display_issue_df['Quantity'].sum():,.0f}")
-    with col3:
-        st.metric("🧪 Materials", f"{display_issue_df['Material Description'].nunique():,}")
-    with col4:
-        st.metric("🏭 Plants", f"{display_issue_df['Plant'].nunique()}")
-    with col5:
-        st.metric("📍 Regions", f"{display_issue_df['Region'].nunique()}")
+    # ========== CALCULATE A_AMC (Overall and by Plant) ==========
+    a_amc_overall = pd.DataFrame()
+    plant_a_amc = pd.DataFrame()  # For the separate A_AMC section
+
+    if 'Delivery Date' in display_issue_df.columns and display_issue_df['Delivery Date'].notna().any():
+        latest_date = display_issue_df['Delivery Date'].max()
+        three_months_before = latest_date - timedelta(days=90)
+        last_3_months = display_issue_df[display_issue_df['Delivery Date'] >= three_months_before]
+
+        if not last_3_months.empty:
+            # Overall A_AMC (for Material vs Time table)
+            last_3_months['YearMonth'] = last_3_months['Delivery Date'].dt.strftime('%Y-%m')
+            monthly_totals = last_3_months.groupby(['Material Description', 'YearMonth'])['Quantity'].sum().reset_index()
+            a_amc_calc = monthly_totals.groupby('Material Description')['Quantity'].mean().round(2)
+            a_amc_overall = pd.DataFrame({
+                'Material Description': a_amc_calc.index,
+                'A_AMC': a_amc_calc.values
+            })
+
+            # Calculate Plant A_AMC = Total quantity last 3 months / 3
+            plant_last_3_months = last_3_months.groupby(['Material Description', 'Plant'])['Quantity'].sum().reset_index()
+            plant_last_3_months['A_AMC'] = (plant_last_3_months['Quantity'] / 3).round(2)
+            plant_a_amc = plant_last_3_months[['Material Description', 'Plant', 'A_AMC']]
+
+    # Create ordered material list based on program order
+    ordered_materials = [m for m in program_materials if m in display_issue_df['Material Description'].values]
+
+    # ========== DETAILED ISSUE DATA TABLES ==========
+    st.markdown("<h3 style='font-size: 24px; font-weight: bold;'>📋 Detailed Issue Data Tables</h3>", unsafe_allow_html=True)
+
+    detail_tab1, detail_tab2, detail_tab3, detail_tab4 = st.tabs([
+        "📋 Issue Data by Time", 
+        "🏭 Issue Data by Plant", 
+        "📊 Plant A_AMC (Last 3 Months / 3)",
+        "🗺️ Issue Data by Region"
+    ])
+
+    with detail_tab1:
+        st.markdown("#### Material vs Month (with Overall A_AMC)")
+
+        if 'Delivery Date' in display_issue_df.columns:
+            monthly_detail = display_issue_df.copy()
+            monthly_detail['Month'] = monthly_detail['Delivery Date'].dt.strftime('%b-%Y')
+            monthly_pivot = monthly_detail.groupby(['Material Description', 'Month'])['Quantity'].sum().reset_index()
+            monthly_table = monthly_pivot.pivot_table(index='Material Description', columns='Month', values='Quantity', fill_value=0)
+
+            # Sort columns chronologically
+            month_order = sorted(monthly_table.columns, key=lambda x: pd.to_datetime(x, format='%b-%Y'))
+            monthly_table = monthly_table[month_order]
+
+            # Reorder materials according to program order
+            monthly_table = monthly_table.reindex([m for m in ordered_materials if m in monthly_table.index])
+
+            # Add Overall A_AMC column
+            monthly_table = monthly_table.reset_index()
+            if not a_amc_overall.empty:
+                monthly_table = monthly_table.merge(a_amc_overall, on='Material Description', how='left')
+                monthly_table['A_AMC'] = monthly_table['A_AMC'].fillna(0).round(2)
+                # Reorder columns to put A_AMC after Material Description
+                cols = ['Material Description', 'A_AMC'] + [c for c in monthly_table.columns if c not in ['Material Description', 'A_AMC']]
+                monthly_table = monthly_table[cols]
+
+            monthly_table = monthly_table.set_index('Material Description')
+            st.dataframe(monthly_table, use_container_width=True, height=500)
+
+            st.download_button(
+                label="📥 Download Material vs Month Data",
+                data=monthly_table.reset_index().to_csv(index=False),
+                file_name=f"issue_data_monthly_{datetime.now().strftime('%Y%m%d')}.csv",
+                mime="text/csv"
+            )
+
+    with detail_tab2:
+        st.markdown("#### Material vs Plant (Actual Issue Quantities)")
+
+        # Create Material vs Plant pivot table
+        plant_table = display_issue_df.groupby(['Material Description', 'Plant'])['Quantity'].sum().reset_index()
+        plant_pivot_table = plant_table.pivot_table(index='Material Description', columns='Plant', values='Quantity', fill_value=0)
+
+        # Reorder materials according to program order
+        plant_pivot_table = plant_pivot_table.reindex([m for m in ordered_materials if m in plant_pivot_table.index])
+
+        st.dataframe(plant_pivot_table, use_container_width=True, height=500)
+
+        st.download_button(
+            label="📥 Download Material vs Plant Data",
+            data=plant_pivot_table.reset_index().to_csv(index=False),
+            file_name=f"issue_data_plant_{datetime.now().strftime('%Y%m%d')}.csv",
+            mime="text/csv"
+        )
+
+    with detail_tab3:
+        st.markdown("#### Plant A_AMC (Average Monthly Consumption)")
+        st.caption("A_AMC by Plant = Total issue quantity from the last 3 months of data divided by 3 months")
+
+        if not plant_a_amc.empty:
+            # Create A_AMC pivot table
+            a_amc_pivot = plant_a_amc.pivot_table(
+                index='Material Description', 
+                columns='Plant', 
+                values='A_AMC',
+                fill_value=0
+            ).round(2)
+
+            # Reorder materials according to program order
+            a_amc_pivot = a_amc_pivot.reindex([m for m in ordered_materials if m in a_amc_pivot.index])
+
+            st.dataframe(a_amc_pivot, use_container_width=True, height=500)
+
+            st.download_button(
+                label="📥 Download Plant A_AMC Data",
+                data=a_amc_pivot.reset_index().to_csv(index=False),
+                file_name=f"plant_a_amc_{datetime.now().strftime('%Y%m%d')}.csv",
+                mime="text/csv"
+            )
+        else:
+            st.info("No data available for A_AMC calculation. Need at least 3 months of delivery data.")
+
+    with detail_tab4:
+        st.markdown("#### Material vs Region")
+
+        region_table = display_issue_df.groupby(['Material Description', 'Region'])['Quantity'].sum().reset_index()
+        region_pivot_table = region_table.pivot_table(index='Material Description', columns='Region', values='Quantity', fill_value=0)
+
+        # Reorder materials according to program order
+        region_pivot_table = region_pivot_table.reindex([m for m in ordered_materials if m in region_pivot_table.index])
+
+        st.dataframe(region_pivot_table, use_container_width=True, height=500)
+
+        st.download_button(
+            label="📥 Download Material vs Region Data",
+            data=region_pivot_table.reset_index().to_csv(index=False),
+            file_name=f"issue_data_region_{datetime.now().strftime('%Y%m%d')}.csv",
+            mime="text/csv"
+        )
 
     st.markdown("---")
 
-    # ========== HEATMAP 1: Plant vs Material ==========
-    st.markdown("<h3 style='font-size: 24px; font-weight: bold;'>🔥 Plant vs Material - Issue Quantity Heatmap</h3>", unsafe_allow_html=True)
+    # ========== ANALYSIS 1: BY TIME ==========
+    st.markdown("<h3 style='font-size: 24px; font-weight: bold;'>📅 Analysis by Time (Delivery Date)</h3>", unsafe_allow_html=True)
 
-    plant_pivot = display_issue_df.groupby(['Plant', 'Material Description'])['Quantity'].sum().reset_index()
-    plant_pivot = plant_pivot.pivot_table(index='Plant', columns='Material Description', values='Quantity', fill_value=0)
-    plant_pivot = plant_pivot.loc[plant_pivot.sum(axis=1).sort_values(ascending=False).index]
+    if 'Delivery Date' in display_issue_df.columns and display_issue_df['Delivery Date'].notna().any():
+        time_df = display_issue_df.copy()
+        time_df['Year'] = time_df['Delivery Date'].dt.year
+        time_df['Month'] = time_df['Delivery Date'].dt.strftime('%b-%Y')
+        time_df['Quarter'] = time_df['Delivery Date'].dt.to_period('Q').astype(str)
 
-    all_materials = plant_pivot.sum().sort_values(ascending=False).index.tolist()
-    total_materials = len(all_materials)
+        # Monthly trend
+        monthly_trend = time_df.groupby('Month')['Quantity'].sum().reset_index()
+        monthly_trend['Sort_Date'] = pd.to_datetime(monthly_trend['Month'], format='%b-%Y')
+        monthly_trend = monthly_trend.sort_values('Sort_Date')
 
-    if 'plant_page' not in st.session_state:
-        st.session_state.plant_page = 1
+        col_a1, col_a2 = st.columns(2)
 
-    if total_materials > 0:
+        with col_a1:
+            fig_monthly = px.line(
+                monthly_trend, 
+                x='Month', 
+                y='Quantity',
+                title='Monthly Issue Quantity Trend',
+                markers=True,
+                labels={'Quantity': 'Total Quantity', 'Month': 'Month'}
+            )
+            fig_monthly.update_layout(height=400, xaxis_tickangle=-45)
+            st.plotly_chart(fig_monthly, use_container_width=True)
+
+        with col_a2:
+            yearly_trend = time_df.groupby('Year')['Quantity'].sum().reset_index()
+            fig_yearly = px.bar(
+                yearly_trend,
+                x='Year',
+                y='Quantity',
+                title='Yearly Issue Quantity',
+                color='Quantity',
+                color_continuous_scale='Blues',
+                text='Quantity'
+            )
+            fig_yearly.update_traces(texttemplate='%{text:,.0f}', textposition='outside')
+            fig_yearly.update_layout(height=400)
+            st.plotly_chart(fig_yearly, use_container_width=True)
+
+        quarterly_trend = time_df.groupby('Quarter')['Quantity'].sum().reset_index()
+        fig_quarterly = px.bar(
+            quarterly_trend,
+            x='Quarter',
+            y='Quantity',
+            title='Quarterly Issue Quantity Trend',
+            color='Quantity',
+            color_continuous_scale='Viridis'
+        )
+        fig_quarterly.update_layout(height=400)
+        st.plotly_chart(fig_quarterly, use_container_width=True)
+
+    st.markdown("---")
+
+    # ========== ANALYSIS 2: BY PLANT (with pagination) ==========
+    st.markdown("<h3 style='font-size: 24px; font-weight: bold;'>🏭 Analysis by Plant (Hubs)</h3>", unsafe_allow_html=True)
+
+    if 'Plant' in display_issue_df.columns:
+        plant_summary = display_issue_df.groupby('Plant').agg({
+            'Quantity': ['sum', 'mean', 'count']
+        }).round(2)
+        plant_summary.columns = ['Total Quantity', 'Avg Quantity', 'Number of Records']
+        plant_summary = plant_summary.sort_values('Total Quantity', ascending=False).reset_index()
+
+        col_p1, col_p2 = st.columns(2)
+
+        with col_p1:
+            top_plants = plant_summary.head(10)
+            fig_plants = px.bar(
+                top_plants,
+                x='Plant',
+                y='Total Quantity',
+                title='Top 10 Plants by Issue Quantity',
+                color='Total Quantity',
+                color_continuous_scale='Reds',
+                text='Total Quantity'
+            )
+            fig_plants.update_traces(texttemplate='%{text:,.0f}', textposition='outside')
+            fig_plants.update_layout(height=450, xaxis_tickangle=-45)
+            st.plotly_chart(fig_plants, use_container_width=True)
+
+        with col_p2:
+            fig_plant_pie = px.pie(
+                plant_summary.head(8),
+                values='Total Quantity',
+                names='Plant',
+                title='Issue Distribution by Plant (Top 8)'
+            )
+            fig_plant_pie.update_traces(textposition='inside', textinfo='percent+label')
+            fig_plant_pie.update_layout(height=450)
+            st.plotly_chart(fig_plant_pie, use_container_width=True)
+
+        # Plant vs Material heatmap with pagination (10 materials per page)
+        st.markdown("#### 🔥 Plant vs Material - Issue Quantity Heatmap")
+
+        plant_pivot = display_issue_df.groupby(['Plant', 'Material Description'])['Quantity'].sum().reset_index()
+        plant_pivot = plant_pivot.pivot_table(index='Plant', columns='Material Description', values='Quantity', fill_value=0)
+
+        # Get all materials sorted by program order
+        all_materials = [m for m in ordered_materials if m in plant_pivot.columns]
+        total_materials = len(all_materials)
+
+        # Pagination state
+        if 'plant_heatmap_page' not in st.session_state:
+            st.session_state.plant_heatmap_page = 1
+
         materials_per_page = 10
-        total_pages = (total_materials + materials_per_page - 1) // materials_per_page
-        start_idx = (st.session_state.plant_page - 1) * materials_per_page
+        total_pages = (total_materials + materials_per_page - 1) // materials_per_page if total_materials > 0 else 1
+
+        if total_pages > 1:
+            col_prev, col_page, col_next = st.columns([1, 2, 1])
+            with col_prev:
+                if st.button("◀ Previous", key="plant_heatmap_prev") and st.session_state.plant_heatmap_page > 1:
+                    st.session_state.plant_heatmap_page -= 1
+                    st.rerun()
+            with col_page:
+                st.markdown(f"<p style='text-align: center;'>Page {st.session_state.plant_heatmap_page} of {total_pages}</p>", unsafe_allow_html=True)
+            with col_next:
+                if st.button("Next ▶", key="plant_heatmap_next") and st.session_state.plant_heatmap_page < total_pages:
+                    st.session_state.plant_heatmap_page += 1
+                    st.rerun()
+
+        start_idx = (st.session_state.plant_heatmap_page - 1) * materials_per_page
         end_idx = min(start_idx + materials_per_page, total_materials)
         page_materials = all_materials[start_idx:end_idx]
         plant_pivot_page = plant_pivot[page_materials]
 
-        col_p1, col_p2, col_p3 = st.columns([1, 3, 1])
-        with col_p1:
-            if st.button("◀ Previous", key="plant_prev") and st.session_state.plant_page > 1:
-                st.session_state.plant_page -= 1
-                st.rerun()
-        with col_p2:
-            st.markdown(f"<p style='text-align: center;'>Materials {start_idx + 1} - {end_idx} of {total_materials}</p>", unsafe_allow_html=True)
-        with col_p3:
-            if st.button("Next ▶", key="plant_next") and st.session_state.plant_page < total_pages:
-                st.session_state.plant_page += 1
-                st.rerun()
-
-        fig_plant = go.Figure(data=go.Heatmap(
+        fig_plant_heatmap = go.Figure(data=go.Heatmap(
             z=plant_pivot_page.values,
             y=plant_pivot_page.index,
             x=plant_pivot_page.columns,
@@ -2322,169 +2551,96 @@ elif page == "Issue Data":
             text=plant_pivot_page.values,
             texttemplate='%{text:,.0f}',
             textfont={"size": 10},
-            colorbar=dict(title="Quantity", thickness=15)
+            colorbar=dict(title="Quantity")
         ))
-        fig_plant.update_layout(
+        fig_plant_heatmap.update_layout(
             xaxis_tickangle=-45,
             xaxis={'title': 'Material Description', 'tickfont': {'size': 10}},
-            yaxis={'title': 'Plant', 'tickfont': {'size': 11}},
-            height=max(500, 40 * len(plant_pivot_page) + 100),
+            yaxis={'title': 'Plant'},
+            height=max(400, 35 * len(plant_pivot_page) + 100),
             margin=dict(l=150, r=50, t=50, b=250)
         )
-        st.plotly_chart(fig_plant, use_container_width=True)
+        st.plotly_chart(fig_plant_heatmap, use_container_width=True)
 
     st.markdown("---")
 
-    # ========== HEATMAP 2: Region vs Material ==========
-    st.markdown("<h3 style='font-size: 24px; font-weight: bold;'>🗺️ Region vs Material - Issue Quantity Heatmap</h3>", unsafe_allow_html=True)
+    # ========== ANALYSIS 3: BY REGION (with pagination) ==========
+    st.markdown("<h3 style='font-size: 24px; font-weight: bold;'>🗺️ Analysis by Region</h3>", unsafe_allow_html=True)
 
-    region_pivot = display_issue_df.groupby(['Region', 'Material Description'])['Quantity'].sum().reset_index()
-    region_pivot = region_pivot.pivot_table(index='Region', columns='Material Description', values='Quantity', fill_value=0)
-    region_pivot = region_pivot.loc[region_pivot.sum(axis=1).sort_values(ascending=False).index]
+    if 'Region' in display_issue_df.columns:
+        region_summary = display_issue_df.groupby('Region').agg({
+            'Quantity': ['sum', 'mean', 'count']
+        }).round(2)
+        region_summary.columns = ['Total Quantity', 'Avg Quantity', 'Number of Records']
+        region_summary = region_summary.sort_values('Total Quantity', ascending=False).reset_index()
 
-    if 'region_page' not in st.session_state:
-        st.session_state.region_page = 1
+        col_r1, col_r2 = st.columns(2)
 
-    if len(region_pivot) > 0:
-        start_idx_r = (st.session_state.region_page - 1) * materials_per_page
-        end_idx_r = min(start_idx_r + materials_per_page, total_materials)
-        page_materials_r = all_materials[start_idx_r:end_idx_r] if total_materials > 0 else []
-
-        if page_materials_r:
-            region_pivot_page = region_pivot[page_materials_r]
-        else:
-            region_pivot_page = region_pivot
-
-        col_r1, col_r2, col_r3 = st.columns([1, 3, 1])
         with col_r1:
-            if st.button("◀ Previous", key="region_prev") and st.session_state.region_page > 1:
-                st.session_state.region_page -= 1
-                st.rerun()
-        with col_r2:
-            st.markdown(f"<p style='text-align: center;'>Materials {start_idx_r + 1} - {end_idx_r} of {total_materials}</p>", unsafe_allow_html=True)
-        with col_r3:
-            if st.button("Next ▶", key="region_next") and st.session_state.region_page < total_pages:
-                st.session_state.region_page += 1
-                st.rerun()
+            fig_regions = px.bar(
+                region_summary,
+                x='Region',
+                y='Total Quantity',
+                title='Issue Quantity by Region',
+                color='Total Quantity',
+                color_continuous_scale='Oranges',
+                text='Total Quantity'
+            )
+            fig_regions.update_traces(texttemplate='%{text:,.0f}', textposition='outside')
+            fig_regions.update_layout(height=450, xaxis_tickangle=-45)
+            st.plotly_chart(fig_regions, use_container_width=True)
 
-        fig_region = go.Figure(data=go.Heatmap(
+        with col_r2:
+            fig_region_pie = px.pie(
+                region_summary,
+                values='Total Quantity',
+                names='Region',
+                title='Issue Distribution by Region'
+            )
+            fig_region_pie.update_traces(textposition='inside', textinfo='percent+label')
+            fig_region_pie.update_layout(height=450)
+            st.plotly_chart(fig_region_pie, use_container_width=True)
+
+        # Region vs Material heatmap with pagination (10 materials per page)
+        st.markdown("#### 🔥 Region vs Material - Issue Quantity Heatmap")
+
+        region_pivot = display_issue_df.groupby(['Region', 'Material Description'])['Quantity'].sum().reset_index()
+        region_pivot = region_pivot.pivot_table(index='Region', columns='Material Description', values='Quantity', fill_value=0)
+
+        # Use same material order
+        region_pivot_page = region_pivot[page_materials] if 'page_materials' in dir() and page_materials else region_pivot.iloc[:, :10]
+
+        fig_region_heatmap = go.Figure(data=go.Heatmap(
             z=region_pivot_page.values,
             y=region_pivot_page.index,
             x=region_pivot_page.columns,
-            colorscale='Reds',
+            colorscale='Oranges',
             text=region_pivot_page.values,
             texttemplate='%{text:,.0f}',
             textfont={"size": 10},
-            colorbar=dict(title="Quantity", thickness=15)
+            colorbar=dict(title="Quantity")
         ))
-        fig_region.update_layout(
+        fig_region_heatmap.update_layout(
             xaxis_tickangle=-45,
             xaxis={'title': 'Material Description', 'tickfont': {'size': 10}},
-            yaxis={'title': 'Region', 'tickfont': {'size': 11}},
-            height=max(400, 40 * len(region_pivot_page) + 100),
+            yaxis={'title': 'Region'},
+            height=max(400, 35 * len(region_pivot_page) + 100),
             margin=dict(l=150, r=50, t=50, b=250)
         )
-        st.plotly_chart(fig_region, use_container_width=True)
-
-    st.markdown("---")
-    st.markdown("<h3 style='font-size: 24px; font-weight: bold;'>📊 Summary Tables</h3>", unsafe_allow_html=True)
-
-    # ========== TABLE 1: Material vs Month ==========
-    st.markdown("<h4 style='font-size: 20px; font-weight: bold;'>Table 1: Material vs Month (with A_AMC)</h4>", unsafe_allow_html=True)
-    st.caption("A_AMC = Average monthly issue quantity from the last 3 months of data")
-
-    if 'Delivery Date' in display_issue_df.columns and display_issue_df['Delivery Date'].notna().any():
-        monthly_df = display_issue_df.copy()
-        monthly_df['Month'] = monthly_df['Delivery Date'].dt.strftime('%b-%Y')
-        monthly_pivot = monthly_df.groupby(['Material Description', 'Month'])['Quantity'].sum().reset_index()
-        monthly_table = monthly_pivot.pivot_table(index='Material Description', columns='Month', values='Quantity', fill_value=0)
-
-        if len(monthly_table.columns) > 0:
-            month_order = sorted(monthly_table.columns, key=lambda x: pd.to_datetime(x, format='%b-%Y'))
-            monthly_table = monthly_table[month_order]
-
-        monthly_table = monthly_table.reset_index()
-        if not a_amc_data.empty:
-            monthly_table = monthly_table.merge(a_amc_data, on='Material Description', how='left')
-            monthly_table['A_AMC'] = monthly_table['A_AMC'].fillna(0).round(2)
-            cols = ['Material Description', 'A_AMC'] + [c for c in monthly_table.columns if c not in ['Material Description', 'A_AMC']]
-            monthly_table = monthly_table[cols]
-
-        monthly_table = monthly_table.set_index('Material Description')
-        st.dataframe(monthly_table.style.format("{:,.0f}"), use_container_width=True, height=500)
-
-        st.download_button(
-            label="📥 Download Material vs Month",
-            data=monthly_table.reset_index().to_csv(index=False),
-            file_name=f"issue_data_monthly_{datetime.now().strftime('%Y%m%d')}.csv",
-            mime="text/csv"
-        )
+        st.plotly_chart(fig_region_heatmap, use_container_width=True)
 
     st.markdown("---")
 
-    # ========== TABLE 2: Material vs Region ==========
-    st.markdown("<h4 style='font-size: 20px; font-weight: bold;'>Table 2: Material vs Region</h4>", unsafe_allow_html=True)
-
-    region_table = display_issue_df.groupby(['Material Description', 'Region'])['Quantity'].sum().reset_index()
-    region_pivot_table = region_table.pivot_table(index='Material Description', columns='Region', values='Quantity', fill_value=0)
-
-    if len(region_pivot_table) > 0:
-        region_pivot_table = region_pivot_table.loc[region_pivot_table.sum(axis=1).sort_values(ascending=False).index]
-
-    st.dataframe(region_pivot_table.style.format("{:,.0f}"), use_container_width=True, height=500)
+    # ========== EXPORT ALL DATA ==========
+    st.markdown("<h3 style='font-size: 20px; font-weight: bold;'>📥 Export All Filtered Data</h3>", unsafe_allow_html=True)
 
     st.download_button(
-        label="📥 Download Material vs Region",
-        data=region_pivot_table.reset_index().to_csv(index=False),
-        file_name=f"issue_data_region_{datetime.now().strftime('%Y%m%d')}.csv",
-        mime="text/csv"
+        label="📊 Download Full Issue Data (CSV)",
+        data=display_issue_df.to_csv(index=False),
+        file_name=f"issue_data_full_{datetime.now().strftime('%Y%m%d')}.csv",
+        mime="text/csv",
+        use_container_width=True
     )
-
-    st.markdown("---")
-
-    # ========== TABLE 3: Hubs Based Issue Data ==========
-    st.markdown("<h4 style='font-size: 20px; font-weight: bold;'>Table 3: Hubs Based Issue Data</h4>", unsafe_allow_html=True)
-
-    plant_table = display_issue_df.groupby(['Material Description', 'Plant'])['Quantity'].sum().reset_index()
-    plant_pivot_table = plant_table.pivot_table(index='Material Description', columns='Plant', values='Quantity', fill_value=0)
-
-    if len(plant_pivot_table) > 0:
-        plant_pivot_table = plant_pivot_table.loc[plant_pivot_table.sum(axis=1).sort_values(ascending=False).index]
-
-    st.dataframe(plant_pivot_table.style.format("{:,.0f}"), use_container_width=True, height=500)
-
-    st.download_button(
-        label="📥 Download Hubs Based Issue Data",
-        data=plant_pivot_table.reset_index().to_csv(index=False),
-        file_name=f"hubs_based_issue_data_{datetime.now().strftime('%Y%m%d')}.csv",
-        mime="text/csv"
-    )
-
-    # ========== A_AMC Summary ==========
-    st.markdown("---")
-    st.markdown("<h4 style='font-size: 20px; font-weight: bold;'>📊 A_AMC Summary (Last 3 Months Average)</h4>", unsafe_allow_html=True)
-
-    if not a_amc_data.empty:
-        a_amc_display = a_amc_data.sort_values('A_AMC', ascending=False)
-        st.dataframe(a_amc_display.head(20), use_container_width=True, hide_index=True)
-
-        fig_a_amc = px.bar(
-            a_amc_data.head(10),
-            x='Material Description',
-            y='A_AMC',
-            title='Top 10 Materials by Average Monthly Issue (A_AMC)',
-            color='A_AMC',
-            color_continuous_scale='Blues'
-        )
-        fig_a_amc.update_layout(xaxis_tickangle=-45, height=500)
-        st.plotly_chart(fig_a_amc, use_container_width=True)
-
-        st.download_button(
-            label="📥 Download Full A_AMC Data",
-            data=a_amc_data.to_csv(index=False),
-            file_name=f"a_amc_data_{datetime.now().strftime('%Y%m%d')}.csv",
-            mime="text/csv"
-        )
 
     st.stop()
 elif page == "Advanced Analytics":
