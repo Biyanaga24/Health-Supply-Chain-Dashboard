@@ -1673,10 +1673,30 @@ if not df.empty:
         if col in df.columns:
             df[col] = df[col].fillna("").astype(str)
 
+    # ===== FIX: Handle empty NSOH values ONLY =====
+    # NSOH should be 0 when AMC > 0 and NSOH is empty/null
+    if 'NSOH' in df.columns and 'AMC' in df.columns:
+        # Convert to numeric (already done above, but ensure)
+        df['NSOH'] = pd.to_numeric(df['NSOH'], errors='coerce')
+        df['AMC'] = pd.to_numeric(df['AMC'], errors='coerce')
+
+        # Where AMC > 0 and NSOH is NaN/empty, set NSOH to 0
+        mask = (df['AMC'] > 0) & (df['NSOH'].isna())
+        df.loc[mask, 'NSOH'] = 0
+
+        # Fill remaining NSOH NaN with 0 (for materials with AMC <= 0 or missing)
+        df['NSOH'] = df['NSOH'].fillna(0)
+
+    # Calculate NMOS (after fixing NSOH)
     if 'NSOH' in df.columns and 'AMC' in df.columns:
         nsoh = pd.to_numeric(df['NSOH'], errors='coerce')
         amc = pd.to_numeric(df['AMC'], errors='coerce')
+
+        # For AMC that is 0 or NaN, we cannot calculate NMOS
+        # Replace 0 AMC with NaN to avoid division by zero
         amc = amc.replace(0, np.nan)
+
+        # Calculate NMOS - where AMC is NaN, NMOS will be NaN
         nmos = nsoh / amc
         nmos = nmos.replace([np.inf, -np.inf], np.nan)
         df['NMOS'] = nmos.round(2)
@@ -5051,58 +5071,243 @@ with tab4:
         st.error(f"Error processing files: {e}")
 
     # ---------------------------------------------------
-    # TAB 5 - Supply Planning
-    # ---------------------------------------------------
-    with tab5:
-        st.markdown("<h3 style='font-size: 24px; font-weight: bold;'>📦 Supply Planning - Procurement Requirements</h3>", unsafe_allow_html=True)
+# TAB 5 - Supply Planning (ONE ROW - STACKED PROBLEMS)
+# ---------------------------------------------------
+with tab5:
+    st.markdown("<h3 style='font-size: 24px; font-weight: bold;'>📦 Supply Planning - Procurement Requirements</h3>", unsafe_allow_html=True)
 
-        with st.expander("📖 Parameters & Instructions", expanded=False):
-            st.markdown("""
-            **Supply Planning Parameters:**
-            - Lead Time = 6 months (time from order placement to delivery)
-            - Safety Stock = 2 months (buffer stock)
-            - Maximum Stock Level = 18 months
-            - Reorder Point = Lead Time + Safety Stock = 8 months
+    with st.expander("📖 Parameters & Instructions", expanded=False):
+        st.markdown("""
+        **Supply Planning Parameters:**
+        - Lead Time = 6 months (time from order placement to delivery)
+        - Safety Stock = 2 months (buffer stock)
+        - Maximum Stock Level = 18 months
+        - Reorder Point = Lead Time + Safety Stock = 8 months
 
-            **Order Quantity Formula:**
-            - Order Quantity = (18 - TMOS) × AMC (ONLY if 18 - TMOS is POSITIVE)
-            - MOS Needed = 18 - TMOS (months of stock required to reach maximum)
+        **Order Quantity Formula:**
+        - Order Quantity = (18 - TMOS) × AMC (ONLY if 18 - TMOS is POSITIVE)
+        - MOS Needed = 18 - TMOS (months of stock required to reach maximum)
 
-            **TMOS = NMOS + Pipeline MOS** (GIT_MOS + LC_MOS + WB_MOS + TMD_MOS)
-            """)
+        **TMOS = NMOS + Pipeline MOS** (GIT_MOS + LC_MOS + WB_MOS + TMD_MOS)
+        """)
 
-        if 'TMOS' in df_filtered.columns and 'AMC' in df_filtered.columns and 'NMOS' in df_filtered.columns:
-            supply_plan = []
-            current_date = datetime.now()
+    if 'TMOS' in df_filtered.columns and 'AMC' in df_filtered.columns and 'NMOS' in df_filtered.columns:
+        supply_plan = []
+        current_date = datetime.now()
 
-            def get_future_date(months_from_now):
-                target_date = current_date
-                months_int = int(months_from_now)
-                new_year = target_date.year + ((target_date.month + months_int - 1) // 12)
-                new_month = ((target_date.month + months_int - 1) % 12) + 1
-                target_date = target_date.replace(year=new_year, month=new_month, day=1)
-                return target_date
+        def get_future_date(months_from_now):
+            target_date = current_date
+            months_int = int(months_from_now)
+            new_year = target_date.year + ((target_date.month + months_int - 1) // 12)
+            new_month = ((target_date.month + months_int - 1) % 12) + 1
+            target_date = target_date.replace(year=new_year, month=new_month, day=1)
+            return target_date
 
-            def get_readable_order_by(months_until_order):
-                if months_until_order <= 0:
-                    return "Now"
-                target_date = get_future_date(months_until_order)
-                month_name = target_date.strftime('%B')
-                year = target_date.year
-                if target_date.day <= 15:
-                    period = "beginning"
+        def get_readable_order_by(months_until_order):
+            if months_until_order <= 0:
+                return "Now"
+            target_date = get_future_date(months_until_order)
+            month_name = target_date.strftime('%B')
+            year = target_date.year
+            if target_date.day <= 15:
+                period = "beginning"
+            else:
+                period = "end"
+            if target_date.year == current_date.year:
+                return f"{period} of {month_name}"
+            else:
+                return f"{period} of {month_name} {year}"
+
+        for idx, row in df_filtered.iterrows():
+            tmos = row.get('TMOS', 0)
+            amc = row.get('AMC', 0)
+            nmos = row.get('NMOS', 0)
+            material = row['Material Description']
+
+            git_mos = row.get('GIT_MOS', 0)
+            lc_mos = row.get('LC_MOS', 0)
+            wb_mos = row.get('WB_MOS', 0)
+            tmd_mos = row.get('TMD_MOS', 0)
+
+            try:
+                tmos = float(tmos) if pd.notna(tmos) else 0
+                amc = float(amc) if pd.notna(amc) else 0
+                nmos = float(nmos) if pd.notna(nmos) else 0
+                git_mos = float(git_mos) if pd.notna(git_mos) else 0
+                lc_mos = float(lc_mos) if pd.notna(lc_mos) else 0
+                wb_mos = float(wb_mos) if pd.notna(wb_mos) else 0
+                tmd_mos = float(tmd_mos) if pd.notna(tmd_mos) else 0
+            except:
+                continue
+
+            pipeline_mos = git_mos + lc_mos + wb_mos + tmd_mos
+            mos_needed = 18 - tmos
+
+            if mos_needed > 0 and amc > 0:
+                order_quantity = int(mos_needed * amc)
+
+                if tmos <= 8:
+                    urgency = "🔴 CRITICAL"
+                    action = f"Place this {order_quantity:,} units IMMEDIATELY"
+                    order_by = "Now"
+                    expected_delivery = get_future_date(6)
                 else:
-                    period = "end"
-                if target_date.year == current_date.year:
-                    return f"{period} of {month_name}"
-                else:
-                    return f"{period} of {month_name} {year}"
+                    months_until_order = round(tmos - 8, 1)
+                    urgency = "🟡 PLAN"
+                    order_by_readable = get_readable_order_by(months_until_order)
+                    action = f"Place this {order_quantity:,} units by {order_by_readable}"
+                    order_by = order_by_readable
+                    total_months_to_delivery = months_until_order + 6
+                    expected_delivery = get_future_date(total_months_to_delivery)
 
-            for idx, row in df_filtered.iterrows():
-                tmos = row.get('TMOS', 0)
-                amc = row.get('AMC', 0)
-                nmos = row.get('NMOS', 0)
-                material = row['Material Description']
+                pipeline_parts = []
+                if git_mos > 0:
+                    pipeline_parts.append(f"GIT: {round(git_mos,1)}m")
+                if lc_mos > 0:
+                    pipeline_parts.append(f"LC: {round(lc_mos,1)}m")
+                if wb_mos > 0:
+                    pipeline_parts.append(f"WB: {round(wb_mos,1)}m")
+                if tmd_mos > 0:
+                    pipeline_parts.append(f"TMD: {round(tmd_mos,1)}m")
+                pipeline_status = ", ".join(pipeline_parts) if pipeline_parts else "No pipeline stock"
+
+                supply_plan.append({
+                    'Material': material,
+                    'Current TMOS': round(tmos, 2),
+                    'NMOS': round(nmos, 2),
+                    'Pipeline': round(pipeline_mos, 2),
+                    'Pipeline Status': pipeline_status,
+                    'AMC': int(amc),
+                    'MOS Needed': round(mos_needed, 2),
+                    'Order Quantity': f"{order_quantity:,}",
+                    'Urgency': urgency,
+                    'Action': action,
+                    'Order By': order_by,
+                    'Expected Delivery': expected_delivery.strftime('%b %Y')
+                })
+
+        if supply_plan:
+            supply_df = pd.DataFrame(supply_plan).sort_values('Current TMOS', ascending=True)
+
+            col1, col2, col3, col4, col5 = st.columns(5)
+            with col1:
+                st.metric("📋 Materials to Order", len(supply_df))
+            with col2:
+                critical = len([s for s in supply_plan if s['Urgency'] == '🔴 CRITICAL'])
+                st.metric("🔴 Critical", critical, delta="Order Now")
+            with col3:
+                plan = len([s for s in supply_plan if s['Urgency'] == '🟡 PLAN'])
+                st.metric("🟡 Plan", plan, delta="Future Order")
+            with col4:
+                total_quantity = sum([int(s['Order Quantity'].replace(',', '')) for s in supply_plan])
+                st.metric("📦 Total Order Qty", f"{total_quantity:,} units")
+            with col5:
+                avg_mos_needed = supply_df['MOS Needed'].mean()
+                st.metric("📊 Avg MOS Needed", f"{round(avg_mos_needed, 1)} months")
+
+            st.dataframe(
+                supply_df[['Material', 'Current TMOS', 'NMOS', 'Pipeline', 'AMC', 'MOS Needed', 'Order Quantity', 'Urgency', 'Action', 'Order By', 'Expected Delivery']],
+                use_container_width=True,
+                hide_index=True
+            )
+
+            st.download_button(
+                label="📥 Download Order Quantity Plan (CSV)",
+                data=supply_df.to_csv(index=False),
+                file_name=f"order_quantity_plan_{datetime.now().strftime('%Y%m%d')}.csv",
+                mime="text/csv",
+                use_container_width=True
+            )
+
+            # ACTION PLAN
+            st.markdown("---")
+            st.markdown("<h4 style='font-size: 20px; font-weight: bold;'>📝 Action Plan - Materials Requiring Attention</h4>", unsafe_allow_html=True)
+
+            selected_tab_action = st.session_state.action_plan_tab
+
+            col_filter1, col_filter2, col_filter3, col_filter4, col_filter5, col_filter6 = st.columns(6)
+
+            with col_filter1:
+                if st.button("📋 All Issues", use_container_width=True, type="primary" if selected_tab_action == "📋 All Issues" else "secondary"):
+                    st.session_state.action_plan_tab = "📋 All Issues"
+                    st.rerun()
+            with col_filter2:
+                if st.button("🔴 Stock Out", use_container_width=True, type="primary" if selected_tab_action == "🔴 Stock Out" else "secondary"):
+                    st.session_state.action_plan_tab = "🔴 Stock Out"
+                    st.rerun()
+            with col_filter3:
+                if st.button("🟡 Risk of SO", use_container_width=True, type="primary" if selected_tab_action == "🟡 Risk of Stock Out" else "secondary"):
+                    st.session_state.action_plan_tab = "🟡 Risk of Stock Out"
+                    st.rerun()
+            with col_filter4:
+                if st.button("⚠️ Expiry Risk", use_container_width=True, type="primary" if selected_tab_action == "⚠️ Expiry Risk" else "secondary"):
+                    st.session_state.action_plan_tab = "⚠️ Expiry Risk"
+                    st.rerun()
+            with col_filter5:
+                if st.button("📉 Below Min", use_container_width=True, type="primary" if selected_tab_action == "📉 Below Min Stock" else "secondary"):
+                    st.session_state.action_plan_tab = "📉 Below Min Stock"
+                    st.rerun()
+            with col_filter6:
+                if st.button("📦 Pipeline Insuff", use_container_width=True, type="primary" if selected_tab_action == "📦 Pipeline Insufficient" else "secondary"):
+                    st.session_state.action_plan_tab = "📦 Pipeline Insufficient"
+                    st.rerun()
+
+            st.markdown("---")
+
+            def get_end_of_month_date(year, month):
+                year_int = int(year)
+                month_int = int(month)
+                if month_int == 12:
+                    next_month = 1
+                    next_year = year_int + 1
+                else:
+                    next_month = month_int + 1
+                    next_year = year_int
+                last_day = (datetime(next_year, next_month, 1) - timedelta(days=1)).day
+                return datetime(year_int, month_int, last_day)
+
+            def calculate_due_date_for_pipeline(tmos):
+                current_date = datetime.now()
+
+                if tmos < 8:
+                    return "IMMEDIATELY"
+                else:
+                    months_until_need = tmos - 8
+
+                    if months_until_need <= 0.3:
+                        first_day = current_date.replace(day=1)
+                        return f"Beginning of this month ({first_day.strftime('%d %b %Y')})"
+                    elif months_until_need <= 0.7:
+                        last_day = get_end_of_month_date(current_date.year, current_date.month)
+                        return f"End of this month ({last_day.strftime('%d %b %Y')})"
+                    else:
+                        target_date = current_date + timedelta(days=int(months_until_need * 30))
+                        return f"By {target_date.strftime('%d %b %Y')}"
+
+            def get_total_pipeline_mos(row):
+                git_mos = row.get('GIT_MOS', 0)
+                lc_mos = row.get('LC_MOS', 0)
+                wb_mos = row.get('WB_MOS', 0)
+                tmd_mos = row.get('TMD_MOS', 0)
+                try:
+                    git_mos = float(git_mos) if pd.notna(git_mos) else 0
+                    lc_mos = float(lc_mos) if pd.notna(lc_mos) else 0
+                    wb_mos = float(wb_mos) if pd.notna(wb_mos) else 0
+                    tmd_mos = float(tmd_mos) if pd.notna(tmd_mos) else 0
+                except:
+                    return 0
+                return git_mos + lc_mos + wb_mos + tmd_mos
+
+            def has_pipeline(row):
+                return get_total_pipeline_mos(row) > 0
+
+            def get_all_active_pos(row):
+                """Get all active PO numbers for a material"""
+                all_pos = []
+                git_po = row.get('GIT_PO', '')
+                lc_po = row.get('LC_PO', '')
+                wb_po = row.get('WB_PO', '')
+                tmd_po = row.get('TMD_PO', '')
 
                 git_mos = row.get('GIT_MOS', 0)
                 lc_mos = row.get('LC_MOS', 0)
@@ -5110,511 +5315,361 @@ with tab4:
                 tmd_mos = row.get('TMD_MOS', 0)
 
                 try:
-                    tmos = float(tmos) if pd.notna(tmos) else 0
-                    amc = float(amc) if pd.notna(amc) else 0
-                    nmos = float(nmos) if pd.notna(nmos) else 0
                     git_mos = float(git_mos) if pd.notna(git_mos) else 0
                     lc_mos = float(lc_mos) if pd.notna(lc_mos) else 0
                     wb_mos = float(wb_mos) if pd.notna(wb_mos) else 0
                     tmd_mos = float(tmd_mos) if pd.notna(tmd_mos) else 0
                 except:
+                    pass
+
+                if git_mos > 0 and git_po and str(git_po) != 'nan' and str(git_po) != '':
+                    all_pos.append(str(git_po).strip())
+                if lc_mos > 0 and lc_po and str(lc_po) != 'nan' and str(lc_po) != '':
+                    all_pos.append(str(lc_po).strip())
+                if wb_mos > 0 and wb_po and str(wb_po) != 'nan' and str(wb_po) != '':
+                    all_pos.append(str(wb_po).strip())
+                if tmd_mos > 0 and tmd_po and str(tmd_po) != 'nan' and str(tmd_po) != '':
+                    all_pos.append(str(tmd_po).strip())
+
+                return all_pos
+
+            def get_pipeline_recommendation_no_emoji(row):
+                """Get recommendation WITHOUT emojis"""
+                git_mos = row.get('GIT_MOS', 0)
+                lc_mos = row.get('LC_MOS', 0)
+                wb_mos = row.get('WB_MOS', 0)
+                tmd_mos = row.get('TMD_MOS', 0)
+                git_po = row.get('GIT_PO', '')
+                lc_po = row.get('LC_PO', '')
+                wb_po = row.get('WB_PO', '')
+                tmd_po = row.get('TMD_PO', '')
+
+                try:
+                    git_mos = float(git_mos) if pd.notna(git_mos) else 0
+                    lc_mos = float(lc_mos) if pd.notna(lc_mos) else 0
+                    wb_mos = float(wb_mos) if pd.notna(wb_mos) else 0
+                    tmd_mos = float(tmd_mos) if pd.notna(tmd_mos) else 0
+                except:
+                    return "Pipeline exists but no PO details available", "EPSS_DMD"
+
+                active_pos = []
+
+                if git_mos > 0 and git_po and str(git_po) != 'nan' and str(git_po) != '':
+                    active_pos.append(('GIT', str(git_po).strip(), git_mos))
+                if lc_mos > 0 and lc_po and str(lc_po) != 'nan' and str(lc_po) != '':
+                    active_pos.append(('LC', str(lc_po).strip(), lc_mos))
+                if wb_mos > 0 and wb_po and str(wb_po) != 'nan' and str(wb_po) != '':
+                    active_pos.append(('WB', str(wb_po).strip(), wb_mos))
+                if tmd_mos > 0 and tmd_po and str(tmd_po) != 'nan' and str(tmd_po) != '':
+                    active_pos.append(('TMD', str(tmd_po).strip(), tmd_mos))
+
+                if not active_pos:
+                    return "Pipeline exists but no PO details available", "EPSS_DMD"
+
+                po_numbers = [po for _, po, _ in active_pos]
+                po_text = ", ".join(po_numbers)
+
+                for po_type, po_num, mos in active_pos:
+                    if po_type == 'GIT':
+                        return f"Expedite shipment - PO: {po_text}", "EPSS_CMD"
+                    elif po_type == 'LC':
+                        return f"Expedite L/C opening process - PO: {po_text}", "EPSS_CMD, EPSS_DMD"
+                    elif po_type == 'WB':
+                        return f"Expedite budget transfer - PO: {po_text}", "EPSS_Finance, MOH"
+                    elif po_type == 'TMD':
+                        return f"Expedite tender process - PO: {po_text}", "EPSS_PMD, EPSS_DMD"
+
+                return f"Pipeline exists - PO: {po_text}", "EPSS_DMD"
+
+            # Dictionary to store all problems for each material
+            material_problems = {}
+
+            for idx, row in df_filtered.iterrows():
+                material = row['Material Description']
+                if pd.isna(material):
                     continue
 
-                pipeline_mos = git_mos + lc_mos + wb_mos + tmd_mos
-                mos_needed = 18 - tmos
+                nmos = row.get('NMOS', 0)
+                tmos = row.get('TMOS', 0)
+                nsoh = row.get('NSOH', 0)
+                amc = row.get('AMC', 0)
+                risk_type = row.get('Risk Type', '')
+                has_expiry_risk = row.get('Has Expiry Risk', False)
+                risk_of_stock = row.get('Risk of Stock', '')
+                cv_category = row.get('CV Category', 'Unknown')
 
-                if mos_needed > 0 and amc > 0:
-                    order_quantity = int(mos_needed * amc)
+                try:
+                    nmos = float(nmos) if pd.notna(nmos) else 0
+                    tmos = float(tmos) if pd.notna(tmos) else 0
+                    nsoh = float(nsoh) if pd.notna(nsoh) else 0
+                    amc = float(amc) if pd.notna(amc) else 0
+                except:
+                    continue
 
-                    if tmos <= 8:
-                        urgency = "🔴 CRITICAL"
-                        action = f"Place this {order_quantity:,} units IMMEDIATELY"
-                        order_by = "Now"
-                        expected_delivery = get_future_date(6)
-                    else:
-                        months_until_order = round(tmos - 8, 1)
-                        urgency = "🟡 PLAN"
-                        order_by_readable = get_readable_order_by(months_until_order)
-                        action = f"Place this {order_quantity:,} units by {order_by_readable}"
-                        order_by = order_by_readable
-                        total_months_to_delivery = months_until_order + 6
-                        expected_delivery = get_future_date(total_months_to_delivery)
+                if amc == 0 and not has_expiry_risk:
+                    continue
 
-                    pipeline_parts = []
-                    if git_mos > 0:
-                        pipeline_parts.append(f"GIT: {round(git_mos,1)}m")
-                    if lc_mos > 0:
-                        pipeline_parts.append(f"LC: {round(lc_mos,1)}m")
-                    if wb_mos > 0:
-                        pipeline_parts.append(f"WB: {round(wb_mos,1)}m")
-                    if tmd_mos > 0:
-                        pipeline_parts.append(f"TMD: {round(tmd_mos,1)}m")
-                    pipeline_status = ", ".join(pipeline_parts) if pipeline_parts else "No pipeline stock"
+                mos_needed_calc = 18 - tmos
+                if mos_needed_calc < 0:
+                    mos_needed_calc = 0
 
-                    supply_plan.append({
-                        'Material': material,
-                        'Current TMOS': round(tmos, 2),
+                nsoh_formatted = f"{int(nsoh):,}" if nsoh > 0 else "0"
+                amc_formatted = f"{int(amc):,}" if amc > 0 else "N/A"
+                pmos = round(get_total_pipeline_mos(row), 2)
+
+                current_date = datetime.now()
+                end_of_month = get_end_of_month_date(current_date.year, current_date.month)
+
+                # Get all active POs for display
+                all_pos = get_all_active_pos(row)
+
+                # Initialize material in dictionary if not exists
+                if material not in material_problems:
+                    material_problems[material] = {
+                        'NSOH': nsoh_formatted,
+                        'AMC': amc_formatted,
+                        'PMOS': pmos,
                         'NMOS': round(nmos, 2),
-                        'Pipeline': round(pipeline_mos, 2),
-                        'Pipeline Status': pipeline_status,
-                        'AMC': int(amc),
-                        'MOS Needed': round(mos_needed, 2),
-                        'Order Quantity': f"{order_quantity:,}",
-                        'Urgency': urgency,
-                        'Action': action,
-                        'Order By': order_by,
-                        'Expected Delivery': expected_delivery.strftime('%b %Y')
+                        'TMOS': round(tmos, 2),
+                        'MOS Needed': round(mos_needed_calc, 2),
+                        'problems': []
+                    }
+
+                # 🔴 Stock Out
+                if nmos < 1:
+                    if has_pipeline(row):
+                        action_point, responsible_body = get_pipeline_recommendation_no_emoji(row)
+                    else:
+                        if all_pos:
+                            action_point = f"CRITICAL: Place URGENT order - PO: {', '.join(all_pos)}"
+                        else:
+                            action_point = "CRITICAL: Place URGENT order - stock out"
+                        responsible_body = "MOH"
+
+                    material_problems[material]['problems'].append({
+                        'Identified Problem': '🔴 Stock Out',
+                        'Action Point': action_point,
+                        'Responsible Body': responsible_body,
+                        'Due Date': 'IMMEDIATELY'
                     })
 
-            if supply_plan:
-                supply_df = pd.DataFrame(supply_plan).sort_values('Current TMOS', ascending=True)
+                # 🟡 Risk of Stock Out
+                if risk_of_stock == 'Risk of Stock out' or risk_type == 'Risk of Stock out':
+                    if has_pipeline(row):
+                        action_point, responsible_body = get_pipeline_recommendation_no_emoji(row)
+                    else:
+                        if all_pos:
+                            action_point = f"Place order - at risk of stock out - PO: {', '.join(all_pos)}"
+                        else:
+                            action_point = "Place order - at risk of stock out"
+                        responsible_body = "MOH"
 
-                col1, col2, col3, col4, col5 = st.columns(5)
+                    material_problems[material]['problems'].append({
+                        'Identified Problem': '🟡 Risk of Stock Out',
+                        'Action Point': action_point,
+                        'Responsible Body': responsible_body,
+                        'Due Date': end_of_month.strftime('Before %d %b %Y')
+                    })
+
+                # ⚠️ Expiry Risk
+                if has_expiry_risk or risk_type == 'Expiry Risk':
+                    hubs_pct = row.get('Hubs%', 0)
+                    ho_pct = row.get('Head Office%', 0)
+
+                    try:
+                        hubs_pct = float(hubs_pct) if pd.notna(hubs_pct) else 0
+                        ho_pct = float(ho_pct) if pd.notna(ho_pct) else 0
+                    except:
+                        hubs_pct = 0
+                        ho_pct = 0
+
+                    if cv_category == 'High variation':
+                        action_point = "Redistribution required - high variation across hubs"
+                        responsible_body = "EPSS_DMD, Branch Managers"
+                    elif hubs_pct < ho_pct:
+                        action_point = "Push stock to hubs - hubs have lower stock than head office"
+                        responsible_body = "EPSS_DMD, Logistics"
+                    else:
+                        action_point = "Explore donation options - excess stock that may expire"
+                        responsible_body = "EPSS_DMD, MOH"
+
+                    material_problems[material]['problems'].append({
+                        'Identified Problem': '⚠️ Expiry Risk',
+                        'Action Point': action_point,
+                        'Responsible Body': responsible_body,
+                        'Due Date': 'ASAP'
+                    })
+
+                # 📉 Below Minimum Stock Level
+                if 1 <= nmos < 6:
+                    if has_pipeline(row):
+                        action_point, responsible_body = get_pipeline_recommendation_no_emoji(row)
+                    else:
+                        months_needed_stock = 6 - nmos
+                        order_qty = int(months_needed_stock * amc) if amc > 0 else 0
+                        if all_pos:
+                            action_point = f"Need {months_needed_stock:.1f} months ({order_qty:,} units) to reach minimum stock level (6 months) - PO: {', '.join(all_pos)}"
+                        else:
+                            action_point = f"Need {months_needed_stock:.1f} months ({order_qty:,} units) to reach minimum stock level (6 months)"
+                        responsible_body = "EPSS_DMD"
+
+                    material_problems[material]['problems'].append({
+                        'Identified Problem': '📉 Below Minimum Stock Level',
+                        'Action Point': action_point,
+                        'Responsible Body': responsible_body,
+                        'Due Date': end_of_month.strftime('Before %d %b %Y')
+                    })
+
+                # 📦 Pipeline Insufficient - Cannot Reach Max Stock (NO PO numbers, NO emojis)
+                if tmos < 18:
+                    months_needed_stock = 18 - tmos
+                    order_qty = int(months_needed_stock * amc) if amc > 0 and months_needed_stock > 0 else 0
+                    action_point = f"Need {months_needed_stock:.1f} months ({order_qty:,} units) to reach maximum stock level (18 months)"
+                    responsible_body = "MOH"
+                    due_date = calculate_due_date_for_pipeline(tmos)
+
+                    material_problems[material]['problems'].append({
+                        'Identified Problem': '📦 Pipeline Insufficient - Cannot Reach Max Stock',
+                        'Action Point': action_point,
+                        'Responsible Body': responsible_body,
+                        'Due Date': due_date
+                    })
+
+            # ============================================================
+            # REMOVE DUPLICATE: If material has "Risk of Stock Out", remove "Below Minimum Stock Level"
+            # ============================================================
+            for material, data in material_problems.items():
+                if data['problems']:
+                    has_risk_of_stock = any(p['Identified Problem'] == '🟡 Risk of Stock Out' for p in data['problems'])
+                    if has_risk_of_stock:
+                        # Remove "Below Minimum Stock Level" if it exists
+                        data['problems'] = [p for p in data['problems'] if p['Identified Problem'] != '📉 Below Minimum Stock Level']
+
+            # ============================================================
+            # BUILD TABLE: EXPAND ROWS FOR MATERIALS WITH MULTIPLE PROBLEMS
+            # ============================================================
+            action_plan_rows = []
+            for material, data in material_problems.items():
+                if data['problems']:
+                    # Always create separate rows for each problem
+                    for problem in data['problems']:
+                        row_data = {
+                            'Material': material,
+                            'NSOH': data['NSOH'],
+                            'AMC': data['AMC'],
+                            'PMOS': data['PMOS'],
+                            'NMOS': data['NMOS'],
+                            'TMOS': data['TMOS'],
+                            'MOS Needed': data['MOS Needed'],
+                            'Identified Problem': problem['Identified Problem'],
+                            'Action Point': problem['Action Point'],
+                            'Responsible Body': problem['Responsible Body'],
+                            'Due Date': problem['Due Date']
+                        }
+                        action_plan_rows.append(row_data)
+
+            if action_plan_rows:
+                action_df = pd.DataFrame(action_plan_rows)
+
+                # Calculate stats
+                total_materials = len(material_problems.keys())
+                total_problems = len(action_df)
+
+                # Count problems by type
+                problem_counts = {
+                    '🔴 Stock Out': 0,
+                    '🟡 Risk of Stock Out': 0,
+                    '⚠️ Expiry Risk': 0,
+                    '📉 Below Minimum Stock Level': 0,
+                    '📦 Pipeline Insufficient - Cannot Reach Max Stock': 0
+                }
+                for data in material_problems.values():
+                    for p in data['problems']:
+                        if p['Identified Problem'] in problem_counts:
+                            problem_counts[p['Identified Problem']] += 1
+
+                col1, col2, col3, col4, col5, col6 = st.columns(6)
+
                 with col1:
-                    st.metric("📋 Materials to Order", len(supply_df))
+                    st.metric("📋 Materials with Issues", total_materials)
                 with col2:
-                    critical = len([s for s in supply_plan if s['Urgency'] == '🔴 CRITICAL'])
-                    st.metric("🔴 Critical", critical, delta="Order Now")
+                    st.metric("🔴 Stock Out", problem_counts['🔴 Stock Out'])
                 with col3:
-                    plan = len([s for s in supply_plan if s['Urgency'] == '🟡 PLAN'])
-                    st.metric("🟡 Plan", plan, delta="Future Order")
+                    st.metric("🟡 Risk of SO", problem_counts['🟡 Risk of Stock Out'])
                 with col4:
-                    total_quantity = sum([int(s['Order Quantity'].replace(',', '')) for s in supply_plan])
-                    st.metric("📦 Total Order Qty", f"{total_quantity:,} units")
+                    st.metric("⚠️ Expiry Risk", problem_counts['⚠️ Expiry Risk'])
                 with col5:
-                    avg_mos_needed = supply_df['MOS Needed'].mean()
-                    st.metric("📊 Avg MOS Needed", f"{round(avg_mos_needed, 1)} months")
+                    st.metric("📉 Below Min", problem_counts['📉 Below Minimum Stock Level'])
+                with col6:
+                    st.metric("📦 Pipeline Insuff", problem_counts['📦 Pipeline Insufficient - Cannot Reach Max Stock'])
+
+                st.markdown("---")
+
+                # Apply filter
+                if selected_tab_action == "🔴 Stock Out":
+                    filtered_df = action_df[action_df['Identified Problem'].str.contains('🔴 Stock Out', na=False)]
+                elif selected_tab_action == "🟡 Risk of Stock Out":
+                    filtered_df = action_df[action_df['Identified Problem'].str.contains('🟡 Risk of Stock Out', na=False)]
+                elif selected_tab_action == "⚠️ Expiry Risk":
+                    filtered_df = action_df[action_df['Identified Problem'].str.contains('⚠️ Expiry Risk', na=False)]
+                elif selected_tab_action == "📉 Below Min Stock":
+                    filtered_df = action_df[action_df['Identified Problem'].str.contains('📉 Below Minimum Stock Level', na=False)]
+                elif selected_tab_action == "📦 Pipeline Insufficient":
+                    filtered_df = action_df[action_df['Identified Problem'].str.contains('📦 Pipeline Insufficient - Cannot Reach Max Stock', na=False)]
+                else:
+                    filtered_df = action_df
+
+                if selected_tab_action == "📋 All Issues":
+                    st.info(f"📌 Showing {len(filtered_df)} problem records for {len(filtered_df['Material'].unique())} materials (total {total_problems} problems identified)")
+                else:
+                    st.info(f"📌 Showing {len(filtered_df)} problem records with {selected_tab_action}")
+
+                # ============================================================
+                # DISPLAY WITH st.dataframe - ONE ROW PER PROBLEM
+                # ============================================================
+                display_df = filtered_df[['Material', 'NSOH', 'AMC', 'PMOS', 'NMOS', 'TMOS', 'MOS Needed', 'Identified Problem', 'Action Point', 'Responsible Body', 'Due Date']].copy()
 
                 st.dataframe(
-                    supply_df[['Material', 'Current TMOS', 'NMOS', 'Pipeline', 'AMC', 'MOS Needed', 'Order Quantity', 'Urgency', 'Action', 'Order By', 'Expected Delivery']],
+                    display_df,
                     use_container_width=True,
-                    hide_index=True
+                    hide_index=True,
+                    column_config={
+                        'Material': st.column_config.TextColumn('Material', width='medium'),
+                        'NSOH': st.column_config.TextColumn('NSOH', width='small'),
+                        'AMC': st.column_config.TextColumn('AMC', width='small'),
+                        'PMOS': st.column_config.NumberColumn('PMOS', width='small', format='%.2f'),
+                        'NMOS': st.column_config.NumberColumn('NMOS', width='small', format='%.2f'),
+                        'TMOS': st.column_config.NumberColumn('TMOS', width='small', format='%.2f'),
+                        'MOS Needed': st.column_config.NumberColumn('MOS Needed', width='small', format='%.2f'),
+                        'Identified Problem': st.column_config.TextColumn('Identified Problem', width='medium'),
+                        'Action Point': st.column_config.TextColumn('Action Point', width='large'),
+                        'Responsible Body': st.column_config.TextColumn('Responsible Body', width='medium'),
+                        'Due Date': st.column_config.TextColumn('Due Date', width='medium')
+                    }
                 )
 
-                st.download_button(
-                    label="📥 Download Order Quantity Plan (CSV)",
-                    data=supply_df.to_csv(index=False),
-                    file_name=f"order_quantity_plan_{datetime.now().strftime('%Y%m%d')}.csv",
-                    mime="text/csv",
-                    use_container_width=True
-                )
-
-                                # ACTION PLAN
-                st.markdown("---")
-                st.markdown("<h4 style='font-size: 20px; font-weight: bold;'>📝 Action Plan - Materials Requiring Attention</h4>", unsafe_allow_html=True)
-
-                selected_tab_action = st.session_state.action_plan_tab
-
-                col_filter1, col_filter2, col_filter3, col_filter4, col_filter5, col_filter6 = st.columns(6)
-
-                with col_filter1:
-                    if st.button("📋 All Issues", use_container_width=True, type="primary" if selected_tab_action == "📋 All Issues" else "secondary"):
-                        st.session_state.action_plan_tab = "📋 All Issues"
-                        st.rerun()
-                with col_filter2:
-                    if st.button("🔴 Stock Out", use_container_width=True, type="primary" if selected_tab_action == "🔴 Stock Out" else "secondary"):
-                        st.session_state.action_plan_tab = "🔴 Stock Out"
-                        st.rerun()
-                with col_filter3:
-                    if st.button("🟡 Risk of SO", use_container_width=True, type="primary" if selected_tab_action == "🟡 Risk of Stock Out" else "secondary"):
-                        st.session_state.action_plan_tab = "🟡 Risk of Stock Out"
-                        st.rerun()
-                with col_filter4:
-                    if st.button("⚠️ Expiry Risk", use_container_width=True, type="primary" if selected_tab_action == "⚠️ Expiry Risk" else "secondary"):
-                        st.session_state.action_plan_tab = "⚠️ Expiry Risk"
-                        st.rerun()
-                with col_filter5:
-                    if st.button("📉 Below Min", use_container_width=True, type="primary" if selected_tab_action == "📉 Below Min Stock" else "secondary"):
-                        st.session_state.action_plan_tab = "📉 Below Min Stock"
-                        st.rerun()
-                with col_filter6:
-                    if st.button("📦 Pipeline Insuff", use_container_width=True, type="primary" if selected_tab_action == "📦 Pipeline Insufficient" else "secondary"):
-                        st.session_state.action_plan_tab = "📦 Pipeline Insufficient"
-                        st.rerun()
-
-                st.markdown("---")
-
-                action_plan = []
-
-                def get_end_of_month_date(year, month):
-                    year_int = int(year)
-                    month_int = int(month)
-                    if month_int == 12:
-                        next_month = 1
-                        next_year = year_int + 1
-                    else:
-                        next_month = month_int + 1
-                        next_year = year_int
-                    last_day = (datetime(next_year, next_month, 1) - timedelta(days=1)).day
-                    return datetime(year_int, month_int, last_day)
-
-                def calculate_due_date_for_pipeline(tmos):
-                    current_date = datetime.now()
-
-                    if tmos < 8:
-                        return "IMMEDIATELY"
-                    else:
-                        months_until_need = tmos - 8
-
-                        if months_until_need <= 0.3:
-                            first_day = current_date.replace(day=1)
-                            return f"Beginning of this month ({first_day.strftime('%d %b %Y')})"
-                        elif months_until_need <= 0.7:
-                            last_day = get_end_of_month_date(current_date.year, current_date.month)
-                            return f"End of this month ({last_day.strftime('%d %b %Y')})"
-                        else:
-                            target_date = current_date + timedelta(days=int(months_until_need * 30))
-                            return f"By {target_date.strftime('%d %b %Y')}"
-
-                def get_total_pipeline_mos(row):
-                    git_mos = row.get('GIT_MOS', 0)
-                    lc_mos = row.get('LC_MOS', 0)
-                    wb_mos = row.get('WB_MOS', 0)
-                    tmd_mos = row.get('TMD_MOS', 0)
-                    try:
-                        git_mos = float(git_mos) if pd.notna(git_mos) else 0
-                        lc_mos = float(lc_mos) if pd.notna(lc_mos) else 0
-                        wb_mos = float(wb_mos) if pd.notna(wb_mos) else 0
-                        tmd_mos = float(tmd_mos) if pd.notna(tmd_mos) else 0
-                    except:
-                        return 0
-                    return git_mos + lc_mos + wb_mos + tmd_mos
-
-                def has_pipeline(row):
-                    return get_total_pipeline_mos(row) > 0
-
-                def get_all_active_pos(row):
-                    """Get all active PO numbers for a material"""
-                    all_pos = []
-                    git_po = row.get('GIT_PO', '')
-                    lc_po = row.get('LC_PO', '')
-                    wb_po = row.get('WB_PO', '')
-                    tmd_po = row.get('TMD_PO', '')
-
-                    git_mos = row.get('GIT_MOS', 0)
-                    lc_mos = row.get('LC_MOS', 0)
-                    wb_mos = row.get('WB_MOS', 0)
-                    tmd_mos = row.get('TMD_MOS', 0)
-
-                    try:
-                        git_mos = float(git_mos) if pd.notna(git_mos) else 0
-                        lc_mos = float(lc_mos) if pd.notna(lc_mos) else 0
-                        wb_mos = float(wb_mos) if pd.notna(wb_mos) else 0
-                        tmd_mos = float(tmd_mos) if pd.notna(tmd_mos) else 0
-                    except:
-                        pass
-
-                    if git_mos > 0 and git_po and str(git_po) != 'nan' and str(git_po) != '':
-                        all_pos.append(str(git_po).strip())
-                    if lc_mos > 0 and lc_po and str(lc_po) != 'nan' and str(lc_po) != '':
-                        all_pos.append(str(lc_po).strip())
-                    if wb_mos > 0 and wb_po and str(wb_po) != 'nan' and str(wb_po) != '':
-                        all_pos.append(str(wb_po).strip())
-                    if tmd_mos > 0 and tmd_po and str(tmd_po) != 'nan' and str(tmd_po) != '':
-                        all_pos.append(str(tmd_po).strip())
-
-                    return all_pos
-
-                def get_pipeline_recommendation(row):
-                    """Get recommendation with ALL active PO numbers"""
-                    git_mos = row.get('GIT_MOS', 0)
-                    lc_mos = row.get('LC_MOS', 0)
-                    wb_mos = row.get('WB_MOS', 0)
-                    tmd_mos = row.get('TMD_MOS', 0)
-                    git_po = row.get('GIT_PO', '')
-                    lc_po = row.get('LC_PO', '')
-                    wb_po = row.get('WB_PO', '')
-                    tmd_po = row.get('TMD_PO', '')
-
-                    try:
-                        git_mos = float(git_mos) if pd.notna(git_mos) else 0
-                        lc_mos = float(lc_mos) if pd.notna(lc_mos) else 0
-                        wb_mos = float(wb_mos) if pd.notna(wb_mos) else 0
-                        tmd_mos = float(tmd_mos) if pd.notna(tmd_mos) else 0
-                    except:
-                        return "⚠️ Pipeline exists but no PO details available", "EPSS_DMD"
-
-                    # Collect all active POs with their MOS
-                    active_pos = []
-
-                    if git_mos > 0 and git_po and str(git_po) != 'nan' and str(git_po) != '':
-                        active_pos.append(('GIT', str(git_po).strip(), git_mos))
-                    if lc_mos > 0 and lc_po and str(lc_po) != 'nan' and str(lc_po) != '':
-                        active_pos.append(('LC', str(lc_po).strip(), lc_mos))
-                    if wb_mos > 0 and wb_po and str(wb_po) != 'nan' and str(wb_po) != '':
-                        active_pos.append(('WB', str(wb_po).strip(), wb_mos))
-                    if tmd_mos > 0 and tmd_po and str(tmd_po) != 'nan' and str(tmd_po) != '':
-                        active_pos.append(('TMD', str(tmd_po).strip(), tmd_mos))
-
-                    if not active_pos:
-                        return "⚠️ Pipeline exists but no PO details available", "EPSS_DMD"
-
-                    # Format PO numbers - combine multiple POs with commas
-                    po_numbers = [po for _, po, _ in active_pos]
-                    po_text = ", ".join(po_numbers)
-
-                    # Check for highest priority PO (GIT first, then LC, then WB, then TMD)
-                    for po_type, po_num, mos in active_pos:
-                        if po_type == 'GIT':
-                            return f"🚚 Expedite shipment - PO: {po_text}", "EPSS_CMD"
-                        elif po_type == 'LC':
-                            return f"📄 Expedite L/C opening process - PO: {po_text}", "EPSS_CMD, EPSS_DMD"
-                        elif po_type == 'WB':
-                            return f"💰 Expedite budget transfer - PO: {po_text}", "EPSS_Finance, MOH"
-                        elif po_type == 'TMD':
-                            return f"📋 Expedite tender process - PO: {po_text}", "EPSS_PMD, EPSS_DMD"
-
-                    return f"⚠️ Pipeline exists - PO: {po_text}", "EPSS_DMD"
-
-                for idx, row in df_filtered.iterrows():
-                    material = row['Material Description']
-                    if pd.isna(material):
-                        continue
-
-                    nmos = row.get('NMOS', 0)
-                    tmos = row.get('TMOS', 0)
-                    nsoh = row.get('NSOH', 0)
-                    amc = row.get('AMC', 0)
-                    risk_type = row.get('Risk Type', '')
-                    has_expiry_risk = row.get('Has Expiry Risk', False)
-                    risk_of_stock = row.get('Risk of Stock', '')
-                    cv_category = row.get('CV Category', 'Unknown')
-
-                    try:
-                        nmos = float(nmos) if pd.notna(nmos) else 0
-                        tmos = float(tmos) if pd.notna(tmos) else 0
-                        nsoh = float(nsoh) if pd.notna(nsoh) else 0
-                        amc = float(amc) if pd.notna(amc) else 0
-                    except:
-                        continue
-
-                    if amc == 0 and not has_expiry_risk:
-                        continue
-
-                    mos_needed_calc = 18 - tmos
-                    if mos_needed_calc < 0:
-                        mos_needed_calc = 0
-
-                    nsoh_formatted = f"{int(nsoh):,}" if nsoh > 0 else "0"
-                    amc_formatted = f"{int(amc):,}" if amc > 0 else "N/A"
-                    pmos = round(get_total_pipeline_mos(row), 2)
-
-                    current_date = datetime.now()
-                    end_of_month = get_end_of_month_date(current_date.year, current_date.month)
-
-                    # Get all active POs for display
-                    all_pos = get_all_active_pos(row)
-                    po_display = f" (POs: {', '.join(all_pos)})" if all_pos else ""
-
-                    # 🔴 Stock Out
-                    if nmos < 1:
-                        if has_pipeline(row):
-                            action_point, responsible_body = get_pipeline_recommendation(row)
-                        else:
-                            action_point = f"🆘 CRITICAL: Place URGENT order - stock out{po_display}"
-                            responsible_body = "MOH"
-
-                        action_plan.append({
-                            'Material': material,
-                            'NSOH': nsoh_formatted,
-                            'AMC': amc_formatted,
-                            'PMOS': pmos,
-                            'NMOS': round(nmos, 2),
-                            'TMOS': round(tmos, 2),
-                            'MOS Needed': round(mos_needed_calc, 2),
-                            'Identified Problem': '🔴 Stock Out',
-                            'Action Point': action_point,
-                            'Responsible Body': responsible_body,
-                            'Due Date': 'IMMEDIATELY'
-                        })
-
-                    # 🟡 Risk of Stock Out
-                    if risk_of_stock == 'Risk of Stock out' or risk_type == 'Risk of Stock out':
-                        if has_pipeline(row):
-                            action_point, responsible_body = get_pipeline_recommendation(row)
-                        else:
-                            action_point = f"⚠️ Place order - at risk of stock out{po_display}"
-                            responsible_body = "MOH"
-
-                        action_plan.append({
-                            'Material': material,
-                            'NSOH': nsoh_formatted,
-                            'AMC': amc_formatted,
-                            'PMOS': pmos,
-                            'NMOS': round(nmos, 2),
-                            'TMOS': round(tmos, 2),
-                            'MOS Needed': round(mos_needed_calc, 2),
-                            'Identified Problem': '🟡 Risk of Stock Out',
-                            'Action Point': action_point,
-                            'Responsible Body': responsible_body,
-                            'Due Date': end_of_month.strftime('Before %d %b %Y')
-                        })
-
-                    # ⚠️ Expiry Risk
-                    if has_expiry_risk or risk_type == 'Expiry Risk':
-                        hubs_pct = row.get('Hubs%', 0)
-                        ho_pct = row.get('Head Office%', 0)
-
-                        try:
-                            hubs_pct = float(hubs_pct) if pd.notna(hubs_pct) else 0
-                            ho_pct = float(ho_pct) if pd.notna(ho_pct) else 0
-                        except:
-                            hubs_pct = 0
-                            ho_pct = 0
-
-                        if cv_category == 'High variation':
-                            action_point = f"🔄 Redistribution required - high variation across hubs"
-                            responsible_body = "EPSS_DMD, Branch Managers"
-                        elif hubs_pct < ho_pct:
-                            action_point = f"📦 Push stock to hubs - hubs have lower stock than head office"
-                            responsible_body = "EPSS_DMD, Logistics"
-                        else:
-                            action_point = f"🌍 Explore donation options - excess stock that may expire"
-                            responsible_body = "EPSS_DMD, MOH"
-
-                        action_plan.append({
-                            'Material': material,
-                            'NSOH': nsoh_formatted,
-                            'AMC': amc_formatted,
-                            'PMOS': pmos,
-                            'NMOS': round(nmos, 2),
-                            'TMOS': round(tmos, 2),
-                            'MOS Needed': round(mos_needed_calc, 2),
-                            'Identified Problem': '⚠️ Expiry Risk',
-                            'Action Point': action_point,
-                            'Responsible Body': responsible_body,
-                            'Due Date': 'ASAP'
-                        })
-
-                    # 📉 Below Minimum Stock Level
-                    if 1 <= nmos < 6:
-                        if has_pipeline(row):
-                            action_point, responsible_body = get_pipeline_recommendation(row)
-                        else:
-                            months_needed_stock = 6 - nmos
-                            order_qty = int(months_needed_stock * amc) if amc > 0 else 0
-                            action_point = f"📊 Need {months_needed_stock:.1f} months ({order_qty:,} units) to reach minimum stock level (6 months){po_display}"
-                            responsible_body = "EPSS_DMD"
-
-                        action_plan.append({
-                            'Material': material,
-                            'NSOH': nsoh_formatted,
-                            'AMC': amc_formatted,
-                            'PMOS': pmos,
-                            'NMOS': round(nmos, 2),
-                            'TMOS': round(tmos, 2),
-                            'MOS Needed': round(mos_needed_calc, 2),
-                            'Identified Problem': '📉 Below Minimum Stock Level',
-                            'Action Point': action_point,
-                            'Responsible Body': responsible_body,
-                            'Due Date': end_of_month.strftime('Before %d %b %Y')
-                        })
-
-                    # 📦 Pipeline Insufficient - Cannot Reach Max Stock
-                    if tmos < 18:
-                        months_needed_stock = 18 - tmos
-                        order_qty = int(months_needed_stock * amc) if amc > 0 and months_needed_stock > 0 else 0
-                        po_text = f" - POs: {', '.join(all_pos)}" if all_pos else ""
-                        action_point = f"📋 Need {months_needed_stock:.1f} months ({order_qty:,} units) to reach maximum stock level (18 months){po_text}"
-                        responsible_body = "MOH"
-                        due_date = calculate_due_date_for_pipeline(tmos)
-
-                        action_plan.append({
-                            'Material': material,
-                            'NSOH': nsoh_formatted,
-                            'AMC': amc_formatted,
-                            'PMOS': pmos,
-                            'NMOS': round(nmos, 2),
-                            'TMOS': round(tmos, 2),
-                            'MOS Needed': round(mos_needed_calc, 2),
-                            'Identified Problem': '📦 Pipeline Insufficient - Cannot Reach Max Stock',
-                            'Action Point': action_point,
-                            'Responsible Body': responsible_body,
-                            'Due Date': due_date
-                        })
-
-                if action_plan:
-                    action_df = pd.DataFrame(action_plan)
-
-                    total_issues = len(action_df)
-                    stock_out_count = len(action_df[action_df['Identified Problem'] == '🔴 Stock Out'])
-                    risk_count = len(action_df[action_df['Identified Problem'] == '🟡 Risk of Stock Out'])
-                    expiry_count = len(action_df[action_df['Identified Problem'] == '⚠️ Expiry Risk'])
-                    below_min_count = len(action_df[action_df['Identified Problem'] == '📉 Below Minimum Stock Level'])
-                    pipeline_insufficient_count = len(action_df[action_df['Identified Problem'] == '📦 Pipeline Insufficient - Cannot Reach Max Stock'])
-
-                    col1, col2, col3, col4, col5, col6 = st.columns(6)
-
-                    with col1:
-                        st.metric("📋 Total Issues", total_issues)
-                    with col2:
-                        st.metric("🔴 Stock Out", stock_out_count)
-                    with col3:
-                        st.metric("🟡 Risk of SO", risk_count)
-                    with col4:
-                        st.metric("⚠️ Expiry Risk", expiry_count)
-                    with col5:
-                        st.metric("📉 Below Min", below_min_count)
-                    with col6:
-                        st.metric("📦 Pipeline Insuff", pipeline_insufficient_count)
-
-                    st.markdown("---")
-
-                    if selected_tab_action == "🔴 Stock Out":
-                        filtered_df = action_df[action_df['Identified Problem'] == '🔴 Stock Out']
-                    elif selected_tab_action == "🟡 Risk of Stock Out":
-                        filtered_df = action_df[action_df['Identified Problem'] == '🟡 Risk of Stock Out']
-                    elif selected_tab_action == "⚠️ Expiry Risk":
-                        filtered_df = action_df[action_df['Identified Problem'] == '⚠️ Expiry Risk']
-                    elif selected_tab_action == "📉 Below Min Stock":
-                        filtered_df = action_df[action_df['Identified Problem'] == '📉 Below Minimum Stock Level']
-                    elif selected_tab_action == "📦 Pipeline Insufficient":
-                        filtered_df = action_df[action_df['Identified Problem'] == '📦 Pipeline Insufficient - Cannot Reach Max Stock']
-                    else:
-                        filtered_df = action_df
-
-                    st.info(f"📌 Showing {len(filtered_df)} action items")
-
-                    st.dataframe(
-                        filtered_df[['Material', 'NSOH', 'AMC', 'PMOS', 'NMOS', 'TMOS', 'MOS Needed', 'Identified Problem', 'Action Point', 'Responsible Body', 'Due Date']],
-                        column_config={
-                            'Material': st.column_config.TextColumn('Material', width=200, pinned=True),
-                            'NSOH': st.column_config.TextColumn('NSOH', width=80),
-                            'AMC': st.column_config.TextColumn('AMC', width=70),
-                            'PMOS': st.column_config.NumberColumn('PMOS', width=70, format='%.2f'),
-                            'NMOS': st.column_config.NumberColumn('NMOS', width=70, format='%.2f'),
-                            'TMOS': st.column_config.NumberColumn('TMOS', width=70, format='%.2f'),
-                            'MOS Needed': st.column_config.NumberColumn('MOS Needed', width=80, format='%.2f', help='Months needed to reach 18 months (18 - TMOS)'),
-                            'Identified Problem': st.column_config.TextColumn('Problem', width=220),
-                            'Action Point': st.column_config.TextColumn('Action Point', width=350),
-                            'Responsible Body': st.column_config.TextColumn('Responsible Body', width=150),
-                            'Due Date': st.column_config.TextColumn('Due Date', width=180)
-                        },
-                        use_container_width=True,
-                        hide_index=True,
-                        height=min(600, (len(filtered_df) + 1) * 45)
+                col_download1, col_download2 = st.columns(2)
+                with col_download1:
+                    st.download_button(
+                        label="📥 Download Filtered View (CSV)",
+                        data=filtered_df.to_csv(index=False),
+                        file_name=f"action_plan_filtered_{datetime.now().strftime('%Y%m%d')}.csv",
+                        mime="text/csv",
+                        use_container_width=True
                     )
-
-                    col_download1, col_download2 = st.columns(2)
-                    with col_download1:
-                        st.download_button(
-                            label="📥 Download Filtered View (CSV)",
-                            data=filtered_df.to_csv(index=False),
-                            file_name=f"action_plan_filtered_{datetime.now().strftime('%Y%m%d')}.csv",
-                            mime="text/csv",
-                            use_container_width=True
-                        )
-                    with col_download2:
-                        st.download_button(
-                            label="📊 Download Full Action Plan (CSV)",
-                            data=action_df.to_csv(index=False),
-                            file_name=f"action_plan_full_{datetime.now().strftime('%Y%m%d')}.csv",
-                            mime="text/csv",
-                            use_container_width=True
-                        )
-                else:
-                    st.success("✅ No action items identified")
-                    st.balloons()
+                with col_download2:
+                    st.download_button(
+                        label="📊 Download Full Action Plan (CSV)",
+                        data=action_df.to_csv(index=False),
+                        file_name=f"action_plan_full_{datetime.now().strftime('%Y%m%d')}.csv",
+                        mime="text/csv",
+                        use_container_width=True
+                    )
+            else:
+                st.success("✅ No action items identified")
+                st.balloons()
+        else:
+            st.info("No materials need ordering at this time.")
 
     # ---------------------------------------------------
     # TAB 6 - Purchase Order Status
