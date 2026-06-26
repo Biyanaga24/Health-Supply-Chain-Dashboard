@@ -11,7 +11,7 @@ import plotly.graph_objects as go
 # ===================================================
 # AUTHENTICATION SETUP
 # ===================================================
-from auth import (
+from auth_p import (
     setup_auth,
     get_user_email,
     get_user_metadata,
@@ -702,7 +702,7 @@ plate_to_vehicle_type = vehicle_data['plate_to_vehicle_type']
 total_count, total_active, grounded, assigned_count, available_count = get_vehicle_kpis(df, assignments_df)
 
 # ===================================================
-# KPI CARDS
+# 1. KPI CARDS
 # ===================================================
 st.markdown("""
 <div style="margin: 5px 0 5px 0;">
@@ -745,6 +745,52 @@ for j, kpi in enumerate(kpis[3:]):
             st.session_state.kpi_selection = kpi["key"] if not is_selected else None
             st.rerun()
 
+# ===================================================
+# 2. TRIP PERFORMANCE SUMMARY (now placed immediately after KPIs)
+# ===================================================
+if not assignments_df.empty:
+    # Compute averages (decimal days) for all trips
+    data = assignments_df.copy()
+    date_cols = ['loading_starting_date', 'loading_date_end', 'trip_starting_date', 
+                 'arrival_date', 'return_date', 'trip_end_date', 'expected_trip_end_date']
+    for col in date_cols:
+        if col in data.columns:
+            data[col] = pd.to_datetime(data[col], errors='coerce')
+
+    metrics = {}
+    if 'loading_starting_date' in data.columns and 'loading_date_end' in data.columns:
+        metrics['Loading Time'] = (data['loading_date_end'] - data['loading_starting_date']).dt.total_seconds() / 86400
+    if 'arrival_date' in data.columns and 'trip_starting_date' in data.columns:
+        metrics['Ongoing Time'] = (data['arrival_date'] - data['trip_starting_date']).dt.total_seconds() / 86400
+    if 'trip_end_date' in data.columns and 'return_date' in data.columns:
+        metrics['Incoming Time'] = (data['trip_end_date'] - data['return_date']).dt.total_seconds() / 86400
+    if 'trip_end_date' in data.columns and 'trip_starting_date' in data.columns:
+        metrics['Total Trip Time'] = (data['trip_end_date'] - data['trip_starting_date']).dt.total_seconds() / 86400
+    if 'trip_end_date' in data.columns and 'expected_trip_end_date' in data.columns:
+        metrics['Trip Variance'] = (data['trip_end_date'] - data['expected_trip_end_date']).dt.total_seconds() / 86400
+
+    avg_metrics = {}
+    for name, series in metrics.items():
+        if series.notna().any():
+            avg = series.mean()
+            avg_metrics[name] = avg
+
+    if avg_metrics:
+        st.markdown("---")
+        st.subheader("⏱️ Trip Performance Summary (Averages)")
+        summary_data = []
+        for name, avg_val in avg_metrics.items():
+            summary_data.append({
+                'Metric': name,
+                'Avg Days': f"{avg_val:.2f}",
+                'Avg Hours': f"{avg_val * 24:.1f}"
+            })
+        summary_df = pd.DataFrame(summary_data)
+        st.dataframe(summary_df, use_container_width=True, hide_index=True)
+
+# ===================================================
+# 3. TABLE BASED ON SELECTED KPI (if any)
+# ===================================================
 if st.session_state.kpi_selection:
     selected_kpi = st.session_state.kpi_selection
     label_map = {k['key']: k['label'] for k in kpis}
@@ -800,54 +846,12 @@ if st.session_state.kpi_selection:
         st.info("No master data available.")
 
 # ===================================================
-# TRIP PERFORMANCE SUMMARY (on main page, after KPIs)
-# ===================================================
-if not assignments_df.empty:
-    # Compute averages (decimal days)
-    # Convert date columns to datetime
-    date_cols = ['loading_starting_date', 'loading_date_end', 'trip_starting_date', 
-                 'arrival_date', 'return_date', 'trip_end_date', 'expected_trip_end_date']
-    data = assignments_df.copy()
-    for col in date_cols:
-        if col in data.columns:
-            data[col] = pd.to_datetime(data[col], errors='coerce')
-
-    # Compute metrics as decimal days (total_seconds / 86400)
-    metrics = {}
-    if 'loading_starting_date' in data.columns and 'loading_date_end' in data.columns:
-        metrics['Loading Time'] = (data['loading_date_end'] - data['loading_starting_date']).dt.total_seconds() / 86400
-    if 'arrival_date' in data.columns and 'trip_starting_date' in data.columns:
-        metrics['Ongoing Time'] = (data['arrival_date'] - data['trip_starting_date']).dt.total_seconds() / 86400
-    if 'trip_end_date' in data.columns and 'return_date' in data.columns:
-        metrics['Incoming Time'] = (data['trip_end_date'] - data['return_date']).dt.total_seconds() / 86400
-    if 'trip_end_date' in data.columns and 'trip_starting_date' in data.columns:
-        metrics['Total Trip Time'] = (data['trip_end_date'] - data['trip_starting_date']).dt.total_seconds() / 86400
-    if 'trip_end_date' in data.columns and 'expected_trip_end_date' in data.columns:
-        metrics['Trip Variance'] = (data['trip_end_date'] - data['expected_trip_end_date']).dt.total_seconds() / 86400
-
-    # Compute averages (ignore NaN)
-    avg_metrics = {}
-    for name, series in metrics.items():
-        if series.notna().any():
-            avg = series.mean()
-            avg_metrics[name] = avg
-
-    if avg_metrics:
-        st.markdown("---")
-        st.subheader("⏱️ Trip Performance Summary (Averages)")
-        summary_df = pd.DataFrame({
-            'Metric': list(avg_metrics.keys()),
-            'Value (days)': [f"{v:.2f}" for v in avg_metrics.values()]
-        })
-        st.dataframe(summary_df, use_container_width=True, hide_index=True)
-
-# ===================================================
 # TABS
 # ===================================================
 tab1, tab2 = st.tabs(["📋 Trip Management", "📊 KPIs & Analysis"])
 
 # ===================================================
-# TAB 1: TRIP MANAGEMENT (with per-trip metrics as decimal days)
+# TAB 1: TRIP MANAGEMENT (with per‑trip metrics as decimal days)
 # ===================================================
 with tab1:
     # Initialize session state
@@ -1075,9 +1079,6 @@ with tab1:
                 data['trip_variance'] = (data['trip_end_date'] - data['expected_trip_end_date']).dt.total_seconds() / 86400
             else:
                 data['trip_variance'] = None
-
-            # ---- Display summary (optional: we already have it on main page, but keep it here too for context)
-            # We'll skip adding another summary here to avoid duplication.
 
             # ---- Continue with existing table display ----
             display_columns = [
