@@ -7,6 +7,7 @@ from typing import Optional, Dict, Any
 import logging
 import plotly.express as px
 import plotly.graph_objects as go
+import numpy as np
 
 # ===================================================
 # AUTHENTICATION SETUP
@@ -313,7 +314,7 @@ st.title("🚚 Supply Chain Fleet Control Dashboard")
 # ===================================================
 # SIDEBAR - REORDERED
 # ===================================================
-# 1. Filter Vehicles (moved to top)
+# 1. Filter Vehicles
 st.sidebar.markdown("---")
 st.sidebar.markdown("### 🔍 Filter Vehicles")
 filter_vehicle_status = st.sidebar.selectbox(
@@ -436,17 +437,23 @@ def get_trip_by_id(trip_id: str):
         return None
 
 # ===================================================
-# UPDATED STATUS FUNCTION (robust)
+# UPDATED STATUS FUNCTION – now uses pd.isna()
 # ===================================================
 def calculate_status_and_errors(record):
     """
     Returns (status, None) where status is one of:
     'Planned', 'Loading', 'In Transit', 'Completed'
-    Case-insensitive detection.
+    Now correctly handles NaT values.
     """
-    # Helper to check if a value is non-empty
     def has_value(val):
-        return val is not None and str(val).strip() != ''
+        # Returns True if val is not None, not NaN, not NaT, and not empty string
+        if val is None:
+            return False
+        if pd.isna(val):   # catches NaN, NaT
+            return False
+        if isinstance(val, str) and val.strip() == '':
+            return False
+        return True
 
     assigned = record.get("assigned_date")
     loading_start = record.get("loading_starting_date")
@@ -458,7 +465,6 @@ def calculate_status_and_errors(record):
     has_trip_start = has_value(trip_start)
     has_trip_end = has_value(trip_end)
 
-    # Completed takes precedence
     if has_trip_end:
         return "Completed", None
     elif has_trip_start:
@@ -468,7 +474,6 @@ def calculate_status_and_errors(record):
     elif has_assigned:
         return "Planned", None
     else:
-        # Default to Planned if no dates, but something is assigned
         return "Planned", None
 
 def refresh_data():
@@ -476,25 +481,19 @@ def refresh_data():
     st.rerun()
 
 # ===================================================
-# KPI FUNCTION – updated to include "Loading"
+# KPI FUNCTION – updated with safe status comparison
 # ===================================================
 def get_vehicle_kpis(master_df, assignments_df):
-    """
-    Computes KPIs using the pre‑computed 'status' column.
-    Assigned = count of distinct plates with status in ['Planned', 'Loading', 'In Transit']
-    """
     if master_df.empty:
         return 0, 0, 0, 0, 0
 
     total_count = master_df['plate_number'].nunique()
 
-    # All vehicles that appear in any assignment (active or completed)
     all_assigned_plates = assignments_df['plate_number'].dropna().unique() if not assignments_df.empty else []
     total_active = len(all_assigned_plates)
 
-    # Vehicles with status 'Planned', 'Loading', or 'In Transit'
     if not assignments_df.empty and 'status' in assignments_df.columns:
-        # Normalize statuses to title case for consistency
+        # Normalize statuses to title case
         active_plates = assignments_df[
             assignments_df['status'].str.title().isin(['Planned', 'Loading', 'In Transit'])
         ]['plate_number'].dropna().unique()
@@ -503,44 +502,49 @@ def get_vehicle_kpis(master_df, assignments_df):
         assigned_count = 0
 
     grounded = total_count - total_active
-
-    # Available = Total - Grounded - Assigned
     available = total_count - grounded - assigned_count
 
     return total_count, total_active, grounded, assigned_count, available
 
 # ===================================================
-# LOAD DATA AND COMPUTE STATUS **BEFORE** ANYTHING ELSE
+# LOAD DATA AND COMPUTE STATUS
 # ===================================================
 df = load_master()
 assignments_df = load_assignments()
 
 # ---- Always recompute status from date fields ----
-# This ensures that even if the saved status is missing or stale, we recalc
 if not assignments_df.empty:
     assignments_df.columns = assignments_df.columns.str.strip()
-    # Recompute statuses from date fields
+    # Recompute statuses
     statuses = []
     for _, row in assignments_df.iterrows():
         status, _ = calculate_status_and_errors(row)
         statuses.append(status)
     assignments_df['status'] = statuses
 else:
-    # Ensure status column exists even if empty
     assignments_df['status'] = pd.Series(dtype='object')
 
-# ---- Debug block (can be removed in production) ----
-# st.write("### DEBUG: assignments_df info")
-# st.write("Rows:", len(assignments_df))
-# st.write("Columns:", assignments_df.columns.tolist())
-# if "status" in assignments_df.columns:
-#     st.write("Unique statuses:", assignments_df["status"].value_counts(dropna=False))
-#     st.write("Active plates (Planned/Loading/In Transit):",
-#              assignments_df[assignments_df["status"].str.title().isin(["Planned", "Loading", "In Transit"])]["plate_number"].unique())
-# else:
-#     st.error("❌ STATUS COLUMN NOT FOUND")
+# ---- Parse all date columns with explicit format ----
+date_columns = [
+    'assigned_date', 'requested_date', 'loading_starting_date', 'loading_date_end',
+    'trip_starting_date', 'arrival_date', 'return_date', 'trip_end_date',
+    'expected_trip_end_date', 'created_at'
+]
+for col in date_columns:
+    if col in assignments_df.columns:
+        # Use explicit format to avoid parsing ambiguity
+        assignments_df[col] = pd.to_datetime(
+            assignments_df[col], format='%Y-%m-%d %H:%M:%S', errors='coerce'
+        )
 
-# Process master data for dropdowns etc.
+# ---- Optional debug block (uncomment to inspect) ----
+# with st.expander("🔧 Debug Info (remove in production)"):
+#     st.write("Assignments shape:", assignments_df.shape)
+#     st.write("Status counts:", assignments_df['status'].value_counts(dropna=False))
+#     st.write("First 5 rows:", assignments_df.head())
+#     st.write("Date columns dtypes:", assignments_df[date_columns].dtypes)
+
+# Process master data
 vehicle_data = process_vehicle_data(df)
 plate_numbers = vehicle_data['plate_numbers']
 from_locations = vehicle_data['from_locations']
@@ -551,7 +555,7 @@ plate_to_branch = vehicle_data['plate_to_branch']
 plate_to_phone = vehicle_data['plate_to_phone']
 plate_to_vehicle_type = vehicle_data['plate_to_vehicle_type']
 
-# ---- Now compute KPIs ----
+# ---- Compute KPIs ----
 total_count, total_active, grounded, assigned_count, available_count = get_vehicle_kpis(df, assignments_df)
 
 # ===================================================
@@ -603,23 +607,29 @@ for j, kpi in enumerate(kpis[3:]):
 # ===================================================
 if not assignments_df.empty:
     data = assignments_df.copy()
-    date_cols = ['loading_starting_date', 'loading_date_end', 'trip_starting_date', 
-                 'arrival_date', 'return_date', 'trip_end_date', 'expected_trip_end_date']
-    for col in date_cols:
-        if col in data.columns:
-            data[col] = pd.to_datetime(data[col], errors='coerce')
-
+    # Dates already parsed as datetime with explicit format
     metrics = {}
     if 'loading_starting_date' in data.columns and 'loading_date_end' in data.columns:
-        metrics['Loading Time'] = (data['loading_date_end'] - data['loading_starting_date']).dt.total_seconds() / 86400
+        # Only compute where both are not NaT
+        mask = data['loading_starting_date'].notna() & data['loading_date_end'].notna()
+        if mask.any():
+            metrics['Loading Time'] = (data.loc[mask, 'loading_date_end'] - data.loc[mask, 'loading_starting_date']).dt.total_seconds() / 86400
     if 'arrival_date' in data.columns and 'trip_starting_date' in data.columns:
-        metrics['Ongoing Time'] = (data['arrival_date'] - data['trip_starting_date']).dt.total_seconds() / 86400
+        mask = data['arrival_date'].notna() & data['trip_starting_date'].notna()
+        if mask.any():
+            metrics['Ongoing Time'] = (data.loc[mask, 'arrival_date'] - data.loc[mask, 'trip_starting_date']).dt.total_seconds() / 86400
     if 'trip_end_date' in data.columns and 'return_date' in data.columns:
-        metrics['Incoming Time'] = (data['trip_end_date'] - data['return_date']).dt.total_seconds() / 86400
+        mask = data['trip_end_date'].notna() & data['return_date'].notna()
+        if mask.any():
+            metrics['Incoming Time'] = (data.loc[mask, 'trip_end_date'] - data.loc[mask, 'return_date']).dt.total_seconds() / 86400
     if 'trip_end_date' in data.columns and 'trip_starting_date' in data.columns:
-        metrics['Total Trip Time'] = (data['trip_end_date'] - data['trip_starting_date']).dt.total_seconds() / 86400
+        mask = data['trip_end_date'].notna() & data['trip_starting_date'].notna()
+        if mask.any():
+            metrics['Total Trip Time'] = (data.loc[mask, 'trip_end_date'] - data.loc[mask, 'trip_starting_date']).dt.total_seconds() / 86400
     if 'trip_end_date' in data.columns and 'expected_trip_end_date' in data.columns:
-        metrics['Trip Variance'] = (data['trip_end_date'] - data['expected_trip_end_date']).dt.total_seconds() / 86400
+        mask = data['trip_end_date'].notna() & data['expected_trip_end_date'].notna()
+        if mask.any():
+            metrics['Trip Variance'] = (data.loc[mask, 'trip_end_date'] - data.loc[mask, 'expected_trip_end_date']).dt.total_seconds() / 86400
 
     avg_metrics = {}
     for name, series in metrics.items():
@@ -671,7 +681,6 @@ if st.session_state.kpi_selection:
                 filtered_df = df[required_cols].copy()
         elif selected_kpi == "assigned":
             if not assignments_df.empty and 'status' in assignments_df.columns:
-                # Use normalized comparison
                 active_plates = assignments_df[
                     assignments_df['status'].str.title().isin(['Planned', 'Loading', 'In Transit'])
                 ]['plate_number'].dropna().unique()
@@ -679,7 +688,6 @@ if st.session_state.kpi_selection:
             else:
                 filtered_df = pd.DataFrame(columns=required_cols)
         elif selected_kpi == "available":
-            # Available = vehicles that have at least one trip but none active
             if not assignments_df.empty and 'status' in assignments_df.columns:
                 all_assigned = set(assignments_df['plate_number'].dropna().unique())
                 active_plates = set(assignments_df[
@@ -816,7 +824,6 @@ with tab1:
                     trip_end_dt = combine_date_with_current_time(trip_end) if trip_end else None
                     expected_trip_end_dt = combine_date_with_current_time(expected_trip_end) if expected_trip_end else None
 
-                    # Compute status using the robust function
                     temp_record = {
                         'assigned_date': assigned_date,
                         'loading_starting_date': loading_start,
@@ -903,37 +910,24 @@ with tab1:
             else:
                 data = data.sort_values(by="id", ascending=False)
 
-            # ===== ADD TRIP PERFORMANCE METRICS (decimal days) =====
+            # ===== ADD TRIP PERFORMANCE METRICS (safe) =====
             date_cols = ['loading_starting_date', 'loading_date_end', 'trip_starting_date', 
                          'arrival_date', 'return_date', 'trip_end_date', 'expected_trip_end_date']
-            for col in date_cols:
-                if col in data.columns:
-                    data[col] = pd.to_datetime(data[col], errors='coerce')
+            # Dates are already parsed as datetime
 
-            if 'loading_starting_date' in data.columns and 'loading_date_end' in data.columns:
-                data['loading_time'] = (data['loading_date_end'] - data['loading_starting_date']).dt.total_seconds() / 86400
-            else:
-                data['loading_time'] = None
+            # Safe difference functions
+            def safe_days(col1, col2):
+                mask = data[col1].notna() & data[col2].notna()
+                if mask.any():
+                    return (data.loc[mask, col2] - data.loc[mask, col1]).dt.total_seconds() / 86400
+                else:
+                    return pd.Series(index=data.index, dtype=float)
 
-            if 'arrival_date' in data.columns and 'trip_starting_date' in data.columns:
-                data['ongoing_time'] = (data['arrival_date'] - data['trip_starting_date']).dt.total_seconds() / 86400
-            else:
-                data['ongoing_time'] = None
-
-            if 'trip_end_date' in data.columns and 'return_date' in data.columns:
-                data['incoming_time'] = (data['trip_end_date'] - data['return_date']).dt.total_seconds() / 86400
-            else:
-                data['incoming_time'] = None
-
-            if 'trip_end_date' in data.columns and 'trip_starting_date' in data.columns:
-                data['total_trip_time'] = (data['trip_end_date'] - data['trip_starting_date']).dt.total_seconds() / 86400
-            else:
-                data['total_trip_time'] = None
-
-            if 'trip_end_date' in data.columns and 'expected_trip_end_date' in data.columns:
-                data['trip_variance'] = (data['trip_end_date'] - data['expected_trip_end_date']).dt.total_seconds() / 86400
-            else:
-                data['trip_variance'] = None
+            data['loading_time'] = safe_days('loading_starting_date', 'loading_date_end')
+            data['ongoing_time'] = safe_days('trip_starting_date', 'arrival_date')
+            data['incoming_time'] = safe_days('return_date', 'trip_end_date')
+            data['total_trip_time'] = safe_days('trip_starting_date', 'trip_end_date')
+            data['trip_variance'] = safe_days('expected_trip_end_date', 'trip_end_date')
 
             # ---- Display columns ----
             display_columns = [
@@ -1003,7 +997,7 @@ with tab1:
                     'total_trip_time': 'Total Trip Time (days)',
                     'trip_variance': 'Trip Variance (days)'
                 }, inplace=True)
-                # Convert date columns to datetime
+                # Convert date columns to datetime (already done, but ensure)
                 date_rename = ['Requested Date', 'Loading Starting Date', 'Loading Date End', 'Trip Starting Date', 
                                'Arrival Date', 'Return Date', 'Actual Trip End Date', 'Expected Trip End Date']
                 for col in date_rename:
@@ -1174,7 +1168,6 @@ with tab1:
                                 edit_trip_end_dt = combine_date_with_current_time(edit_trip_end_val) if edit_trip_end_val else None
                                 edit_expected_trip_end_dt = combine_date_with_current_time(edit_expected_trip_end_val) if edit_expected_trip_end_val else None
 
-                                # Compute status with robust function
                                 temp_record = {
                                     'assigned_date': edit_assigned_date_val,
                                     'loading_starting_date': edit_loading_start_val,
@@ -1343,13 +1336,13 @@ with tab2:
             return charts
         data_copy = data.copy()
         data_copy.columns = data_copy.columns.str.strip()
+        # Dates already parsed, but ensure
         date_columns = ['assigned_date', 'requested_date', 'loading_starting_date', 'loading_date_end',
                        'trip_starting_date', 'arrival_date', 'return_date', 'trip_end_date', 'expected_trip_end_date']
         for col in date_columns:
             if col in data_copy.columns:
                 data_copy[col] = pd.to_datetime(data_copy[col], errors='coerce')
         if 'status' in data_copy.columns:
-            # Normalize statuses to title case for consistent grouping
             data_copy['status'] = data_copy['status'].str.title()
             status_counts = data_copy['status'].value_counts()
             if not status_counts.empty:
@@ -1408,7 +1401,6 @@ with tab2:
         @st.cache_data(ttl=600)
         def calculate_metrics(data):
             total_trips = len(data)
-            # Normalize statuses
             if 'status' in data.columns:
                 data['status'] = data['status'].str.title()
             planned = len(data[data['status'] == 'Planned']) if 'status' in data.columns else 0
