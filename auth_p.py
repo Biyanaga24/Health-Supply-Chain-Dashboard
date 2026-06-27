@@ -3,6 +3,7 @@ import streamlit as st
 from supabase import create_client
 import logging
 from typing import Optional, Dict, Any
+import pandas as pd
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -66,7 +67,7 @@ def create_user_in_db(email: str, full_name: str) -> bool:
 # AUTHENTICATION FUNCTIONS (UI + Logic)
 # ===================================================
 def setup_auth() -> bool:
-    """Show login/register UI and handle authentication."""
+    """Show login/register UI with feature cards on the left and auth on the right."""
     if 'authenticated' not in st.session_state:
         st.session_state.authenticated = False
         st.session_state.user_email = None
@@ -75,90 +76,186 @@ def setup_auth() -> bool:
     if st.session_state.authenticated:
         return True
 
-    st.title("🚚 Fleet Management System")
-    tab1, tab2 = st.tabs(["🔐 Login", "📝 Register"])
+    # ---- Orange Theme CSS ----
+    st.markdown("""
+    <style>
+        /* Primary orange color: #FF8C00 */
+        .stApp {
+            background-color: #fff8f0;
+        }
+        .stButton button {
+            background-color: #FF8C00 !important;
+            color: white !important;
+            border-radius: 8px !important;
+            font-weight: bold !important;
+            border: none !important;
+        }
+        .stButton button:hover {
+            background-color: #e67e00 !important;
+            box-shadow: 0 4px 12px rgba(255,140,0,0.4) !important;
+        }
+        .stTabs [data-baseweb="tab-list"] button [data-testid="stMarkdownContainer"] p {
+            font-weight: 600 !important;
+            color: #333 !important;
+        }
+        .stTabs [data-baseweb="tab-list"] button[aria-selected="true"] {
+            border-bottom: 3px solid #FF8C00 !important;
+        }
+        h1, h2, h3 {
+            color: #e67e00 !important;
+        }
+        .feature-card {
+            background: white;
+            padding: 1rem 1.2rem;
+            border-radius: 12px;
+            border-left: 6px solid #FF8C00;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+            margin-bottom: 0.8rem;
+            transition: transform 0.2s;
+        }
+        .feature-card:hover {
+            transform: translateX(4px);
+            box-shadow: 0 4px 12px rgba(255,140,0,0.15);
+        }
+        .feature-card h4 {
+            margin: 0 0 0.3rem 0;
+            color: #e67e00;
+            font-size: 1.1rem;
+        }
+        .feature-card p {
+            margin: 0;
+            font-size: 0.95rem;
+            color: #333;
+        }
+        .auth-container {
+            background: white;
+            padding: 1.5rem 1.8rem;
+            border-radius: 16px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.08);
+            border: 1px solid #f0e0d0;
+        }
+        .auth-container .stTabs {
+            margin-top: 0.5rem;
+        }
+        .auth-container .stTextInput > div > div > input {
+            border-radius: 8px;
+        }
+    </style>
+    """, unsafe_allow_html=True)
 
-    with tab1:
-        with st.form("login_form"):
-            email = st.text_input("Email", key="login_email")
-            password = st.text_input("Password", type="password", key="login_password")
-            submitted = st.form_submit_button("Login")
+    # ---- Page Title ----
+    st.title("🚚 EPSS Fleet Management System")
 
-            if submitted:
-                if not email or not password:
-                    st.warning("Please fill all fields")
-                else:
-                    supabase = get_supabase()
-                    if not supabase:
-                        st.error("Database connection error")
+    # ---- Two‑column layout: Features (left) | Auth (right) ----
+    col_left, col_right = st.columns([1.2, 1], gap="large")
+
+    with col_left:
+        st.markdown("### 📋 Key Features")
+        # Each feature as a separate card
+        st.markdown("""
+        <div class="feature-card">
+            <h4>📝 Trip Management</h4>
+            <p>Create, edit, and delete trips with real‑time status tracking (Planned → Loading → In Transit → Completed).</p>
+        </div>
+        <div class="feature-card">
+            <h4>📊 Vehicle KPIs</h4>
+            <p>At‑a‑glance metrics: Total, Active, Grounded, Assigned, and Available vehicles.</p>
+        </div>
+        <div class="feature-card">
+            <h4>📈 Performance Analytics</h4>
+            <p>Interactive charts for trip volume, branch distribution, driver performance, and timeline trends.</p>
+        </div>
+        <div class="feature-card">
+            <h4>👑 Admin Panel</h4>
+            <p>Approve or reject new user registrations (admin only).</p>
+        </div>
+        <div class="feature-card">
+            <h4>🔒 Secure Authentication</h4>
+            <p>Email/password login with role‑based access control.</p>
+        </div>
+        """, unsafe_allow_html=True)
+
+    with col_right:
+        st.markdown('<div class="auth-container">', unsafe_allow_html=True)
+        tab1, tab2 = st.tabs(["🔐 Login", "📝 Register"])
+
+        with tab1:
+            with st.form("login_form"):
+                email = st.text_input("Email", key="login_email")
+                password = st.text_input("Password", type="password", key="login_password")
+                submitted = st.form_submit_button("Login")
+
+                if submitted:
+                    if not email or not password:
+                        st.warning("Please fill all fields")
                     else:
-                        try:
-                            # Sign in with Supabase Auth
-                            auth_resp = supabase.auth.sign_in_with_password({
-                                "email": email,
-                                "password": password
-                            })
-                            if auth_resp.user:
-                                # Fetch role & approval from users_vehicle
-                                user_meta = get_user_from_db(email)
-                                if not user_meta:
-                                    st.error("User account not found in system. Please register.")
-                                elif user_meta.get("is_approved") != 1:
-                                    st.error("Account pending approval. Please wait for admin.")
-                                else:
-                                    st.session_state.authenticated = True
-                                    st.session_state.user_email = email
-                                    st.session_state.user_data = {
-                                        "email": email,
-                                        "full_name": user_meta.get("full_name", ""),
-                                        "role": user_meta.get("role", "user"),
-                                        "is_approved": user_meta.get("is_approved", 0),
-                                    }
-                                    st.rerun()
-                            else:
-                                st.error("Invalid email or password")
-                        except Exception as e:
-                            st.error(f"Login error: {str(e)}")
-
-    with tab2:
-        with st.form("register_form"):
-            full_name = st.text_input("Full Name", key="register_name")
-            email = st.text_input("Email", key="register_email")
-            password = st.text_input("Password", type="password", key="register_password")
-            confirm = st.text_input("Confirm Password", type="password", key="register_confirm")
-            submitted = st.form_submit_button("Register")
-
-            if submitted:
-                if not full_name or not email or not password or not confirm:
-                    st.warning("Please fill all fields")
-                elif password != confirm:
-                    st.error("Passwords do not match")
-                else:
-                    supabase = get_supabase()
-                    if not supabase:
-                        st.error("Database connection error")
-                    else:
-                        try:
-                            # Check if already registered in our table
-                            existing = get_user_from_db(email)
-                            if existing:
-                                st.error("Email already registered. Please login.")
-                            else:
-                                # Create user in Supabase Auth
-                                auth_resp = supabase.auth.sign_up({
+                        supabase = get_supabase()
+                        if not supabase:
+                            st.error("Database connection error")
+                        else:
+                            try:
+                                auth_resp = supabase.auth.sign_in_with_password({
                                     "email": email,
-                                    "password": password,
+                                    "password": password
                                 })
                                 if auth_resp.user:
-                                    # Create record in users_vehicle (pending)
-                                    if create_user_in_db(email, full_name):
-                                        st.success("Registration successful! Please wait for admin approval.")
+                                    user_meta = get_user_from_db(email)
+                                    if not user_meta:
+                                        st.error("User account not found in system. Please register.")
+                                    elif user_meta.get("is_approved") != 1:
+                                        st.error("Account pending approval. Please wait for admin.")
                                     else:
-                                        st.error("Registration failed: could not save user data")
+                                        st.session_state.authenticated = True
+                                        st.session_state.user_email = email
+                                        st.session_state.user_data = {
+                                            "email": email,
+                                            "full_name": user_meta.get("full_name", ""),
+                                            "role": user_meta.get("role", "user"),
+                                            "is_approved": user_meta.get("is_approved", 0),
+                                        }
+                                        st.rerun()
                                 else:
-                                    st.error("Registration failed. Email may already be in use.")
-                        except Exception as e:
-                            st.error(f"Registration error: {str(e)}")
+                                    st.error("Invalid email or password")
+                            except Exception as e:
+                                st.error(f"Login error: {str(e)}")
+
+        with tab2:
+            with st.form("register_form"):
+                full_name = st.text_input("Full Name", key="register_name")
+                email = st.text_input("Email", key="register_email")
+                password = st.text_input("Password", type="password", key="register_password")
+                confirm = st.text_input("Confirm Password", type="password", key="register_confirm")
+                submitted = st.form_submit_button("Register")
+
+                if submitted:
+                    if not full_name or not email or not password or not confirm:
+                        st.warning("Please fill all fields")
+                    elif password != confirm:
+                        st.error("Passwords do not match")
+                    else:
+                        supabase = get_supabase()
+                        if not supabase:
+                            st.error("Database connection error")
+                        else:
+                            try:
+                                existing = get_user_from_db(email)
+                                if existing:
+                                    st.error("Email already registered. Please login.")
+                                else:
+                                    auth_resp = supabase.auth.sign_up({
+                                        "email": email,
+                                        "password": password,
+                                    })
+                                    if auth_resp.user:
+                                        if create_user_in_db(email, full_name):
+                                            st.success("Registration successful! Please wait for admin approval.")
+                                        else:
+                                            st.error("Registration failed: could not save user data")
+                                    else:
+                                        st.error("Registration failed. Email may already be in use.")
+                            except Exception as e:
+                                st.error(f"Registration error: {str(e)}")
+        st.markdown('</div>', unsafe_allow_html=True)
 
     return False
 

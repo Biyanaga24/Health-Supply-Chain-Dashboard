@@ -165,21 +165,63 @@ else:
 
 user_metadata = get_user_metadata()
 
-st.set_page_config(page_title="Fleet Dashboard", layout="wide")
+st.set_page_config(page_title="EPSS Fleet Dashboard", layout="wide")
 
 # ===================================================
-# CUSTOM CSS
+# CUSTOM CSS – BLUE THEME with taller KPI cards & header
 # ===================================================
 st.markdown("""
 <style>
+    /* Overall background */
+    .stApp {
+        background-color: #f5f5f5 !important;
+    }
     .main { padding: 0rem 1rem; }
+
+    /* Main title – blue */
+    h1 {
+        color: #1E88E5 !important;
+    }
+    /* Other headings – blue */
+    h2, h3, h4 {
+        color: #1565C0 !important;
+    }
+
+    /* Taller KPI section header */
+    .kpi-header {
+        font-size: 1.8rem !important;
+        font-weight: 600 !important;
+        padding: 0.8rem 0 0.5rem 0 !important;
+        margin-bottom: 0.5rem !important;
+        color: #1565C0 !important;
+        border-bottom: 3px solid #1E88E5;
+        display: inline-block;
+    }
+
+    /* Section headers – blue gradient */
     .section-header {
-        background: linear-gradient(90deg, #4CAF50, #45a049);
-        color: white;
+        background: linear-gradient(90deg, #1E88E5, #1565C0) !important;
+        color: white !important;
         padding: 0.5rem 1rem;
         border-radius: 8px;
         margin: 1rem 0;
     }
+    /* Dataframe headers – blue */
+    .dataframe th {
+        background-color: #1E88E5 !important;
+        color: white !important;
+        font-weight: bold !important;
+    }
+    /* Edit container border – blue */
+    .edit-container {
+        background-color: #f8f9fa;
+        padding: 1rem;
+        border-radius: 10px;
+        border-left: 5px solid #1E88E5;
+        margin: 1rem 0;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+    /* Status badges */
     .status-planned {
         background-color: #2196F3;
         color: white;
@@ -230,31 +272,18 @@ st.markdown("""
         overflow: hidden;
         box-shadow: 0 2px 8px rgba(0,0,0,0.1);
     }
-    .dataframe th {
-        background-color: #4CAF50 !important;
-        color: white !important;
-        font-weight: bold !important;
-    }
     .dataframe tr:hover {
         background-color: #f5f5f5 !important;
-    }
-    .edit-container {
-        background-color: #f8f9fa;
-        padding: 1rem;
-        border-radius: 10px;
-        border-left: 5px solid #4CAF50;
-        margin: 1rem 0;
-        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
     }
     .st-emotion-cache-1y4p8pa {
         max-width: 100%;
     }
 
-    /* ===== KPI BUTTON STYLES ===== */
+    /* ===== KPI BUTTON STYLES – TALLER CARDS ===== */
     .kpi-wrapper .stButton button {
-        height: 160px !important;
-        min-height: 160px !important;
-        max-height: 160px !important;
+        height: 180px !important;
+        min-height: 180px !important;
+        max-height: 180px !important;
         width: 100% !important;
         box-sizing: border-box !important;
         padding: 0 !important;
@@ -266,9 +295,9 @@ st.markdown("""
         flex-direction: column !important;
         white-space: pre-wrap !important;
         text-align: center !important;
-        line-height: 1.3 !important;
+        line-height: 1.4 !important;
         font-weight: normal !important;
-        font-size: 1.2rem !important;
+        font-size: 1.3rem !important;
         transition: all 0.3s ease !important;
         color: white !important;
         box-shadow: 0 2px 4px rgba(0,0,0,0.1) !important;
@@ -281,7 +310,7 @@ st.markdown("""
         transform: scale(0.98) !important;
     }
     .kpi-wrapper .stButton button::first-line {
-        font-size: 0.9rem !important;
+        font-size: 1.0rem !important;
         font-weight: normal !important;
         opacity: 0.9 !important;
     }
@@ -292,24 +321,24 @@ st.markdown("""
     }
 
     .kpi-total .stButton button {
-        background: linear-gradient(135deg, #87CEEB, #4A90D9) !important;
+        background: linear-gradient(135deg, #64B5F6, #1E88E5) !important;
     }
     .kpi-total_active .stButton button {
-        background: linear-gradient(135deg, #00CED1, #008B8B) !important;
+        background: linear-gradient(135deg, #4DD0E1, #00ACC1) !important;
     }
     .kpi-grounded .stButton button {
-        background: linear-gradient(135deg, #FF6B6B, #C0392B) !important;
+        background: linear-gradient(135deg, #EF5350, #D32F2F) !important;
     }
     .kpi-assigned .stButton button {
-        background: linear-gradient(135deg, #FFA500, #E67E22) !important;
+        background: linear-gradient(135deg, #FFB74D, #F57C00) !important;
     }
     .kpi-available .stButton button {
-        background: linear-gradient(135deg, #2ECC71, #27AE60) !important;
+        background: linear-gradient(135deg, #66BB6A, #388E3C) !important;
     }
 </style>
 """, unsafe_allow_html=True)
 
-st.title("🚚 Supply Chain Fleet Control Dashboard")
+st.title("EPSS Fleet Management Dashboard")
 
 # ===================================================
 # SIDEBAR - REORDERED
@@ -507,6 +536,27 @@ def get_vehicle_kpis(master_df, assignments_df):
     return total_count, total_active, grounded, assigned_count, available
 
 # ===================================================
+# ROBUST DATE PARSING – tries both formats
+# ===================================================
+def parse_datetime_flexible(val):
+    if pd.isna(val) or val is None:
+        return pd.NaT
+    if isinstance(val, (pd.Timestamp, datetime)):
+        return val
+    if isinstance(val, str):
+        # Try with time first
+        try:
+            return pd.to_datetime(val, format='%Y-%m-%d %H:%M:%S', errors='raise')
+        except:
+            try:
+                # Try without time (date only)
+                return pd.to_datetime(val, format='%Y-%m-%d', errors='raise')
+            except:
+                # Fallback to pandas general parsing (last resort)
+                return pd.to_datetime(val, errors='coerce')
+    return pd.NaT
+
+# ===================================================
 # LOAD DATA AND COMPUTE STATUS
 # ===================================================
 df = load_master()
@@ -524,7 +574,7 @@ if not assignments_df.empty:
 else:
     assignments_df['status'] = pd.Series(dtype='object')
 
-# ---- Parse all date columns with explicit format ----
+# ---- Parse all date columns with flexible parser ----
 date_columns = [
     'assigned_date', 'requested_date', 'loading_starting_date', 'loading_date_end',
     'trip_starting_date', 'arrival_date', 'return_date', 'trip_end_date',
@@ -532,17 +582,7 @@ date_columns = [
 ]
 for col in date_columns:
     if col in assignments_df.columns:
-        # Use explicit format to avoid parsing ambiguity
-        assignments_df[col] = pd.to_datetime(
-            assignments_df[col], format='%Y-%m-%d %H:%M:%S', errors='coerce'
-        )
-
-# ---- Optional debug block (uncomment to inspect) ----
-# with st.expander("🔧 Debug Info (remove in production)"):
-#     st.write("Assignments shape:", assignments_df.shape)
-#     st.write("Status counts:", assignments_df['status'].value_counts(dropna=False))
-#     st.write("First 5 rows:", assignments_df.head())
-#     st.write("Date columns dtypes:", assignments_df[date_columns].dtypes)
+        assignments_df[col] = assignments_df[col].apply(parse_datetime_flexible)
 
 # Process master data
 vehicle_data = process_vehicle_data(df)
@@ -562,8 +602,8 @@ total_count, total_active, grounded, assigned_count, available_count = get_vehic
 # 1. KPI CARDS
 # ===================================================
 st.markdown("""
-<div style="margin: 5px 0 5px 0;">
-    <h3 style="color: #2c3e50; margin-bottom: 8px; font-size: 1.3rem;">📊 Vehicle Management KPIs</h3>
+<div style="margin: 10px 0 15px 0;">
+    <h3 class="kpi-header">📊 Vehicle Management KPIs</h3>
 </div>
 """, unsafe_allow_html=True)
 
@@ -1007,8 +1047,6 @@ with tab1:
 
             else:
                 # Show all trip records with metrics
-                plate_groups = data.groupby('plate_number')
-                st.info(f"📊 Total Records: {len(data)} | Unique Vehicles: {len(plate_groups)}")
 
                 # ===========================================
                 # DROPDOWN FOR EDIT/DELETE
