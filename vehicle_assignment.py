@@ -188,6 +188,15 @@ st.markdown("""
         font-weight: bold;
         display: inline-block;
     }
+    .status-loading {
+        background-color: #9C27B0;
+        color: white;
+        padding: 2px 10px;
+        border-radius: 20px;
+        font-size: 12px;
+        font-weight: bold;
+        display: inline-block;
+    }
     .status-transit {
         background-color: #FF9800;
         color: white;
@@ -199,15 +208,6 @@ st.markdown("""
     }
     .status-completed {
         background-color: #4CAF50;
-        color: white;
-        padding: 2px 10px;
-        border-radius: 20px;
-        font-size: 12px;
-        font-weight: bold;
-        display: inline-block;
-    }
-    .status-error {
-        background-color: #f44336;
         color: white;
         padding: 2px 10px;
         border-radius: 20px;
@@ -319,7 +319,7 @@ st.sidebar.markdown("### 🔍 Filter Vehicles")
 filter_vehicle_status = st.sidebar.selectbox(
     "Show Vehicles",
     ["All", "Available", "Assigned"],
-    help="Available: vehicles with no active (Planned/In Transit) trips. Assigned: vehicles with active trips.",
+    help="Available: vehicles with no active (Planned/Loading/In Transit) trips. Assigned: vehicles with active trips.",
     key="filter_vehicle_sidebar"
 )
 
@@ -435,260 +435,99 @@ def get_trip_by_id(trip_id: str):
         logger.error(f"Error fetching trip: {e}")
         return None
 
+# ===================================================
+# UPDATED STATUS FUNCTION (includes "Loading")
+# ===================================================
 def calculate_status_and_errors(record):
-    assigned_date = record.get('assigned_date')
-    trip_start_date = record.get('trip_starting_date')
-    trip_end_date = record.get('trip_end_date')
+    """
+    Returns (status, None) where status is one of:
+    'Planned', 'Loading', 'In Transit', 'Completed'
+    """
+    assigned = record.get("assigned_date")
+    loading_start = record.get("loading_starting_date")
+    trip_start = record.get("trip_starting_date")
+    trip_end = record.get("trip_end_date")
 
-    has_assigned = assigned_date is not None and str(assigned_date).strip() != ''
-    has_trip_start = trip_start_date is not None and str(trip_start_date).strip() != ''
-    has_trip_end = trip_end_date is not None and str(trip_end_date).strip() != ''
+    has_assigned = assigned is not None and str(assigned).strip() != ''
+    has_loading_start = loading_start is not None and str(loading_start).strip() != ''
+    has_trip_start = trip_start is not None and str(trip_start).strip() != ''
+    has_trip_end = trip_end is not None and str(trip_end).strip() != ''
 
-    if has_trip_end and not has_trip_start:
-        return 'Error', '❌ Invalid: Actual Trip End Date set but Trip Starting Date is missing'
-    if has_trip_start and not has_assigned:
-        return 'Error', '❌ Invalid: Trip Starting Date set but Assigned Date is missing'
-    if has_trip_end and not has_assigned and not has_trip_start:
-        return 'Error', '❌ Invalid: Actual Trip End Date set but Assigned Date and Trip Starting Date are missing'
     if has_trip_end:
-        return 'Completed', None
-    if has_trip_start and not has_trip_end:
-        return 'In Transit', None
-    if has_assigned and not has_trip_start and not has_trip_end:
-        return 'Planned', None
-    if not has_assigned and not has_trip_start and not has_trip_end:
-        return 'Planned', None
-    return 'Error', '❌ Invalid: Unrecognized date combination'
+        return "Completed", None
+    elif has_trip_start:
+        return "In Transit", None
+    elif has_loading_start:
+        return "Loading", None
+    elif has_assigned:
+        return "Planned", None
+    else:
+        return "Planned", None
 
 def refresh_data():
     st.cache_data.clear()
     st.rerun()
 
+# ===================================================
+# KPI FUNCTION – updated to include "Loading"
+# ===================================================
 def get_vehicle_kpis(master_df, assignments_df):
+    """
+    Computes KPIs using the pre‑computed 'status' column.
+    Assigned = count of distinct plates with status in ['Planned', 'Loading', 'In Transit']
+    """
     if master_df.empty:
         return 0, 0, 0, 0, 0
+
     total_count = master_df['plate_number'].nunique()
 
-    if not assignments_df.empty:
-        all_assigned_plates = assignments_df['plate_number'].dropna().unique()
-        total_active = len(all_assigned_plates)
-        if 'status' in assignments_df.columns:
-            active_plates = assignments_df[assignments_df['status'].isin(['Planned', 'In Transit'])]['plate_number'].dropna().unique()
-            assigned_count = len(active_plates)
-        else:
-            assigned_count = 0
+    # All vehicles that appear in any assignment (active or completed)
+    all_assigned_plates = assignments_df['plate_number'].dropna().unique() if not assignments_df.empty else []
+    total_active = len(all_assigned_plates)
+
+    # Vehicles with status 'Planned', 'Loading', or 'In Transit'
+    if not assignments_df.empty and 'status' in assignments_df.columns:
+        active_plates = assignments_df[
+            assignments_df['status'].isin(['Planned', 'Loading', 'In Transit'])
+        ]['plate_number'].dropna().unique()
+        assigned_count = len(active_plates)
     else:
-        total_active = 0
         assigned_count = 0
 
     grounded = total_count - total_active
-    available = total_count - assigned_count
+
+    # Available = Total - Grounded - Assigned
+    available = total_count - grounded - assigned_count
+
     return total_count, total_active, grounded, assigned_count, available
 
 # ===================================================
-# PAGE ROUTING
-# ===================================================
-if selected_page == "👑 Admin Panel":
-    if not is_admin_user:
-        st.error("⚠️ You don't have permission to access this page.")
-        st.stop()
-
-    st.markdown('<div class="section-header">👑 Admin Panel - User Management</div>', unsafe_allow_html=True)
-
-    all_users = get_all_users()
-    pending_users = get_pending_users()
-
-    col1, col2, col3 = st.columns(3)
-    with col1:
-        st.metric("Total Users", len(all_users))
-    with col2:
-        st.metric("Pending Approval", len(pending_users))
-    with col3:
-        admins = len([u for u in all_users if u.get('role') == 'admin'])
-        st.metric("Admins", admins)
-
-    if pending_users:
-        st.subheader("📋 Pending Approvals")
-        for user in pending_users:
-            with st.container(border=True):
-                col1, col2, col3, col4 = st.columns([2, 2, 1, 1])
-                with col1:
-                    st.markdown(f"**Name:** {user.get('full_name', 'N/A')}")
-                with col2:
-                    st.markdown(f"**Email:** {user.get('email', 'N/A')}")
-                with col3:
-                    if st.button("✅ Approve", key=f"approve_{user['id']}"):
-                        result = approve_user(user['id'])
-                        if result["success"]:
-                            st.success(f"User {user.get('email')} approved!")
-                            st.cache_data.clear()
-                            st.rerun()
-                with col4:
-                    if st.button("❌ Reject", key=f"reject_{user['id']}"):
-                        result = reject_user(user['id'])
-                        if result["success"]:
-                            st.warning(f"User {user.get('email')} rejected.")
-                            st.cache_data.clear()
-                            st.rerun()
-    else:
-        st.info("✅ No pending approvals")
-
-    if all_users:
-        st.subheader("📊 All Users")
-        users_df = pd.DataFrame(all_users)
-        display_cols = ['id', 'email', 'full_name', 'role', 'is_approved', 'created_at']
-        available_cols = [col for col in display_cols if col in users_df.columns]
-        st.dataframe(users_df[available_cols], use_container_width=True, hide_index=True)
-
-    # VEHICLE MASTER DATA MANAGEMENT
-    st.markdown("---")
-    st.markdown('<div class="section-header">🚗 Vehicle Master Data Management</div>', unsafe_allow_html=True)
-
-    if 'editing_master_id' not in st.session_state:
-        st.session_state.editing_master_id = None
-    if 'master_edit_data' not in st.session_state:
-        st.session_state.master_edit_data = None
-
-    master_df = load_master()
-
-    with st.expander("➕ Add New Vehicle", expanded=False):
-        with st.form("add_vehicle_form"):
-            col1, col2 = st.columns(2)
-            with col1:
-                new_plate = st.text_input("Plate Number *", placeholder="e.g., ABC-1234")
-                new_driver = st.text_input("Driver Name *", placeholder="e.g., John Doe")
-            with col2:
-                new_phone = st.text_input("Phone Number", placeholder="e.g., +1234567890")
-                new_vehicle_type = st.text_input("Vehicle Type", placeholder="e.g., Truck, Van, Car")
-            submitted = st.form_submit_button("Add Vehicle", type="primary")
-            if submitted:
-                if new_plate and new_driver:
-                    try:
-                        new_vehicle = {
-                            "plate_number": new_plate,
-                            "driver_name": new_driver,
-                            "phone_number": new_phone if new_phone else None,
-                            "vehicle_type": new_vehicle_type if new_vehicle_type else None
-                        }
-                        res = supabase.table(MASTER_TABLE).insert(new_vehicle).execute()
-                        if res.data:
-                            st.success(f"✅ Vehicle {new_plate} added successfully!")
-                            st.cache_data.clear()
-                            st.rerun()
-                    except Exception as e:
-                        st.error(f"❌ Failed to add vehicle: {str(e)}")
-                else:
-                    st.warning("⚠️ Please fill all required fields (*).")
-
-    if not master_df.empty:
-        st.subheader("📋 Existing Vehicles")
-        vehicle_options = []
-        for idx, row in master_df.iterrows():
-            plate = row.get('plate_number', '')
-            driver = row.get('driver_name', '')
-            vehicle_options.append(f"{plate} - {driver}")
-        selected_vehicle_str = st.selectbox("Select a vehicle to edit or delete", vehicle_options, key="master_vehicle_select")
-        if selected_vehicle_str:
-            selected_plate = selected_vehicle_str.split(" - ")[0]
-            selected_row = master_df[master_df['plate_number'] == selected_plate]
-            if not selected_row.empty:
-                row_data = selected_row.iloc[0]
-                col_edit, col_delete = st.columns(2)
-                with col_edit:
-                    if st.button("✏️ Edit Selected Vehicle", use_container_width=True):
-                        st.session_state.editing_master_id = row_data.get('id')
-                        st.session_state.master_edit_data = row_data.to_dict()
-                        st.rerun()
-                with col_delete:
-                    confirm_delete = st.checkbox("Confirm delete (permanent)", key="confirm_delete_master")
-                    if confirm_delete:
-                        if st.button("🗑️ Delete Selected Vehicle", use_container_width=True, type="secondary"):
-                            try:
-                                supabase.table(MASTER_TABLE).delete().eq("id", row_data.get('id')).execute()
-                                st.success(f"✅ Vehicle {selected_plate} deleted successfully!")
-                                st.session_state.editing_master_id = None
-                                st.session_state.master_edit_data = None
-                                st.cache_data.clear()
-                                st.rerun()
-                            except Exception as e:
-                                st.error(f"❌ Delete failed: {str(e)}")
-                    else:
-                        st.info("Check the box above to confirm deletion.")
-
-        if st.session_state.editing_master_id and st.session_state.master_edit_data:
-            st.markdown("---")
-            st.subheader(f"✏️ Edit Vehicle - {st.session_state.master_edit_data.get('plate_number', '')}")
-            edit_data = st.session_state.master_edit_data
-            with st.form("edit_vehicle_form"):
-                col1, col2 = st.columns(2)
-                with col1:
-                    edit_plate = st.text_input("Plate Number *", value=edit_data.get('plate_number', ''))
-                    edit_driver = st.text_input("Driver Name *", value=edit_data.get('driver_name', ''))
-                with col2:
-                    edit_phone = st.text_input("Phone Number", value=edit_data.get('phone_number', ''))
-                    edit_vehicle_type = st.text_input("Vehicle Type", value=edit_data.get('vehicle_type', ''))
-                col_submit, col_cancel = st.columns(2)
-                with col_submit:
-                    update_submitted = st.form_submit_button("Update Vehicle", type="primary")
-                with col_cancel:
-                    if st.form_submit_button("Cancel", type="secondary"):
-                        st.session_state.editing_master_id = None
-                        st.session_state.master_edit_data = None
-                        st.rerun()
-                if update_submitted:
-                    if edit_plate and edit_driver:
-                        try:
-                            updated_vehicle = {
-                                "plate_number": edit_plate,
-                                "driver_name": edit_driver,
-                                "phone_number": edit_phone if edit_phone else None,
-                                "vehicle_type": edit_vehicle_type if edit_vehicle_type else None
-                            }
-                            res = supabase.table(MASTER_TABLE).update(updated_vehicle).eq("id", st.session_state.editing_master_id).execute()
-                            if res.data:
-                                st.success(f"✅ Vehicle {edit_plate} updated successfully!")
-                                st.session_state.editing_master_id = None
-                                st.session_state.master_edit_data = None
-                                st.cache_data.clear()
-                                st.rerun()
-                        except Exception as e:
-                            st.error(f"❌ Update failed: {str(e)}")
-                    else:
-                        st.warning("⚠️ Please fill all required fields (*).")
-
-        st.subheader("📊 Master Data Table (Read-Only)")
-        display_cols_master = ['plate_number', 'driver_name', 'phone_number', 'vehicle_type']
-        existing_cols = [col for col in display_cols_master if col in master_df.columns]
-        if existing_cols:
-            st.dataframe(master_df[existing_cols], use_container_width=True, hide_index=True)
-        else:
-            st.dataframe(master_df, use_container_width=True, hide_index=True)
-    else:
-        st.info("No vehicles in master data. Use the 'Add New Vehicle' form to add some.")
-
-    if st.session_state.get('needs_rerun', False):
-        st.session_state.needs_rerun = False
-        st.rerun()
-
-    st.stop()
-
-# ===================================================
-# MAIN CONTENT
+# LOAD DATA AND COMPUTE STATUS **BEFORE** ANYTHING ELSE
 # ===================================================
 df = load_master()
 assignments_df = load_assignments()
 
+# ---- Always recompute status from date fields ----
 if not assignments_df.empty:
     assignments_df.columns = assignments_df.columns.str.strip()
     statuses = []
-    error_msgs = []
     for _, row in assignments_df.iterrows():
-        status, err_msg = calculate_status_and_errors(row)
+        status, _ = calculate_status_and_errors(row)
         statuses.append(status)
-        error_msgs.append(err_msg)
     assignments_df['status'] = statuses
-    assignments_df['error_message'] = error_msgs
 
+# ---- Debug block (uncomment to inspect data) ----
+# st.write("### DEBUG: assignments_df info")
+# st.write("Rows:", len(assignments_df))
+# st.write("Columns:", assignments_df.columns.tolist())
+# if "status" in assignments_df.columns:
+#     st.write("Unique statuses:", assignments_df["status"].value_counts(dropna=False))
+#     st.write("Active plates (Planned/Loading/In Transit):",
+#              assignments_df[assignments_df["status"].isin(["Planned", "Loading", "In Transit"])]["plate_number"].unique())
+# else:
+#     st.error("❌ STATUS COLUMN NOT FOUND")
+
+# Process master data for dropdowns etc.
 vehicle_data = process_vehicle_data(df)
 plate_numbers = vehicle_data['plate_numbers']
 from_locations = vehicle_data['from_locations']
@@ -699,6 +538,7 @@ plate_to_branch = vehicle_data['plate_to_branch']
 plate_to_phone = vehicle_data['plate_to_phone']
 plate_to_vehicle_type = vehicle_data['plate_to_vehicle_type']
 
+# ---- Now compute KPIs ----
 total_count, total_active, grounded, assigned_count, available_count = get_vehicle_kpis(df, assignments_df)
 
 # ===================================================
@@ -746,10 +586,9 @@ for j, kpi in enumerate(kpis[3:]):
             st.rerun()
 
 # ===================================================
-# 2. TRIP PERFORMANCE SUMMARY (now placed immediately after KPIs)
+# 2. TRIP PERFORMANCE SUMMARY
 # ===================================================
 if not assignments_df.empty:
-    # Compute averages (decimal days) for all trips
     data = assignments_df.copy()
     date_cols = ['loading_starting_date', 'loading_date_end', 'trip_starting_date', 
                  'arrival_date', 'return_date', 'trip_end_date', 'expected_trip_end_date']
@@ -789,7 +628,7 @@ if not assignments_df.empty:
         st.dataframe(summary_df, use_container_width=True, hide_index=True)
 
 # ===================================================
-# 3. TABLE BASED ON SELECTED KPI (if any)
+# 3. TABLE BASED ON SELECTED KPI
 # ===================================================
 if st.session_state.kpi_selection:
     selected_kpi = st.session_state.kpi_selection
@@ -819,16 +658,19 @@ if st.session_state.kpi_selection:
                 filtered_df = df[required_cols].copy()
         elif selected_kpi == "assigned":
             if not assignments_df.empty and 'status' in assignments_df.columns:
-                active_plates = assignments_df[assignments_df['status'].isin(['Planned', 'In Transit'])]['plate_number'].dropna().unique()
+                active_plates = assignments_df[assignments_df['status'].isin(['Planned', 'Loading', 'In Transit'])]['plate_number'].dropna().unique()
                 filtered_df = df[df['plate_number'].isin(active_plates)][required_cols].copy()
             else:
                 filtered_df = pd.DataFrame(columns=required_cols)
         elif selected_kpi == "available":
+            # Available = vehicles that have at least one trip but none active
             if not assignments_df.empty and 'status' in assignments_df.columns:
-                active_plates = assignments_df[assignments_df['status'].isin(['Planned', 'In Transit'])]['plate_number'].dropna().unique()
-                filtered_df = df[~df['plate_number'].isin(active_plates)][required_cols].copy()
+                all_assigned = set(assignments_df['plate_number'].dropna().unique())
+                active_plates = set(assignments_df[assignments_df['status'].isin(['Planned', 'Loading', 'In Transit'])]['plate_number'].dropna().unique())
+                available_plates = all_assigned - active_plates
+                filtered_df = df[df['plate_number'].isin(available_plates)][required_cols].copy()
             else:
-                filtered_df = df[required_cols].copy()
+                filtered_df = pd.DataFrame(columns=required_cols)
 
         filtered_df.rename(columns={
             'plate_number': 'Plate Number',
@@ -851,7 +693,7 @@ if st.session_state.kpi_selection:
 tab1, tab2 = st.tabs(["📋 Trip Management", "📊 KPIs & Analysis"])
 
 # ===================================================
-# TAB 1: TRIP MANAGEMENT (with per‑trip metrics as decimal days)
+# TAB 1: TRIP MANAGEMENT
 # ===================================================
 with tab1:
     # Initialize session state
@@ -939,7 +781,7 @@ with tab1:
                     existing = supabase.table(TXN_TABLE)\
                         .select("id,status")\
                         .eq("plate_number", current_plate)\
-                        .in_("status", ["Planned", "In Transit"])\
+                        .in_("status", ["Planned", "Loading", "In Transit"])\
                         .execute()
                     if existing.data:
                         st.error(
@@ -956,46 +798,45 @@ with tab1:
                     trip_end_dt = combine_date_with_current_time(trip_end) if trip_end else None
                     expected_trip_end_dt = combine_date_with_current_time(expected_trip_end) if expected_trip_end else None
 
+                    # Compute status using the robust function
                     temp_record = {
-                        'assigned_date': str(assigned_date) if assigned_date else None,
-                        'trip_starting_date': str(trip_start) if trip_start else None,
-                        'trip_end_date': str(trip_end) if trip_end else None
+                        'assigned_date': assigned_date,
+                        'loading_starting_date': loading_start,
+                        'trip_starting_date': trip_start,
+                        'trip_end_date': trip_end
                     }
-                    status, error_message = calculate_status_and_errors(temp_record)
+                    status, _ = calculate_status_and_errors(temp_record)
 
-                    if status == 'Error':
-                        st.error(f"⚠️ {error_message}")
-                    else:
-                        new_record = {
-                            "plate_number": current_plate,
-                            "driver_name": current_driver,
-                            "phone_number": current_phone if current_phone else None,
-                            "vehicle_type": current_vehicle_type if current_vehicle_type else None,
-                            "from_location": from_location,
-                            "assigned_branch_name": assigned_branch_name,
-                            "requested_date": str(requested_date) if requested_date else None,
-                            "requested_by": requested_by,
-                            "assigned_by": assigned_by,
-                            "assigned_date": str(assigned_date) if assigned_date else None,
-                            "status": status,
-                            "loading_starting_date": format_datetime_for_db(loading_start_dt),
-                            "loading_date_end": format_datetime_for_db(loading_end_dt),
-                            "trip_starting_date": format_datetime_for_db(trip_start_dt),
-                            "arrival_date": format_datetime_for_db(arrival_dt),
-                            "return_date": format_datetime_for_db(return_dt_combined),
-                            "trip_end_date": format_datetime_for_db(trip_end_dt),
-                            "expected_trip_end_date": format_datetime_for_db(expected_trip_end_dt),
-                            "created_at": datetime.now().isoformat()
-                        }
-                        try:
-                            res = supabase.table(TXN_TABLE).insert(new_record).execute()
-                            if res.data:
-                                st.success("✅ Trip saved successfully!")
-                                st.session_state.show_add_form = False
-                                st.cache_data.clear()
-                                st.rerun()
-                        except Exception as e:
-                            st.error(f"❌ Error: {str(e)}")
+                    new_record = {
+                        "plate_number": current_plate,
+                        "driver_name": current_driver,
+                        "phone_number": current_phone if current_phone else None,
+                        "vehicle_type": current_vehicle_type if current_vehicle_type else None,
+                        "from_location": from_location,
+                        "assigned_branch_name": assigned_branch_name,
+                        "requested_date": str(requested_date) if requested_date else None,
+                        "requested_by": requested_by,
+                        "assigned_by": assigned_by,
+                        "assigned_date": str(assigned_date) if assigned_date else None,
+                        "status": status,
+                        "loading_starting_date": format_datetime_for_db(loading_start_dt),
+                        "loading_date_end": format_datetime_for_db(loading_end_dt),
+                        "trip_starting_date": format_datetime_for_db(trip_start_dt),
+                        "arrival_date": format_datetime_for_db(arrival_dt),
+                        "return_date": format_datetime_for_db(return_dt_combined),
+                        "trip_end_date": format_datetime_for_db(trip_end_dt),
+                        "expected_trip_end_date": format_datetime_for_db(expected_trip_end_dt),
+                        "created_at": datetime.now().isoformat()
+                    }
+                    try:
+                        res = supabase.table(TXN_TABLE).insert(new_record).execute()
+                        if res.data:
+                            st.success("✅ Trip saved successfully!")
+                            st.session_state.show_add_form = False
+                            st.cache_data.clear()
+                            st.rerun()
+                    except Exception as e:
+                        st.error(f"❌ Error: {str(e)}")
 
         with col_btn2:
             if st.button("❌ Cancel", use_container_width=True):
@@ -1005,7 +846,7 @@ with tab1:
         st.markdown('</div>', unsafe_allow_html=True)
 
     # ===========================================
-    # TRIP RECORDS TABLE WITH PER‑TRIP METRICS
+    # TRIP RECORDS TABLE
     # ===========================================
     st.markdown('<div class="section-header">📋 Trip Records</div>', unsafe_allow_html=True)
 
@@ -1025,19 +866,16 @@ with tab1:
         data = assignments_df.copy()
 
         if not data.empty:
-            # Ensure status is present
+            # Ensure status is present (it should be)
             if 'status' not in data.columns:
                 statuses = []
-                error_msgs = []
                 for _, row in data.iterrows():
-                    status, err_msg = calculate_status_and_errors(row)
+                    status, _ = calculate_status_and_errors(row)
                     statuses.append(status)
-                    error_msgs.append(err_msg)
                 data['status'] = statuses
-                data['error_message'] = error_msgs
 
             # --- Compute vehicle-level status for filtering ---
-            active_plates = set(data[data['status'].isin(['Planned', 'In Transit'])]['plate_number'].dropna().unique())
+            active_plates = set(data[data['status'].isin(['Planned', 'Loading', 'In Transit'])]['plate_number'].dropna().unique())
             data['vehicle_status'] = data['plate_number'].apply(
                 lambda x: 'Assigned' if x in active_plates else 'Available'
             )
@@ -1054,7 +892,6 @@ with tab1:
                 if col in data.columns:
                     data[col] = pd.to_datetime(data[col], errors='coerce')
 
-            # Compute as decimal days
             if 'loading_starting_date' in data.columns and 'loading_date_end' in data.columns:
                 data['loading_time'] = (data['loading_date_end'] - data['loading_starting_date']).dt.total_seconds() / 86400
             else:
@@ -1080,14 +917,14 @@ with tab1:
             else:
                 data['trip_variance'] = None
 
-            # ---- Continue with existing table display ----
+            # ---- Display columns ----
             display_columns = [
                 "id", "plate_number", "driver_name", "phone_number", "vehicle_type", 
                 "from_location", "assigned_branch_name", "requested_date", 
                 "requested_by", "assigned_by", "assigned_date",
                 "loading_starting_date", "loading_date_end", "trip_starting_date", 
                 "arrival_date", "return_date", "trip_end_date", 
-                "expected_trip_end_date", "status", "error_message", "created_at"
+                "expected_trip_end_date", "status", "created_at"
             ]
             metric_cols = ['loading_time', 'ongoing_time', 'incoming_time', 'total_trip_time', 'trip_variance']
             for mc in metric_cols:
@@ -1142,7 +979,6 @@ with tab1:
                     'return_date': 'Return Date',
                     'trip_end_date': 'Actual Trip End Date',
                     'expected_trip_end_date': 'Expected Trip End Date',
-                    'error_message': 'Error Details',
                     'loading_time': 'Loading Time (days)',
                     'ongoing_time': 'Ongoing Time (days)',
                     'incoming_time': 'Incoming Time (days)',
@@ -1167,7 +1003,7 @@ with tab1:
                 # ===========================================
                 col_action1, col_action2, col_action3 = st.columns([2, 1, 1])
                 with col_action1:
-                    editable_trips = data[data['status'].isin(['Planned', 'In Transit'])]
+                    editable_trips = data[data['status'].isin(['Planned', 'Loading', 'In Transit'])]
                     trip_options = []
                     for idx, row in editable_trips.iterrows():
                         if row.get('id'):
@@ -1183,7 +1019,7 @@ with tab1:
                         )
                         st.session_state.selected_trip_for_action = selected_trip
                     else:
-                        st.info("📭 No trips available for editing (only Planned and In Transit trips can be edited)")
+                        st.info("📭 No trips available for editing (only Planned, Loading, and In Transit trips can be edited)")
                         st.session_state.selected_trip_for_action = None
 
                 with col_action2:
@@ -1305,7 +1141,7 @@ with tab1:
                                 existing = supabase.table(TXN_TABLE)\
                                     .select("id,status")\
                                     .eq("plate_number", edit_plate_val)\
-                                    .in_("status", ["Planned", "In Transit"])\
+                                    .in_("status", ["Planned", "Loading", "In Transit"])\
                                     .neq("id", st.session_state.editing_id)\
                                     .execute()
                                 if existing.data:
@@ -1320,46 +1156,46 @@ with tab1:
                                 edit_trip_end_dt = combine_date_with_current_time(edit_trip_end_val) if edit_trip_end_val else None
                                 edit_expected_trip_end_dt = combine_date_with_current_time(edit_expected_trip_end_val) if edit_expected_trip_end_val else None
 
+                                # Compute status with robust function
                                 temp_record = {
-                                    'assigned_date': str(edit_assigned_date_val) if edit_assigned_date_val else None,
-                                    'trip_starting_date': str(edit_trip_start_val) if edit_trip_start_val else None,
-                                    'trip_end_date': str(edit_trip_end_val) if edit_trip_end_val else None
+                                    'assigned_date': edit_assigned_date_val,
+                                    'loading_starting_date': edit_loading_start_val,
+                                    'trip_starting_date': edit_trip_start_val,
+                                    'trip_end_date': edit_trip_end_val
                                 }
-                                status, error_message = calculate_status_and_errors(temp_record)
-                                if status == 'Error':
-                                    st.error(f"⚠️ {error_message}")
-                                else:
-                                    updated_record = {
-                                        "plate_number": edit_plate_val,
-                                        "driver_name": current_driver,
-                                        "phone_number": current_phone if current_phone else None,
-                                        "vehicle_type": current_vehicle_type if current_vehicle_type else None,
-                                        "from_location": edit_from_val,
-                                        "assigned_branch_name": edit_branch_val,
-                                        "requested_date": str(edit_requested_date_val) if edit_requested_date_val else None,
-                                        "requested_by": edit_requested_by_val,
-                                        "assigned_by": edit_assigned_by_val,
-                                        "assigned_date": str(edit_assigned_date_val) if edit_assigned_date_val else None,
-                                        "status": status,
-                                        "loading_starting_date": format_datetime_for_db(edit_loading_start_dt),
-                                        "loading_date_end": format_datetime_for_db(edit_loading_end_dt),
-                                        "trip_starting_date": format_datetime_for_db(edit_trip_start_dt),
-                                        "arrival_date": format_datetime_for_db(edit_arrival_dt),
-                                        "return_date": format_datetime_for_db(edit_return_dt),
-                                        "trip_end_date": format_datetime_for_db(edit_trip_end_dt),
-                                        "expected_trip_end_date": format_datetime_for_db(edit_expected_trip_end_dt),
-                                    }
-                                    try:
-                                        res = supabase.table(TXN_TABLE).update(updated_record).eq("id", st.session_state.editing_id).execute()
-                                        if res.data:
-                                            st.success("✅ Trip updated successfully!")
-                                            st.session_state.editing_id = None
-                                            st.session_state.edit_data = None
-                                            st.session_state.edit_initialized = False
-                                            st.cache_data.clear()
-                                            st.rerun()
-                                    except Exception as e:
-                                        st.error(f"❌ Error: {str(e)}")
+                                status, _ = calculate_status_and_errors(temp_record)
+
+                                updated_record = {
+                                    "plate_number": edit_plate_val,
+                                    "driver_name": current_driver,
+                                    "phone_number": current_phone if current_phone else None,
+                                    "vehicle_type": current_vehicle_type if current_vehicle_type else None,
+                                    "from_location": edit_from_val,
+                                    "assigned_branch_name": edit_branch_val,
+                                    "requested_date": str(edit_requested_date_val) if edit_requested_date_val else None,
+                                    "requested_by": edit_requested_by_val,
+                                    "assigned_by": edit_assigned_by_val,
+                                    "assigned_date": str(edit_assigned_date_val) if edit_assigned_date_val else None,
+                                    "status": status,
+                                    "loading_starting_date": format_datetime_for_db(edit_loading_start_dt),
+                                    "loading_date_end": format_datetime_for_db(edit_loading_end_dt),
+                                    "trip_starting_date": format_datetime_for_db(edit_trip_start_dt),
+                                    "arrival_date": format_datetime_for_db(edit_arrival_dt),
+                                    "return_date": format_datetime_for_db(edit_return_dt),
+                                    "trip_end_date": format_datetime_for_db(edit_trip_end_dt),
+                                    "expected_trip_end_date": format_datetime_for_db(edit_expected_trip_end_dt),
+                                }
+                                try:
+                                    res = supabase.table(TXN_TABLE).update(updated_record).eq("id", st.session_state.editing_id).execute()
+                                    if res.data:
+                                        st.success("✅ Trip updated successfully!")
+                                        st.session_state.editing_id = None
+                                        st.session_state.edit_data = None
+                                        st.session_state.edit_initialized = False
+                                        st.cache_data.clear()
+                                        st.rerun()
+                                except Exception as e:
+                                    st.error(f"❌ Error: {str(e)}")
 
                         with col_btn2:
                             if st.button("❌ Cancel Edit", use_container_width=True):
@@ -1378,7 +1214,6 @@ with tab1:
                     status_options = ["All"]
                     if "status" in data.columns:
                         status_values = data["status"].dropna().unique().tolist()
-                        status_values = [s for s in status_values if s != 'Error']
                         status_options.extend(sorted([str(s) for s in status_values if s is not None]))
                     filter_status = st.multiselect("Status", options=status_options, default=["All"], key="filter_status_table")
                 with col_filter2:
@@ -1405,10 +1240,6 @@ with tab1:
                 if len(filtered_data) < len(data):
                     st.info(f"📊 Showing {len(filtered_data)} of {len(data)} records")
 
-                error_records = data[data['status'] == 'Error']
-                if not error_records.empty:
-                    st.warning(f"⚠️ {len(error_records)} record(s) have invalid date combinations. Please review and fix them.")
-
                 # Display table
                 if not filtered_data.empty:
                     display_data = filtered_data[[col for col in display_columns if col != 'id']].copy()
@@ -1423,7 +1254,6 @@ with tab1:
                         'return_date': 'Return Date',
                         'trip_end_date': 'Actual Trip End Date',
                         'expected_trip_end_date': 'Expected Trip End Date',
-                        'error_message': 'Error Details',
                         'loading_time': 'Loading Time (days)',
                         'ongoing_time': 'Ongoing Time (days)',
                         'incoming_time': 'Incoming Time (days)',
@@ -1459,7 +1289,6 @@ with tab1:
                             "Return Date": st.column_config.DatetimeColumn("Return Date", format="YYYY-MM-DD HH:mm", width="medium"),
                             "Actual Trip End Date": st.column_config.DatetimeColumn("Actual Trip End Date", format="YYYY-MM-DD HH:mm", width="medium"),
                             "Expected Trip End Date": st.column_config.DatetimeColumn("Expected Trip End Date", format="YYYY-MM-DD HH:mm", width="medium"),
-                            "Error Details": st.column_config.Column("Error Details", width="large"),
                             "created_at": st.column_config.DatetimeColumn("Created", format="YYYY-MM-DD HH:mm", width="medium"),
                             "Loading Time (days)": st.column_config.Column("Loading Time (days)", width="small"),
                             "Ongoing Time (days)": st.column_config.Column("Ongoing Time (days)", width="small"),
@@ -1472,8 +1301,6 @@ with tab1:
                     with col_export1:
                         if st.button("📥 Export to CSV"):
                             export_data = display_data.copy()
-                            if 'Error Details' in export_data.columns:
-                                export_data = export_data.drop(columns=['Error Details'])
                             csv = export_data.to_csv(index=False)
                             st.download_button(label="Download CSV", data=csv, file_name=f"fleet_trips_{date.today()}.csv", mime="text/csv", key="download_csv_table")
                 else:
@@ -1486,7 +1313,7 @@ with tab1:
         logger.error(f"Dashboard load error: {e}")
 
 # ===================================================
-# TAB 2: KPIs & ANALYSIS (unchanged)
+# TAB 2: KPIs & ANALYSIS
 # ===================================================
 with tab2:
     st.markdown('<div class="section-header">📊 Key Performance Indicators & Analysis</div>', unsafe_allow_html=True)
@@ -1504,7 +1331,7 @@ with tab2:
             if col in data_copy.columns:
                 data_copy[col] = pd.to_datetime(data_copy[col], errors='coerce')
         if 'status' in data_copy.columns:
-            status_counts = data_copy[data_copy['status'] != 'Error']['status'].value_counts()
+            status_counts = data_copy['status'].value_counts()
             if not status_counts.empty:
                 fig_status = px.pie(values=status_counts.values, names=status_counts.index, title="Trips by Status", color_discrete_sequence=px.colors.qualitative.Set3)
                 fig_status.update_traces(textposition='inside', textinfo='percent+label')
@@ -1538,7 +1365,7 @@ with tab2:
             fig_timeline.update_layout(xaxis_title="Date", yaxis_title="Number of Trips")
             charts['timeline'] = fig_timeline
         if 'created_at' in data_copy.columns and 'status' in data_copy.columns:
-            status_over_time = data_copy[data_copy['status'] != 'Error'].groupby([data_copy['created_at'].dt.date, 'status']).size().reset_index(name='count')
+            status_over_time = data_copy.groupby([data_copy['created_at'].dt.date, 'status']).size().reset_index(name='count')
             if not status_over_time.empty:
                 status_over_time.columns = ['Date', 'Status', 'Count']
                 fig_status_time = px.line(status_over_time, x='Date', y='Count', color='Status', title="Status Trends Over Time", markers=True)
@@ -1553,26 +1380,22 @@ with tab2:
             st.stop()
         if not data.empty and 'status' not in data.columns:
             statuses = []
-            error_msgs = []
             for _, row in data.iterrows():
-                status, err_msg = calculate_status_and_errors(row)
+                status, _ = calculate_status_and_errors(row)
                 statuses.append(status)
-                error_msgs.append(err_msg)
             data['status'] = statuses
-            data['error_message'] = error_msgs
 
         @st.cache_data(ttl=600)
         def calculate_metrics(data):
-            valid_data = data[data['status'] != 'Error']
-            total_trips = len(valid_data)
-            planned = len(valid_data[valid_data['status'] == 'Planned']) if 'status' in valid_data.columns else 0
-            in_transit = len(valid_data[valid_data['status'] == 'In Transit']) if 'status' in valid_data.columns else 0
-            completed = len(valid_data[valid_data['status'] == 'Completed']) if 'status' in valid_data.columns else 0
-            error_count = len(data[data['status'] == 'Error'])
+            total_trips = len(data)
+            planned = len(data[data['status'] == 'Planned']) if 'status' in data.columns else 0
+            loading = len(data[data['status'] == 'Loading']) if 'status' in data.columns else 0
+            in_transit = len(data[data['status'] == 'In Transit']) if 'status' in data.columns else 0
+            completed = len(data[data['status'] == 'Completed']) if 'status' in data.columns else 0
             completion_rate = (completed / total_trips * 100) if total_trips > 0 else 0
-            return total_trips, planned, in_transit, completed, completion_rate, error_count
+            return total_trips, planned, loading, in_transit, completed, completion_rate
 
-        total_trips, planned, in_transit, completed, completion_rate, error_count = calculate_metrics(data)
+        total_trips, planned, loading, in_transit, completed, completion_rate = calculate_metrics(data)
 
         col_metric1, col_metric2, col_metric3, col_metric4, col_metric5, col_metric6 = st.columns(6)
         with col_metric1:
@@ -1580,16 +1403,13 @@ with tab2:
         with col_metric2:
             st.metric("Planned", planned)
         with col_metric3:
-            st.metric("In Transit", in_transit)
+            st.metric("Loading", loading)
         with col_metric4:
-            st.metric("Completed", completed)
+            st.metric("In Transit", in_transit)
         with col_metric5:
-            st.metric("Completion Rate", f"{completion_rate:.1f}%")
+            st.metric("Completed", completed)
         with col_metric6:
-            st.metric("⚠️ Errors", error_count, delta="Needs attention" if error_count > 0 else None)
-
-        if error_count > 0:
-            st.error(f"⚠️ {error_count} record(s) have invalid date combinations. Please check the Trip Management tab for details.")
+            st.metric("Completion Rate", f"{completion_rate:.1f}%")
 
         charts = create_charts(data)
         col_chart1, col_chart2 = st.columns(2)
@@ -1624,21 +1444,20 @@ with tab2:
 
         st.subheader("📊 Summary Statistics")
         summary_data = []
-        valid_data = data[data['status'] != 'Error']
-        if 'status' in valid_data.columns:
-            status_summary = valid_data['status'].value_counts()
+        if 'status' in data.columns:
+            status_summary = data['status'].value_counts()
             for status_name, count in status_summary.items():
-                percentage = (count / len(valid_data) * 100) if len(valid_data) > 0 else 0
+                percentage = (count / len(data) * 100) if len(data) > 0 else 0
                 summary_data.append({'Metric': f'Status: {status_name}', 'Count': count, 'Percentage': f'{percentage:.1f}%'})
-        if 'assigned_branch_name' in valid_data.columns:
-            branch_summary = valid_data['assigned_branch_name'].value_counts().head(5)
+        if 'assigned_branch_name' in data.columns:
+            branch_summary = data['assigned_branch_name'].value_counts().head(5)
             for branch_name, count in branch_summary.items():
-                percentage = (count / len(valid_data) * 100) if len(valid_data) > 0 else 0
+                percentage = (count / len(data) * 100) if len(data) > 0 else 0
                 summary_data.append({'Metric': f'Branch: {branch_name}', 'Count': count, 'Percentage': f'{percentage:.1f}%'})
-        if 'vehicle_type' in valid_data.columns:
-            vehicle_type_summary = valid_data['vehicle_type'].value_counts().head(5)
+        if 'vehicle_type' in data.columns:
+            vehicle_type_summary = data['vehicle_type'].value_counts().head(5)
             for vtype, count in vehicle_type_summary.items():
-                percentage = (count / len(valid_data) * 100) if len(valid_data) > 0 else 0
+                percentage = (count / len(data) * 100) if len(data) > 0 else 0
                 summary_data.append({'Metric': f'Vehicle Type: {vtype}', 'Count': count, 'Percentage': f'{percentage:.1f}%'})
         if summary_data:
             summary_df = pd.DataFrame(summary_data)
@@ -1648,29 +1467,21 @@ with tab2:
             st.write("### Data Overview")
             if 'created_at' in data.columns and not data['created_at'].isna().all():
                 st.write(f"**Total Records:** {len(data)}")
-                st.write(f"**Valid Records:** {len(valid_data)}")
-                st.write(f"**Error Records:** {error_count}")
                 st.write(f"**Date Range:** {data['created_at'].min()} to {data['created_at'].max()}")
             else:
                 st.write(f"**Total Records:** {len(data)}")
-                st.write(f"**Valid Records:** {len(valid_data)}")
-                st.write(f"**Error Records:** {error_count}")
-            if error_count > 0:
-                st.write("### Error Records")
-                error_data = data[data['status'] == 'Error'][['plate_number', 'driver_name', 'error_message']]
-                st.dataframe(error_data, use_container_width=True, hide_index=True)
-            if 'status' in valid_data.columns:
+            if 'status' in data.columns:
                 st.write("### Status Breakdown")
-                status_breakdown = valid_data['status'].value_counts()
+                status_breakdown = data['status'].value_counts()
                 for status_name, count in status_breakdown.items():
-                    st.write(f"- {status_name}: {count} ({count/len(valid_data)*100:.1f}%)")
-            if 'plate_number' in valid_data.columns:
-                st.write(f"Total unique vehicles: {valid_data['plate_number'].nunique()}")
-            if 'driver_name' in valid_data.columns:
-                st.write(f"Total unique drivers: {valid_data['driver_name'].nunique()}")
-            if 'vehicle_type' in valid_data.columns:
+                    st.write(f"- {status_name}: {count} ({count/len(data)*100:.1f}%)")
+            if 'plate_number' in data.columns:
+                st.write(f"Total unique vehicles: {data['plate_number'].nunique()}")
+            if 'driver_name' in data.columns:
+                st.write(f"Total unique drivers: {data['driver_name'].nunique()}")
+            if 'vehicle_type' in data.columns:
                 st.write("### Vehicle Types")
-                vehicle_types = valid_data['vehicle_type'].value_counts()
+                vehicle_types = data['vehicle_type'].value_counts()
                 for vtype, count in vehicle_types.items():
                     st.write(f"- {vtype}: {count}")
 
