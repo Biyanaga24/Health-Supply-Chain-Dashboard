@@ -436,23 +436,29 @@ def get_trip_by_id(trip_id: str):
         return None
 
 # ===================================================
-# UPDATED STATUS FUNCTION (includes "Loading")
+# UPDATED STATUS FUNCTION (robust)
 # ===================================================
 def calculate_status_and_errors(record):
     """
     Returns (status, None) where status is one of:
     'Planned', 'Loading', 'In Transit', 'Completed'
+    Case-insensitive detection.
     """
+    # Helper to check if a value is non-empty
+    def has_value(val):
+        return val is not None and str(val).strip() != ''
+
     assigned = record.get("assigned_date")
     loading_start = record.get("loading_starting_date")
     trip_start = record.get("trip_starting_date")
     trip_end = record.get("trip_end_date")
 
-    has_assigned = assigned is not None and str(assigned).strip() != ''
-    has_loading_start = loading_start is not None and str(loading_start).strip() != ''
-    has_trip_start = trip_start is not None and str(trip_start).strip() != ''
-    has_trip_end = trip_end is not None and str(trip_end).strip() != ''
+    has_assigned = has_value(assigned)
+    has_loading_start = has_value(loading_start)
+    has_trip_start = has_value(trip_start)
+    has_trip_end = has_value(trip_end)
 
+    # Completed takes precedence
     if has_trip_end:
         return "Completed", None
     elif has_trip_start:
@@ -462,6 +468,7 @@ def calculate_status_and_errors(record):
     elif has_assigned:
         return "Planned", None
     else:
+        # Default to Planned if no dates, but something is assigned
         return "Planned", None
 
 def refresh_data():
@@ -487,8 +494,9 @@ def get_vehicle_kpis(master_df, assignments_df):
 
     # Vehicles with status 'Planned', 'Loading', or 'In Transit'
     if not assignments_df.empty and 'status' in assignments_df.columns:
+        # Normalize statuses to title case for consistency
         active_plates = assignments_df[
-            assignments_df['status'].isin(['Planned', 'Loading', 'In Transit'])
+            assignments_df['status'].str.title().isin(['Planned', 'Loading', 'In Transit'])
         ]['plate_number'].dropna().unique()
         assigned_count = len(active_plates)
     else:
@@ -508,22 +516,27 @@ df = load_master()
 assignments_df = load_assignments()
 
 # ---- Always recompute status from date fields ----
+# This ensures that even if the saved status is missing or stale, we recalc
 if not assignments_df.empty:
     assignments_df.columns = assignments_df.columns.str.strip()
+    # Recompute statuses from date fields
     statuses = []
     for _, row in assignments_df.iterrows():
         status, _ = calculate_status_and_errors(row)
         statuses.append(status)
     assignments_df['status'] = statuses
+else:
+    # Ensure status column exists even if empty
+    assignments_df['status'] = pd.Series(dtype='object')
 
-# ---- Debug block (uncomment to inspect data) ----
+# ---- Debug block (can be removed in production) ----
 # st.write("### DEBUG: assignments_df info")
 # st.write("Rows:", len(assignments_df))
 # st.write("Columns:", assignments_df.columns.tolist())
 # if "status" in assignments_df.columns:
 #     st.write("Unique statuses:", assignments_df["status"].value_counts(dropna=False))
 #     st.write("Active plates (Planned/Loading/In Transit):",
-#              assignments_df[assignments_df["status"].isin(["Planned", "Loading", "In Transit"])]["plate_number"].unique())
+#              assignments_df[assignments_df["status"].str.title().isin(["Planned", "Loading", "In Transit"])]["plate_number"].unique())
 # else:
 #     st.error("❌ STATUS COLUMN NOT FOUND")
 
@@ -658,7 +671,10 @@ if st.session_state.kpi_selection:
                 filtered_df = df[required_cols].copy()
         elif selected_kpi == "assigned":
             if not assignments_df.empty and 'status' in assignments_df.columns:
-                active_plates = assignments_df[assignments_df['status'].isin(['Planned', 'Loading', 'In Transit'])]['plate_number'].dropna().unique()
+                # Use normalized comparison
+                active_plates = assignments_df[
+                    assignments_df['status'].str.title().isin(['Planned', 'Loading', 'In Transit'])
+                ]['plate_number'].dropna().unique()
                 filtered_df = df[df['plate_number'].isin(active_plates)][required_cols].copy()
             else:
                 filtered_df = pd.DataFrame(columns=required_cols)
@@ -666,7 +682,9 @@ if st.session_state.kpi_selection:
             # Available = vehicles that have at least one trip but none active
             if not assignments_df.empty and 'status' in assignments_df.columns:
                 all_assigned = set(assignments_df['plate_number'].dropna().unique())
-                active_plates = set(assignments_df[assignments_df['status'].isin(['Planned', 'Loading', 'In Transit'])]['plate_number'].dropna().unique())
+                active_plates = set(assignments_df[
+                    assignments_df['status'].str.title().isin(['Planned', 'Loading', 'In Transit'])
+                ]['plate_number'].dropna().unique())
                 available_plates = all_assigned - active_plates
                 filtered_df = df[df['plate_number'].isin(available_plates)][required_cols].copy()
             else:
@@ -866,7 +884,7 @@ with tab1:
         data = assignments_df.copy()
 
         if not data.empty:
-            # Ensure status is present (it should be)
+            # Ensure status is present (recompute if missing)
             if 'status' not in data.columns:
                 statuses = []
                 for _, row in data.iterrows():
@@ -875,7 +893,7 @@ with tab1:
                 data['status'] = statuses
 
             # --- Compute vehicle-level status for filtering ---
-            active_plates = set(data[data['status'].isin(['Planned', 'Loading', 'In Transit'])]['plate_number'].dropna().unique())
+            active_plates = set(data[data['status'].str.title().isin(['Planned', 'Loading', 'In Transit'])]['plate_number'].dropna().unique())
             data['vehicle_status'] = data['plate_number'].apply(
                 lambda x: 'Assigned' if x in active_plates else 'Available'
             )
@@ -1003,7 +1021,7 @@ with tab1:
                 # ===========================================
                 col_action1, col_action2, col_action3 = st.columns([2, 1, 1])
                 with col_action1:
-                    editable_trips = data[data['status'].isin(['Planned', 'Loading', 'In Transit'])]
+                    editable_trips = data[data['status'].str.title().isin(['Planned', 'Loading', 'In Transit'])]
                     trip_options = []
                     for idx, row in editable_trips.iterrows():
                         if row.get('id'):
@@ -1331,6 +1349,8 @@ with tab2:
             if col in data_copy.columns:
                 data_copy[col] = pd.to_datetime(data_copy[col], errors='coerce')
         if 'status' in data_copy.columns:
+            # Normalize statuses to title case for consistent grouping
+            data_copy['status'] = data_copy['status'].str.title()
             status_counts = data_copy['status'].value_counts()
             if not status_counts.empty:
                 fig_status = px.pie(values=status_counts.values, names=status_counts.index, title="Trips by Status", color_discrete_sequence=px.colors.qualitative.Set3)
@@ -1388,6 +1408,9 @@ with tab2:
         @st.cache_data(ttl=600)
         def calculate_metrics(data):
             total_trips = len(data)
+            # Normalize statuses
+            if 'status' in data.columns:
+                data['status'] = data['status'].str.title()
             planned = len(data[data['status'] == 'Planned']) if 'status' in data.columns else 0
             loading = len(data[data['status'] == 'Loading']) if 'status' in data.columns else 0
             in_transit = len(data[data['status'] == 'In Transit']) if 'status' in data.columns else 0
