@@ -172,22 +172,12 @@ st.set_page_config(page_title="EPSS Fleet Dashboard", layout="wide")
 # ===================================================
 st.markdown("""
 <style>
-    /* Overall background */
     .stApp {
         background-color: #f5f5f5 !important;
     }
     .main { padding: 0rem 1rem; }
-
-    /* Main title – blue */
-    h1 {
-        color: #1E88E5 !important;
-    }
-    /* Other headings – blue */
-    h2, h3, h4 {
-        color: #1565C0 !important;
-    }
-
-    /* Taller KPI section header */
+    h1 { color: #1E88E5 !important; }
+    h2, h3, h4 { color: #1565C0 !important; }
     .kpi-header {
         font-size: 1.8rem !important;
         font-weight: 600 !important;
@@ -197,8 +187,6 @@ st.markdown("""
         border-bottom: 3px solid #1E88E5;
         display: inline-block;
     }
-
-    /* Section headers – blue gradient */
     .section-header {
         background: linear-gradient(90deg, #1E88E5, #1565C0) !important;
         color: white !important;
@@ -206,13 +194,11 @@ st.markdown("""
         border-radius: 8px;
         margin: 1rem 0;
     }
-    /* Dataframe headers – blue */
     .dataframe th {
         background-color: #1E88E5 !important;
         color: white !important;
         font-weight: bold !important;
     }
-    /* Edit container border – blue */
     .edit-container {
         background-color: #f8f9fa;
         padding: 1rem;
@@ -221,65 +207,17 @@ st.markdown("""
         margin: 1rem 0;
         box-shadow: 0 2px 4px rgba(0,0,0,0.1);
     }
-    /* Status badges */
-    .status-planned {
-        background-color: #2196F3;
-        color: white;
-        padding: 2px 10px;
-        border-radius: 20px;
-        font-size: 12px;
-        font-weight: bold;
-        display: inline-block;
-    }
-    .status-loading {
-        background-color: #9C27B0;
-        color: white;
-        padding: 2px 10px;
-        border-radius: 20px;
-        font-size: 12px;
-        font-weight: bold;
-        display: inline-block;
-    }
-    .status-transit {
-        background-color: #FF9800;
-        color: white;
-        padding: 2px 10px;
-        border-radius: 20px;
-        font-size: 12px;
-        font-weight: bold;
-        display: inline-block;
-    }
-    .status-completed {
-        background-color: #4CAF50;
-        color: white;
-        padding: 2px 10px;
-        border-radius: 20px;
-        font-size: 12px;
-        font-weight: bold;
-        display: inline-block;
-    }
-    .stButton button {
-        border-radius: 8px;
-        font-weight: 500;
-        transition: all 0.3s;
-    }
-    .stButton button:hover {
-        transform: scale(1.02);
-        box-shadow: 0 4px 8px rgba(0,0,0,0.2);
-    }
-    .dataframe {
-        border-radius: 10px;
-        overflow: hidden;
-        box-shadow: 0 2px 8px rgba(0,0,0,0.1);
-    }
-    .dataframe tr:hover {
-        background-color: #f5f5f5 !important;
-    }
-    .st-emotion-cache-1y4p8pa {
-        max-width: 100%;
-    }
+    .status-planned { background-color: #2196F3; color: white; padding: 2px 10px; border-radius: 20px; font-size: 12px; font-weight: bold; display: inline-block; }
+    .status-loading { background-color: #9C27B0; color: white; padding: 2px 10px; border-radius: 20px; font-size: 12px; font-weight: bold; display: inline-block; }
+    .status-transit { background-color: #FF9800; color: white; padding: 2px 10px; border-radius: 20px; font-size: 12px; font-weight: bold; display: inline-block; }
+    .status-completed { background-color: #4CAF50; color: white; padding: 2px 10px; border-radius: 20px; font-size: 12px; font-weight: bold; display: inline-block; }
+    .stButton button { border-radius: 8px; font-weight: 500; transition: all 0.3s; }
+    .stButton button:hover { transform: scale(1.02); box-shadow: 0 4px 8px rgba(0,0,0,0.2); }
+    .dataframe { border-radius: 10px; overflow: hidden; box-shadow: 0 2px 8px rgba(0,0,0,0.1); }
+    .dataframe tr:hover { background-color: #f5f5f5 !important; }
+    .st-emotion-cache-1y4p8pa { max-width: 100%; }
 
-    /* ===== KPI BUTTON STYLES – TALLER CARDS ===== */
+    /* KPI BUTTON STYLES – taller cards */
     .kpi-wrapper .stButton button {
         height: 180px !important;
         min-height: 180px !important;
@@ -302,107 +240,51 @@ st.markdown("""
         color: white !important;
         box-shadow: 0 2px 4px rgba(0,0,0,0.1) !important;
     }
-    .kpi-wrapper .stButton button:hover {
-        transform: scale(1.03) translateY(-3px) !important;
-        box-shadow: 0 4px 12px rgba(0,0,0,0.2) !important;
-    }
-    .kpi-wrapper .stButton button:active {
-        transform: scale(0.98) !important;
-    }
-    .kpi-wrapper .stButton button::first-line {
-        font-size: 1.0rem !important;
-        font-weight: normal !important;
-        opacity: 0.9 !important;
-    }
-    .kpi-wrapper.selected .stButton button {
-        outline: 3px solid #fff !important;
-        outline-offset: -3px !important;
-        box-shadow: 0 0 0 3px rgba(0,0,0,0.3) !important;
-    }
+    .kpi-wrapper .stButton button:hover { transform: scale(1.03) translateY(-3px) !important; box-shadow: 0 4px 12px rgba(0,0,0,0.2) !important; }
+    .kpi-wrapper .stButton button:active { transform: scale(0.98) !important; }
+    .kpi-wrapper .stButton button::first-line { font-size: 1.0rem !important; font-weight: normal !important; opacity: 0.9 !important; }
+    .kpi-wrapper.selected .stButton button { outline: 3px solid #fff !important; outline-offset: -3px !important; box-shadow: 0 0 0 3px rgba(0,0,0,0.3) !important; }
 
-    .kpi-total .stButton button {
-        background: linear-gradient(135deg, #64B5F6, #1E88E5) !important;
-    }
-    .kpi-total_active .stButton button {
-        background: linear-gradient(135deg, #4DD0E1, #00ACC1) !important;
-    }
-    .kpi-grounded .stButton button {
-        background: linear-gradient(135deg, #EF5350, #D32F2F) !important;
-    }
-    .kpi-assigned .stButton button {
-        background: linear-gradient(135deg, #FFB74D, #F57C00) !important;
-    }
-    .kpi-available .stButton button {
-        background: linear-gradient(135deg, #66BB6A, #388E3C) !important;
-    }
+    .kpi-total .stButton button { background: linear-gradient(135deg, #64B5F6, #1E88E5) !important; }
+    .kpi-total_active .stButton button { background: linear-gradient(135deg, #4DD0E1, #00ACC1) !important; }
+    .kpi-grounded .stButton button { background: linear-gradient(135deg, #EF5350, #D32F2F) !important; }
+    .kpi-assigned .stButton button { background: linear-gradient(135deg, #FFB74D, #F57C00) !important; }
+    .kpi-available .stButton button { background: linear-gradient(135deg, #66BB6A, #388E3C) !important; }
 </style>
 """, unsafe_allow_html=True)
 
 st.title("EPSS Fleet Management Dashboard")
 
 # ===================================================
-# SIDEBAR - REORDERED
+# SIDEBAR
 # ===================================================
-# 1. Filter Vehicles
 st.sidebar.markdown("---")
 st.sidebar.markdown("### 🔍 Filter Vehicles")
 filter_vehicle_status = st.sidebar.selectbox(
     "Show Vehicles",
-    ["All", "Available", "Assigned"],
-    help="Available: vehicles with no active (Planned/Loading/In Transit) trips. Assigned: vehicles with active trips.",
+    ["All", "Active", "Assigned", "Available", "Grounded"],
+    help=(
+        "**All** – show all trips\n"
+        "**Active** – vehicles that have at least one trip\n"
+        "**Assigned** – vehicles with active trips (Planned/Loading/In Transit)\n"
+        "**Available** – vehicles with trips but none active\n"
+        "**Grounded** – vehicles with no trips at all"
+    ),
     key="filter_vehicle_sidebar"
 )
 
-# 2. Navigation
 st.sidebar.markdown("---")
 st.sidebar.markdown("### 📋 Navigation")
-nav_options = ["📋 Trip Management", "📊 KPIs & Analysis"]
+nav_options = ["📋 Trip Management", "📊 KPIs & Analysis", "👤 User Info"]
 if is_admin_user:
     nav_options.append("👑 Admin Panel")
 selected_page = st.sidebar.radio("Go to", nav_options, index=0)
 
-# 3. User Info + Password Change
-st.sidebar.markdown("---")
-st.sidebar.markdown("### 👤 User Info")
-st.sidebar.markdown(f"**Email:** {user_email}")
-if user_metadata:
-    st.sidebar.markdown(f"**Name:** {user_metadata.get('full_name', 'N/A')}")
-st.sidebar.markdown(f"**Role:** {'👑 Admin' if is_admin_user else '👤 User'}")
-
-# Password change expander
-with st.sidebar.expander("🔑 Change Password", expanded=False):
-    with st.form("change_password_form"):
-        new_password = st.text_input("New Password", type="password")
-        confirm_password = st.text_input("Confirm Password", type="password")
-        submit_pw = st.form_submit_button("Update Password")
-        if submit_pw:
-            if not new_password or not confirm_password:
-                st.error("Please fill in both fields.")
-            elif new_password != confirm_password:
-                st.error("Passwords do not match.")
-            elif len(new_password) < 6:
-                st.error("Password must be at least 6 characters.")
-            else:
-                try:
-                    user = supabase.auth.get_user()
-                    if user and user.user:
-                        response = supabase.auth.update_user({"password": new_password})
-                        if response.user:
-                            st.success("✅ Password updated successfully! You can now sign in with your new password.")
-                        else:
-                            st.error("❌ Failed to update password. Please try again.")
-                    else:
-                        st.error("❌ Not logged in or session expired. Please sign out and sign in again.")
-                except Exception as e:
-                    st.error(f"❌ Error: {str(e)}")
-
-# 4. Sign Out
 st.sidebar.markdown("---")
 if st.sidebar.button("🚪 Sign Out", use_container_width=True):
     if sign_out():
         st.session_state.clear()
         st.rerun()
-
 st.sidebar.markdown("---")
 
 # ===================================================
@@ -412,14 +294,7 @@ def combine_date_with_current_time(date_obj):
     if date_obj is None:
         return None
     now = datetime.now()
-    return datetime(
-        date_obj.year,
-        date_obj.month,
-        date_obj.day,
-        now.hour,
-        now.minute,
-        now.second
-    )
+    return datetime(date_obj.year, date_obj.month, date_obj.day, now.hour, now.minute, now.second)
 
 def format_datetime_for_db(dt):
     if dt is None:
@@ -465,35 +340,23 @@ def get_trip_by_id(trip_id: str):
         logger.error(f"Error fetching trip: {e}")
         return None
 
-# ===================================================
-# UPDATED STATUS FUNCTION – now uses pd.isna()
-# ===================================================
 def calculate_status_and_errors(record):
-    """
-    Returns (status, None) where status is one of:
-    'Planned', 'Loading', 'In Transit', 'Completed'
-    Now correctly handles NaT values.
-    """
     def has_value(val):
-        # Returns True if val is not None, not NaN, not NaT, and not empty string
         if val is None:
             return False
-        if pd.isna(val):   # catches NaN, NaT
+        if pd.isna(val):
             return False
         if isinstance(val, str) and val.strip() == '':
             return False
         return True
-
     assigned = record.get("assigned_date")
     loading_start = record.get("loading_starting_date")
     trip_start = record.get("trip_starting_date")
     trip_end = record.get("trip_end_date")
-
     has_assigned = has_value(assigned)
     has_loading_start = has_value(loading_start)
     has_trip_start = has_value(trip_start)
     has_trip_end = has_value(trip_end)
-
     if has_trip_end:
         return "Completed", None
     elif has_trip_start:
@@ -509,52 +372,50 @@ def refresh_data():
     st.cache_data.clear()
     st.rerun()
 
-# ===================================================
-# KPI FUNCTION – updated with safe status comparison
-# ===================================================
 def get_vehicle_kpis(master_df, assignments_df):
     if master_df.empty:
         return 0, 0, 0, 0, 0
-
     total_count = master_df['plate_number'].nunique()
-
     all_assigned_plates = assignments_df['plate_number'].dropna().unique() if not assignments_df.empty else []
     total_active = len(all_assigned_plates)
-
     if not assignments_df.empty and 'status' in assignments_df.columns:
-        # Normalize statuses to title case
         active_plates = assignments_df[
             assignments_df['status'].str.title().isin(['Planned', 'Loading', 'In Transit'])
         ]['plate_number'].dropna().unique()
         assigned_count = len(active_plates)
     else:
         assigned_count = 0
-
     grounded = total_count - total_active
     available = total_count - grounded - assigned_count
-
     return total_count, total_active, grounded, assigned_count, available
 
-# ===================================================
-# ROBUST DATE PARSING – tries both formats
-# ===================================================
 def parse_datetime_flexible(val):
     if pd.isna(val) or val is None:
         return pd.NaT
     if isinstance(val, (pd.Timestamp, datetime)):
         return val
     if isinstance(val, str):
-        # Try with time first
         try:
             return pd.to_datetime(val, format='%Y-%m-%d %H:%M:%S', errors='raise')
         except:
             try:
-                # Try without time (date only)
                 return pd.to_datetime(val, format='%Y-%m-%d', errors='raise')
             except:
-                # Fallback to pandas general parsing (last resort)
                 return pd.to_datetime(val, errors='coerce')
     return pd.NaT
+
+def format_days_hours(days):
+    """Convert decimal days to 'days:hours' format, e.g., 1:0 for 1 day 0 hours."""
+    if pd.isna(days):
+        return ''
+    sign = '-' if days < 0 else ''
+    days_abs = abs(days)
+    d = int(days_abs)
+    h = int(round((days_abs - d) * 24))
+    if h == 24:
+        d += 1
+        h = 0
+    return f"{sign}{d}:{h}"
 
 # ===================================================
 # LOAD DATA AND COMPUTE STATUS
@@ -562,10 +423,8 @@ def parse_datetime_flexible(val):
 df = load_master()
 assignments_df = load_assignments()
 
-# ---- Always recompute status from date fields ----
 if not assignments_df.empty:
     assignments_df.columns = assignments_df.columns.str.strip()
-    # Recompute statuses
     statuses = []
     for _, row in assignments_df.iterrows():
         status, _ = calculate_status_and_errors(row)
@@ -574,7 +433,6 @@ if not assignments_df.empty:
 else:
     assignments_df['status'] = pd.Series(dtype='object')
 
-# ---- Parse all date columns with flexible parser ----
 date_columns = [
     'assigned_date', 'requested_date', 'loading_starting_date', 'loading_date_end',
     'trip_starting_date', 'arrival_date', 'return_date', 'trip_end_date',
@@ -584,7 +442,6 @@ for col in date_columns:
     if col in assignments_df.columns:
         assignments_df[col] = assignments_df[col].apply(parse_datetime_flexible)
 
-# Process master data
 vehicle_data = process_vehicle_data(df)
 plate_numbers = vehicle_data['plate_numbers']
 from_locations = vehicle_data['from_locations']
@@ -595,11 +452,59 @@ plate_to_branch = vehicle_data['plate_to_branch']
 plate_to_phone = vehicle_data['plate_to_phone']
 plate_to_vehicle_type = vehicle_data['plate_to_vehicle_type']
 
-# ---- Compute KPIs ----
 total_count, total_active, grounded, assigned_count, available_count = get_vehicle_kpis(df, assignments_df)
 
 # ===================================================
-# 1. KPI CARDS
+# PAGE ROUTING BASED ON SIDEBAR SELECTION
+# ===================================================
+
+if selected_page == "👤 User Info":
+    st.markdown('<div class="section-header">👤 User Profile</div>', unsafe_allow_html=True)
+    col1, col2 = st.columns([1, 2])
+    with col1:
+        st.image("https://ui-avatars.com/api/?name=" + user_email.replace("@", "%40") + "&size=150&background=1E88E5&color=fff&bold=true", width=150)
+    with col2:
+        st.markdown(f"### {user_metadata.get('full_name', 'N/A')}")
+        st.markdown(f"**Email:** {user_email}")
+        st.markdown(f"**Role:** {'👑 Admin' if is_admin_user else '👤 User'}")
+        st.markdown(f"**Status:** {'✅ Approved' if is_admin_user else '✅ Active'}")
+
+    st.markdown("---")
+    st.subheader("🔑 Change Password")
+    with st.form("change_password_form_profile"):
+        new_password = st.text_input("New Password", type="password")
+        confirm_password = st.text_input("Confirm Password", type="password")
+        submit_pw = st.form_submit_button("Update Password")
+        if submit_pw:
+            if not new_password or not confirm_password:
+                st.error("Please fill in both fields.")
+            elif new_password != confirm_password:
+                st.error("Passwords do not match.")
+            elif len(new_password) < 6:
+                st.error("Password must be at least 6 characters.")
+            else:
+                try:
+                    user = supabase.auth.get_user()
+                    if user and user.user:
+                        response = supabase.auth.update_user({"password": new_password})
+                        if response.user:
+                            st.success("✅ Password updated successfully! You can now sign in with your new password.")
+                        else:
+                            st.error("❌ Failed to update password. Please try again.")
+                    else:
+                        st.error("❌ Not logged in or session expired. Please sign out and sign in again.")
+                except Exception as e:
+                    st.error(f"❌ Error: {str(e)}")
+    st.stop()  # stop further execution
+
+if selected_page == "👑 Admin Panel" and is_admin_user:
+    st.markdown('<div class="section-header">👑 Admin Panel</div>', unsafe_allow_html=True)
+    from auth_p import admin_panel
+    admin_panel()
+    st.stop()
+
+# ===================================================
+# KPI CARDS (only if not on User Info or Admin Panel)
 # ===================================================
 st.markdown("""
 <div style="margin: 10px 0 15px 0;">
@@ -643,14 +548,12 @@ for j, kpi in enumerate(kpis[3:]):
             st.rerun()
 
 # ===================================================
-# 2. TRIP PERFORMANCE SUMMARY
+# TRIP PERFORMANCE SUMMARY
 # ===================================================
 if not assignments_df.empty:
     data = assignments_df.copy()
-    # Dates already parsed as datetime with explicit format
     metrics = {}
     if 'loading_starting_date' in data.columns and 'loading_date_end' in data.columns:
-        # Only compute where both are not NaT
         mask = data['loading_starting_date'].notna() & data['loading_date_end'].notna()
         if mask.any():
             metrics['Loading Time'] = (data.loc[mask, 'loading_date_end'] - data.loc[mask, 'loading_starting_date']).dt.total_seconds() / 86400
@@ -691,7 +594,7 @@ if not assignments_df.empty:
         st.dataframe(summary_df, use_container_width=True, hide_index=True)
 
 # ===================================================
-# 3. TABLE BASED ON SELECTED KPI
+# TABLE BASED ON SELECTED KPI
 # ===================================================
 if st.session_state.kpi_selection:
     selected_kpi = st.session_state.kpi_selection
@@ -754,7 +657,7 @@ if st.session_state.kpi_selection:
         st.info("No master data available.")
 
 # ===================================================
-# TABS
+# TABS: Trip Management & Analysis
 # ===================================================
 tab1, tab2 = st.tabs(["📋 Trip Management", "📊 KPIs & Analysis"])
 
@@ -931,7 +834,7 @@ with tab1:
         data = assignments_df.copy()
 
         if not data.empty:
-            # Ensure status is present (recompute if missing)
+            # Ensure status is present
             if 'status' not in data.columns:
                 statuses = []
                 for _, row in data.iterrows():
@@ -939,23 +842,30 @@ with tab1:
                     statuses.append(status)
                 data['status'] = statuses
 
-            # --- Compute vehicle-level status for filtering ---
+            # Vehicle categorization for filter
+            all_vehicles = set(df['plate_number'].dropna().unique()) if not df.empty else set()
+            vehicles_with_trips = set(data['plate_number'].dropna().unique())
             active_plates = set(data[data['status'].str.title().isin(['Planned', 'Loading', 'In Transit'])]['plate_number'].dropna().unique())
-            data['vehicle_status'] = data['plate_number'].apply(
-                lambda x: 'Assigned' if x in active_plates else 'Available'
-            )
+
+            # Apply sidebar filter
+            if filter_vehicle_status == "Active":
+                data = data[data['plate_number'].isin(vehicles_with_trips)]
+            elif filter_vehicle_status == "Assigned":
+                data = data[data['plate_number'].isin(active_plates)]
+            elif filter_vehicle_status == "Available":
+                avail_plates = vehicles_with_trips - active_plates
+                data = data[data['plate_number'].isin(avail_plates)]
+            elif filter_vehicle_status == "Grounded":
+                grounded_plates = all_vehicles - vehicles_with_trips
+                data = data[data['plate_number'].isin(grounded_plates)]
+            # else "All" – no filter
 
             if 'created_at' in data.columns:
                 data = data.sort_values(by="created_at", ascending=False)
             else:
                 data = data.sort_values(by="id", ascending=False)
 
-            # ===== ADD TRIP PERFORMANCE METRICS (safe) =====
-            date_cols = ['loading_starting_date', 'loading_date_end', 'trip_starting_date', 
-                         'arrival_date', 'return_date', 'trip_end_date', 'expected_trip_end_date']
-            # Dates are already parsed as datetime
-
-            # Safe difference functions
+            # ===== ADD TRIP PERFORMANCE METRICS =====
             def safe_days(col1, col2):
                 mask = data[col1].notna() & data[col2].notna()
                 if mask.any():
@@ -987,67 +897,71 @@ with tab1:
                 if col not in data.columns:
                     data[col] = None
 
-            # --- Apply sidebar vehicle filter ---
-            if filter_vehicle_status == "Available":
-                data = data[data['vehicle_status'] == 'Available']
-            elif filter_vehicle_status == "Assigned":
-                data = data[data['vehicle_status'] == 'Assigned']
-
-            # --- If filter is not "All", show summary and then table
+            # ---- Show vehicle summary (if not "All") ----
             if filter_vehicle_status != "All":
-                vehicle_summary = data.groupby('plate_number').agg({
-                    'driver_name': 'first',
-                    'phone_number': 'first',
-                    'vehicle_type': 'first',
-                    'from_location': 'first',
-                    'assigned_branch_name': 'first',
-                    'status': lambda x: ' / '.join(x.unique()),
-                    'vehicle_status': 'first'
-                }).reset_index()
-                vehicle_summary.rename(columns={
-                    'plate_number': 'Plate Number',
-                    'driver_name': 'Driver',
-                    'phone_number': 'Phone',
-                    'vehicle_type': 'Vehicle Type',
-                    'from_location': 'From Location',
-                    'assigned_branch_name': 'Branch',
-                    'status': 'Trip Statuses',
-                    'vehicle_status': 'Vehicle Status'
-                }, inplace=True)
-
-                st.subheader(f"🚗 {filter_vehicle_status} Vehicles")
-                st.dataframe(vehicle_summary, use_container_width=True, hide_index=True)
+                if filter_vehicle_status == "Grounded":
+                    st.info("🚫 No trips for Grounded vehicles (they have no assignments).")
+                else:
+                    vehicle_summary = data.groupby('plate_number').agg({
+                        'driver_name': 'first',
+                        'phone_number': 'first',
+                        'vehicle_type': 'first',
+                        'from_location': 'first',
+                        'assigned_branch_name': 'first',
+                        'status': lambda x: ' / '.join(x.unique()),
+                    }).reset_index()
+                    if not vehicle_summary.empty:
+                        vehicle_summary.rename(columns={
+                            'plate_number': 'Plate Number',
+                            'driver_name': 'Driver',
+                            'phone_number': 'Phone',
+                            'vehicle_type': 'Vehicle Type',
+                            'from_location': 'From Location',
+                            'assigned_branch_name': 'Branch',
+                            'status': 'Trip Statuses'
+                        }, inplace=True)
+                        st.subheader(f"🚗 {filter_vehicle_status} Vehicles")
+                        st.dataframe(vehicle_summary, use_container_width=True, hide_index=True)
+                    else:
+                        st.info(f"No {filter_vehicle_status} vehicles found.")
 
                 st.subheader("📋 Trip Records for these Vehicles")
-                display_data = data[[col for col in display_columns if col != 'id']].copy()
-                display_data.rename(columns={
-                    'phone_number': 'Phone Number',
-                    'vehicle_type': 'Vehicle Type',
-                    'requested_date': 'Requested Date',
-                    'loading_starting_date': 'Loading Starting Date',
-                    'loading_date_end': 'Loading Date End',
-                    'trip_starting_date': 'Trip Starting Date',
-                    'arrival_date': 'Arrival Date',
-                    'return_date': 'Return Date',
-                    'trip_end_date': 'Actual Trip End Date',
-                    'expected_trip_end_date': 'Expected Trip End Date',
-                    'loading_time': 'Loading Time (days)',
-                    'ongoing_time': 'Ongoing Time (days)',
-                    'incoming_time': 'Incoming Time (days)',
-                    'total_trip_time': 'Total Trip Time (days)',
-                    'trip_variance': 'Trip Variance (days)'
-                }, inplace=True)
-                # Convert date columns to datetime (already done, but ensure)
-                date_rename = ['Requested Date', 'Loading Starting Date', 'Loading Date End', 'Trip Starting Date', 
-                               'Arrival Date', 'Return Date', 'Actual Trip End Date', 'Expected Trip End Date']
-                for col in date_rename:
-                    if col in display_data.columns:
-                        display_data[col] = pd.to_datetime(display_data[col], errors='coerce')
-                st.dataframe(display_data, use_container_width=True, hide_index=True)
+                if not data.empty:
+                    display_data = data[[col for col in display_columns if col != 'id']].copy()
+                    display_data.rename(columns={
+                        'phone_number': 'Phone Number',
+                        'vehicle_type': 'Vehicle Type',
+                        'requested_date': 'Requested Date',
+                        'loading_starting_date': 'Loading Starting Date',
+                        'loading_date_end': 'Loading Date End',
+                        'trip_starting_date': 'Trip Starting Date',
+                        'arrival_date': 'Arrival Date',
+                        'return_date': 'Return Date',
+                        'trip_end_date': 'Actual Trip End Date',
+                        'expected_trip_end_date': 'Expected Trip End Date',
+                        'loading_time': 'Loading Time',
+                        'ongoing_time': 'Ongoing Time',
+                        'incoming_time': 'Incoming Time',
+                        'total_trip_time': 'Total Trip Time',
+                        'trip_variance': 'Trip Variance'
+                    }, inplace=True)
+                    # Format time columns to "days:hours"
+                    time_cols = ['Loading Time', 'Ongoing Time', 'Incoming Time', 'Total Trip Time', 'Trip Variance']
+                    for col in time_cols:
+                        if col in display_data.columns:
+                            display_data[col] = display_data[col].apply(format_days_hours)
+                    # Convert date columns to datetime for proper display
+                    date_cols = ['Requested Date', 'Loading Starting Date', 'Loading Date End', 'Trip Starting Date',
+                                 'Arrival Date', 'Return Date', 'Actual Trip End Date', 'Expected Trip End Date']
+                    for col in date_cols:
+                        if col in display_data.columns:
+                            display_data[col] = pd.to_datetime(display_data[col], errors='coerce')
+                    st.dataframe(display_data, use_container_width=True, hide_index=True)
+                else:
+                    st.info("No trip records to display for this category.")
 
             else:
-                # Show all trip records with metrics
-
+                # "All" – full table with edit/delete and filters
                 # ===========================================
                 # DROPDOWN FOR EDIT/DELETE
                 # ===========================================
@@ -1256,7 +1170,7 @@ with tab1:
                         st.markdown('</div>', unsafe_allow_html=True)
 
                 # ===========================================
-                # FILTERS
+                # FILTERS FOR THE TABLE
                 # ===========================================
                 col_filter1, col_filter2, col_filter3 = st.columns(3)
                 with col_filter1:
@@ -1289,7 +1203,6 @@ with tab1:
                 if len(filtered_data) < len(data):
                     st.info(f"📊 Showing {len(filtered_data)} of {len(data)} records")
 
-                # Display table
                 if not filtered_data.empty:
                     display_data = filtered_data[[col for col in display_columns if col != 'id']].copy()
                     display_data.rename(columns={
@@ -1303,16 +1216,21 @@ with tab1:
                         'return_date': 'Return Date',
                         'trip_end_date': 'Actual Trip End Date',
                         'expected_trip_end_date': 'Expected Trip End Date',
-                        'loading_time': 'Loading Time (days)',
-                        'ongoing_time': 'Ongoing Time (days)',
-                        'incoming_time': 'Incoming Time (days)',
-                        'total_trip_time': 'Total Trip Time (days)',
-                        'trip_variance': 'Trip Variance (days)'
+                        'loading_time': 'Loading Time',
+                        'ongoing_time': 'Ongoing Time',
+                        'incoming_time': 'Incoming Time',
+                        'total_trip_time': 'Total Trip Time',
+                        'trip_variance': 'Trip Variance'
                     }, inplace=True)
+                    # Format time columns to "days:hours"
+                    time_cols = ['Loading Time', 'Ongoing Time', 'Incoming Time', 'Total Trip Time', 'Trip Variance']
+                    for col in time_cols:
+                        if col in display_data.columns:
+                            display_data[col] = display_data[col].apply(format_days_hours)
                     # Convert date columns
-                    date_cols_rename = ['Requested Date', 'Loading Starting Date', 'Loading Date End', 'Trip Starting Date', 
-                                        'Arrival Date', 'Return Date', 'Actual Trip End Date', 'Expected Trip End Date']
-                    for col in date_cols_rename:
+                    date_cols = ['Requested Date', 'Loading Starting Date', 'Loading Date End', 'Trip Starting Date',
+                                 'Arrival Date', 'Return Date', 'Actual Trip End Date', 'Expected Trip End Date']
+                    for col in date_cols:
                         if col in display_data.columns:
                             display_data[col] = pd.to_datetime(display_data[col], errors='coerce')
                     st.dataframe(
@@ -1339,11 +1257,11 @@ with tab1:
                             "Actual Trip End Date": st.column_config.DatetimeColumn("Actual Trip End Date", format="YYYY-MM-DD HH:mm", width="medium"),
                             "Expected Trip End Date": st.column_config.DatetimeColumn("Expected Trip End Date", format="YYYY-MM-DD HH:mm", width="medium"),
                             "created_at": st.column_config.DatetimeColumn("Created", format="YYYY-MM-DD HH:mm", width="medium"),
-                            "Loading Time (days)": st.column_config.Column("Loading Time (days)", width="small"),
-                            "Ongoing Time (days)": st.column_config.Column("Ongoing Time (days)", width="small"),
-                            "Incoming Time (days)": st.column_config.Column("Incoming Time (days)", width="small"),
-                            "Total Trip Time (days)": st.column_config.Column("Total Trip Time (days)", width="small"),
-                            "Trip Variance (days)": st.column_config.Column("Trip Variance (days)", width="small"),
+                            "Loading Time": st.column_config.Column("Loading Time", width="small"),
+                            "Ongoing Time": st.column_config.Column("Ongoing Time", width="small"),
+                            "Incoming Time": st.column_config.Column("Incoming Time", width="small"),
+                            "Total Trip Time": st.column_config.Column("Total Trip Time", width="small"),
+                            "Trip Variance": st.column_config.Column("Trip Variance", width="small"),
                         }
                     )
                     col_export1, col_export2 = st.columns([1, 5])
@@ -1374,7 +1292,6 @@ with tab2:
             return charts
         data_copy = data.copy()
         data_copy.columns = data_copy.columns.str.strip()
-        # Dates already parsed, but ensure
         date_columns = ['assigned_date', 'requested_date', 'loading_starting_date', 'loading_date_end',
                        'trip_starting_date', 'arrival_date', 'return_date', 'trip_end_date', 'expected_trip_end_date']
         for col in date_columns:
