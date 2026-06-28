@@ -418,6 +418,181 @@ def format_days_hours(days):
     return f"{sign}{d}:{h}"
 
 # ===================================================
+# VEHICLE MASTER DATA MANAGEMENT (for Admin)
+# ===================================================
+def manage_vehicle_master():
+    """Admin panel tab for managing vehicle master data."""
+    st.markdown("### 🚗 Manage Vehicle Master Data")
+
+    # Initialize session state for editing
+    if 'edit_vehicle_id' not in st.session_state:
+        st.session_state.edit_vehicle_id = None
+    if 'edit_vehicle_data' not in st.session_state:
+        st.session_state.edit_vehicle_data = None
+
+    # Load master data (using cached function, but we'll refresh after changes)
+    master_df = load_master()
+
+    # ---- ADD NEW VEHICLE ----
+    with st.expander("➕ Add New Vehicle", expanded=False):
+        with st.form("add_vehicle_form"):
+            col1, col2 = st.columns(2)
+            with col1:
+                new_plate = st.text_input("Plate Number *", placeholder="e.g., AA-1234")
+                new_driver = st.text_input("Driver Name", placeholder="Full name")
+            with col2:
+                new_phone = st.text_input("Phone Number", placeholder="09xxxxxxxx")
+                new_vehicle_type = st.text_input("Vehicle Type", placeholder="e.g., Truck, Bus")
+
+            submitted = st.form_submit_button("💾 Add Vehicle", type="primary")
+            if submitted:
+                if not new_plate:
+                    st.error("Plate Number is required.")
+                else:
+                    # Check for duplicate plate
+                    existing = supabase.table(MASTER_TABLE).select("plate_number").eq("plate_number", new_plate).execute()
+                    if existing.data:
+                        st.error(f"❌ Plate number '{new_plate}' already exists.")
+                    else:
+                        try:
+                            supabase.table(MASTER_TABLE).insert({
+                                "plate_number": new_plate,
+                                "driver_name": new_driver or None,
+                                "phone_number": new_phone or None,
+                                "vehicle_type": new_vehicle_type or None
+                            }).execute()
+                            st.success("✅ Vehicle added successfully!")
+                            st.cache_data.clear()
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"❌ Error: {str(e)}")
+
+    # ---- DISPLAY MASTER TABLE WITH EDIT/DELETE ----
+    if master_df.empty:
+        st.info("No vehicle master data available.")
+        return
+
+    # Ensure required columns exist
+    required_cols = ['plate_number', 'driver_name', 'phone_number', 'vehicle_type']
+    for col in required_cols:
+        if col not in master_df.columns:
+            master_df[col] = None
+
+    # Show table with action buttons
+    st.subheader("📋 Current Vehicle Records")
+
+    # We'll create a copy and add action buttons
+    display_df = master_df[required_cols].copy()
+    display_df.columns = ['Plate Number', 'Driver Name', 'Phone', 'Vehicle Type']
+
+    # For simplicity, we'll show a dataframe and then below it show edit/delete for selected row.
+    # We'll replicate the approach used for trip editing.
+    st.dataframe(display_df, use_container_width=True, hide_index=True)
+
+    # ---- SELECT VEHICLE FOR ACTION ----
+    st.markdown("---")
+    col_sel1, col_sel2, col_sel3 = st.columns([2, 1, 1])
+    with col_sel1:
+        vehicle_options = master_df['plate_number'].dropna().unique().tolist()
+        if vehicle_options:
+            selected_plate = st.selectbox(
+                "Select a vehicle to edit or delete",
+                options=vehicle_options,
+                key="vehicle_action_select"
+            )
+        else:
+            selected_plate = None
+            st.info("No vehicles to select.")
+
+    with col_sel2:
+        if st.button("✏️ Edit Selected", use_container_width=True):
+            if selected_plate:
+                st.session_state.edit_vehicle_id = selected_plate
+                # Fetch full row data
+                row = master_df[master_df['plate_number'] == selected_plate].iloc[0]
+                st.session_state.edit_vehicle_data = row.to_dict()
+                st.rerun()
+            else:
+                st.warning("Please select a vehicle first.")
+
+    with col_sel3:
+        if st.button("🗑️ Delete Selected", use_container_width=True):
+            if selected_plate:
+                # Confirm deletion
+                st.warning(f"Are you sure you want to delete vehicle '{selected_plate}'? This cannot be undone.")
+                col_confirm1, col_confirm2 = st.columns(2)
+                with col_confirm1:
+                    if st.button("✅ Yes, Delete", key="confirm_delete_vehicle"):
+                        try:
+                            supabase.table(MASTER_TABLE).delete().eq("plate_number", selected_plate).execute()
+                            st.success(f"✅ Vehicle '{selected_plate}' deleted successfully!")
+                            st.cache_data.clear()
+                            st.session_state.edit_vehicle_id = None
+                            st.session_state.edit_vehicle_data = None
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"❌ Delete failed: {str(e)}")
+                with col_confirm2:
+                    if st.button("❌ Cancel", key="cancel_delete_vehicle"):
+                        st.rerun()
+            else:
+                st.warning("Please select a vehicle first.")
+
+    # ---- EDIT FORM (appears when edit_vehicle_id is set) ----
+    if st.session_state.edit_vehicle_id and st.session_state.edit_vehicle_data:
+        st.markdown("---")
+        st.markdown(f"### ✏️ Edit Vehicle - {st.session_state.edit_vehicle_id}")
+
+        edit_data = st.session_state.edit_vehicle_data
+
+        with st.form("edit_vehicle_form"):
+            col1, col2 = st.columns(2)
+            with col1:
+                # Plate number is the key, but we allow changing it (with uniqueness check)
+                new_plate = st.text_input("Plate Number *", value=edit_data.get('plate_number', ''))
+                new_driver = st.text_input("Driver Name", value=edit_data.get('driver_name', ''))
+            with col2:
+                new_phone = st.text_input("Phone Number", value=edit_data.get('phone_number', ''))
+                new_vehicle_type = st.text_input("Vehicle Type", value=edit_data.get('vehicle_type', ''))
+
+            col_btn1, col_btn2 = st.columns(2)
+            with col_btn1:
+                update_clicked = st.form_submit_button("🔄 Update Vehicle", type="primary")
+            with col_btn2:
+                cancel_clicked = st.form_submit_button("❌ Cancel Edit")
+
+        if cancel_clicked:
+            st.session_state.edit_vehicle_id = None
+            st.session_state.edit_vehicle_data = None
+            st.rerun()
+
+        if update_clicked:
+            if not new_plate:
+                st.error("Plate Number is required.")
+            else:
+                # Check if plate number changed and if it already exists
+                original_plate = edit_data.get('plate_number')
+                if new_plate != original_plate:
+                    existing = supabase.table(MASTER_TABLE).select("plate_number").eq("plate_number", new_plate).execute()
+                    if existing.data:
+                        st.error(f"❌ Plate number '{new_plate}' already exists.")
+                        st.stop()
+                try:
+                    supabase.table(MASTER_TABLE).update({
+                        "plate_number": new_plate,
+                        "driver_name": new_driver or None,
+                        "phone_number": new_phone or None,
+                        "vehicle_type": new_vehicle_type or None
+                    }).eq("plate_number", original_plate).execute()
+                    st.success("✅ Vehicle updated successfully!")
+                    st.session_state.edit_vehicle_id = None
+                    st.session_state.edit_vehicle_data = None
+                    st.cache_data.clear()
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"❌ Update failed: {str(e)}")
+
+# ===================================================
 # LOAD DATA AND COMPUTE STATUS
 # ===================================================
 df = load_master()
@@ -499,8 +674,17 @@ if selected_page == "👤 User Info":
 
 if selected_page == "👑 Admin Panel" and is_admin_user:
     st.markdown('<div class="section-header">👑 Admin Panel</div>', unsafe_allow_html=True)
-    from auth_p import admin_panel
-    admin_panel()
+
+    # Create tabs for user management and vehicle master management
+    tab_admin_users, tab_admin_vehicles = st.tabs(["👥 User Management", "🚗 Vehicle Master Data"])
+
+    with tab_admin_users:
+        from auth_p import admin_panel
+        admin_panel()
+
+    with tab_admin_vehicles:
+        manage_vehicle_master()
+
     st.stop()
 
 # ===================================================
@@ -1011,7 +1195,7 @@ with tab1:
                             st.warning("Please select a trip first")
 
                 # ===========================================
-                # INLINE EDIT FORM
+                # INLINE EDIT FORM (only empty fields are active)
                 # ===========================================
                 if st.session_state.editing_id:
                     if st.session_state.edit_data is None:
@@ -1047,42 +1231,103 @@ with tab1:
                             st.session_state.edit_expected_trip_end = get_date_from_value(edit.get("expected_trip_end_date"))
                             st.rerun()
 
+                        # Helper to check if a value is empty
+                        def is_empty(val):
+                            if val is None:
+                                return True
+                            if pd.isna(val):
+                                return True
+                            if isinstance(val, str) and val.strip() == '':
+                                return True
+                            return False
+
+                        # Retrieve current values from session state
+                        plate_val = st.session_state.get("edit_plate", "")
+                        from_val = st.session_state.get("edit_from", "")
+                        branch_val = st.session_state.get("edit_branch", "")
+                        requested_by_val = st.session_state.get("edit_requested_by", "")
+                        assigned_by_val = st.session_state.get("edit_assigned_by", "")
+                        requested_date_val = st.session_state.get("edit_requested_date")
+                        assigned_date_val = st.session_state.get("edit_assigned_date")
+                        loading_start_val = st.session_state.get("edit_loading_start")
+                        loading_end_val = st.session_state.get("edit_loading_end")
+                        trip_start_val = st.session_state.get("edit_trip_start")
+                        arrival_val = st.session_state.get("edit_arrival")
+                        return_val = st.session_state.get("edit_return")
+                        trip_end_val = st.session_state.get("edit_trip_end")
+                        expected_trip_end_val = st.session_state.get("edit_expected_trip_end")
+
+                        # Determine disabled state (True = read-only, False = editable)
+                        disabled_plate = not is_empty(plate_val)
+                        disabled_from = not is_empty(from_val)
+                        disabled_branch = not is_empty(branch_val)
+                        disabled_requested_by = not is_empty(requested_by_val)
+                        disabled_assigned_by = not is_empty(assigned_by_val)
+                        disabled_requested_date = not is_empty(requested_date_val)
+                        disabled_assigned_date = not is_empty(assigned_date_val)
+                        disabled_loading_start = not is_empty(loading_start_val)
+                        disabled_loading_end = not is_empty(loading_end_val)
+                        disabled_trip_start = not is_empty(trip_start_val)
+                        disabled_arrival = not is_empty(arrival_val)
+                        disabled_return = not is_empty(return_val)
+                        disabled_trip_end = not is_empty(trip_end_val)
+                        disabled_expected_trip_end = not is_empty(expected_trip_end_val)
+
                         col1, col2, col3 = st.columns(3)
 
                         with col1:
-                            edit_plate = st.selectbox("Plate Number", plate_numbers, key="edit_plate")
-                            edit_derived_driver = plate_to_driver.get(st.session_state.get("edit_plate", edit.get('plate_number', '')), "Not Found")
-                            edit_derived_phone = plate_to_phone.get(st.session_state.get("edit_plate", edit.get('plate_number', '')), "")
-                            edit_derived_vehicle_type = plate_to_vehicle_type.get(st.session_state.get("edit_plate", edit.get('plate_number', '')), "")
+                            # Plate number (select box)
+                            if is_empty(plate_val):
+                                plate_options = [""] + plate_numbers
+                                plate_index = 0
+                            else:
+                                plate_options = plate_numbers
+                                plate_index = plate_options.index(plate_val) if plate_val in plate_options else 0
+                            edit_plate = st.selectbox("Plate Number", plate_options, index=plate_index, key="edit_plate", disabled=disabled_plate)
+
+                            # Derived driver info (always displayed)
+                            edit_derived_driver = plate_to_driver.get(st.session_state.get("edit_plate", plate_val), "Not Found")
+                            edit_derived_phone = plate_to_phone.get(st.session_state.get("edit_plate", plate_val), "")
+                            edit_derived_vehicle_type = plate_to_vehicle_type.get(st.session_state.get("edit_plate", plate_val), "")
                             st.session_state["_edit_derived_driver"] = edit_derived_driver
                             st.session_state["_edit_derived_phone"] = edit_derived_phone
                             st.session_state["_edit_derived_vehicle_type"] = edit_derived_vehicle_type
                             st.markdown(f"**Driver Name:** {edit_derived_driver}")
                             st.markdown(f"**Phone Number:** {edit_derived_phone}")
                             st.markdown(f"**Vehicle Type:** {edit_derived_vehicle_type}")
-                            edit_from = st.selectbox("From Location", from_locations, key="edit_from")
-                            edit_branch = st.selectbox("Assigned Branch", branches, key="edit_branch")
+
+                            # From Location
+                            from_options = [""] + from_locations if is_empty(from_val) else from_locations
+                            from_index = 0 if is_empty(from_val) else (from_options.index(from_val) if from_val in from_options else 0)
+                            edit_from = st.selectbox("From Location", from_options, index=from_index, key="edit_from", disabled=disabled_from)
+
+                            # Branch
+                            branch_options = [""] + branches if is_empty(branch_val) else branches
+                            branch_index = 0 if is_empty(branch_val) else (branch_options.index(branch_val) if branch_val in branch_options else 0)
+                            edit_branch = st.selectbox("Assigned Branch", branch_options, index=branch_index, key="edit_branch", disabled=disabled_branch)
 
                         with col2:
-                            edit_requested_date = st.date_input("Requested Date", key="edit_requested_date")
-                            edit_requested_by = st.text_input("Requested By", key="edit_requested_by")
-                            edit_assigned_by = st.text_input("Assigned By", key="edit_assigned_by")
-                            edit_assigned_date = st.date_input("Assigned Date", key="edit_assigned_date")
+                            edit_requested_by = st.text_input("Requested By", value=requested_by_val or "", key="edit_requested_by", disabled=disabled_requested_by)
+                            edit_assigned_by = st.text_input("Assigned By", value=assigned_by_val or "", key="edit_assigned_by", disabled=disabled_assigned_by)
+                            edit_requested_date = st.date_input("Requested Date", value=requested_date_val if not is_empty(requested_date_val) else None, key="edit_requested_date", disabled=disabled_requested_date)
+                            edit_assigned_date = st.date_input("Assigned Date", value=assigned_date_val if not is_empty(assigned_date_val) else None, key="edit_assigned_date", disabled=disabled_assigned_date)
 
                         with col3:
                             st.markdown("**Activity Timeline**")
-                            st.info("⏰ Time will be automatically set to current system time when date is changed")
-                            edit_loading_start = st.date_input("Loading Starting Date", key="edit_loading_start")
-                            edit_loading_end = st.date_input("Loading Date End", key="edit_loading_end")
-                            edit_trip_start = st.date_input("Trip Starting Date", key="edit_trip_start")
-                            edit_arrival = st.date_input("Arrival Date", key="edit_arrival")
-                            edit_return = st.date_input("Return Date", key="edit_return")
-                            edit_trip_end = st.date_input("Actual Trip End Date", key="edit_trip_end")
-                            edit_expected_trip_end = st.date_input("Expected Trip End Date", key="edit_expected_trip_end")
+                            st.info("⏰ Fields with existing values are read-only. Only empty fields can be edited.")
+                            edit_loading_start = st.date_input("Loading Starting Date", value=loading_start_val if not is_empty(loading_start_val) else None, key="edit_loading_start", disabled=disabled_loading_start)
+                            edit_loading_end = st.date_input("Loading Date End", value=loading_end_val if not is_empty(loading_end_val) else None, key="edit_loading_end", disabled=disabled_loading_end)
+                            edit_trip_start = st.date_input("Trip Starting Date", value=trip_start_val if not is_empty(trip_start_val) else None, key="edit_trip_start", disabled=disabled_trip_start)
+                            edit_arrival = st.date_input("Arrival Date", value=arrival_val if not is_empty(arrival_val) else None, key="edit_arrival", disabled=disabled_arrival)
+                            edit_return = st.date_input("Return Date", value=return_val if not is_empty(return_val) else None, key="edit_return", disabled=disabled_return)
+                            edit_trip_end = st.date_input("Actual Trip End Date", value=trip_end_val if not is_empty(trip_end_val) else None, key="edit_trip_end", disabled=disabled_trip_end)
+                            edit_expected_trip_end = st.date_input("Expected Trip End Date", value=expected_trip_end_val if not is_empty(expected_trip_end_val) else None, key="edit_expected_trip_end", disabled=disabled_expected_trip_end)
 
+                        # Buttons: Update is always active (only changed fields will be updated)
                         col_btn1, col_btn2 = st.columns(2)
                         with col_btn1:
                             if st.button("🔄 Update Trip", type="primary", use_container_width=True):
+                                # Collect values from session state (they may have been updated)
                                 current_driver = st.session_state.get("_edit_derived_driver", "Not Found")
                                 current_phone = st.session_state.get("_edit_derived_phone", "")
                                 current_vehicle_type = st.session_state.get("_edit_derived_vehicle_type", "")
@@ -1102,16 +1347,27 @@ with tab1:
                                 edit_trip_end_val = st.session_state.get("edit_trip_end")
                                 edit_expected_trip_end_val = st.session_state.get("edit_expected_trip_end")
 
-                                existing = supabase.table(TXN_TABLE)\
-                                    .select("id,status")\
-                                    .eq("plate_number", edit_plate_val)\
-                                    .in_("status", ["Planned", "Loading", "In Transit"])\
-                                    .neq("id", st.session_state.editing_id)\
-                                    .execute()
-                                if existing.data:
-                                    st.error(f"❌ Vehicle {edit_plate_val} already has another active trip ({existing.data[0]['status']}). Complete that trip before updating this one.")
+                                # Validate that required fields are not empty
+                                if not edit_plate_val:
+                                    st.error("Plate Number is required.")
                                     st.stop()
 
+                                # Check for duplicate active trip if plate changed
+                                if edit_plate_val != edit.get('plate_number'):
+                                    existing = supabase.table(TXN_TABLE)\
+                                        .select("id,status")\
+                                        .eq("plate_number", edit_plate_val)\
+                                        .in_("status", ["Planned", "Loading", "In Transit"])\
+                                        .neq("id", st.session_state.editing_id)\
+                                        .execute()
+                                    if existing.data:
+                                        st.error(f"❌ Vehicle {edit_plate_val} already has another active trip ({existing.data[0]['status']}).")
+                                        st.stop()
+
+                                # Prepare update data – only include fields that were changed (i.e., those that were empty before)
+                                # We'll just update all fields; disabled ones will keep their original values because they haven't changed.
+                                # But we should only update if the user actually changed something.
+                                # We'll build the update dict with all fields.
                                 edit_loading_start_dt = combine_date_with_current_time(edit_loading_start_val) if edit_loading_start_val else None
                                 edit_loading_end_dt = combine_date_with_current_time(edit_loading_end_val) if edit_loading_end_val else None
                                 edit_trip_start_dt = combine_date_with_current_time(edit_trip_start_val) if edit_trip_start_val else None
