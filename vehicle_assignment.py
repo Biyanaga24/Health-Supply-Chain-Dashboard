@@ -168,21 +168,19 @@ user_metadata = get_user_metadata()
 st.set_page_config(page_title="EPSS Fleet Dashboard", layout="wide")
 
 # ===================================================
-# CUSTOM CSS – BLUE THEME with taller KPI cards & header
+# CUSTOM CSS – KPI CARDS WITH FIXED SIZE & SOLID COLORS
 # ===================================================
 st.markdown("""
 <style>
-    .stApp {
-        background-color: #f5f5f5 !important;
-    }
+    .stApp { background-color: #f5f5f5 !important; }
     .main { padding: 0rem 1rem; }
     h1 { color: #1E88E5 !important; }
     h2, h3, h4 { color: #1565C0 !important; }
     .kpi-header {
-        font-size: 1.8rem !important;
+        font-size: 1.6rem !important;
         font-weight: 600 !important;
-        padding: 0.8rem 0 0.5rem 0 !important;
-        margin-bottom: 0.5rem !important;
+        padding: 0.5rem 0 0.3rem 0 !important;
+        margin-bottom: 0.3rem !important;
         color: #1565C0 !important;
         border-bottom: 3px solid #1E88E5;
         display: inline-block;
@@ -207,26 +205,30 @@ st.markdown("""
         margin: 1rem 0;
         box-shadow: 0 2px 4px rgba(0,0,0,0.1);
     }
-    .status-planned { background-color: #2196F3; color: white; padding: 2px 10px; border-radius: 20px; font-size: 12px; font-weight: bold; display: inline-block; }
-    .status-loading { background-color: #9C27B0; color: white; padding: 2px 10px; border-radius: 20px; font-size: 12px; font-weight: bold; display: inline-block; }
-    .status-transit { background-color: #FF9800; color: white; padding: 2px 10px; border-radius: 20px; font-size: 12px; font-weight: bold; display: inline-block; }
-    .status-completed { background-color: #4CAF50; color: white; padding: 2px 10px; border-radius: 20px; font-size: 12px; font-weight: bold; display: inline-block; }
     .stButton button { border-radius: 8px; font-weight: 500; transition: all 0.3s; }
     .stButton button:hover { transform: scale(1.02); box-shadow: 0 4px 8px rgba(0,0,0,0.2); }
     .dataframe { border-radius: 10px; overflow: hidden; box-shadow: 0 2px 8px rgba(0,0,0,0.1); }
     .dataframe tr:hover { background-color: #f5f5f5 !important; }
     .st-emotion-cache-1y4p8pa { max-width: 100%; }
 
-    /* KPI BUTTON STYLES – taller cards */
+    /* KPI CARDS */
+    .kpi-wrapper {
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        margin: 0 auto;
+        width: 200px;
+    }
     .kpi-wrapper .stButton button {
+        width: 200px !important;
         height: 180px !important;
+        min-width: 200px !important;
+        max-width: 200px !important;
         min-height: 180px !important;
         max-height: 180px !important;
-        width: 100% !important;
-        box-sizing: border-box !important;
         padding: 0 !important;
         border: none !important;
-        border-radius: 12px !important;
+        border-radius: 16px !important;
         display: flex !important;
         align-items: center !important;
         justify-content: center !important;
@@ -234,22 +236,41 @@ st.markdown("""
         white-space: pre-wrap !important;
         text-align: center !important;
         line-height: 1.4 !important;
-        font-weight: normal !important;
-        font-size: 1.3rem !important;
-        transition: all 0.3s ease !important;
+        font-weight: 700 !important;
+        font-size: 20px !important;
         color: white !important;
-        box-shadow: 0 2px 4px rgba(0,0,0,0.1) !important;
+        box-shadow: 0 4px 8px rgba(0,0,0,0.15) !important;
+        letter-spacing: 0.5px;
+        text-shadow: 0 2px 4px rgba(0,0,0,0.2);
+        transition: all 0.3s ease !important;
+        background-color: #1976D2 !important; /* fallback */
     }
-    .kpi-wrapper .stButton button:hover { transform: scale(1.03) translateY(-3px) !important; box-shadow: 0 4px 12px rgba(0,0,0,0.2) !important; }
-    .kpi-wrapper .stButton button:active { transform: scale(0.98) !important; }
-    .kpi-wrapper .stButton button::first-line { font-size: 1.0rem !important; font-weight: normal !important; opacity: 0.9 !important; }
-    .kpi-wrapper.selected .stButton button { outline: 3px solid #fff !important; outline-offset: -3px !important; box-shadow: 0 0 0 3px rgba(0,0,0,0.3) !important; }
+    .kpi-wrapper .stButton button:hover {
+        transform: translateY(-4px) scale(1.02) !important;
+        box-shadow: 0 8px 20px rgba(0,0,0,0.25) !important;
+    }
+    .kpi-wrapper .stButton button:active {
+        transform: scale(0.97) !important;
+    }
+    .kpi-wrapper .stButton button::first-line {
+        font-size: 16px !important;
+        font-weight: 500 !important;
+        opacity: 0.9 !important;
+        letter-spacing: 0.3px;
+    }
+    .kpi-wrapper.selected .stButton button {
+        outline: 4px solid #ffffff !important;
+        outline-offset: -4px !important;
+        box-shadow: 0 0 0 4px rgba(0,0,0,0.3), 0 8px 20px rgba(0,0,0,0.3) !important;
+        transform: scale(1.02);
+    }
 
-    .kpi-total .stButton button { background: linear-gradient(135deg, #64B5F6, #1E88E5) !important; }
-    .kpi-total_active .stButton button { background: linear-gradient(135deg, #4DD0E1, #00ACC1) !important; }
-    .kpi-grounded .stButton button { background: linear-gradient(135deg, #EF5350, #D32F2F) !important; }
-    .kpi-assigned .stButton button { background: linear-gradient(135deg, #FFB74D, #F57C00) !important; }
-    .kpi-available .stButton button { background: linear-gradient(135deg, #66BB6A, #388E3C) !important; }
+    /* SOLID COLORS */
+    .kpi-total .stButton button { background-color: #1976D2 !important; }
+    .kpi-total_active .stButton button { background-color: #00897B !important; }
+    .kpi-grounded .stButton button { background-color: #C62828 !important; }
+    .kpi-assigned .stButton button { background-color: #EF6C00 !important; }
+    .kpi-available .stButton button { background-color: #2E7D32 !important; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -279,6 +300,11 @@ nav_options = ["📋 Trip Management", "📊 KPIs & Analysis", "👤 User Info"]
 if is_admin_user:
     nav_options.append("👑 Admin Panel")
 selected_page = st.sidebar.radio("Go to", nav_options, index=0)
+
+st.sidebar.markdown("---")
+# Refresh Data button in sidebar
+if st.sidebar.button("🔄 Refresh Data", use_container_width=True):
+    refresh_data()
 
 st.sidebar.markdown("---")
 if st.sidebar.button("🚪 Sign Out", use_container_width=True):
@@ -670,66 +696,65 @@ if selected_page == "👤 User Info":
                         st.error("❌ Not logged in or session expired. Please sign out and sign in again.")
                 except Exception as e:
                     st.error(f"❌ Error: {str(e)}")
-    st.stop()  # stop further execution
+    st.stop()
 
 if selected_page == "👑 Admin Panel" and is_admin_user:
     st.markdown('<div class="section-header">👑 Admin Panel</div>', unsafe_allow_html=True)
-
-    # Create tabs for user management and vehicle master management
     tab_admin_users, tab_admin_vehicles = st.tabs(["👥 User Management", "🚗 Vehicle Master Data"])
-
     with tab_admin_users:
         from auth_p import admin_panel
         admin_panel()
-
     with tab_admin_vehicles:
         manage_vehicle_master()
-
     st.stop()
 
 # ===================================================
-# KPI CARDS (only if not on User Info or Admin Panel)
+# KPI CARDS
 # ===================================================
 st.markdown("""
-<div style="margin: 10px 0 15px 0;">
+<div style="margin: 8px 0 12px 0;">
     <h3 class="kpi-header">📊 Vehicle Management KPIs</h3>
 </div>
 """, unsafe_allow_html=True)
 
 kpis = [
     {"key": "total", "label": "Total Vehicles", "icon": "🚗", "value": total_count},
-    {"key": "total_active", "label": "Total Active Vehicles", "icon": "🔄", "value": total_active},
-    {"key": "grounded", "label": "Grounded Vehicles", "icon": "⛔", "value": grounded},
-    {"key": "assigned", "label": "Assigned Vehicles", "icon": "🔀", "value": assigned_count},
-    {"key": "available", "label": "Available Vehicles", "icon": "✅", "value": available_count}
+    {"key": "total_active", "label": "Active Vehicles", "icon": "🔄", "value": total_active},
+    {"key": "grounded", "label": "Grounded", "icon": "⛔", "value": grounded},
+    {"key": "assigned", "label": "Assigned", "icon": "🔀", "value": assigned_count},
+    {"key": "available", "label": "Available", "icon": "✅", "value": available_count}
 ]
 
 if 'kpi_selection' not in st.session_state:
     st.session_state.kpi_selection = None
 
+# First row: 3 cards
 cols1 = st.columns(3)
 for i, kpi in enumerate(kpis[:3]):
     with cols1[i]:
         is_selected = (st.session_state.kpi_selection == kpi["key"])
-        label = f"{kpi['icon']} {kpi['label']}\n{kpi['value']}"
-        st.markdown(f'<div class="kpi-wrapper kpi-{kpi["key"]} {"selected" if is_selected else ""}">', unsafe_allow_html=True)
-        btn = st.button(label, key=f"kpi_{kpi['key']}", use_container_width=True, type="secondary")
-        st.markdown('</div>', unsafe_allow_html=True)
-        if btn:
-            st.session_state.kpi_selection = kpi["key"] if not is_selected else None
-            st.rerun()
+        with st.container():
+            label = f"{kpi['icon']} {kpi['label']}\n{kpi['value']}"
+            st.markdown(f'<div class="kpi-wrapper kpi-{kpi["key"]} {"selected" if is_selected else ""}">', unsafe_allow_html=True)
+            btn = st.button(label, key=f"kpi_{kpi['key']}", use_container_width=False, type="secondary")
+            st.markdown('</div>', unsafe_allow_html=True)
+            if btn:
+                st.session_state.kpi_selection = kpi["key"] if not is_selected else None
+                st.rerun()
 
+# Second row: 2 cards, centered with spacers
 cols2 = st.columns([1, 2, 2, 1])
 for j, kpi in enumerate(kpis[3:]):
     with cols2[j+1]:
         is_selected = (st.session_state.kpi_selection == kpi["key"])
-        label = f"{kpi['icon']} {kpi['label']}\n{kpi['value']}"
-        st.markdown(f'<div class="kpi-wrapper kpi-{kpi["key"]} {"selected" if is_selected else ""}">', unsafe_allow_html=True)
-        btn = st.button(label, key=f"kpi_{kpi['key']}", use_container_width=True, type="secondary")
-        st.markdown('</div>', unsafe_allow_html=True)
-        if btn:
-            st.session_state.kpi_selection = kpi["key"] if not is_selected else None
-            st.rerun()
+        with st.container():
+            label = f"{kpi['icon']} {kpi['label']}\n{kpi['value']}"
+            st.markdown(f'<div class="kpi-wrapper kpi-{kpi["key"]} {"selected" if is_selected else ""}">', unsafe_allow_html=True)
+            btn = st.button(label, key=f"kpi_{kpi['key']}", use_container_width=False, type="secondary")
+            st.markdown('</div>', unsafe_allow_html=True)
+            if btn:
+                st.session_state.kpi_selection = kpi["key"] if not is_selected else None
+                st.rerun()
 
 # ===================================================
 # TRIP PERFORMANCE SUMMARY
@@ -1010,9 +1035,7 @@ with tab1:
                 st.session_state.add_form_key += 1
                 st.rerun()
 
-    with col_action_top3:
-        if st.button("🔄 Refresh Data", key="refresh_data_top"):
-            refresh_data()
+    # Refresh button moved to sidebar, so remove from here
 
     try:
         data = assignments_df.copy()
@@ -1258,6 +1281,7 @@ with tab1:
                         expected_trip_end_val = st.session_state.get("edit_expected_trip_end")
 
                         # Determine disabled state (True = read-only, False = editable)
+                        # **Key logic: fields with data are disabled; empty fields are enabled**
                         disabled_plate = not is_empty(plate_val)
                         disabled_from = not is_empty(from_val)
                         disabled_branch = not is_empty(branch_val)
@@ -1276,7 +1300,7 @@ with tab1:
                         col1, col2, col3 = st.columns(3)
 
                         with col1:
-                            # Plate number (select box)
+                            # Plate number (select box) – if empty, we add a blank option
                             if is_empty(plate_val):
                                 plate_options = [""] + plate_numbers
                                 plate_index = 0
@@ -1364,10 +1388,7 @@ with tab1:
                                         st.error(f"❌ Vehicle {edit_plate_val} already has another active trip ({existing.data[0]['status']}).")
                                         st.stop()
 
-                                # Prepare update data – only include fields that were changed (i.e., those that were empty before)
-                                # We'll just update all fields; disabled ones will keep their original values because they haven't changed.
-                                # But we should only update if the user actually changed something.
-                                # We'll build the update dict with all fields.
+                                # Prepare update data – we update all fields; disabled ones keep their original values because they haven't changed.
                                 edit_loading_start_dt = combine_date_with_current_time(edit_loading_start_val) if edit_loading_start_val else None
                                 edit_loading_end_dt = combine_date_with_current_time(edit_loading_end_val) if edit_loading_end_val else None
                                 edit_trip_start_dt = combine_date_with_current_time(edit_trip_start_val) if edit_trip_start_val else None
@@ -1536,7 +1557,7 @@ with tab1:
         logger.error(f"Dashboard load error: {e}")
 
 # ===================================================
-# TAB 2: KPIs & ANALYSIS
+# TAB 2: KPIs & ANALYSIS (modified)
 # ===================================================
 with tab2:
     st.markdown('<div class="section-header">📊 Key Performance Indicators & Analysis</div>', unsafe_allow_html=True)
@@ -1580,21 +1601,7 @@ with tab2:
             fig_vehicle_type = px.pie(values=vehicle_type_counts.values, names=vehicle_type_counts.index, title="Vehicle Type Distribution", color_discrete_sequence=px.colors.qualitative.Pastel)
             fig_vehicle_type.update_traces(textposition='inside', textinfo='percent+label')
             charts['vehicle_type_pie'] = fig_vehicle_type
-        if 'created_at' in data_copy.columns:
-            if not pd.api.types.is_datetime64_any_dtype(data_copy['created_at']):
-                data_copy['created_at'] = pd.to_datetime(data_copy['created_at'], errors='coerce')
-            daily_trips = data_copy.groupby(data_copy['created_at'].dt.date).size().reset_index(name='count')
-            daily_trips.columns = ['Date', 'Trips']
-            fig_timeline = px.line(daily_trips, x='Date', y='Trips', title="Daily Trip Volume", markers=True)
-            fig_timeline.update_layout(xaxis_title="Date", yaxis_title="Number of Trips")
-            charts['timeline'] = fig_timeline
-        if 'created_at' in data_copy.columns and 'status' in data_copy.columns:
-            status_over_time = data_copy.groupby([data_copy['created_at'].dt.date, 'status']).size().reset_index(name='count')
-            if not status_over_time.empty:
-                status_over_time.columns = ['Date', 'Status', 'Count']
-                fig_status_time = px.line(status_over_time, x='Date', y='Count', color='Status', title="Status Trends Over Time", markers=True)
-                fig_status_time.update_layout(xaxis_title="Date", yaxis_title="Number of Trips")
-                charts['status_timeline'] = fig_status_time
+        # Removed timeline and status timeline charts
         return charts
 
     try:
@@ -1656,60 +1663,33 @@ with tab2:
             if 'driver_bar' in charts:
                 st.subheader("👤 Driver Performance")
                 st.plotly_chart(charts['driver_bar'], use_container_width=True)
-        st.subheader("📅 Timeline Analysis")
-        col_chart5, col_chart6 = st.columns(2)
-        with col_chart5:
-            if 'timeline' in charts:
-                st.plotly_chart(charts['timeline'], use_container_width=True)
-        with col_chart6:
-            if 'status_timeline' in charts:
-                st.plotly_chart(charts['status_timeline'], use_container_width=True)
         if 'vehicle_type_pie' in charts:
             st.subheader("🚗 Vehicle Type Distribution")
             st.plotly_chart(charts['vehicle_type_pie'], use_container_width=True)
 
-        st.subheader("📊 Summary Statistics")
-        summary_data = []
-        if 'status' in data.columns:
-            status_summary = data['status'].value_counts()
-            for status_name, count in status_summary.items():
-                percentage = (count / len(data) * 100) if len(data) > 0 else 0
-                summary_data.append({'Metric': f'Status: {status_name}', 'Count': count, 'Percentage': f'{percentage:.1f}%'})
-        if 'assigned_branch_name' in data.columns:
-            branch_summary = data['assigned_branch_name'].value_counts().head(5)
-            for branch_name, count in branch_summary.items():
-                percentage = (count / len(data) * 100) if len(data) > 0 else 0
-                summary_data.append({'Metric': f'Branch: {branch_name}', 'Count': count, 'Percentage': f'{percentage:.1f}%'})
-        if 'vehicle_type' in data.columns:
-            vehicle_type_summary = data['vehicle_type'].value_counts().head(5)
-            for vtype, count in vehicle_type_summary.items():
-                percentage = (count / len(data) * 100) if len(data) > 0 else 0
-                summary_data.append({'Metric': f'Vehicle Type: {vtype}', 'Count': count, 'Percentage': f'{percentage:.1f}%'})
-        if summary_data:
-            summary_df = pd.DataFrame(summary_data)
-            st.dataframe(summary_df, use_container_width=True, hide_index=True)
+        # Removed "Timeline Analysis" and "Summary Statistics" sections
 
-        with st.expander("📋 Detailed Statistics"):
-            st.write("### Data Overview")
-            if 'created_at' in data.columns and not data['created_at'].isna().all():
-                st.write(f"**Total Records:** {len(data)}")
-                st.write(f"**Date Range:** {data['created_at'].min()} to {data['created_at'].max()}")
-            else:
-                st.write(f"**Total Records:** {len(data)}")
-            if 'status' in data.columns:
-                st.write("### Status Breakdown")
-                status_breakdown = data['status'].value_counts()
-                for status_name, count in status_breakdown.items():
-                    st.write(f"- {status_name}: {count} ({count/len(data)*100:.1f}%)")
-            if 'plate_number' in data.columns:
-                st.write(f"Total unique vehicles: {data['plate_number'].nunique()}")
-            if 'driver_name' in data.columns:
-                st.write(f"Total unique drivers: {data['driver_name'].nunique()}")
-            if 'vehicle_type' in data.columns:
-                st.write("### Vehicle Types")
-                vehicle_types = data['vehicle_type'].value_counts()
-                for vtype, count in vehicle_types.items():
-                    st.write(f"- {vtype}: {count}")
+        # Detailed Statistics - static (no expander)
+        st.subheader("📋 Detailed Statistics")
+        if 'created_at' in data.columns and not data['created_at'].isna().all():
+            st.write(f"**Total Records:** {len(data)}")
+            st.write(f"**Date Range:** {data['created_at'].min()} to {data['created_at'].max()}")
+        else:
+            st.write(f"**Total Records:** {len(data)}")
+        if 'status' in data.columns:
+            st.write("**Status Breakdown:**")
+            status_breakdown = data['status'].value_counts()
+            for status_name, count in status_breakdown.items():
+                st.write(f"- {status_name}: {count} ({count/len(data)*100:.1f}%)")
+        if 'plate_number' in data.columns:
+            st.write(f"**Total unique vehicles:** {data['plate_number'].nunique()}")
+        if 'driver_name' in data.columns:
+            st.write(f"**Total unique drivers:** {data['driver_name'].nunique()}")
+        if 'vehicle_type' in data.columns:
+            st.write("**Vehicle Types:**")
+            vehicle_types = data['vehicle_type'].value_counts()
+            for vtype, count in vehicle_types.items():
+                st.write(f"- {vtype}: {count}")
 
     except Exception as e:
         st.error(f"❌ Analysis error: {str(e)}")
