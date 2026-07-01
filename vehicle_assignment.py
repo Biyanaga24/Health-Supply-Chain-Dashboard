@@ -1,4 +1,3 @@
-
 import streamlit as st
 import pandas as pd
 from datetime import date, datetime, timedelta
@@ -168,7 +167,7 @@ user_metadata = get_user_metadata()
 st.set_page_config(page_title="EPSS Fleet Dashboard", layout="wide")
 
 # ===================================================
-# CUSTOM CSS – KPI CARDS WITH FIXED SIZE & SOLID COLORS
+# CUSTOM CSS – HEADERS & MISCELLANEOUS
 # ===================================================
 st.markdown("""
 <style>
@@ -177,12 +176,12 @@ st.markdown("""
     h1 { color: #1E88E5 !important; }
     h2, h3, h4 { color: #1565C0 !important; }
     .kpi-header {
-        font-size: 1.6rem !important;
-        font-weight: 600 !important;
+        font-size: 1.8rem !important;
+        font-weight: 700 !important;
         padding: 0.5rem 0 0.3rem 0 !important;
         margin-bottom: 0.3rem !important;
-        color: #1565C0 !important;
-        border-bottom: 3px solid #1E88E5;
+        color: #0d47a1 !important;
+        border-bottom: 4px solid #1E88E5;
         display: inline-block;
     }
     .section-header {
@@ -210,67 +209,6 @@ st.markdown("""
     .dataframe { border-radius: 10px; overflow: hidden; box-shadow: 0 2px 8px rgba(0,0,0,0.1); }
     .dataframe tr:hover { background-color: #f5f5f5 !important; }
     .st-emotion-cache-1y4p8pa { max-width: 100%; }
-
-    /* KPI CARDS */
-    .kpi-wrapper {
-        display: flex;
-        justify-content: center;
-        align-items: center;
-        margin: 0 auto;
-        width: 200px;
-    }
-    .kpi-wrapper .stButton button {
-        width: 200px !important;
-        height: 180px !important;
-        min-width: 200px !important;
-        max-width: 200px !important;
-        min-height: 180px !important;
-        max-height: 180px !important;
-        padding: 0 !important;
-        border: none !important;
-        border-radius: 16px !important;
-        display: flex !important;
-        align-items: center !important;
-        justify-content: center !important;
-        flex-direction: column !important;
-        white-space: pre-wrap !important;
-        text-align: center !important;
-        line-height: 1.4 !important;
-        font-weight: 700 !important;
-        font-size: 20px !important;
-        color: white !important;
-        box-shadow: 0 4px 8px rgba(0,0,0,0.15) !important;
-        letter-spacing: 0.5px;
-        text-shadow: 0 2px 4px rgba(0,0,0,0.2);
-        transition: all 0.3s ease !important;
-        background-color: #1976D2 !important; /* fallback */
-    }
-    .kpi-wrapper .stButton button:hover {
-        transform: translateY(-4px) scale(1.02) !important;
-        box-shadow: 0 8px 20px rgba(0,0,0,0.25) !important;
-    }
-    .kpi-wrapper .stButton button:active {
-        transform: scale(0.97) !important;
-    }
-    .kpi-wrapper .stButton button::first-line {
-        font-size: 16px !important;
-        font-weight: 500 !important;
-        opacity: 0.9 !important;
-        letter-spacing: 0.3px;
-    }
-    .kpi-wrapper.selected .stButton button {
-        outline: 4px solid #ffffff !important;
-        outline-offset: -4px !important;
-        box-shadow: 0 0 0 4px rgba(0,0,0,0.3), 0 8px 20px rgba(0,0,0,0.3) !important;
-        transform: scale(1.02);
-    }
-
-    /* SOLID COLORS */
-    .kpi-total .stButton button { background-color: #1976D2 !important; }
-    .kpi-total_active .stButton button { background-color: #00897B !important; }
-    .kpi-grounded .stButton button { background-color: #C62828 !important; }
-    .kpi-assigned .stButton button { background-color: #EF6C00 !important; }
-    .kpi-available .stButton button { background-color: #2E7D32 !important; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -302,7 +240,6 @@ if is_admin_user:
 selected_page = st.sidebar.radio("Go to", nav_options, index=0)
 
 st.sidebar.markdown("---")
-# Refresh Data button in sidebar
 if st.sidebar.button("🔄 Refresh Data", use_container_width=True):
     refresh_data()
 
@@ -450,16 +387,13 @@ def manage_vehicle_master():
     """Admin panel tab for managing vehicle master data."""
     st.markdown("### 🚗 Manage Vehicle Master Data")
 
-    # Initialize session state for editing
     if 'edit_vehicle_id' not in st.session_state:
         st.session_state.edit_vehicle_id = None
     if 'edit_vehicle_data' not in st.session_state:
         st.session_state.edit_vehicle_data = None
 
-    # Load master data (using cached function, but we'll refresh after changes)
     master_df = load_master()
 
-    # ---- ADD NEW VEHICLE ----
     with st.expander("➕ Add New Vehicle", expanded=False):
         with st.form("add_vehicle_form"):
             col1, col2 = st.columns(2)
@@ -475,7 +409,6 @@ def manage_vehicle_master():
                 if not new_plate:
                     st.error("Plate Number is required.")
                 else:
-                    # Check for duplicate plate
                     existing = supabase.table(MASTER_TABLE).select("plate_number").eq("plate_number", new_plate).execute()
                     if existing.data:
                         st.error(f"❌ Plate number '{new_plate}' already exists.")
@@ -493,29 +426,21 @@ def manage_vehicle_master():
                         except Exception as e:
                             st.error(f"❌ Error: {str(e)}")
 
-    # ---- DISPLAY MASTER TABLE WITH EDIT/DELETE ----
     if master_df.empty:
         st.info("No vehicle master data available.")
         return
 
-    # Ensure required columns exist
     required_cols = ['plate_number', 'driver_name', 'phone_number', 'vehicle_type']
     for col in required_cols:
         if col not in master_df.columns:
             master_df[col] = None
 
-    # Show table with action buttons
-    st.subheader("📋 Current Vehicle Records")
-
-    # We'll create a copy and add action buttons
     display_df = master_df[required_cols].copy()
     display_df.columns = ['Plate Number', 'Driver Name', 'Phone', 'Vehicle Type']
 
-    # For simplicity, we'll show a dataframe and then below it show edit/delete for selected row.
-    # We'll replicate the approach used for trip editing.
+    st.subheader("📋 Current Vehicle Records")
     st.dataframe(display_df, use_container_width=True, hide_index=True)
 
-    # ---- SELECT VEHICLE FOR ACTION ----
     st.markdown("---")
     col_sel1, col_sel2, col_sel3 = st.columns([2, 1, 1])
     with col_sel1:
@@ -534,7 +459,6 @@ def manage_vehicle_master():
         if st.button("✏️ Edit Selected", use_container_width=True):
             if selected_plate:
                 st.session_state.edit_vehicle_id = selected_plate
-                # Fetch full row data
                 row = master_df[master_df['plate_number'] == selected_plate].iloc[0]
                 st.session_state.edit_vehicle_data = row.to_dict()
                 st.rerun()
@@ -544,7 +468,6 @@ def manage_vehicle_master():
     with col_sel3:
         if st.button("🗑️ Delete Selected", use_container_width=True):
             if selected_plate:
-                # Confirm deletion
                 st.warning(f"Are you sure you want to delete vehicle '{selected_plate}'? This cannot be undone.")
                 col_confirm1, col_confirm2 = st.columns(2)
                 with col_confirm1:
@@ -564,17 +487,14 @@ def manage_vehicle_master():
             else:
                 st.warning("Please select a vehicle first.")
 
-    # ---- EDIT FORM (appears when edit_vehicle_id is set) ----
     if st.session_state.edit_vehicle_id and st.session_state.edit_vehicle_data:
         st.markdown("---")
         st.markdown(f"### ✏️ Edit Vehicle - {st.session_state.edit_vehicle_id}")
-
         edit_data = st.session_state.edit_vehicle_data
 
         with st.form("edit_vehicle_form"):
             col1, col2 = st.columns(2)
             with col1:
-                # Plate number is the key, but we allow changing it (with uniqueness check)
                 new_plate = st.text_input("Plate Number *", value=edit_data.get('plate_number', ''))
                 new_driver = st.text_input("Driver Name", value=edit_data.get('driver_name', ''))
             with col2:
@@ -596,7 +516,6 @@ def manage_vehicle_master():
             if not new_plate:
                 st.error("Plate Number is required.")
             else:
-                # Check if plate number changed and if it already exists
                 original_plate = edit_data.get('plate_number')
                 if new_plate != original_plate:
                     existing = supabase.table(MASTER_TABLE).select("plate_number").eq("plate_number", new_plate).execute()
@@ -656,9 +575,8 @@ plate_to_vehicle_type = vehicle_data['plate_to_vehicle_type']
 total_count, total_active, grounded, assigned_count, available_count = get_vehicle_kpis(df, assignments_df)
 
 # ===================================================
-# PAGE ROUTING BASED ON SIDEBAR SELECTION
+# PAGE ROUTING
 # ===================================================
-
 if selected_page == "👤 User Info":
     st.markdown('<div class="section-header">👤 User Profile</div>', unsafe_allow_html=True)
     col1, col2 = st.columns([1, 2])
@@ -709,7 +627,7 @@ if selected_page == "👑 Admin Panel" and is_admin_user:
     st.stop()
 
 # ===================================================
-# KPI CARDS
+# KPI CARDS – SINGLE ROW, NUMBER THEN LABEL, LARGE FONT
 # ===================================================
 st.markdown("""
 <div style="margin: 8px 0 12px 0;">
@@ -718,43 +636,73 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 kpis = [
-    {"key": "total", "label": "Total Vehicles", "icon": "🚗", "value": total_count},
-    {"key": "total_active", "label": "Active Vehicles", "icon": "🔄", "value": total_active},
-    {"key": "grounded", "label": "Grounded", "icon": "⛔", "value": grounded},
-    {"key": "assigned", "label": "Assigned", "icon": "🔀", "value": assigned_count},
-    {"key": "available", "label": "Available", "icon": "✅", "value": available_count}
+    {"key": "total", "label": "Total Vehicles", "value": total_count, "color": "linear-gradient(135deg, #0d47a1, #1976D2, #42A5F5)"},
+    {"key": "total_active", "label": "Active Vehicles", "value": total_active, "color": "linear-gradient(135deg, #004d40, #00897B, #4DB6AC)"},
+    {"key": "grounded", "label": "Grounded Vehicles", "value": grounded, "color": "linear-gradient(135deg, #b71c1c, #d32f2f, #ef5350)"},
+    {"key": "assigned", "label": "Assigned Vehicles", "value": assigned_count, "color": "linear-gradient(135deg, #e65100, #f57c00, #ffa726)"},
+    {"key": "available", "label": "Available Vehicles", "value": available_count, "color": "linear-gradient(135deg, #1b5e20, #2e7d32, #66bb6a)"}
 ]
 
 if 'kpi_selection' not in st.session_state:
     st.session_state.kpi_selection = None
 
-# First row: 3 cards
-cols1 = st.columns(3)
-for i, kpi in enumerate(kpis[:3]):
-    with cols1[i]:
-        is_selected = (st.session_state.kpi_selection == kpi["key"])
-        with st.container():
-            label = f"{kpi['icon']} {kpi['label']}\n{kpi['value']}"
-            st.markdown(f'<div class="kpi-wrapper kpi-{kpi["key"]} {"selected" if is_selected else ""}">', unsafe_allow_html=True)
-            btn = st.button(label, key=f"kpi_{kpi['key']}", use_container_width=False, type="secondary")
-            st.markdown('</div>', unsafe_allow_html=True)
-            if btn:
-                st.session_state.kpi_selection = kpi["key"] if not is_selected else None
-                st.rerun()
+def render_kpi_card(kpi, is_selected):
+    """Render a single KPI card with number first, then label."""
+    label = f"{kpi['value']}\n{kpi['label']}"
 
-# Second row: 2 cards, centered with spacers
-cols2 = st.columns([1, 2, 2, 1])
-for j, kpi in enumerate(kpis[3:]):
-    with cols2[j+1]:
+    with st.container(key=f"kpi_{kpi['key']}"):
+        st.markdown(f"""
+        <style>
+            .st-key-kpi_{kpi['key']} button {{
+                background: {kpi['color']} !important;
+                color: white !important;
+                border: none !important;
+                border-radius: 14px !important;
+                padding: 6px !important;
+                width: 100% !important;
+                height: 120px !important;
+                min-height: 120px !important;
+                max-height: 120px !important;
+                font-size: 48px !important;
+                font-weight: 900 !important;
+                box-shadow: 0 4px 12px rgba(0,0,0,0.12) !important;
+                text-shadow: 0 2px 6px rgba(0,0,0,0.20) !important;
+                transition: all 0.2s ease !important;
+                display: flex !important;
+                align-items: center !important;
+                justify-content: center !important;
+                flex-direction: column !important;
+                white-space: pre-wrap !important;
+                text-align: center !important;
+                line-height: 1.1 !important;
+                border: 2px solid {'#FFD700' if is_selected else 'transparent'} !important;
+                transform: {'scale(1.04)' if is_selected else 'none'} !important;
+                outline: none !important;
+            }}
+            .st-key-kpi_{kpi['key']} button::first-line {{
+                font-size: 52px !important;
+                font-weight: 900 !important;
+            }}
+            .st-key-kpi_{kpi['key']} button:hover {{
+                transform: translateY(-3px) scale(1.03) !important;
+                box-shadow: 0 6px 20px rgba(0,0,0,0.20) !important;
+            }}
+        </style>
+        """, unsafe_allow_html=True)
+
+        if st.button(label, key=f"btn_{kpi['key']}", use_container_width=True):
+            if st.session_state.kpi_selection == kpi["key"]:
+                st.session_state.kpi_selection = None
+            else:
+                st.session_state.kpi_selection = kpi["key"]
+            st.rerun()
+
+# ---- All 5 cards in one row ----
+cols = st.columns(5)
+for i, kpi in enumerate(kpis):
+    with cols[i]:
         is_selected = (st.session_state.kpi_selection == kpi["key"])
-        with st.container():
-            label = f"{kpi['icon']} {kpi['label']}\n{kpi['value']}"
-            st.markdown(f'<div class="kpi-wrapper kpi-{kpi["key"]} {"selected" if is_selected else ""}">', unsafe_allow_html=True)
-            btn = st.button(label, key=f"kpi_{kpi['key']}", use_container_width=False, type="secondary")
-            st.markdown('</div>', unsafe_allow_html=True)
-            if btn:
-                st.session_state.kpi_selection = kpi["key"] if not is_selected else None
-                st.rerun()
+        render_kpi_card(kpi, is_selected)
 
 # ===================================================
 # TRIP PERFORMANCE SUMMARY
@@ -1035,8 +983,6 @@ with tab1:
                 st.session_state.add_form_key += 1
                 st.rerun()
 
-    # Refresh button moved to sidebar, so remove from here
-
     try:
         data = assignments_df.copy()
 
@@ -1254,7 +1200,6 @@ with tab1:
                             st.session_state.edit_expected_trip_end = get_date_from_value(edit.get("expected_trip_end_date"))
                             st.rerun()
 
-                        # Helper to check if a value is empty
                         def is_empty(val):
                             if val is None:
                                 return True
@@ -1264,7 +1209,6 @@ with tab1:
                                 return True
                             return False
 
-                        # Retrieve current values from session state
                         plate_val = st.session_state.get("edit_plate", "")
                         from_val = st.session_state.get("edit_from", "")
                         branch_val = st.session_state.get("edit_branch", "")
@@ -1280,8 +1224,6 @@ with tab1:
                         trip_end_val = st.session_state.get("edit_trip_end")
                         expected_trip_end_val = st.session_state.get("edit_expected_trip_end")
 
-                        # Determine disabled state (True = read-only, False = editable)
-                        # **Key logic: fields with data are disabled; empty fields are enabled**
                         disabled_plate = not is_empty(plate_val)
                         disabled_from = not is_empty(from_val)
                         disabled_branch = not is_empty(branch_val)
@@ -1300,7 +1242,6 @@ with tab1:
                         col1, col2, col3 = st.columns(3)
 
                         with col1:
-                            # Plate number (select box) – if empty, we add a blank option
                             if is_empty(plate_val):
                                 plate_options = [""] + plate_numbers
                                 plate_index = 0
@@ -1309,7 +1250,6 @@ with tab1:
                                 plate_index = plate_options.index(plate_val) if plate_val in plate_options else 0
                             edit_plate = st.selectbox("Plate Number", plate_options, index=plate_index, key="edit_plate", disabled=disabled_plate)
 
-                            # Derived driver info (always displayed)
                             edit_derived_driver = plate_to_driver.get(st.session_state.get("edit_plate", plate_val), "Not Found")
                             edit_derived_phone = plate_to_phone.get(st.session_state.get("edit_plate", plate_val), "")
                             edit_derived_vehicle_type = plate_to_vehicle_type.get(st.session_state.get("edit_plate", plate_val), "")
@@ -1320,12 +1260,10 @@ with tab1:
                             st.markdown(f"**Phone Number:** {edit_derived_phone}")
                             st.markdown(f"**Vehicle Type:** {edit_derived_vehicle_type}")
 
-                            # From Location
                             from_options = [""] + from_locations if is_empty(from_val) else from_locations
                             from_index = 0 if is_empty(from_val) else (from_options.index(from_val) if from_val in from_options else 0)
                             edit_from = st.selectbox("From Location", from_options, index=from_index, key="edit_from", disabled=disabled_from)
 
-                            # Branch
                             branch_options = [""] + branches if is_empty(branch_val) else branches
                             branch_index = 0 if is_empty(branch_val) else (branch_options.index(branch_val) if branch_val in branch_options else 0)
                             edit_branch = st.selectbox("Assigned Branch", branch_options, index=branch_index, key="edit_branch", disabled=disabled_branch)
@@ -1347,11 +1285,9 @@ with tab1:
                             edit_trip_end = st.date_input("Actual Trip End Date", value=trip_end_val if not is_empty(trip_end_val) else None, key="edit_trip_end", disabled=disabled_trip_end)
                             edit_expected_trip_end = st.date_input("Expected Trip End Date", value=expected_trip_end_val if not is_empty(expected_trip_end_val) else None, key="edit_expected_trip_end", disabled=disabled_expected_trip_end)
 
-                        # Buttons: Update is always active (only changed fields will be updated)
                         col_btn1, col_btn2 = st.columns(2)
                         with col_btn1:
                             if st.button("🔄 Update Trip", type="primary", use_container_width=True):
-                                # Collect values from session state (they may have been updated)
                                 current_driver = st.session_state.get("_edit_derived_driver", "Not Found")
                                 current_phone = st.session_state.get("_edit_derived_phone", "")
                                 current_vehicle_type = st.session_state.get("_edit_derived_vehicle_type", "")
@@ -1371,12 +1307,10 @@ with tab1:
                                 edit_trip_end_val = st.session_state.get("edit_trip_end")
                                 edit_expected_trip_end_val = st.session_state.get("edit_expected_trip_end")
 
-                                # Validate that required fields are not empty
                                 if not edit_plate_val:
                                     st.error("Plate Number is required.")
                                     st.stop()
 
-                                # Check for duplicate active trip if plate changed
                                 if edit_plate_val != edit.get('plate_number'):
                                     existing = supabase.table(TXN_TABLE)\
                                         .select("id,status")\
@@ -1388,7 +1322,6 @@ with tab1:
                                         st.error(f"❌ Vehicle {edit_plate_val} already has another active trip ({existing.data[0]['status']}).")
                                         st.stop()
 
-                                # Prepare update data – we update all fields; disabled ones keep their original values because they haven't changed.
                                 edit_loading_start_dt = combine_date_with_current_time(edit_loading_start_val) if edit_loading_start_val else None
                                 edit_loading_end_dt = combine_date_with_current_time(edit_loading_end_val) if edit_loading_end_val else None
                                 edit_trip_start_dt = combine_date_with_current_time(edit_trip_start_val) if edit_trip_start_val else None
@@ -1557,7 +1490,7 @@ with tab1:
         logger.error(f"Dashboard load error: {e}")
 
 # ===================================================
-# TAB 2: KPIs & ANALYSIS (modified)
+# TAB 2: KPIs & ANALYSIS
 # ===================================================
 with tab2:
     st.markdown('<div class="section-header">📊 Key Performance Indicators & Analysis</div>', unsafe_allow_html=True)
@@ -1601,7 +1534,6 @@ with tab2:
             fig_vehicle_type = px.pie(values=vehicle_type_counts.values, names=vehicle_type_counts.index, title="Vehicle Type Distribution", color_discrete_sequence=px.colors.qualitative.Pastel)
             fig_vehicle_type.update_traces(textposition='inside', textinfo='percent+label')
             charts['vehicle_type_pie'] = fig_vehicle_type
-        # Removed timeline and status timeline charts
         return charts
 
     try:
@@ -1667,9 +1599,7 @@ with tab2:
             st.subheader("🚗 Vehicle Type Distribution")
             st.plotly_chart(charts['vehicle_type_pie'], use_container_width=True)
 
-        # Removed "Timeline Analysis" and "Summary Statistics" sections
-
-        # Detailed Statistics - static (no expander)
+        # Detailed Statistics
         st.subheader("📋 Detailed Statistics")
         if 'created_at' in data.columns and not data['created_at'].isna().all():
             st.write(f"**Total Records:** {len(data)}")
