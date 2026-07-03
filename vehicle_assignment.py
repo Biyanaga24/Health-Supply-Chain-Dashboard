@@ -7,6 +7,7 @@ import logging
 import plotly.express as px
 import plotly.graph_objects as go
 import numpy as np
+import time
 
 # ===================================================
 # AUTHENTICATION SETUP
@@ -327,7 +328,14 @@ def calculate_status_and_errors(record):
         return "Planned", None
 
 def refresh_data():
+    """Clear all caches and rerun to force fresh data."""
     st.cache_data.clear()
+    # Also clear the specific function caches
+    load_master.clear()
+    load_assignments.clear()
+    load_maintenance.clear()
+    # Small delay to ensure DB operations are complete
+    time.sleep(0.1)
     st.rerun()
 
 def get_vehicle_kpis(master_df, assignments_df):
@@ -416,8 +424,7 @@ def manage_vehicle_master():
                                 "vehicle_type": new_vehicle_type or None
                             }).execute()
                             st.success("✅ Vehicle added successfully!")
-                            st.cache_data.clear()
-                            st.rerun()
+                            refresh_data()
                         except Exception as e:
                             st.error(f"❌ Error: {str(e)}")
 
@@ -470,10 +477,9 @@ def manage_vehicle_master():
                         try:
                             supabase.table(MASTER_TABLE).delete().eq("plate_number", selected_plate).execute()
                             st.success(f"✅ Vehicle '{selected_plate}' deleted successfully!")
-                            st.cache_data.clear()
                             st.session_state.edit_vehicle_id = None
                             st.session_state.edit_vehicle_data = None
-                            st.rerun()
+                            refresh_data()
                         except Exception as e:
                             st.error(f"❌ Delete failed: {str(e)}")
                 with col_confirm2:
@@ -527,8 +533,7 @@ def manage_vehicle_master():
                     st.success("✅ Vehicle updated successfully!")
                     st.session_state.edit_vehicle_id = None
                     st.session_state.edit_vehicle_data = None
-                    st.cache_data.clear()
-                    st.rerun()
+                    refresh_data()
                 except Exception as e:
                     st.error(f"❌ Update failed: {str(e)}")
 
@@ -648,8 +653,7 @@ def view_vehicle_maintenance():
                         res = supabase.table(MAINT_TABLE).insert(data).execute()
                         if res.data:
                             st.success("✅ Maintenance record saved successfully!")
-                            st.cache_data.clear()
-                            st.rerun()
+                            refresh_data()
                     except Exception as e:
                         st.error(f"❌ Error saving record: {str(e)}")
 
@@ -659,6 +663,7 @@ def view_vehicle_maintenance():
         return
 
     # Optional filter by plate
+    plate_options = sorted(master_df['plate_number'].dropna().astype(str).str.strip().unique().tolist()) if not master_df.empty else []
     col_filter = st.columns([1, 2])[0]
     with col_filter:
         plate_filter = st.selectbox("Filter by Plate", options=["All"] + plate_options, key="maint_plate_filter_simple")
@@ -670,10 +675,29 @@ def view_vehicle_maintenance():
     else:
         filtered_df = maint_df.copy()
 
-    # Ensure the Total Days column exists
+    # Ensure Total Days column exists and is computed if missing
     if 'maintenance_total_day' not in filtered_df.columns:
         filtered_df['maintenance_total_day'] = None
 
+    # If still missing, compute from dates
+    if filtered_df['maintenance_total_day'].isna().all():
+        def compute_days(row):
+            start = row.get('maintenance_starting_date')
+            end = row.get('maintenance_ending_date')
+            back = str(row.get('back_to_duty', '')).strip().lower()
+            if start:
+                start_dt = pd.to_datetime(start, errors='coerce')
+                if pd.notna(start_dt):
+                    if back == 'yes' and end:
+                        end_dt = pd.to_datetime(end, errors='coerce')
+                        if pd.notna(end_dt):
+                            return (end_dt - start_dt).days
+                    elif back == 'no':
+                        return (pd.Timestamp.today() - start_dt).days
+            return None
+        filtered_df['maintenance_total_day'] = filtered_df.apply(compute_days, axis=1)
+
+    # Sort by request date
     if 'maintenance_request_date' in filtered_df.columns:
         filtered_df['maintenance_request_date'] = pd.to_datetime(filtered_df['maintenance_request_date'], errors='coerce')
         filtered_df = filtered_df.sort_values(by='maintenance_request_date', ascending=False)
@@ -711,7 +735,8 @@ def view_vehicle_maintenance():
             display_data[display_name] = None
 
     display_df = pd.DataFrame(display_data)
-    display_df = display_df.dropna(axis=1, how='all')
+    # Do NOT drop all-None columns so Total Days appears even if empty
+    # display_df = display_df.dropna(axis=1, how='all')   # removed
 
     if display_df.empty:
         st.info("No matching records for the selected plate.")
@@ -750,9 +775,7 @@ def show_trip_management():
         col_refresh1, col_refresh2 = st.columns([4, 1])
         with col_refresh2:
             if st.button("🔄 Refresh Master Data", key="refresh_master_add"):
-                st.cache_data.clear()
-                st.session_state.add_form_key += 1
-                st.rerun()
+                refresh_data()
 
         col1, col2, col3 = st.columns(3)
 
@@ -860,8 +883,7 @@ def show_trip_management():
                         if res.data:
                             st.success("✅ Trip saved successfully!")
                             st.session_state.show_add_form = False
-                            st.cache_data.clear()
-                            st.rerun()
+                            refresh_data()
                     except Exception as e:
                         st.error(f"❌ Error: {str(e)}")
 
@@ -917,14 +939,10 @@ def show_trip_management():
             data['total_trip_time'] = safe_days('trip_starting_date', 'trip_end_date')
             data['trip_variance'] = safe_days('expected_trip_end_date', 'trip_end_date')
 
-            # ----- NEW: Idle Time Metrics -----
+            # Idle Time Metrics
             data['idle_assigned_to_loading'] = safe_days('assigned_date', 'loading_starting_date')
             data['idle_loading_to_trip'] = safe_days('loading_date_end', 'trip_starting_date')
             data['idle_assigned_to_end'] = safe_days('assigned_date', 'trip_end_date')
-
-            # Total idle = sum of the three (only if all exist, else NaN)
-            # We'll sum only if all three are not NaN, but we can also treat NaN as 0 for display.
-            # Better: compute sum ignoring NaNs.
             data['total_idle'] = data[['idle_assigned_to_loading', 'idle_loading_to_trip', 'idle_assigned_to_end']].sum(axis=1, skipna=True)
 
             # ---- Display columns ----
@@ -949,7 +967,7 @@ def show_trip_management():
                     data[col] = None
 
             # ===========================================
-            # DROPDOWN FOR EDIT/DELETE (unchanged)
+            # DROPDOWN FOR EDIT/DELETE
             # ===========================================
             col_action1, col_action2, col_action3 = st.columns([2, 1, 1])
             with col_action1:
@@ -989,19 +1007,130 @@ def show_trip_management():
                             supabase.table(TXN_TABLE).delete().eq("id", st.session_state.selected_trip_for_action).execute()
                             st.success("✅ Trip deleted successfully!")
                             st.session_state.selected_trip_for_action = None
-                            st.cache_data.clear()
-                            st.rerun()
+                            refresh_data()
                         except Exception as e:
                             st.error(f"❌ Delete failed: {str(e)}")
                     else:
                         st.warning("Please select a trip first")
 
             # ===========================================
-            # INLINE EDIT FORM (unchanged)
+            # INLINE EDIT FORM
             # ===========================================
             if st.session_state.editing_id:
-                # ... (keep existing edit logic exactly as before)
-                pass  # The full edit form is unchanged; we omit it for brevity but you must keep it.
+                trip_id = st.session_state.editing_id
+                if not st.session_state.edit_initialized:
+                    trip_data = get_trip_by_id(trip_id)
+                    if trip_data:
+                        st.session_state.edit_data = trip_data
+                        st.session_state.edit_initialized = True
+                    else:
+                        st.error("Trip not found")
+                        st.session_state.editing_id = None
+                        st.rerun()
+
+                if st.session_state.edit_data:
+                    st.markdown('<div class="edit-container">', unsafe_allow_html=True)
+                    st.markdown(f"### ✏️ Edit Trip ID: {trip_id}")
+
+                    edit_data = st.session_state.edit_data
+                    col1, col2, col3 = st.columns(3)
+
+                    with col1:
+                        plate_number_edit = st.selectbox("Plate Number *", plate_numbers, index=plate_numbers.index(edit_data.get('plate_number', '')) if edit_data.get('plate_number', '') in plate_numbers else 0, key="edit_plate")
+                        derived_driver_edit = plate_to_driver.get(plate_number_edit, "Not Found")
+                        derived_phone_edit = plate_to_phone.get(plate_number_edit, "")
+                        derived_vehicle_type_edit = plate_to_vehicle_type.get(plate_number_edit, "")
+                        st.markdown(f"**Driver Name:** {derived_driver_edit}")
+                        st.markdown(f"**Phone Number:** {derived_phone_edit}")
+                        st.markdown(f"**Vehicle Type:** {derived_vehicle_type_edit}")
+
+                        from_location_edit = st.selectbox("From Location *", from_locations, index=from_locations.index(edit_data.get('from_location', '')) if edit_data.get('from_location', '') in from_locations else 0, key="edit_from")
+                        assigned_branch_name_edit = st.selectbox("Assigned Branch *", branches, index=branches.index(edit_data.get('assigned_branch_name', '')) if edit_data.get('assigned_branch_name', '') in branches else 0, key="edit_branch")
+
+                    with col2:
+                        requested_date_edit = st.date_input("Requested Date", value=get_date_from_value(edit_data.get('requested_date')), key="edit_requested_date")
+                        requested_by_edit = st.text_input("Requested By *", value=edit_data.get('requested_by', ''), key="edit_requested_by")
+                        assigned_by_edit = st.text_input("Assigned By *", value=edit_data.get('assigned_by', ''), key="edit_assigned_by")
+                        assigned_date_edit = st.date_input("Assigned Date *", value=get_date_from_value(edit_data.get('assigned_date')) or date.today(), key="edit_assigned_date")
+
+                    with col3:
+                        st.markdown("**Activity Timeline**")
+                        loading_start_edit = st.date_input("Loading Starting Date", value=get_date_from_value(edit_data.get('loading_starting_date')), key="edit_loading_start")
+                        loading_end_edit = st.date_input("Loading Date End", value=get_date_from_value(edit_data.get('loading_date_end')), key="edit_loading_end")
+                        trip_start_edit = st.date_input("Trip Starting Date", value=get_date_from_value(edit_data.get('trip_starting_date')), key="edit_trip_start")
+                        arrival_edit = st.date_input("Arrival Date", value=get_date_from_value(edit_data.get('arrival_date')), key="edit_arrival")
+                        return_edit = st.date_input("Return Date", value=get_date_from_value(edit_data.get('return_date')), key="edit_return")
+                        trip_end_edit = st.date_input("Actual Trip End Date", value=get_date_from_value(edit_data.get('trip_end_date')), key="edit_trip_end")
+                        expected_trip_end_edit = st.date_input("Expected Trip End Date", value=get_date_from_value(edit_data.get('expected_trip_end_date')), key="edit_expected_trip_end")
+
+                    col_btn1, col_btn2 = st.columns(2)
+                    with col_btn1:
+                        if st.button("🔄 Update Trip", type="primary", use_container_width=True):
+                            # Check for active trip conflict (excluding itself)
+                            existing = supabase.table(TXN_TABLE)\
+                                .select("id,status")\
+                                .eq("plate_number", plate_number_edit)\
+                                .in_("status", ["Planned", "Loading", "In Transit"])\
+                                .execute()
+                            conflict = any(row['id'] != trip_id for row in existing.data)
+                            if conflict:
+                                st.error(f"❌ Vehicle {plate_number_edit} already has another active trip. Complete that trip first.")
+                            else:
+                                loading_start_dt = combine_date_with_current_time(loading_start_edit) if loading_start_edit else None
+                                loading_end_dt = combine_date_with_current_time(loading_end_edit) if loading_end_edit else None
+                                trip_start_dt = combine_date_with_current_time(trip_start_edit) if trip_start_edit else None
+                                arrival_dt = combine_date_with_current_time(arrival_edit) if arrival_edit else None
+                                return_dt_combined = combine_date_with_current_time(return_edit) if return_edit else None
+                                trip_end_dt = combine_date_with_current_time(trip_end_edit) if trip_end_edit else None
+                                expected_trip_end_dt = combine_date_with_current_time(expected_trip_end_edit) if expected_trip_end_edit else None
+
+                                temp_record = {
+                                    'assigned_date': assigned_date_edit,
+                                    'loading_starting_date': loading_start_edit,
+                                    'trip_starting_date': trip_start_edit,
+                                    'trip_end_date': trip_end_edit
+                                }
+                                status, _ = calculate_status_and_errors(temp_record)
+
+                                update_data = {
+                                    "plate_number": plate_number_edit,
+                                    "driver_name": derived_driver_edit,
+                                    "phone_number": derived_phone_edit if derived_phone_edit else None,
+                                    "vehicle_type": derived_vehicle_type_edit if derived_vehicle_type_edit else None,
+                                    "from_location": from_location_edit,
+                                    "assigned_branch_name": assigned_branch_name_edit,
+                                    "requested_date": str(requested_date_edit) if requested_date_edit else None,
+                                    "requested_by": requested_by_edit,
+                                    "assigned_by": assigned_by_edit,
+                                    "assigned_date": str(assigned_date_edit) if assigned_date_edit else None,
+                                    "status": status,
+                                    "loading_starting_date": format_datetime_for_db(loading_start_dt),
+                                    "loading_date_end": format_datetime_for_db(loading_end_dt),
+                                    "trip_starting_date": format_datetime_for_db(trip_start_dt),
+                                    "arrival_date": format_datetime_for_db(arrival_dt),
+                                    "return_date": format_datetime_for_db(return_dt_combined),
+                                    "trip_end_date": format_datetime_for_db(trip_end_dt),
+                                    "expected_trip_end_date": format_datetime_for_db(expected_trip_end_dt),
+                                }
+                                try:
+                                    res = supabase.table(TXN_TABLE).update(update_data).eq("id", trip_id).execute()
+                                    if res.data:
+                                        st.success("✅ Trip updated successfully!")
+                                        st.session_state.editing_id = None
+                                        st.session_state.edit_data = None
+                                        st.session_state.edit_initialized = False
+                                        refresh_data()
+                                except Exception as e:
+                                    st.error(f"❌ Update failed: {str(e)}")
+
+                    with col_btn2:
+                        if st.button("❌ Cancel Edit", use_container_width=True):
+                            st.session_state.editing_id = None
+                            st.session_state.edit_data = None
+                            st.session_state.edit_initialized = False
+                            st.rerun()
+
+                    st.markdown('</div>', unsafe_allow_html=True)
 
             # ===========================================
             # FILTERS FOR THE TABLE
@@ -1137,7 +1266,7 @@ def show_trip_management():
 def show_kpis_analysis():
     """KPIs & Analysis page – Operational Fleet KPIs, Maintenance KPIs, Trip Performance."""
 
-    # ---- Add CSS for hover effect (vibration) on all cards ----
+    # ---- CSS for hover effect ----
     st.markdown("""
     <style>
         @keyframes vibrate {
@@ -1185,10 +1314,31 @@ def show_kpis_analysis():
     </div>
     """, unsafe_allow_html=True)
 
-    # ---- Use the already processed global DataFrames ----
     global_assign = assignments_df
     global_master = df
     maint_df = load_maintenance()
+
+    # ---- Compute idle metrics for trip summary ----
+    trip_data = global_assign.copy()
+    if not trip_data.empty:
+        date_cols = ['assigned_date', 'loading_starting_date', 'loading_date_end',
+                     'trip_starting_date', 'arrival_date', 'return_date', 'trip_end_date',
+                     'expected_trip_end_date']
+        for col in date_cols:
+            if col in trip_data.columns:
+                trip_data[col] = pd.to_datetime(trip_data[col], errors='coerce')
+
+        def safe_days(col1, col2):
+            mask = trip_data[col1].notna() & trip_data[col2].notna()
+            if mask.any():
+                return (trip_data.loc[mask, col2] - trip_data.loc[mask, col1]).dt.total_seconds() / 86400
+            else:
+                return pd.Series(index=trip_data.index, dtype=float)
+
+        trip_data['idle_assigned_to_loading'] = safe_days('assigned_date', 'loading_starting_date')
+        trip_data['idle_loading_to_trip'] = safe_days('loading_date_end', 'trip_starting_date')
+        trip_data['idle_assigned_to_end'] = safe_days('assigned_date', 'trip_end_date')
+        trip_data['total_idle'] = trip_data[['idle_assigned_to_loading', 'idle_loading_to_trip', 'idle_assigned_to_end']].sum(axis=1, skipna=True)
 
     # ---- 1. Vehicle Management KPIs (Operational State) ----
     all_vehicles = set(global_master['plate_number'].dropna().unique()) if not global_master.empty else set()
@@ -1226,13 +1376,12 @@ def show_kpis_analysis():
     availability_rate = (available_count / total_vehicles * 100) if total_vehicles > 0 else 0
     downtime_rate = (under_maint_count / total_vehicles * 100) if total_vehicles > 0 else 0
 
-    # ---- Vehicle Status (colored cards + eye icon under) ----
+    # ---- Vehicle Status (colored cards + eye icon) ----
     st.subheader("🚗 Vehicle Status")
 
     if 'selected_kpi' not in st.session_state:
         st.session_state.selected_kpi = None
 
-    # Exact labels as requested
     kpi_colors = {
         "Total Vehicles": "#0d47a1",
         "Assigned Vehicles": "#e65100",
@@ -1251,8 +1400,7 @@ def show_kpis_analysis():
     for idx, (label, data) in enumerate(kpi_data.items()):
         with cols[idx]:
             key = label.lower().replace(" ", "_")
-            color = kpi_colors.get(label, "#0d47a1")  # fallback
-            # Card
+            color = kpi_colors.get(label, "#0d47a1")
             st.markdown(f"""
             <div class="card-container">
                 <div class="kpi-card" style="background: {color}; color: white; border-radius: 14px; padding: 10px 6px; text-align: center; box-shadow: 0 4px 12px rgba(0,0,0,0.12); width: 100%;">
@@ -1261,7 +1409,6 @@ def show_kpis_analysis():
                 </div>
             </div>
             """, unsafe_allow_html=True)
-            # Eye button (only this one)
             if st.button("👁️", key=f"eye_{key}", help=f"View vehicles for {label}", use_container_width=True):
                 if st.session_state.selected_kpi == key:
                     st.session_state.selected_kpi = None
@@ -1271,7 +1418,6 @@ def show_kpis_analysis():
 
     if st.session_state.selected_kpi:
         selected_key = st.session_state.selected_kpi
-        # Find the correct label in kpi_data (case-insensitive)
         selected_label = None
         for lbl in kpi_data.keys():
             if lbl.lower().replace(" ", "_") == selected_key:
@@ -1299,7 +1445,7 @@ def show_kpis_analysis():
         else:
             st.info("No vehicles in this category.")
 
-    # ---- Fleet Performance Rates (styled like Cost Overview) ----
+    # ---- Fleet Performance Rates ----
     st.markdown("---")
     st.markdown("""
     <div style="background: linear-gradient(135deg, #E3F2FD, #BBDEFB); border-radius: 16px; padding: 20px; box-shadow: 0 2px 8px rgba(0,0,0,0.08);">
@@ -1321,27 +1467,19 @@ def show_kpis_analysis():
     </div>
     """.format(utilization_rate=utilization_rate, availability_rate=availability_rate, downtime_rate=downtime_rate), unsafe_allow_html=True)
 
-    # ---- 2. Maintenance Performance KPIs ----
+    # ============================================================
+    # 1st independent row: 🔧 Maintenance Performance
+    # ============================================================
     st.markdown("---")
     st.subheader("🔧 Maintenance Performance")
 
     total_requests = len(maint_df) if not maint_df.empty else 0
     back_to_duty_count = len(maint_df[maint_df['back_to_duty'].astype(str).str.strip().str.lower() == 'yes']) if not maint_df.empty else 0
-    avg_days = maint_df['maintenance_total_day'].mean() if not maint_df.empty and 'maintenance_total_day' in maint_df.columns else 0
-    max_days = maint_df['maintenance_total_day'].max() if not maint_df.empty and 'maintenance_total_day' in maint_df.columns else 0
+    vehicles_with_maint = set(maint_df['plate_number'].dropna().unique()) if not maint_df.empty else set()
     total_cost = maint_df['maintenace_cost'].astype(float).sum() if not maint_df.empty and 'maintenace_cost' in maint_df.columns else 0
     avg_cost = maint_df['maintenace_cost'].astype(float).mean() if not maint_df.empty and 'maintenace_cost' in maint_df.columns else 0
-    total_by_type = maint_df['maintenace_type'].value_counts() if not maint_df.empty and 'maintenace_type' in maint_df.columns else pd.Series()
-    preventive = total_by_type.get('preventive', 0)
-    corrective = total_by_type.get('corrective', 0)
-    scheduled = total_by_type.get('scheduled', 0)
-    preventive_pct = (preventive / total_requests * 100) if total_requests > 0 else 0
-    corrective_pct = (corrective / total_requests * 100) if total_requests > 0 else 0
-    scheduled_pct = (scheduled / total_requests * 100) if total_requests > 0 else 0
-    vehicles_with_maint = set(maint_df['plate_number'].dropna().unique()) if not maint_df.empty else set()
     avg_cost_per_vehicle = total_cost / len(vehicles_with_maint) if len(vehicles_with_maint) > 0 else 0
 
-    # ---- Maintenance Summary Cards (colored + eye icon under) ----
     if 'maintenance_view' not in st.session_state:
         st.session_state.maintenance_view = None
 
@@ -1364,7 +1502,6 @@ def show_kpis_analysis():
                 </div>
             </div>
             """, unsafe_allow_html=True)
-            # Eye button
             if st.button("👁️", key=f"maint_eye_{view_key}", help=f"View vehicles for {label}", use_container_width=True):
                 if st.session_state.maintenance_view == view_key:
                     st.session_state.maintenance_view = None
@@ -1372,7 +1509,6 @@ def show_kpis_analysis():
                     st.session_state.maintenance_view = view_key
                 st.rerun()
 
-    # ---- Show vehicle list based on selected maintenance view ----
     if st.session_state.maintenance_view:
         view_key = st.session_state.maintenance_view
         plates_to_show = set()
@@ -1399,137 +1535,62 @@ def show_kpis_analysis():
         else:
             st.info("No vehicles in this category.")
 
-    # ---- Maintenance Cost Overview (moved up) ----
-    st.markdown("---")
-    st.markdown("""
-    <div style="background: linear-gradient(135deg, #E3F2FD, #BBDEFB); border-radius: 16px; padding: 20px; box-shadow: 0 2px 8px rgba(0,0,0,0.08);">
-        <h4 style="text-align: center; color: #0d47a1; margin: 0 0 12px 0;">💰 Maintenance Cost Overview</h4>
-        <div style="display: flex; justify-content: space-around; flex-wrap: wrap; gap: 12px;">
-            <div style="text-align: center; flex: 1; min-width: 120px;">
-                <div style="font-size: 28px; font-weight: 900; color: #0d47a1;">{total_cost:,.0f}</div>
-                <div style="font-size: 14px; color: #333;">Total Cost (ETB)</div>
-            </div>
-            <div style="text-align: center; flex: 1; min-width: 120px;">
-                <div style="font-size: 28px; font-weight: 900; color: #0d47a1;">{avg_cost:,.0f}</div>
-                <div style="font-size: 14px; color: #333;">Avg Cost / Event (ETB)</div>
-            </div>
-            <div style="text-align: center; flex: 1; min-width: 120px;">
-                <div style="font-size: 28px; font-weight: 900; color: #0d47a1;">{avg_cost_per_vehicle:,.0f}</div>
-                <div style="font-size: 14px; color: #333;">Avg Cost / Vehicle (ETB)</div>
-            </div>
-        </div>
-    </div>
-    """.format(total_cost=total_cost, avg_cost=avg_cost, avg_cost_per_vehicle=avg_cost_per_vehicle), unsafe_allow_html=True)
-
-    # ---- Maintenance Type Breakdown (moved down) ----
+    # ---- Maintenance Type Breakdown (only chart) ----
     st.markdown("---")
     st.subheader("📊 Maintenance Type Breakdown")
-    col_pct1, col_pct2, col_pct3 = st.columns(3)
-    with col_pct1:
-        st.metric("Preventive %", f"{preventive_pct:.1f}%")
-    with col_pct2:
-        st.metric("Corrective %", f"{corrective_pct:.1f}%")
-    with col_pct3:
-        st.metric("Scheduled %", f"{scheduled_pct:.1f}%")
 
-    # ---- Maintenance Cost by Vehicle (Bar Chart, TOP 10) ----
-    st.markdown("---")
-    st.subheader("📊 Maintenance Cost by Vehicle (Top 10)")
-    if not maint_df.empty and 'maintenace_cost' in maint_df.columns:
-        cost_vehicle = maint_df.groupby('plate_number')['maintenace_cost'].sum().reset_index()
-        cost_vehicle = cost_vehicle.sort_values('maintenace_cost', ascending=False).head(10)
-        if not cost_vehicle.empty:
-            fig = px.bar(
-                cost_vehicle,
-                x='plate_number',
-                y='maintenace_cost',
-                title="Top 10 Vehicles by Maintenance Cost",
-                labels={'plate_number': 'Vehicle', 'maintenace_cost': 'Total Cost (ETB)'},
-                color='maintenace_cost',
-                color_continuous_scale='Reds'
+    if not maint_df.empty and 'maintenace_type' in maint_df.columns:
+        type_counts = maint_df['maintenace_type'].value_counts().reset_index()
+        type_counts.columns = ['Maintenance Type', 'Count']
+        if not type_counts.empty:
+            fig = px.pie(
+                type_counts,
+                values='Count',
+                names='Maintenance Type',
+                title='Distribution of Maintenance Types',
+                color_discrete_sequence=px.colors.qualitative.Set3,
+                hole=0.3
             )
-            fig.update_layout(xaxis_tickangle=-45, height=400)
+            fig.update_traces(textposition='inside', textinfo='percent+label')
+            fig.update_layout(height=400)
             st.plotly_chart(fig, use_container_width=True)
         else:
-            st.info("No cost data available.")
+            st.info("No maintenance type data available for chart.")
     else:
-        st.info("No maintenance cost data available.")
+        st.info("Maintenance type column not found in data.")
 
-    # ---- Maintenance by Branch (Bar Chart) ----
-    if not maint_df.empty and 'branch' in maint_df.columns:
-        branch_counts = maint_df['branch'].value_counts().reset_index()
-        branch_counts.columns = ['Branch', 'Count']
-        st.markdown("---")
-        st.subheader("📊 Maintenance by Branch")
-        fig = px.bar(
-            branch_counts,
-            x='Branch',
-            y='Count',
-            title="Maintenance Requests by Branch",
-            color='Count',
-            color_continuous_scale='Blues'
-        )
-        fig.update_layout(height=350)
-        st.plotly_chart(fig, use_container_width=True)
-
-    # ---- Maintenance by Workstation (Bar Chart) ----
-    if not maint_df.empty and 'maintenance_workstation' in maint_df.columns:
-        ws_counts = maint_df['maintenance_workstation'].value_counts().reset_index()
-        ws_counts.columns = ['Workstation', 'Count']
-        st.markdown("---")
-        st.subheader("📊 Maintenance by Workstation")
-        fig = px.bar(
-            ws_counts,
-            x='Workstation',
-            y='Count',
-            title="Maintenance Requests by Workstation",
-            color='Count',
-            color_continuous_scale='Greens'
-        )
-        fig.update_layout(height=350)
-        st.plotly_chart(fig, use_container_width=True)
-
-    # ---- Detailed Maintenance Tables (expandable) ----
-    with st.expander("📋 Detailed Maintenance Tables", expanded=False):
-        if not maint_df.empty:
-            freq_vehicle = maint_df['plate_number'].value_counts().reset_index()
-            freq_vehicle.columns = ['Plate', 'Maintenance Count']
-            st.subheader("Maintenance Frequency by Vehicle")
-            st.dataframe(freq_vehicle, use_container_width=True, hide_index=True)
-        else:
-            st.info("No maintenance data available.")
-
-    # ---- 3. Trip Performance Summary (unchanged) ----
+    # ============================================================
+    # 2nd independent row: ⏱️ Trip Performance Summary (Averages)
+    # ============================================================
     st.markdown("---")
     st.subheader("⏱️ Trip Performance Summary (Averages)")
 
-    if not global_assign.empty:
-        data = global_assign.copy()
+    if not trip_data.empty:
         metrics = {}
-        if 'loading_starting_date' in data.columns and 'loading_date_end' in data.columns:
-            mask = data['loading_starting_date'].notna() & data['loading_date_end'].notna()
+        if 'loading_starting_date' in trip_data.columns and 'loading_date_end' in trip_data.columns:
+            mask = trip_data['loading_starting_date'].notna() & trip_data['loading_date_end'].notna()
             if mask.any():
-                metrics['Loading Time'] = (data.loc[mask, 'loading_date_end'] - data.loc[mask, 'loading_starting_date']).dt.total_seconds() / 86400
-        if 'arrival_date' in data.columns and 'trip_starting_date' in data.columns:
-            mask = data['arrival_date'].notna() & data['trip_starting_date'].notna()
+                metrics['Loading Time'] = (trip_data.loc[mask, 'loading_date_end'] - trip_data.loc[mask, 'loading_starting_date']).dt.total_seconds() / 86400
+        if 'arrival_date' in trip_data.columns and 'trip_starting_date' in trip_data.columns:
+            mask = trip_data['arrival_date'].notna() & trip_data['trip_starting_date'].notna()
             if mask.any():
-                metrics['Ongoing Time'] = (data.loc[mask, 'arrival_date'] - data.loc[mask, 'trip_starting_date']).dt.total_seconds() / 86400
-        if 'trip_end_date' in data.columns and 'return_date' in data.columns:
-            mask = data['trip_end_date'].notna() & data['return_date'].notna()
+                metrics['Ongoing Time'] = (trip_data.loc[mask, 'arrival_date'] - trip_data.loc[mask, 'trip_starting_date']).dt.total_seconds() / 86400
+        if 'trip_end_date' in trip_data.columns and 'return_date' in trip_data.columns:
+            mask = trip_data['trip_end_date'].notna() & trip_data['return_date'].notna()
             if mask.any():
-                metrics['Incoming Time'] = (data.loc[mask, 'trip_end_date'] - data.loc[mask, 'return_date']).dt.total_seconds() / 86400
-        if 'trip_end_date' in data.columns and 'trip_starting_date' in data.columns:
-            mask = data['trip_end_date'].notna() & data['trip_starting_date'].notna()
+                metrics['Incoming Time'] = (trip_data.loc[mask, 'trip_end_date'] - trip_data.loc[mask, 'return_date']).dt.total_seconds() / 86400
+        if 'trip_end_date' in trip_data.columns and 'trip_starting_date' in trip_data.columns:
+            mask = trip_data['trip_end_date'].notna() & trip_data['trip_starting_date'].notna()
             if mask.any():
-                metrics['Total Trip Time'] = (data.loc[mask, 'trip_end_date'] - data.loc[mask, 'trip_starting_date']).dt.total_seconds() / 86400
-        if 'trip_end_date' in data.columns and 'expected_trip_end_date' in data.columns:
-            mask = data['trip_end_date'].notna() & data['expected_trip_end_date'].notna()
+                metrics['Total Trip Time'] = (trip_data.loc[mask, 'trip_end_date'] - trip_data.loc[mask, 'trip_starting_date']).dt.total_seconds() / 86400
+        if 'trip_end_date' in trip_data.columns and 'expected_trip_end_date' in trip_data.columns:
+            mask = trip_data['trip_end_date'].notna() & trip_data['expected_trip_end_date'].notna()
             if mask.any():
-                metrics['Trip Variance'] = (data.loc[mask, 'trip_end_date'] - data.loc[mask, 'expected_trip_end_date']).dt.total_seconds() / 86400
+                metrics['Trip Variance'] = (trip_data.loc[mask, 'trip_end_date'] - trip_data.loc[mask, 'expected_trip_end_date']).dt.total_seconds() / 86400
 
-        if 'total_idle' in data.columns:
-            total_idle_sum = data['total_idle'].sum()
-            active_vehicles = data['plate_number'].nunique() if 'plate_number' in data.columns else 0
+        if 'total_idle' in trip_data.columns:
+            total_idle_sum = trip_data['total_idle'].sum()
+            active_vehicles = trip_data['plate_number'].nunique() if 'plate_number' in trip_data.columns else 0
             if active_vehicles > 0:
                 avg_idle = total_idle_sum / active_vehicles
                 metrics['Average Idle Time (per active vehicle)'] = avg_idle
@@ -1560,7 +1621,31 @@ def show_kpis_analysis():
     else:
         st.info("No trip data available.")
 
-    # ---- 4. Charts & Additional Analysis (unchanged) ----
+    # ============================================================
+    # 3rd independent row: 💰 Maintenance Cost Overview
+    # ============================================================
+    st.markdown("---")
+    st.subheader("💰 Maintenance Cost Overview")
+    st.markdown("""
+    <div style="background: linear-gradient(135deg, #E3F2FD, #BBDEFB); border-radius: 16px; padding: 20px; box-shadow: 0 2px 8px rgba(0,0,0,0.08);">
+        <div style="display: flex; justify-content: space-around; flex-wrap: wrap; gap: 12px;">
+            <div style="text-align: center; flex: 1; min-width: 120px;">
+                <div style="font-size: 28px; font-weight: 900; color: #0d47a1;">{total_cost:,.0f}</div>
+                <div style="font-size: 14px; color: #333;">Total Cost (ETB)</div>
+            </div>
+            <div style="text-align: center; flex: 1; min-width: 120px;">
+                <div style="font-size: 28px; font-weight: 900; color: #0d47a1;">{avg_cost:,.0f}</div>
+                <div style="font-size: 14px; color: #333;">Avg Cost / Event (ETB)</div>
+            </div>
+            <div style="text-align: center; flex: 1; min-width: 120px;">
+                <div style="font-size: 28px; font-weight: 900; color: #0d47a1;">{avg_cost_per_vehicle:,.0f}</div>
+                <div style="font-size: 14px; color: #333;">Avg Cost / Vehicle (ETB)</div>
+            </div>
+        </div>
+    </div>
+    """.format(total_cost=total_cost, avg_cost=avg_cost, avg_cost_per_vehicle=avg_cost_per_vehicle), unsafe_allow_html=True)
+
+    # ---- Charts & Detailed Analysis ----
     st.markdown("---")
     st.subheader("📈 Charts & Detailed Analysis")
 
@@ -1605,6 +1690,7 @@ def show_kpis_analysis():
             charts['vehicle_type_pie'] = fig_vehicle_type
         return charts
 
+    # ---- Metrics: Unique vehicles per status (FIX) ----
     if not global_assign.empty:
         data = global_assign.copy()
         if 'status' not in data.columns:
@@ -1614,34 +1700,41 @@ def show_kpis_analysis():
                 statuses.append(status)
             data['status'] = statuses
 
-        @st.cache_data(ttl=600)
-        def calculate_metrics(data):
-            total_trips = len(data)
-            if 'status' in data.columns:
-                data['status'] = data['status'].str.title()
-            planned = len(data[data['status'] == 'Planned']) if 'status' in data.columns else 0
-            loading = len(data[data['status'] == 'Loading']) if 'status' in data.columns else 0
-            in_transit = len(data[data['status'] == 'In Transit']) if 'status' in data.columns else 0
-            completed = len(data[data['status'] == 'Completed']) if 'status' in data.columns else 0
-            completion_rate = (completed / total_trips * 100) if total_trips > 0 else 0
-            return total_trips, planned, loading, in_transit, completed, completion_rate
+        # Determine latest trip per vehicle
+        if 'assigned_date' in data.columns:
+            data['trip_date'] = pd.to_datetime(data['assigned_date'], errors='coerce')
+        else:
+            data['trip_date'] = pd.NaT
+        if data['trip_date'].isna().all() and 'created_at' in data.columns:
+            data['trip_date'] = pd.to_datetime(data['created_at'], errors='coerce')
+        if data['trip_date'].isna().all():
+            data['trip_date'] = data.index
 
-        total_trips, planned, loading, in_transit, completed, completion_rate = calculate_metrics(data)
+        latest_trips = data.sort_values('trip_date', ascending=False).drop_duplicates('plate_number')
+
+        status_counts = latest_trips['status'].value_counts()
+        planned_vehicles = status_counts.get('Planned', 0)
+        loading_vehicles = status_counts.get('Loading', 0)
+        in_transit_vehicles = status_counts.get('In Transit', 0)
+        completed_vehicles = status_counts.get('Completed', 0)
+        total_unique_vehicles = latest_trips['plate_number'].nunique()
+        completion_rate = (completed_vehicles / total_unique_vehicles * 100) if total_unique_vehicles > 0 else 0
 
         col_metric1, col_metric2, col_metric3, col_metric4, col_metric5, col_metric6 = st.columns(6)
         with col_metric1:
-            st.metric("Total Trips", total_trips)
+            st.metric("Total Vehicles", total_unique_vehicles)
         with col_metric2:
-            st.metric("Planned", planned)
+            st.metric("Planned", planned_vehicles)
         with col_metric3:
-            st.metric("Loading", loading)
+            st.metric("Loading", loading_vehicles)
         with col_metric4:
-            st.metric("In Transit", in_transit)
+            st.metric("In Transit", in_transit_vehicles)
         with col_metric5:
-            st.metric("Completed", completed)
+            st.metric("Completed", completed_vehicles)
         with col_metric6:
             st.metric("Completion Rate", f"{completion_rate:.1f}%")
 
+        # ---- Charts ----
         charts = create_charts(data)
         col_chart1, col_chart2 = st.columns(2)
         with col_chart1:
