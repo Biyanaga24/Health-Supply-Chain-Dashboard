@@ -1,4 +1,3 @@
-
 import streamlit as st
 import hashlib
 import pandas as pd
@@ -19,7 +18,7 @@ logging.getLogger("requests").setLevel(logging.ERROR)
 # ===================================================
 SUPABASE_URL = "https://etjfrptbjecafupbbase.supabase.co"
 SUPABASE_KEY = "sb_publishable_j0JwaJAJBuJO79-xh7RkYg_PFKqLK1H"
-USERS_TABLE = "users_vehicle"   # <-- using your existing table
+USERS_TABLE = "users_vehicle"   # <-- your table name
 
 @st.cache_resource
 def get_supabase():
@@ -52,7 +51,7 @@ def format_time_for_display(dt):
     return str(dt)
 
 # ===================================================
-# AUTHENTICATION HELPERS (from auth.py)
+# AUTHENTICATION HELPERS
 # ===================================================
 
 def hash_password(password: str) -> str:
@@ -82,8 +81,8 @@ def authenticate_user(email, password):
     except Exception:
         return None
 
-def create_user(email, password, full_name):
-    """Insert new user with hashed password – pending approval (unless first admin)"""
+def create_user(email, password, full_name, role="Trip Management"):
+    """Insert new user with hashed password – auto‑approved if created by admin."""
     try:
         hashed = hash_password(password)
         existing = supabase.table(USERS_TABLE).select("*").eq("email", email).execute()
@@ -94,14 +93,14 @@ def create_user(email, password, full_name):
             "email": email,
             "password": hashed,
             "full_name": full_name,
-            "role": "user",
-            "is_approved": 0,
+            "role": role,
+            "is_approved": 1,          # auto-approved when admin creates
             "created_at": current_time,
             "last_active": current_time
         }).execute()
-        return True, "Registration successful! Pending admin approval."
+        return True, f"User {full_name} created successfully with role '{role}'."
     except Exception as e:
-        return False, f"Registration failed: {e}"
+        return False, f"Creation failed: {e}"
 
 def update_user_session(user_id, session_id):
     try:
@@ -172,6 +171,14 @@ def change_password(user_id, old_password, new_password):
     except Exception as e:
         return False, str(e)
 
+def update_user_role(user_id, new_role):
+    """Update a user's role (admin only)."""
+    try:
+        supabase.table(USERS_TABLE).update({"role": new_role}).eq("id", user_id).execute()
+        return True
+    except:
+        return False
+
 def get_online_users():
     try:
         current_time = get_current_time()
@@ -196,7 +203,7 @@ def get_admin_count():
         return 0
 
 # ===================================================
-# EXPORTED INTERFACE (for vehicle_assignment.py)
+# EXPORTED INTERFACE
 # ===================================================
 
 def setup_auth() -> bool:
@@ -238,10 +245,13 @@ def setup_auth() -> bool:
 
     with col_right:
         st.markdown('<div class="auth-container">', unsafe_allow_html=True)
-        tab1, tab2 = st.tabs(["🔐 Login", "📝 Register"])
+        # Check if any admin exists
+        admin_exists = get_admin_count() > 0
 
-        with tab1:
+        if admin_exists:
+            # Only show login tab (registration disabled)
             with st.form("login_form"):
+                st.markdown("#### 🔐 Login")
                 email = st.text_input("Email", key="login_email")
                 password = st.text_input("Password", type="password", key="login_password")
                 submitted = st.form_submit_button("Login")
@@ -269,53 +279,84 @@ def setup_auth() -> bool:
                                 st.rerun()
                             else:
                                 st.error("❌ Invalid email or password")
-
-        with tab2:
-            with st.form("register_form"):
-                full_name = st.text_input("Full Name", key="reg_name")
-                email = st.text_input("Email", key="reg_email")
-                password = st.text_input("Password", type="password", key="reg_password")
-                confirm = st.text_input("Confirm Password", type="password", key="reg_confirm")
-                submitted = st.form_submit_button("Register")
-
-                if submitted:
-                    if not full_name or not email or not password or not confirm:
-                        st.warning("Please fill all fields")
-                    elif password != confirm:
-                        st.error("Passwords do not match")
-                    elif len(password) < 6:
-                        st.error("Password must be at least 6 characters")
-                    else:
-                        with st.spinner("Creating account..."):
-                            # Check if first user (no admins) -> auto-approve and make admin
-                            admin_count = get_admin_count()
-                            is_first = (admin_count == 0)
-
-                            success, message = create_user(email, password, full_name)
-                            if success:
-                                if is_first:
-                                    # Get the newly created user and update role & approval
-                                    user_resp = supabase.table(USERS_TABLE).select("id").eq("email", email).execute()
-                                    if user_resp.data:
-                                        supabase.table(USERS_TABLE).update({
-                                            "role": "admin",
-                                            "is_approved": 1
-                                        }).eq("id", user_resp.data[0]['id']).execute()
-                                    st.success("🎉 You are the first user! You have been granted Admin privileges and auto-approved.")
+            st.caption("Registration is closed. Contact your administrator.")
+        else:
+            # No admin exists → show both Login and Register (first user becomes admin)
+            tab1, tab2 = st.tabs(["🔐 Login", "📝 Register"])
+            with tab1:
+                with st.form("login_form"):
+                    email = st.text_input("Email", key="login_email")
+                    password = st.text_input("Password", type="password", key="login_password")
+                    submitted = st.form_submit_button("Login")
+                    if submitted:
+                        if not email or not password:
+                            st.warning("Please fill all fields")
+                        else:
+                            with st.spinner("Authenticating..."):
+                                user = authenticate_user(email, password)
+                                if user and 'error' in user:
+                                    st.error("⏳ Your account is pending admin approval. Please wait.")
+                                elif user:
+                                    st.session_state.authenticated = True
+                                    st.session_state.user = {
+                                        "id": user.get('id'),
+                                        "email": user['email'],
+                                        "full_name": user.get('full_name', ''),
+                                        "role": user.get('role', 'user'),
+                                        "is_approved": user.get('is_approved', 1)
+                                    }
+                                    st.session_state.user_email = user['email']
+                                    st.success("✅ Login successful!")
+                                    time.sleep(1)
+                                    st.rerun()
                                 else:
-                                    st.success("✅ Registration successful! Please wait for admin approval.")
-                                st.balloons()
-                                time.sleep(1)
-                                st.rerun()
-                            else:
-                                st.error(f"❌ {message}")
+                                    st.error("❌ Invalid email or password")
+            with tab2:
+                with st.form("register_form"):
+                    full_name = st.text_input("Full Name", key="reg_name")
+                    email = st.text_input("Email", key="reg_email")
+                    password = st.text_input("Password", type="password", key="reg_password")
+                    confirm = st.text_input("Confirm Password", type="password", key="reg_confirm")
+                    submitted = st.form_submit_button("Register")
+                    if submitted:
+                        if not full_name or not email or not password or not confirm:
+                            st.warning("Please fill all fields")
+                        elif password != confirm:
+                            st.error("Passwords do not match")
+                        elif len(password) < 6:
+                            st.error("Password must be at least 6 characters")
+                        else:
+                            with st.spinner("Creating account..."):
+                                # First user: auto-approve and make admin
+                                success, message = create_user(email, password, full_name, role="admin")
+                                if success:
+                                    # Ensure admin role and approved (already set)
+                                    st.success("🎉 You are the first user! You have been granted Admin privileges and auto-approved.")
+                                    st.balloons()
+                                    time.sleep(1)
+                                    st.rerun()
+                                else:
+                                    st.error(f"❌ {message}")
 
         st.markdown('</div>', unsafe_allow_html=True)
 
     return False
 
 # ===================================================
-# EXPORTED FUNCTIONS (for vehicle_assignment.py)
+# ROLE‑BASED ACCESS HELPERS
+# ===================================================
+
+def get_user_role():
+    """Return the role of the currently logged‑in user."""
+    user = st.session_state.get('user', {})
+    return user.get('role', None)
+
+def has_access(required_role):
+    """Check if current user has the required role (exact match)."""
+    return get_user_role() == required_role
+
+# ===================================================
+# EXPORTED FUNCTIONS
 # ===================================================
 
 def get_user_email():
@@ -344,59 +385,132 @@ def is_authenticated():
     return st.session_state.get('authenticated', False)
 
 # ===================================================
-# ADMIN PANEL (inline, no extra imports)
+# ADMIN PANEL (with user creation & role management)
 # ===================================================
 
 def admin_panel():
-    """Admin panel widget (called from vehicle_assignment.py)."""
+    """Admin panel widget – allows creation, role editing, and password change for users."""
     if not is_authenticated() or st.session_state.get('user', {}).get('role') != 'admin':
         st.error("⚠️ Admin access required.")
         return
 
     st.markdown("## 👑 Admin Panel")
+
+    # ---- Create User ----
+    st.subheader("➕ Create New User")
+    with st.form("create_user_form"):
+        c1, c2 = st.columns(2)
+        with c1:
+            new_email = st.text_input("Email")
+            new_fullname = st.text_input("Full Name")
+        with c2:
+            new_password = st.text_input("Temporary Password", type="password")
+            new_role = st.selectbox(
+                "Role",
+                options=["Trip Management", "KPIs and Analysis", "Vehicles Maintenance"]
+            )
+        submitted = st.form_submit_button("Create User")
+        if submitted:
+            if not new_email or not new_fullname or not new_password:
+                st.warning("All fields are required.")
+            else:
+                success, msg = create_user(new_email, new_password, new_fullname, new_role)
+                if success:
+                    st.success(msg)
+                    st.cache_data.clear()
+                    st.rerun()
+                else:
+                    st.error(msg)
+
+    # ---- Manage Users ----
+    st.subheader("📋 Manage Users")
     all_users = get_all_users()
-    pending = get_pending_users()
+    if all_users.empty:
+        st.info("No users found.")
+        return
 
-    col1, col2, col3 = st.columns(3)
-    with col1:
-        st.metric("Total Users", len(all_users))
-    with col2:
-        st.metric("Pending", len(pending))
-    with col3:
-        admins = len(all_users[all_users['role'] == 'admin']) if not all_users.empty else 0
-        st.metric("Admins", admins)
-
-    if not pending.empty:
-        st.subheader("📋 Pending Approvals")
-        for _, row in pending.iterrows():
-            with st.container(border=True):
-                c1, c2, c3, c4 = st.columns([2,2,1,1])
-                with c1:
-                    st.write(f"**{row.get('full_name','N/A')}**")
-                with c2:
-                    st.write(row.get('email'))
-                with c3:
-                    if st.button("✅ Approve", key=f"app_{row['id']}"):
-                        if approve_user(row['id']):
-                            st.success("Approved!")
+    # Exclude current admin from editable list? We'll show all.
+    for idx, row in all_users.iterrows():
+        with st.container(border=True):
+            cols = st.columns([2, 2, 2, 1, 1])
+            with cols[0]:
+                st.write(f"**{row.get('full_name', 'N/A')}**")
+            with cols[1]:
+                st.write(row.get('email'))
+            with cols[2]:
+                # Role dropdown (editable)
+                current_role = row.get('role', 'Trip Management')
+                new_role = st.selectbox(
+                    "Role",
+                    options=["Trip Management", "KPIs and Analysis", "Vehicles Maintenance"],
+                    index=["Trip Management", "KPIs and Analysis", "Vehicles Maintenance"].index(current_role)
+                    if current_role in ["Trip Management", "KPIs and Analysis", "Vehicles Maintenance"]
+                    else 0,
+                    key=f"role_{row['id']}",
+                    label_visibility="collapsed"
+                )
+                if new_role != current_role:
+                    if st.button("Update Role", key=f"upd_{row['id']}"):
+                        if update_user_role(row['id'], new_role):
+                            st.success(f"Role updated to {new_role}")
                             st.cache_data.clear()
                             st.rerun()
-                with c4:
-                    if st.button("❌ Reject", key=f"rej_{row['id']}"):
-                        if reject_user(row['id']):
-                            st.warning("Rejected.")
+                        else:
+                            st.error("Update failed")
+            with cols[3]:
+                # Delete button (avoid deleting yourself)
+                if row['id'] != st.session_state.user.get('id'):
+                    if st.button("🗑️", key=f"del_{row['id']}"):
+                        success, msg = delete_user(row['id'])
+                        if success:
+                            st.warning(msg)
                             st.cache_data.clear()
                             st.rerun()
-    else:
-        st.info("✅ No pending approvals")
+                        else:
+                            st.error(msg)
+                else:
+                    st.write("(you)")
+            with cols[4]:
+                # Show last active
+                last = row.get('last_active')
+                st.caption(f"Last active: {format_time_for_display(last)}")
 
-    if not all_users.empty:
-        st.subheader("📊 All Users")
-        df_display = all_users.copy()
-        if 'password' in df_display.columns:
-            df_display = df_display.drop(columns=['password'])
-        cols = [c for c in ['id','email','full_name','role','is_approved','created_at'] if c in df_display.columns]
-        st.dataframe(df_display[cols], use_container_width=True, hide_index=True)
+# ===================================================
+# PASSWORD CHANGE UI (for any logged‑in user)
+# ===================================================
+
+def password_change_ui():
+    """Render a password change form (call from sidebar or main)."""
+    if not is_authenticated():
+        return
+    user_id = st.session_state.user.get('id')
+    if not user_id:
+        return
+
+    st.markdown("### 🔑 Change Password")
+    with st.form("change_pw_form"):
+        old = st.text_input("Current Password", type="password")
+        new1 = st.text_input("New Password", type="password")
+        new2 = st.text_input("Confirm New Password", type="password")
+        submitted = st.form_submit_button("Update Password")
+        if submitted:
+            if not old or not new1 or not new2:
+                st.warning("All fields are required.")
+            elif new1 != new2:
+                st.error("New passwords do not match.")
+            elif len(new1) < 6:
+                st.error("New password must be at least 6 characters.")
+            else:
+                success, msg = change_password(user_id, old, new1)
+                if success:
+                    st.success(msg)
+                    # Force re-login: clear session
+                    st.session_state.clear()
+                    st.cache_data.clear()
+                    time.sleep(1)
+                    st.rerun()
+                else:
+                    st.error(msg)
 
 # ===================================================
 # Standalone test
