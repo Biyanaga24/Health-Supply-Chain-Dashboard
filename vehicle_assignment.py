@@ -987,130 +987,164 @@ def manage_vehicle_master(master_df):
 # VEHICLE MAINTENANCE (UPDATED with two-dropdown design)
 # ===================================================
 def view_vehicle_maintenance(master_df, assignments_df, maintenance_df):
-    st.markdown('<div class="section-header">🔧 Vehicle Maintenance</div>', unsafe_allow_html=True)
-
-    # ----- ADD NEW MAINTENANCE RECORD -----
+    # ---- Session state ----
     if 'show_add_maint' not in st.session_state:
         st.session_state.show_add_maint = False
+    if 'show_edit_maint' not in st.session_state:
+        st.session_state.show_edit_maint = False
+    if 'edit_maint_id' not in st.session_state:
+        st.session_state.edit_maint_id = None
+    if 'edit_maint_data' not in st.session_state:
+        st.session_state.edit_maint_data = None
+    if 'show_delete_confirmation' not in st.session_state:
+        st.session_state.show_delete_confirmation = False
 
-    col_add_btn, _ = st.columns([1, 5])
-    with col_add_btn:
-        if st.button("➕ Add New Record", use_container_width=True):
-            st.session_state.show_add_maint = not st.session_state.show_add_maint
-            st.rerun()
+    # ----- Section header -----
+    st.markdown(
+        '<div class="section-header">🚗 Vehicle Maintenance</div>',
+        unsafe_allow_html=True
+    )
 
+    # ----- TOP ROW: Add New and Edit/Delete buttons -----
+    col_top1, col_top2, col_top3 = st.columns([1, 1, 2])
+    with col_top1:
+        if not st.session_state.show_add_maint:
+            if st.button("➕ Add New Maintenance Record", type="primary", use_container_width=True):
+                st.session_state.show_add_maint = True
+                st.session_state.add_form_key += 1
+                if st.session_state.show_edit_maint:
+                    st.session_state.show_edit_maint = False
+                    st.session_state.edit_maint_id = None
+                    st.session_state.edit_maint_data = None
+                st.rerun()
+    with col_top2:
+        if not st.session_state.show_edit_maint:
+            if st.button("📝 Edit or Delete Maintenance Record", type="secondary", use_container_width=True):
+                st.session_state.show_edit_maint = True
+                if st.session_state.show_add_maint:
+                    st.session_state.show_add_maint = False
+                st.session_state.edit_maint_id = None
+                st.session_state.edit_maint_data = None
+                st.rerun()
+    with col_top3:
+        st.empty()
+
+    st.markdown("---")
+    st.write("")
+
+    # ----- ADD NEW MAINTENANCE RECORD FORM -----
     if st.session_state.show_add_maint:
         st.markdown("### ➕ Add New Maintenance Record")
-        with st.form(key="add_maintenance_form"):
+
+        # Plate selection (outside form)
+        plate_options_master = sorted(master_df['plate_number'].dropna().astype(str).str.strip().unique().tolist()) if not master_df.empty else []
+        plate_options = ["Select Plate Number"] + plate_options_master
+        selected_plate = st.selectbox(
+            "Plate Number *",
+            options=plate_options,
+            key="maint_add_plate_select",
+            help="Select the vehicle that requires maintenance."
+        )
+
+        # Derive vehicle type from master
+        vehicle_type = ""
+        if selected_plate != "Select Plate Number" and not master_df.empty:
+            row = master_df[master_df['plate_number'].astype(str).str.strip() == selected_plate.strip()]
+            if not row.empty:
+                vehicle_type = row.iloc[0].get('vehicle_type', '')
+
+        col_info1, col_info2, col_info3 = st.columns(3)
+        with col_info1:
+            st.text_input("Vehicle Type", value=vehicle_type, disabled=True)
+        with col_info2:
+            # We can display driver name if needed, but not in maintenance table
+            st.text_input("Driver", value="", disabled=True)
+        with col_info3:
+            st.text_input("Phone", value="", disabled=True)
+
+        # Branch selection (outside form)
+        branch_options = ["Select Branch"] + sorted(assignments_df['assigned_branch_name'].dropna().astype(str).str.strip().unique().tolist()) if not assignments_df.empty else ["Select Branch"]
+        selected_branch = st.selectbox(
+            "Branch *",
+            options=branch_options,
+            key="maint_add_branch_select"
+        )
+
+        # Workstation selection (from master)
+        workstation_values = []
+        if not master_df.empty and 'workstation' in master_df.columns:
+            workstation_values = sorted(master_df['workstation'].dropna().astype(str).str.strip().unique().tolist())
+        workstation_options = ["Select Workstation"] + workstation_values
+        selected_workstation = st.selectbox(
+            "Workstation",
+            options=workstation_options,
+            key="maint_add_workstation"
+        )
+
+        # Main form
+        with st.form(key="maint_add_form"):
             col1, col2, col3, col4 = st.columns(4)
 
             with col1:
-                request_date = st.date_input(
-                    "Request Date*",
-                    value=None,
-                    key="maint_add_request_date",
-                    help="Select request date"
-                )
-                plate_options_master = sorted(master_df['plate_number'].dropna().astype(str).str.strip().unique().tolist()) if not master_df.empty else []
-                plate_options = ["Select Plate Number"] + plate_options_master
-                selected_plate = st.selectbox(
-                    "Plate Number*",
-                    options=plate_options,
-                    index=0,
-                    key="maint_add_plate"
-                )
-                vehicle_type = ""
-                if selected_plate != "Select Plate Number" and not master_df.empty:
-                    row = master_df[master_df['plate_number'].astype(str).str.strip() == selected_plate.strip()]
-                    if not row.empty:
-                        vehicle_type = row.iloc[0].get('vehicle_type', '')
-                st.text_input("Vehicle Type", value=vehicle_type, disabled=True, key="maint_add_vehicle_type_display")
-                st.session_state["_maint_add_vehicle_type"] = vehicle_type
-
-            with col2:
-                maint_type_options = ["Select Maintenance Type", "scheduled", "corrective", "preventive"]
+                request_date = st.date_input("Request Date *", value=None, key="maint_add_request_date")
                 maint_type = st.selectbox(
-                    "Maintenance Type*",
-                    options=maint_type_options,
+                    "Maintenance Type *",
+                    options=["Select Maintenance Type", "scheduled", "corrective", "preventive"],
                     index=0,
                     key="maint_add_type"
                 )
-                branch_options_master = sorted(assignments_df['assigned_branch_name'].dropna().astype(str).str.strip().unique().tolist()) if not assignments_df.empty else []
-                branch_options = ["Select Branch"] + branch_options_master
-                branch = st.selectbox(
-                    "Branch*",
-                    options=branch_options,
-                    index=0,
-                    key="maint_add_branch"
-                )
-                workstation_values_master = []
-                if not master_df.empty and 'workstation' in master_df.columns:
-                    workstation_values_master = sorted(master_df['workstation'].dropna().astype(str).str.strip().unique().tolist())
-                workstation_options = ["Select Workstation"] + workstation_values_master
-                workstation = st.selectbox(
-                    "Workstation",
-                    options=workstation_options,
-                    index=0,
-                    key="maint_add_workstation"
-                )
+                responsible = st.text_input("Responsible Body *", placeholder="Enter name", key="maint_add_responsible")
+
+            with col2:
+                start_date = st.date_input("Start Date *", value=None, key="maint_add_start")
+                end_date = st.date_input("End Date", value=None, key="maint_add_end")
+                cost = st.text_input("Cost", placeholder="e.g., 1500", key="maint_add_cost")
 
             with col3:
-                responsible = st.text_input("Responsible Body*", placeholder="Enter name", key="maint_add_responsible")
-                start_date = st.date_input(
-                    "Maintenance Start Date*",
-                    value=None,
-                    key="maint_add_start"
-                )
-                end_date = st.date_input(
-                    "Maintenance End Date",
-                    value=None,
-                    key="maint_add_end"
-                )
-
-            with col4:
-                duty_options = ["Select Duty Status", "Yes", "No"]
                 back_to_duty = st.selectbox(
                     "Back to Duty",
-                    options=duty_options,
+                    options=["Select Duty Status", "Yes", "No"],
                     index=0,
                     key="maint_add_back"
                 )
-                total_days = 0
+                remark = st.text_area("Remark", key="maint_add_remark", height=68)
+
+            with col4:
+                # Auto-calculate total days
                 if start_date:
                     if back_to_duty == "No":
                         total_days = (date.today() - start_date).days
                     elif back_to_duty == "Yes" and end_date:
                         total_days = (end_date - start_date).days
+                    else:
+                        total_days = 0
+                else:
+                    total_days = 0
                 st.number_input("Total Days (auto-calculated)", value=total_days, disabled=True, key="maint_add_total_days")
-                cost = st.text_input("Cost", placeholder="e.g., 1500", key="maint_add_cost")
-                remark = st.text_area("Remark", key="maint_add_remark", height=68)
+                st.empty()  # placeholder for alignment
 
             col_btn1, col_btn2 = st.columns(2)
             with col_btn1:
-                submitted = st.form_submit_button("💾 Save Record", type="primary", use_container_width=True)
+                save_clicked = st.form_submit_button("💾 Save Record", type="primary", use_container_width=True)
             with col_btn2:
-                cancel = st.form_submit_button("❌ Cancel", use_container_width=True)
+                cancel_clicked = st.form_submit_button("❌ Cancel", use_container_width=True)
 
-            if cancel:
-                st.session_state.show_add_maint = False
-                st.rerun()
-
-            if submitted:
+            if save_clicked:
                 errors = []
                 if not selected_plate or selected_plate == "Select Plate Number":
                     errors.append("Please select a valid Plate Number.")
-                if not branch or branch == "Select Branch":
+                if not selected_branch or selected_branch == "Select Branch":
                     errors.append("Please select a Branch.")
-                if not responsible:
-                    errors.append("Responsible Body is required.")
+                if not request_date:
+                    errors.append("Request Date is required.")
                 if not start_date:
-                    errors.append("Maintenance Start Date is required.")
-                if start_date and end_date and start_date > end_date:
-                    errors.append("Start Date must be before End Date.")
+                    errors.append("Start Date is required.")
                 if not maint_type or maint_type == "Select Maintenance Type":
                     errors.append("Please select a Maintenance Type.")
                 if back_to_duty == "Select Duty Status":
                     errors.append("Please select Back to Duty status.")
+                if start_date and end_date and start_date > end_date:
+                    errors.append("Start Date must be before End Date.")
                 if errors:
                     for err in errors:
                         st.error(f"❌ {err}")
@@ -1125,10 +1159,10 @@ def view_vehicle_maintenance(master_df, assignments_df, maintenance_df):
 
                     data = {
                         "plate_number": selected_plate,
-                        "vehicle_type": st.session_state.get("_maint_add_vehicle_type", ""),
+                        "vehicle_type": vehicle_type,
                         "maintenace_type": maint_type,
-                        "branch": branch,
-                        "maintenance_workstation": workstation if workstation != "Select Workstation" else None,
+                        "branch": selected_branch,
+                        "maintenance_workstation": selected_workstation if selected_workstation != "Select Workstation" else None,
                         "responsible_person": responsible,
                         "maintenance_request_date": request_date.strftime('%Y-%m-%d') if request_date else None,
                         "maintenance_starting_date": start_date.strftime('%Y-%m-%d') if start_date else None,
@@ -1145,35 +1179,328 @@ def view_vehicle_maintenance(master_df, assignments_df, maintenance_df):
                         res = supabase.table(MAINT_TABLE).insert(data).execute()
                         if res.data:
                             st.success("✅ Maintenance record saved successfully!")
-                            load_maintenance.clear()
                             st.session_state.show_add_maint = False
+                            load_maintenance.clear()
                             st.rerun()
                     except Exception as e:
                         st.error(f"❌ Error saving record: {str(e)}")
 
-        st.markdown("---")
+            if cancel_clicked:
+                st.session_state.show_add_maint = False
+                st.rerun()
 
-    # ----- FILTER: Plate Number for Maintenance Records (optional) -----
+        st.markdown("---")
+        st.write("")
+
+    # ----- EDIT / DELETE MAINTENANCE RECORD FORM -----
+    if st.session_state.show_edit_maint:
+        st.markdown("### 📝 Edit or Delete Maintenance Record")
+
+        # Build list of active maintenance records (all, not just active statuses)
+        active_maint = maintenance_df[maintenance_df['is_deleted'] == False] if not maintenance_df.empty else pd.DataFrame()
+        record_options = [("", "Select Maintenance Record")]
+        if not active_maint.empty:
+            for idx, row in active_maint.iterrows():
+                rec_id = row['id']
+                label = f"{row['plate_number']} - {row['maintenace_type']} ({row['maintenance_request_date']})"
+                record_options.append((str(rec_id), label))
+            record_options.sort(key=lambda x: x[1], reverse=True)  # newest first
+
+        selected_record_id = st.selectbox(
+            "Select Maintenance Record",
+            options=[opt[0] for opt in record_options],
+            format_func=lambda x: next((opt[1] for opt in record_options if opt[0] == x), "Select Maintenance Record"),
+            key="maint_edit_record_select",
+            label_visibility="collapsed"
+        )
+        st.caption("Choose a maintenance record from the list below to edit or delete it.")
+
+        if selected_record_id:
+            # Load record data if not loaded or changed
+            if st.session_state.edit_maint_id != selected_record_id:
+                record_data = get_maintenance_by_id(selected_record_id)
+                if record_data:
+                    st.session_state.edit_maint_data = record_data
+                    st.session_state.edit_maint_id = selected_record_id
+                else:
+                    st.error("Could not load maintenance record.")
+                    st.session_state.edit_maint_data = None
+                    st.session_state.edit_maint_id = None
+
+            if st.session_state.edit_maint_data:
+                edit_data = st.session_state.edit_maint_data
+                plate_display = edit_data.get('plate_number', 'Unknown')
+
+                st.markdown('<div class="edit-container">', unsafe_allow_html=True)
+                st.markdown(f"### ✏️ Edit Maintenance Record – {plate_display}")
+
+                # Pre-fill values
+                current_plate = edit_data.get('plate_number', '')
+                current_branch = edit_data.get('branch', '')
+                current_workstation = edit_data.get('maintenance_workstation', '')
+                current_request_date = get_date_from_value(edit_data.get('maintenance_request_date'))
+                current_start = get_date_from_value(edit_data.get('maintenance_starting_date'))
+                current_end = get_date_from_value(edit_data.get('maintenance_ending_date'))
+                current_type = edit_data.get('maintenace_type', '')
+                current_responsible = edit_data.get('responsible_person', '')
+                current_cost = edit_data.get('maintenace_cost', '')
+                current_remark = edit_data.get('reason', '')
+                current_back = edit_data.get('back_to_duty', '')
+                current_total_days = edit_data.get('maintenance_total_day', 0)
+
+                # Plate selection (outside form)
+                plate_options_master = sorted(master_df['plate_number'].dropna().astype(str).str.strip().unique().tolist()) if not master_df.empty else []
+                plate_options = ["Select Plate Number"] + plate_options_master
+                plate_edit = st.selectbox(
+                    "Plate Number *",
+                    options=plate_options,
+                    index=plate_options.index(current_plate) if current_plate in plate_options else 0,
+                    key="maint_edit_plate_select"
+                )
+                # Derive vehicle type
+                vehicle_type_edit = ""
+                if plate_edit != "Select Plate Number" and not master_df.empty:
+                    row = master_df[master_df['plate_number'].astype(str).str.strip() == plate_edit.strip()]
+                    if not row.empty:
+                        vehicle_type_edit = row.iloc[0].get('vehicle_type', '')
+
+                col_info1, col_info2, col_info3 = st.columns(3)
+                with col_info1:
+                    st.text_input("Vehicle Type", value=vehicle_type_edit, disabled=True)
+                with col_info2:
+                    st.text_input("Driver", value="", disabled=True)
+                with col_info3:
+                    st.text_input("Phone", value="", disabled=True)
+
+                # Branch selection (outside form)
+                branch_options = ["Select Branch"] + sorted(assignments_df['assigned_branch_name'].dropna().astype(str).str.strip().unique().tolist()) if not assignments_df.empty else ["Select Branch"]
+                branch_edit = st.selectbox(
+                    "Branch *",
+                    options=branch_options,
+                    index=branch_options.index(current_branch) if current_branch in branch_options else 0,
+                    key="maint_edit_branch_select"
+                )
+
+                # Workstation selection
+                workstation_values = []
+                if not master_df.empty and 'workstation' in master_df.columns:
+                    workstation_values = sorted(master_df['workstation'].dropna().astype(str).str.strip().unique().tolist())
+                workstation_options = ["Select Workstation"] + workstation_values
+                workstation_edit = st.selectbox(
+                    "Workstation",
+                    options=workstation_options,
+                    index=workstation_options.index(current_workstation) if current_workstation in workstation_options else 0,
+                    key="maint_edit_workstation"
+                )
+
+                # Main edit form
+                with st.form(key="maint_edit_form"):
+                    col1, col2, col3, col4 = st.columns(4)
+
+                    with col1:
+                        request_date_edit = st.date_input(
+                            "Request Date *",
+                            value=current_request_date,
+                            key="maint_edit_request_date"
+                        )
+                        maint_type_edit = st.selectbox(
+                            "Maintenance Type *",
+                            options=["Select Maintenance Type", "scheduled", "corrective", "preventive"],
+                            index=["Select Maintenance Type", "scheduled", "corrective", "preventive"].index(current_type) if current_type in ["scheduled", "corrective", "preventive"] else 0,
+                            key="maint_edit_type"
+                        )
+                        responsible_edit = st.text_input(
+                            "Responsible Body *",
+                            value=current_responsible,
+                            key="maint_edit_responsible"
+                        )
+
+                    with col2:
+                        start_date_edit = st.date_input(
+                            "Start Date *",
+                            value=current_start,
+                            key="maint_edit_start"
+                        )
+                        end_date_edit = st.date_input(
+                            "End Date",
+                            value=current_end,
+                            key="maint_edit_end"
+                        )
+                        cost_edit = st.text_input(
+                            "Cost",
+                            value=current_cost,
+                            key="maint_edit_cost"
+                        )
+
+                    with col3:
+                        back_to_duty_edit = st.selectbox(
+                            "Back to Duty",
+                            options=["Select Duty Status", "Yes", "No"],
+                            index=["Select Duty Status", "Yes", "No"].index(current_back) if current_back in ["Yes", "No"] else 0,
+                            key="maint_edit_back"
+                        )
+                        remark_edit = st.text_area(
+                            "Remark",
+                            value=current_remark,
+                            key="maint_edit_remark",
+                            height=68
+                        )
+
+                    with col4:
+                        # Auto-calculate total days
+                        if start_date_edit:
+                            if back_to_duty_edit == "No":
+                                total_days_edit = (date.today() - start_date_edit).days
+                            elif back_to_duty_edit == "Yes" and end_date_edit:
+                                total_days_edit = (end_date_edit - start_date_edit).days
+                            else:
+                                total_days_edit = 0
+                        else:
+                            total_days_edit = 0
+                        st.number_input("Total Days (auto-calculated)", value=total_days_edit, disabled=True, key="maint_edit_total_days")
+                        st.empty()  # placeholder
+
+                    col_btn1, col_btn2, col_btn3 = st.columns([1, 1, 1])
+                    with col_btn1:
+                        update_clicked = st.form_submit_button("🔄 Update Record", type="primary", use_container_width=True)
+                    with col_btn2:
+                        delete_clicked = st.form_submit_button("🗑️ Delete Record", use_container_width=True)
+                    with col_btn3:
+                        cancel_clicked = st.form_submit_button("❌ Cancel", use_container_width=True)
+
+                    if update_clicked:
+                        errors = []
+                        if not plate_edit or plate_edit == "Select Plate Number":
+                            errors.append("Please select a valid Plate Number.")
+                        if not branch_edit or branch_edit == "Select Branch":
+                            errors.append("Please select a Branch.")
+                        if not request_date_edit:
+                            errors.append("Request Date is required.")
+                        if not start_date_edit:
+                            errors.append("Start Date is required.")
+                        if not maint_type_edit or maint_type_edit == "Select Maintenance Type":
+                            errors.append("Please select a Maintenance Type.")
+                        if back_to_duty_edit == "Select Duty Status":
+                            errors.append("Please select Back to Duty status.")
+                        if start_date_edit and end_date_edit and start_date_edit > end_date_edit:
+                            errors.append("Start Date must be before End Date.")
+                        if errors:
+                            for err in errors:
+                                st.error(f"❌ {err}")
+                        else:
+                            if back_to_duty_edit == "No":
+                                final_total_days = (date.today() - start_date_edit).days
+                            else:
+                                if end_date_edit:
+                                    final_total_days = (end_date_edit - start_date_edit).days
+                                else:
+                                    final_total_days = 0
+
+                            update_data = {
+                                "plate_number": plate_edit,
+                                "vehicle_type": vehicle_type_edit,
+                                "maintenace_type": maint_type_edit,
+                                "branch": branch_edit,
+                                "maintenance_workstation": workstation_edit if workstation_edit != "Select Workstation" else None,
+                                "responsible_person": responsible_edit,
+                                "maintenance_request_date": request_date_edit.strftime('%Y-%m-%d') if request_date_edit else None,
+                                "maintenance_starting_date": start_date_edit.strftime('%Y-%m-%d') if start_date_edit else None,
+                                "maintenance_ending_date": end_date_edit.strftime('%Y-%m-%d') if end_date_edit else None,
+                                "maintenance_total_day": final_total_days,
+                                "maintenace_cost": cost_edit if cost_edit else None,
+                                "reason": remark_edit if remark_edit else None,
+                                "back_to_duty": back_to_duty_edit,
+                            }
+                            try:
+                                res = supabase.table(MAINT_TABLE).update(update_data).eq("id", selected_record_id).execute()
+                                if res.data:
+                                    st.success("✅ Maintenance record updated successfully!")
+                                    st.session_state.show_edit_maint = False
+                                    st.session_state.edit_maint_id = None
+                                    st.session_state.edit_maint_data = None
+                                    load_maintenance.clear()
+                                    st.rerun()
+                            except Exception as e:
+                                st.error(f"❌ Update failed: {str(e)}")
+
+                    if delete_clicked:
+                        st.session_state.show_delete_confirmation = True
+                        st.rerun()
+
+                    if cancel_clicked:
+                        st.session_state.show_edit_maint = False
+                        st.session_state.edit_maint_id = None
+                        st.session_state.edit_maint_data = None
+                        st.rerun()
+
+                st.markdown('</div>', unsafe_allow_html=True)
+
+                # Delete confirmation (outside form)
+                if st.session_state.show_delete_confirmation:
+                    st.warning("Are you sure you want to delete this maintenance record?")
+                    col_conf1, col_conf2 = st.columns(2)
+                    with col_conf1:
+                        if st.button("✅ Yes, Delete", key="confirm_delete_maint_edit_final"):
+                            try:
+                                supabase.table(MAINT_TABLE).update({
+                                    "is_deleted": True,
+                                    "deleted_at": datetime.now().isoformat()
+                                }).eq("id", selected_record_id).execute()
+                                st.success("✅ Maintenance record deleted successfully!")
+                                st.session_state.show_delete_confirmation = False
+                                st.session_state.show_edit_maint = False
+                                st.session_state.edit_maint_id = None
+                                st.session_state.edit_maint_data = None
+                                load_maintenance.clear()
+                                st.rerun()
+                            except Exception as e:
+                                st.error(f"❌ Delete failed: {str(e)}")
+                    with col_conf2:
+                        if st.button("❌ Cancel", key="cancel_delete_maint_edit_final"):
+                            st.session_state.show_delete_confirmation = False
+                            st.rerun()
+        else:
+            st.info("👆 Please select a maintenance record from the dropdown above to edit or delete it.")
+
+        st.markdown("---")
+        st.write("")
+
+    # ----- MAINTENANCE RECORDS TABLE -----
+    st.markdown('<div class="section-header">📋 Vehicle Maintenance Information Table</div>', unsafe_allow_html=True)
+
+    # Filters
     active_maint = maintenance_df[maintenance_df['is_deleted'] == False] if not maintenance_df.empty else pd.DataFrame()
-    plate_filter_options = ["All"] + sorted(active_maint['plate_number'].dropna().astype(str).str.strip().unique().tolist()) if not active_maint.empty else ["All"]
-    selected_plate_filter = st.selectbox(
-        "Filter by Plate Number (optional)",
-        options=plate_filter_options,
-        key="maint_plate_filter"
-    )
+    col_filter1, col_filter2 = st.columns(2)
+    with col_filter1:
+        plate_filter_options = ["All"] + sorted(active_maint['plate_number'].dropna().astype(str).str.strip().unique().tolist()) if not active_maint.empty else ["All"]
+        selected_plate_filter = st.selectbox(
+            "Filter by Plate Number",
+            options=plate_filter_options,
+            key="maint_plate_filter_table"
+        )
+    with col_filter2:
+        # Optionally add more filters (e.g., maintenance type)
+        type_options = ["All"] + sorted(active_maint['maintenace_type'].dropna().unique().tolist()) if not active_maint.empty else ["All"]
+        selected_type_filter = st.selectbox(
+            "Filter by Maintenance Type",
+            options=type_options,
+            key="maint_type_filter_table"
+        )
 
     if selected_plate_filter != "All":
         filtered_maint = active_maint[active_maint['plate_number'].astype(str).str.strip() == selected_plate_filter.strip()]
     else:
         filtered_maint = active_maint.copy()
+    if selected_type_filter != "All":
+        filtered_maint = filtered_maint[filtered_maint['maintenace_type'] == selected_type_filter]
 
-    # ----- DISPLAY MAINTENANCE RECORDS TABLE -----
     if filtered_maint.empty:
         st.info("📭 No active maintenance records found.")
     else:
         # Prepare display dataframe
         if 'maintenance_total_day' not in filtered_maint.columns:
             filtered_maint['maintenance_total_day'] = None
+        # Compute total days if missing
         if filtered_maint['maintenance_total_day'].isna().all():
             def compute_days(row):
                 start = row.get('maintenance_starting_date')
@@ -1191,10 +1518,12 @@ def view_vehicle_maintenance(master_df, assignments_df, maintenance_df):
                 return None
             filtered_maint['maintenance_total_day'] = filtered_maint.apply(compute_days, axis=1)
 
+        # Sort by request date descending
         if 'maintenance_request_date' in filtered_maint.columns:
             filtered_maint['maintenance_request_date'] = pd.to_datetime(filtered_maint['maintenance_request_date'], errors='coerce')
             filtered_maint = filtered_maint.sort_values(by='maintenance_request_date', ascending=False)
 
+        # Select columns to display
         display_columns = [
             ('ID', 'id'),
             ('Plate', 'plate_number'),
@@ -1230,271 +1559,20 @@ def view_vehicle_maintenance(master_df, assignments_df, maintenance_df):
         st.dataframe(display_df, use_container_width=True, hide_index=True)
         st.caption(f"Showing {len(display_df)} record(s)")
 
-        # ----- EDIT / DELETE MAINTENANCE RECORD (Single dropdown, buttons on same row) -----
-        st.markdown("---")
-        st.subheader("✏️ Edit / Delete Maintenance Record")
-
-        # Get all active records (unfiltered for selection)
-        all_records = active_maint.copy()
-        if not all_records.empty:
-            # Build options list: (record_id, display_label)
-            record_options = []
-            for idx, row in all_records.iterrows():
-                rec_id = row['id']
-                label = f"{row['plate_number']} - {row['maintenace_type']} ({row['maintenance_request_date']})"
-                record_options.append((str(rec_id), label))
-            # Sort by label descending (newest first)
-            record_options.sort(key=lambda x: x[1], reverse=True)
-
-            # Place dropdown and buttons in a single row
-            col_select, col_edit, col_delete = st.columns([2, 1, 1])
-            with col_select:
-                selected_record_id = st.selectbox(
-                    "Select Maintenance Record",
-                    options=[opt[0] for opt in record_options],
-                    format_func=lambda x: next((opt[1] for opt in record_options if opt[0] == x), "Select a record"),
-                    key="maint_record_select_edit_single"
+        # Export to CSV
+        col_export1, col_export2 = st.columns([1, 5])
+        with col_export1:
+            if st.button("📥 Export to CSV"):
+                csv = display_df.to_csv(index=False)
+                st.download_button(
+                    label="Download CSV",
+                    data=csv,
+                    file_name=f"maintenance_records_{date.today()}.csv",
+                    mime="text/csv",
+                    key="download_maint_csv"
                 )
-            with col_edit:
-                if st.button("✏️ Edit Selected", use_container_width=True):
-                    if selected_record_id:
-                        st.session_state.edit_maint_id = selected_record_id
-                        st.session_state.edit_maint_data = None
-                        st.session_state.edit_maint_initialized = False
-                        st.session_state.show_add_maint = False
-                        st.rerun()
-                    else:
-                        st.warning("Please select a maintenance record first.")
-            with col_delete:
-                if st.button("🗑️ Delete Selected", use_container_width=True):
-                    if selected_record_id:
-                        st.warning("Are you sure you want to delete this maintenance record?")
-                        col_conf1, col_conf2 = st.columns(2)
-                        with col_conf1:
-                            if st.button("✅ Yes, Delete", key="confirm_delete_maint_single"):
-                                try:
-                                    supabase.table(MAINT_TABLE).update({
-                                        "is_deleted": True,
-                                        "deleted_at": datetime.now().isoformat()
-                                    }).eq("id", selected_record_id).execute()
-                                    st.success("✅ Maintenance record deleted successfully!")
-                                    load_maintenance.clear()
-                                    st.session_state.edit_maint_id = None
-                                    st.session_state.edit_maint_data = None
-                                    st.session_state.edit_maint_initialized = False
-                                    st.rerun()
-                                except Exception as e:
-                                    st.error(f"❌ Delete failed: {str(e)}")
-                        with col_conf2:
-                            if st.button("❌ Cancel", key="cancel_delete_maint_single"):
-                                st.rerun()
-                    else:
-                        st.warning("Please select a maintenance record first.")
-        else:
-            st.info("No active maintenance records to edit or delete.")
-            selected_record_id = None
 
-        # ---- Edit form (if editing) ----
-        if st.session_state.get('edit_maint_id'):
-            edit_id = st.session_state.edit_maint_id
-            if not st.session_state.get('edit_maint_initialized', False):
-                record = get_maintenance_by_id(edit_id)
-                if record:
-                    st.session_state.edit_maint_data = record
-                    st.session_state.edit_maint_initialized = True
-                else:
-                    st.error("Record not found")
-                    st.session_state.edit_maint_id = None
-                    st.rerun()
-
-            if st.session_state.get('edit_maint_data'):
-                edit_data = st.session_state.edit_maint_data
-                st.markdown('<div class="edit-container">', unsafe_allow_html=True)
-                st.markdown(f"### ✏️ Edit Maintenance Record - {edit_data.get('plate_number', 'Unknown')}")
-
-                with st.form("edit_maint_form"):
-                    col1, col2, col3, col4 = st.columns(4)
-
-                    with col1:
-                        request_date_edit = st.date_input(
-                            "Request Date",
-                            value=get_date_from_value(edit_data.get('maintenance_request_date')),
-                            key="maint_edit_request_date"
-                        )
-                        plate_options_master = sorted(master_df['plate_number'].dropna().astype(str).str.strip().unique().tolist()) if not master_df.empty else []
-                        plate_options_edit = ["Select Plate Number"] + plate_options_master
-                        current_plate = edit_data.get('plate_number', '')
-                        if current_plate in plate_options_edit:
-                            default_index = plate_options_edit.index(current_plate)
-                        else:
-                            default_index = 0
-                        plate_edit = st.selectbox(
-                            "Plate Number",
-                            options=plate_options_edit,
-                            index=default_index,
-                            key="maint_edit_plate"
-                        )
-                        vehicle_type_edit = ""
-                        if plate_edit != "Select Plate Number" and not master_df.empty:
-                            row = master_df[master_df['plate_number'].astype(str).str.strip() == plate_edit.strip()]
-                            if not row.empty:
-                                vehicle_type_edit = row.iloc[0].get('vehicle_type', '')
-                        st.text_input("Vehicle Type", value=vehicle_type_edit, disabled=True, key="maint_edit_vehicle_type_display")
-                        st.session_state["_maint_edit_vehicle_type"] = vehicle_type_edit
-
-                    with col2:
-                        maint_type_edit = st.selectbox(
-                            "Maintenance Type",
-                            options=["Select Maintenance Type", "scheduled", "corrective", "preventive"],
-                            index=["Select Maintenance Type", "scheduled", "corrective", "preventive"].index(edit_data.get('maintenace_type')) if edit_data.get('maintenace_type') in ["scheduled", "corrective", "preventive"] else 0,
-                            key="maint_edit_type"
-                        )
-                        branch_options_edit = ["Select Branch"] + sorted(assignments_df['assigned_branch_name'].dropna().astype(str).str.strip().unique().tolist()) if not assignments_df.empty else ["Select Branch"]
-                        current_branch = edit_data.get('branch', '')
-                        if current_branch in branch_options_edit:
-                            branch_index = branch_options_edit.index(current_branch)
-                        else:
-                            branch_index = 0
-                        branch_edit = st.selectbox(
-                            "Branch",
-                            options=branch_options_edit,
-                            index=branch_index,
-                            key="maint_edit_branch"
-                        )
-                        workstation_values_edit = []
-                        if not master_df.empty and 'workstation' in master_df.columns:
-                            workstation_values_edit = sorted(master_df['workstation'].dropna().astype(str).str.strip().unique().tolist())
-                        workstation_options_edit = ["Select Workstation"] + workstation_values_edit
-                        current_workstation = edit_data.get('maintenance_workstation', '')
-                        if current_workstation in workstation_options_edit:
-                            ws_index = workstation_options_edit.index(current_workstation)
-                        else:
-                            ws_index = 0
-                        workstation_edit = st.selectbox(
-                            "Workstation",
-                            options=workstation_options_edit,
-                            index=ws_index,
-                            key="maint_edit_workstation"
-                        )
-
-                    with col3:
-                        responsible_edit = st.text_input(
-                            "Responsible Body",
-                            value=edit_data.get('responsible_person', ''),
-                            key="maint_edit_responsible"
-                        )
-                        start_date_edit = st.date_input(
-                            "Maintenance Start Date",
-                            value=get_date_from_value(edit_data.get('maintenance_starting_date')),
-                            key="maint_edit_start"
-                        )
-                        end_date_edit = st.date_input(
-                            "Maintenance End Date",
-                            value=get_date_from_value(edit_data.get('maintenance_ending_date')),
-                            key="maint_edit_end"
-                        )
-
-                    with col4:
-                        duty_options_edit = ["Select Duty Status", "Yes", "No"]
-                        current_duty = edit_data.get('back_to_duty', '')
-                        if current_duty in duty_options_edit:
-                            duty_index = duty_options_edit.index(current_duty)
-                        else:
-                            duty_index = 0
-                        back_to_duty_edit = st.selectbox(
-                            "Back to Duty",
-                            options=duty_options_edit,
-                            index=duty_index,
-                            key="maint_edit_back"
-                        )
-                        total_days_edit = 0
-                        if start_date_edit:
-                            if back_to_duty_edit == "No":
-                                total_days_edit = (date.today() - start_date_edit).days
-                            elif back_to_duty_edit == "Yes" and end_date_edit:
-                                total_days_edit = (end_date_edit - start_date_edit).days
-                        st.number_input("Total Days (auto-calculated)", value=total_days_edit, disabled=True, key="maint_edit_total_days")
-                        cost_edit = st.text_input(
-                            "Cost",
-                            value=edit_data.get('maintenace_cost', ''),
-                            key="maint_edit_cost"
-                        )
-                        remark_edit = st.text_area(
-                            "Remark",
-                            value=edit_data.get('reason', ''),
-                            key="maint_edit_remark",
-                            height=68
-                        )
-
-                    col_btn1, col_btn2 = st.columns(2)
-                    with col_btn1:
-                        update_clicked = st.form_submit_button("🔄 Update Record", type="primary", use_container_width=True)
-                    with col_btn2:
-                        cancel_edit_clicked = st.form_submit_button("❌ Cancel Edit", use_container_width=True)
-
-                    if cancel_edit_clicked:
-                        st.session_state.edit_maint_id = None
-                        st.session_state.edit_maint_data = None
-                        st.session_state.edit_maint_initialized = False
-                        st.rerun()
-
-                    if update_clicked:
-                        errors = []
-                        if not plate_edit or plate_edit == "Select Plate Number":
-                            errors.append("Please select a valid Plate Number.")
-                        if not branch_edit or branch_edit == "Select Branch":
-                            errors.append("Please select a Branch.")
-                        if not responsible_edit:
-                            errors.append("Responsible Body is required.")
-                        if not start_date_edit:
-                            errors.append("Maintenance Start Date is required.")
-                        if start_date_edit and end_date_edit and start_date_edit > end_date_edit:
-                            errors.append("Start Date must be before End Date.")
-                        if not maint_type_edit or maint_type_edit == "Select Maintenance Type":
-                            errors.append("Please select a Maintenance Type.")
-                        if back_to_duty_edit == "Select Duty Status":
-                            errors.append("Please select Back to Duty status.")
-                        if errors:
-                            for err in errors:
-                                st.error(f"❌ {err}")
-                        else:
-                            if back_to_duty_edit == "No":
-                                final_total_days = (date.today() - start_date_edit).days
-                            else:
-                                if end_date_edit:
-                                    final_total_days = (end_date_edit - start_date_edit).days
-                                else:
-                                    final_total_days = 0
-
-                            update_data = {
-                                "plate_number": plate_edit,
-                                "vehicle_type": st.session_state.get("_maint_edit_vehicle_type", ""),
-                                "maintenace_type": maint_type_edit,
-                                "branch": branch_edit,
-                                "maintenance_workstation": workstation_edit if workstation_edit != "Select Workstation" else None,
-                                "responsible_person": responsible_edit,
-                                "maintenance_request_date": request_date_edit.strftime('%Y-%m-%d') if request_date_edit else None,
-                                "maintenance_starting_date": start_date_edit.strftime('%Y-%m-%d') if start_date_edit else None,
-                                "maintenance_ending_date": end_date_edit.strftime('%Y-%m-%d') if end_date_edit else None,
-                                "maintenance_total_day": final_total_days,
-                                "maintenace_cost": cost_edit if cost_edit else None,
-                                "reason": remark_edit if remark_edit else None,
-                                "back_to_duty": back_to_duty_edit,
-                            }
-                            try:
-                                supabase.table(MAINT_TABLE).update(update_data).eq("id", edit_id).execute()
-                                st.success("✅ Maintenance record updated successfully!")
-                                st.session_state.edit_maint_id = None
-                                st.session_state.edit_maint_data = None
-                                st.session_state.edit_maint_initialized = False
-                                load_maintenance.clear()
-                                st.rerun()
-                            except Exception as e:
-                                st.error(f"❌ Update failed: {str(e)}")
-
-                st.markdown('</div>', unsafe_allow_html=True)
-
-    # ----- DELETED RECORDS (expander) -----
+    # Deleted records expander
     with st.expander("🗑️ Deleted Maintenance Records", expanded=False):
         deleted_maint = maintenance_df[maintenance_df['is_deleted'] == True] if not maintenance_df.empty else pd.DataFrame()
         if deleted_maint.empty:
@@ -1506,20 +1584,54 @@ def view_vehicle_maintenance(master_df, assignments_df, maintenance_df):
 # TRIP MANAGEMENT (unchanged)
 # ===================================================
 def show_trip_management(assignments_df, master_df):
-    if 'editing_id' not in st.session_state:
-        st.session_state.editing_id = None
-    if 'edit_data' not in st.session_state:
-        st.session_state.edit_data = None
-    if 'edit_initialized' not in st.session_state:
-        st.session_state.edit_initialized = False
     if 'show_add_form' not in st.session_state:
         st.session_state.show_add_form = False
-    if 'selected_trip_for_action' not in st.session_state:
-        st.session_state.selected_trip_for_action = None
     if 'add_form_key' not in st.session_state:
         st.session_state.add_form_key = 0
+    if 'show_edit_form' not in st.session_state:
+        st.session_state.show_edit_form = False
+    if 'edit_trip_id' not in st.session_state:
+        st.session_state.edit_trip_id = None
+    if 'edit_trip_data' not in st.session_state:
+        st.session_state.edit_trip_data = None
+    if 'show_delete_confirmation' not in st.session_state:
+        st.session_state.show_delete_confirmation = False
 
-    # ----- Add New Trip (open layout, plate and branch outside form) -----
+    # ----- Section title (same style as the table header) -----
+    st.markdown(
+        '<div class="section-header">🚛 Vehicle Trip Management</div>',
+        unsafe_allow_html=True
+    )
+
+    # ----- TOP ROW: Add New Trip and Edit/Delete buttons -----
+    col_top1, col_top2, col_top3 = st.columns([1, 1, 2])
+    with col_top1:
+        if not st.session_state.show_add_form:
+            if st.button("➕ Add New Trip", type="primary", use_container_width=True):
+                st.session_state.show_add_form = True
+                st.session_state.add_form_key += 1
+                if st.session_state.show_edit_form:
+                    st.session_state.show_edit_form = False
+                    st.session_state.edit_trip_id = None
+                    st.session_state.edit_trip_data = None
+                st.rerun()
+    with col_top2:
+        if not st.session_state.show_edit_form:
+            if st.button("📝 Edit or Delete", type="secondary", use_container_width=True):
+                st.session_state.show_edit_form = True
+                if st.session_state.show_add_form:
+                    st.session_state.show_add_form = False
+                st.session_state.edit_trip_id = None
+                st.session_state.edit_trip_data = None
+                st.rerun()
+    with col_top3:
+        st.empty()
+
+    # Add a separator and spacing between the buttons and the forms
+    st.markdown("---")
+    st.write("")  # vertical spacing
+
+    # ----- ADD NEW TRIP FORM (if shown) -----
     if st.session_state.show_add_form:
         st.markdown("### ➕ Add New Trip")
 
@@ -1580,7 +1692,7 @@ def show_trip_management(assignments_df, master_df):
             with col7:
                 assigned_by = st.text_input("Assigned By *", placeholder="Enter name", key="add_assigned_by")
             with col8:
-                st.empty()  # placeholder for alignment
+                st.empty()
 
             # ---- Row 3: Dates (Requested, Assigned, Loading Start, Loading End) ----
             col9, col10, col11, col12 = st.columns(4)
@@ -1628,9 +1740,6 @@ def show_trip_management(assignments_df, master_df):
                     for err in errors:
                         st.error(f"❌ {err}")
                 else:
-                    # Compute expected dates for display only – not stored
-                    transit_days = BRANCH_EXPECTED_DAYS.get(assigned_branch_name.strip()) if assigned_branch_name != "Select Assigned Branch" else None
-
                     current_driver = driver
                     current_phone = phone
                     current_vehicle_type = vehicle_type
@@ -1649,7 +1758,6 @@ def show_trip_management(assignments_df, master_df):
                         )
                         st.stop()
 
-                    # Combine dates with current time
                     loading_start_dt = combine_date_with_current_time(loading_start) if loading_start else None
                     loading_end_dt = combine_date_with_current_time(loading_end) if loading_end else None
                     trip_start_dt = combine_date_with_current_time(trip_start) if trip_start else None
@@ -1657,7 +1765,6 @@ def show_trip_management(assignments_df, master_df):
                     return_dt_combined = combine_date_with_current_time(return_dt) if return_dt else None
                     trip_end_dt = combine_date_with_current_time(trip_end) if trip_end else None
 
-                    # Determine status
                     temp_record = {
                         'assigned_date': assigned_date,
                         'loading_starting_date': loading_start,
@@ -1684,7 +1791,6 @@ def show_trip_management(assignments_df, master_df):
                         "arrival_date": format_datetime_for_db(arrival_dt),
                         "return_date": format_datetime_for_db(return_dt_combined),
                         "trip_end_date": format_datetime_for_db(trip_end_dt),
-                        # expected_arrival_date and expected_trip_end_date are computed in-memory, not stored
                         "created_at": datetime.now().isoformat(),
                         "is_deleted": False,
                         "deleted_at": None
@@ -1703,19 +1809,334 @@ def show_trip_management(assignments_df, master_df):
                 st.session_state.show_add_form = False
                 st.rerun()
 
-        # separator after form
         st.markdown("---")
+        st.write("")  # extra spacing after the add form
 
-    # ----- Trip Records Table with calculated columns -----
-    st.markdown('<div class="section-header">📋 Trip Records</div>', unsafe_allow_html=True)
+    # ----- EDIT / DELETE FORM (if shown) -----
+    if st.session_state.show_edit_form:
+        st.markdown("### 📝 Edit or Delete Trip")
 
-    col_action_top1, col_action_top2, col_action_top3 = st.columns([2, 1, 1])
-    with col_action_top1:
-        if not st.session_state.show_add_form and not st.session_state.editing_id:
-            if st.button("➕ Add New Trip", type="primary"):
-                st.session_state.show_add_form = True
-                st.session_state.add_form_key += 1
-                st.rerun()
+        # Build list of editable trips (Planned, Loading, In Transit)
+        active_trips = assignments_df[assignments_df['is_deleted'] == False] if not assignments_df.empty else pd.DataFrame()
+        editable_trips = active_trips[active_trips['status'].str.title().isin(['Planned', 'Loading', 'In Transit'])] if not active_trips.empty else pd.DataFrame()
+        trip_options = [("", "Select Trip")]
+        for idx, row in editable_trips.iterrows():
+            if row.get('new_id'):
+                status_display = row.get('status', 'N/A')
+                trip_label = f"{row.get('plate_number', 'N/A')} - {row.get('driver_name', 'N/A')} ({status_display})"
+                trip_options.append((row['new_id'], trip_label))
+
+        # ---- Select Trip dropdown (outside form) ----
+        # Hide the label by using label_visibility="collapsed"
+        selected_trip_id = st.selectbox(
+            "Select Trip",
+            options=[opt[0] for opt in trip_options],
+            format_func=lambda x: next((opt[1] for opt in trip_options if opt[0] == x), "Select Trip"),
+            key="edit_trip_select",
+            label_visibility="collapsed"
+        )
+        # Add a small placeholder text above the dropdown for clarity
+        st.caption("Choose a trip from the list below to edit or delete it.")
+
+        # If a trip is selected, load its data and display the edit form
+        if selected_trip_id:
+            # Fetch trip data if not already loaded or if changed
+            if st.session_state.edit_trip_id != selected_trip_id:
+                trip_data = get_trip_by_id(selected_trip_id)
+                if trip_data:
+                    st.session_state.edit_trip_data = trip_data
+                    st.session_state.edit_trip_id = selected_trip_id
+                else:
+                    st.error("Could not load trip data.")
+                    st.session_state.edit_trip_data = None
+                    st.session_state.edit_trip_id = None
+
+            if st.session_state.edit_trip_data:
+                edit_data = st.session_state.edit_trip_data
+                plate_display = edit_data.get('plate_number', 'Unknown')
+
+                st.markdown('<div class="edit-container">', unsafe_allow_html=True)
+                st.markdown(f"### ✏️ Edit Trip – {plate_display}")
+
+                # Pre-fill values from edit_data
+                current_plate = edit_data.get('plate_number', '')
+                current_from = edit_data.get('from_location', '')
+                current_branch = edit_data.get('assigned_branch_name', '')
+                current_requested_by = edit_data.get('requested_by', '')
+                current_assigned_by = edit_data.get('assigned_by', '')
+                current_requested_date = get_date_from_value(edit_data.get('requested_date'))
+                current_assigned_date = get_date_from_value(edit_data.get('assigned_date'))
+                current_loading_start = get_date_from_value(edit_data.get('loading_starting_date'))
+                current_loading_end = get_date_from_value(edit_data.get('loading_date_end'))
+                current_trip_start = get_date_from_value(edit_data.get('trip_starting_date'))
+                current_arrival = get_date_from_value(edit_data.get('arrival_date'))
+                current_return = get_date_from_value(edit_data.get('return_date'))
+                current_trip_end = get_date_from_value(edit_data.get('trip_end_date'))
+
+                # Derive driver info from master data (or fallback to trip's stored values)
+                if current_plate in plate_to_driver:
+                    derived_driver = plate_to_driver[current_plate]
+                    derived_phone = plate_to_phone.get(current_plate, '')
+                    derived_vehicle_type = plate_to_vehicle_type.get(current_plate, '')
+                else:
+                    derived_driver = edit_data.get('driver_name', '')
+                    derived_phone = edit_data.get('phone_number', '')
+                    derived_vehicle_type = edit_data.get('vehicle_type', '')
+
+                # Expected dates (computed, display only)
+                computed_expected_arrival = None
+                computed_expected_trip_end = None
+                if current_branch and current_trip_start:
+                    transit_days = BRANCH_EXPECTED_DAYS.get(current_branch.strip())
+                    if transit_days is not None:
+                        computed_expected_arrival = current_trip_start + timedelta(days=transit_days)
+                        computed_expected_trip_end = current_trip_start + timedelta(days=2 * transit_days)
+
+                # ---- Form: same fields as Add New Trip, but pre-filled ----
+                # Plate selection (outside form)
+                plate_edit = st.selectbox(
+                    "Plate Number *",
+                    options=plate_numbers,
+                    index=plate_numbers.index(current_plate) if current_plate in plate_numbers else 0,
+                    key="edit_plate_select"
+                )
+                # Re‑derive driver info if plate changes (this will rerun when selection changes)
+                if plate_edit in plate_to_driver:
+                    derived_driver = plate_to_driver[plate_edit]
+                    derived_phone = plate_to_phone.get(plate_edit, '')
+                    derived_vehicle_type = plate_to_vehicle_type.get(plate_edit, '')
+                else:
+                    derived_driver = ''
+                    derived_phone = ''
+                    derived_vehicle_type = ''
+
+                col_info1, col_info2, col_info3 = st.columns(3)
+                with col_info1:
+                    st.text_input("Driver", value=derived_driver, disabled=True)
+                with col_info2:
+                    st.text_input("Phone", value=derived_phone, disabled=True)
+                with col_info3:
+                    st.text_input("Truck Type", value=derived_vehicle_type, disabled=True)
+
+                # Branch selection (outside form)
+                branch_edit = st.selectbox(
+                    "Assigned Branch *",
+                    options=branches,
+                    index=branches.index(current_branch) if current_branch in branches else 0,
+                    key="edit_branch_select"
+                )
+                transit_days = BRANCH_EXPECTED_DAYS.get(branch_edit.strip(), None)
+                st.caption(f"Expected Transit Days: {transit_days if transit_days is not None else '—'}")
+
+                # Now the form with all other fields
+                with st.form(key="edit_trip_form"):
+                    # Row 1: From Location, Requested By, Assigned By
+                    col5, col6, col7, col8 = st.columns(4)
+                    with col5:
+                        from_location_edit = st.selectbox(
+                            "From Location *",
+                            options=from_locations,
+                            index=from_locations.index(current_from) if current_from in from_locations else 0,
+                            key="edit_from"
+                        )
+                    with col6:
+                        requested_by_edit = st.text_input(
+                            "Requested By *",
+                            value=current_requested_by,
+                            key="edit_requested_by"
+                        )
+                    with col7:
+                        assigned_by_edit = st.text_input(
+                            "Assigned By *",
+                            value=current_assigned_by,
+                            key="edit_assigned_by"
+                        )
+                    with col8:
+                        st.empty()
+
+                    # Row 2: Requested Date, Assigned Date, Loading Start, Loading End
+                    col9, col10, col11, col12 = st.columns(4)
+                    with col9:
+                        requested_date_edit = st.date_input(
+                            "Requested Date",
+                            value=current_requested_date,
+                            key="edit_requested_date"
+                        )
+                    with col10:
+                        assigned_date_edit = st.date_input(
+                            "Assigned Date",
+                            value=current_assigned_date,
+                            key="edit_assigned_date"
+                        )
+                    with col11:
+                        loading_start_edit = st.date_input(
+                            "Loading Starting Date",
+                            value=current_loading_start,
+                            key="edit_loading_start"
+                        )
+                    with col12:
+                        loading_end_edit = st.date_input(
+                            "Loading Date End",
+                            value=current_loading_end,
+                            key="edit_loading_end"
+                        )
+
+                    # Row 3: Trip Start, Return, Actual Trip End, Arrival
+                    col13, col14, col15, col16 = st.columns(4)
+                    with col13:
+                        trip_start_edit = st.date_input(
+                            "Trip Starting Date",
+                            value=current_trip_start,
+                            key="edit_trip_start"
+                        )
+                    with col14:
+                        return_edit = st.date_input(
+                            "Return Date",
+                            value=current_return,
+                            key="edit_return"
+                        )
+                    with col15:
+                        trip_end_edit = st.date_input(
+                            "Actual Trip End Date",
+                            value=current_trip_end,
+                            key="edit_trip_end"
+                        )
+                    with col16:
+                        arrival_edit = st.date_input(
+                            "Arrival Date",
+                            value=current_arrival,
+                            key="edit_arrival"
+                        )
+
+                    # Expected dates (display only)
+                    st.caption(f"**Expected Arrival:** {computed_expected_arrival.strftime('%Y-%m-%d') if computed_expected_arrival else '—'}")
+                    st.caption(f"**Expected Trip End:** {computed_expected_trip_end.strftime('%Y-%m-%d') if computed_expected_trip_end else '—'}")
+
+                    # ---- Buttons: Update (primary) and Delete (red) ----
+                    col_btn1, col_btn2, col_btn3 = st.columns([1, 1, 1])
+                    with col_btn1:
+                        update_clicked = st.form_submit_button("🔄 Update Trip", type="primary", use_container_width=True)
+                    with col_btn2:
+                        delete_clicked = st.form_submit_button("🗑️ Delete Trip", use_container_width=True)
+                    with col_btn3:
+                        cancel_clicked = st.form_submit_button("❌ Cancel", use_container_width=True)
+
+                    if update_clicked:
+                        errors = []
+                        if not plate_edit:
+                            errors.append("Plate Number is required.")
+                        if not requested_date_edit:
+                            errors.append("Requested Date is required.")
+                        if not assigned_date_edit:
+                            errors.append("Assigned Date is required.")
+                        if not from_location_edit:
+                            errors.append("From Location is required.")
+                        if not branch_edit:
+                            errors.append("Assigned Branch is required.")
+                        if errors:
+                            for err in errors:
+                                st.error(f"❌ {err}")
+                        else:
+                            existing = supabase.table(TXN_TABLE)\
+                                .select("new_id,status")\
+                                .eq("plate_number", plate_edit)\
+                                .in_("status", ["Planned", "Loading", "In Transit"])\
+                                .execute()
+                            conflict = any(row['new_id'] != selected_trip_id for row in existing.data)
+                            if conflict:
+                                st.error(f"❌ Vehicle {plate_edit} already has another active trip. Complete that trip first.")
+                            else:
+                                loading_start_dt = combine_date_with_current_time(loading_start_edit) if loading_start_edit else None
+                                loading_end_dt = combine_date_with_current_time(loading_end_edit) if loading_end_edit else None
+                                trip_start_dt = combine_date_with_current_time(trip_start_edit) if trip_start_edit else None
+                                arrival_dt = combine_date_with_current_time(arrival_edit) if arrival_edit else None
+                                return_dt_combined = combine_date_with_current_time(return_edit) if return_edit else None
+                                trip_end_dt = combine_date_with_current_time(trip_end_edit) if trip_end_edit else None
+
+                                temp_record = {
+                                    'assigned_date': assigned_date_edit,
+                                    'loading_starting_date': loading_start_edit,
+                                    'trip_starting_date': trip_start_edit,
+                                    'trip_end_date': trip_end_edit
+                                }
+                                status, _ = calculate_status_and_errors(temp_record)
+
+                                update_data = {
+                                    "plate_number": plate_edit,
+                                    "driver_name": derived_driver,
+                                    "phone_number": derived_phone if derived_phone else None,
+                                    "vehicle_type": derived_vehicle_type if derived_vehicle_type else None,
+                                    "from_location": from_location_edit,
+                                    "assigned_branch_name": branch_edit,
+                                    "requested_date": str(requested_date_edit) if requested_date_edit else None,
+                                    "requested_by": requested_by_edit,
+                                    "assigned_by": assigned_by_edit,
+                                    "assigned_date": str(assigned_date_edit) if assigned_date_edit else None,
+                                    "status": status,
+                                    "loading_starting_date": format_datetime_for_db(loading_start_dt),
+                                    "loading_date_end": format_datetime_for_db(loading_end_dt),
+                                    "trip_starting_date": format_datetime_for_db(trip_start_dt),
+                                    "arrival_date": format_datetime_for_db(arrival_dt),
+                                    "return_date": format_datetime_for_db(return_dt_combined),
+                                    "trip_end_date": format_datetime_for_db(trip_end_dt),
+                                }
+                                try:
+                                    res = supabase.table(TXN_TABLE).update(update_data).eq("new_id", selected_trip_id).execute()
+                                    if res.data:
+                                        st.success("✅ Trip updated successfully!")
+                                        st.session_state.show_edit_form = False
+                                        st.session_state.edit_trip_id = None
+                                        st.session_state.edit_trip_data = None
+                                        load_assignments.clear()
+                                        st.rerun()
+                                except Exception as e:
+                                    st.error(f"❌ Update failed: {str(e)}")
+
+                    if delete_clicked:
+                        st.session_state.show_delete_confirmation = True
+                        st.rerun()
+
+                    if cancel_clicked:
+                        st.session_state.show_edit_form = False
+                        st.session_state.edit_trip_id = None
+                        st.session_state.edit_trip_data = None
+                        st.rerun()
+
+                st.markdown('</div>', unsafe_allow_html=True)
+
+                # ---- Delete confirmation (outside form) ----
+                if st.session_state.show_delete_confirmation:
+                    st.warning("Are you sure you want to delete this trip?")
+                    col_conf1, col_conf2 = st.columns(2)
+                    with col_conf1:
+                        if st.button("✅ Yes, Delete", key="confirm_delete_trip_edit_final"):
+                            try:
+                                supabase.table(TXN_TABLE).update({
+                                    "is_deleted": True,
+                                    "deleted_at": datetime.now().isoformat()
+                                }).eq("new_id", selected_trip_id).execute()
+                                st.success("✅ Trip deleted successfully!")
+                                st.session_state.show_delete_confirmation = False
+                                st.session_state.show_edit_form = False
+                                st.session_state.edit_trip_id = None
+                                st.session_state.edit_trip_data = None
+                                load_assignments.clear()
+                                st.rerun()
+                            except Exception as e:
+                                st.error(f"❌ Delete failed: {str(e)}")
+                    with col_conf2:
+                        if st.button("❌ Cancel", key="cancel_delete_trip_edit_final"):
+                            st.session_state.show_delete_confirmation = False
+                            st.rerun()
+        else:
+            # Informative message when no trip is selected
+            st.info("👆 Please select a trip from the dropdown above to edit or delete it.")
+
+        st.markdown("---")
+        st.write("")  # extra spacing after the edit form
+
+    # ----- TRIP RECORDS TABLE (always shown below the forms) -----
+    st.markdown('<div class="section-header">📋 Vehicle Trip Information Table</div>', unsafe_allow_html=True)
 
     try:
         active_trips = assignments_df[assignments_df['is_deleted'] == False] if not assignments_df.empty else pd.DataFrame()
@@ -1751,7 +2172,7 @@ def show_trip_management(assignments_df, master_df):
                 if col not in data.columns:
                     data[col] = None
 
-            # Define desired column order for display (Delivery Status right after On-Time Delivery)
+            # Define desired column order for display
             display_cols_order = [
                 "plate_number", "driver_name", "phone_number", "vehicle_type",
                 "from_location", "assigned_branch_name", "requested_date",
@@ -1770,258 +2191,6 @@ def show_trip_management(assignments_df, master_df):
             for col in display_cols_order:
                 if col not in data.columns:
                     data[col] = None
-
-            # ---- Edit/Delete actions ----
-            col_action1, col_action2, col_action3 = st.columns([2, 1, 1])
-            with col_action1:
-                editable_trips = data[data['status'].str.title().isin(['Planned', 'Loading', 'In Transit'])]
-                trip_options = [("", "Select Trip to Edit/Delete")]
-                for idx, row in editable_trips.iterrows():
-                    if row.get('new_id'):
-                        status_display = row.get('status', 'N/A')
-                        trip_label = f"{row.get('plate_number', 'N/A')} - {row.get('driver_name', 'N/A')} ({status_display})"
-                        trip_options.append((row['new_id'], trip_label))
-
-                selected_trip = st.selectbox(
-                    "Select Trip",
-                    options=[opt[0] for opt in trip_options],
-                    format_func=lambda x: next((opt[1] for opt in trip_options if opt[0] == x), "Select Trip to Edit/Delete"),
-                    key="trip_action_select"
-                )
-                st.session_state.selected_trip_for_action = selected_trip if selected_trip else None
-
-            with col_action2:
-                if st.button("✏️ Edit Selected", use_container_width=True):
-                    if st.session_state.selected_trip_for_action:
-                        st.session_state.editing_id = st.session_state.selected_trip_for_action
-                        st.session_state.edit_data = None
-                        st.session_state.edit_initialized = False
-                        st.rerun()
-                    else:
-                        st.warning("Please select a trip first")
-
-            with col_action3:
-                if st.button("🗑️ Delete Selected", use_container_width=True):
-                    if st.session_state.selected_trip_for_action:
-                        try:
-                            supabase.table(TXN_TABLE).update({
-                                "is_deleted": True,
-                                "deleted_at": datetime.now().isoformat()
-                            }).eq("new_id", st.session_state.selected_trip_for_action).execute()
-                            st.success("✅ Trip deleted successfully!")
-                            st.session_state.selected_trip_for_action = None
-                            load_assignments.clear()
-                            st.rerun()
-                        except Exception as e:
-                            st.error(f"❌ Delete failed: {str(e)}")
-                    else:
-                        st.warning("Please select a trip first")
-
-            # ---- Edit form (if editing) ----
-            if st.session_state.editing_id:
-                trip_id = st.session_state.editing_id
-                if not st.session_state.edit_initialized:
-                    trip_data = get_trip_by_id(trip_id)
-                    if trip_data:
-                        st.session_state.edit_data = trip_data
-                        st.session_state.edit_initialized = True
-                    else:
-                        st.error("Trip not found")
-                        st.session_state.editing_id = None
-                        st.rerun()
-
-                if st.session_state.edit_data:
-                    edit_data = st.session_state.edit_data
-                    plate_display = edit_data.get('plate_number', 'Unknown')
-                    st.markdown('<div class="edit-container">', unsafe_allow_html=True)
-                    st.markdown(f"### ✏️ Edit Trip – {plate_display}")
-
-                    current_branch = edit_data.get('assigned_branch_name', '')
-                    current_trip_start = get_date_from_value(edit_data.get('trip_starting_date'))
-
-                    computed_expected_arrival = None
-                    computed_expected_trip_end = None
-                    if current_branch and current_trip_start:
-                        transit_days = BRANCH_EXPECTED_DAYS.get(current_branch.strip())
-                        if transit_days is not None:
-                            computed_expected_arrival = current_trip_start + timedelta(days=transit_days)
-                            computed_expected_trip_end = current_trip_start + timedelta(days=2 * transit_days)
-
-                    with st.form(key="edit_trip_form"):
-                        col1, col2, col3, col4 = st.columns(4)
-
-                        with col1:
-                            plate_number_edit = st.selectbox(
-                                "Plate Number *",
-                                plate_numbers,
-                                index=plate_numbers.index(edit_data.get('plate_number', '')) if edit_data.get('plate_number', '') in plate_numbers else 0,
-                                key="edit_plate"
-                            )
-                            derived_driver_edit = plate_to_driver.get(plate_number_edit, "Not Found")
-                            derived_phone_edit = plate_to_phone.get(plate_number_edit, "")
-                            derived_vehicle_type_edit = plate_to_vehicle_type.get(plate_number_edit, "")
-                            st.markdown(f"**Driver:** {derived_driver_edit}")
-                            st.markdown(f"**Phone:** {derived_phone_edit}")
-                            st.markdown(f"**Type:** {derived_vehicle_type_edit}")
-
-                        with col2:
-                            from_location_edit = st.selectbox(
-                                "From Location *",
-                                from_locations,
-                                index=from_locations.index(edit_data.get('from_location', '')) if edit_data.get('from_location', '') in from_locations else 0,
-                                key="edit_from"
-                            )
-                            assigned_branch_name_edit = st.selectbox(
-                                "Assigned Branch *",
-                                branches,
-                                index=branches.index(edit_data.get('assigned_branch_name', '')) if edit_data.get('assigned_branch_name', '') in branches else 0,
-                                key="edit_branch"
-                            )
-                            transit_days = BRANCH_EXPECTED_DAYS.get(assigned_branch_name_edit.strip(), None)
-                            if transit_days is not None:
-                                st.markdown(f"**Expected Transit Days:** {transit_days}")
-
-                        with col3:
-                            requested_date_edit = st.date_input(
-                                "Requested Date",
-                                value=get_date_from_value(edit_data.get('requested_date')),
-                                key="edit_requested_date"
-                            )
-                            requested_by_edit = st.text_input(
-                                "Requested By *",
-                                value=edit_data.get('requested_by', ''),
-                                key="edit_requested_by"
-                            )
-                            assigned_by_edit = st.text_input(
-                                "Assigned By *",
-                                value=edit_data.get('assigned_by', ''),
-                                key="edit_assigned_by"
-                            )
-                            assigned_date_edit = st.date_input(
-                                "Assigned Date",
-                                value=get_date_from_value(edit_data.get('assigned_date')),
-                                key="edit_assigned_date"
-                            )
-
-                        with col4:
-                            st.markdown("**Activity Timeline**")
-                            loading_start_edit = st.date_input(
-                                "Loading Starting Date",
-                                value=get_date_from_value(edit_data.get('loading_starting_date')),
-                                key="edit_loading_start"
-                            )
-                            loading_end_edit = st.date_input(
-                                "Loading Date End",
-                                value=get_date_from_value(edit_data.get('loading_date_end')),
-                                key="edit_loading_end"
-                            )
-                            trip_start_edit = st.date_input(
-                                "Trip Starting Date",
-                                value=get_date_from_value(edit_data.get('trip_starting_date')),
-                                key="edit_trip_start"
-                            )
-                            arrival_edit = st.date_input(
-                                "Arrival Date",
-                                value=get_date_from_value(edit_data.get('arrival_date')),
-                                key="edit_arrival"
-                            )
-                            return_edit = st.date_input(
-                                "Return Date",
-                                value=get_date_from_value(edit_data.get('return_date')),
-                                key="edit_return"
-                            )
-                            trip_end_edit = st.date_input(
-                                "Actual Trip End Date",
-                                value=get_date_from_value(edit_data.get('trip_end_date')),
-                                key="edit_trip_end"
-                            )
-                            if computed_expected_arrival:
-                                st.markdown(f"**Expected Arrival Date:** {computed_expected_arrival.strftime('%Y-%m-%d')}")
-                            else:
-                                db_expected_arrival = get_date_from_value(edit_data.get('expected_arrival_date'))
-                                if db_expected_arrival:
-                                    st.markdown(f"**Expected Arrival Date:** {db_expected_arrival.strftime('%Y-%m-%d')}")
-                                else:
-                                    st.markdown("**Expected Arrival Date:** (not set)")
-
-                            if computed_expected_trip_end:
-                                st.markdown(f"**Expected Trip End Date:** {computed_expected_trip_end.strftime('%Y-%m-%d')}")
-                            else:
-                                db_expected_trip_end = get_date_from_value(edit_data.get('expected_trip_end_date'))
-                                if db_expected_trip_end:
-                                    st.markdown(f"**Expected Trip End Date:** {db_expected_trip_end.strftime('%Y-%m-%d')}")
-                                else:
-                                    st.markdown("**Expected Trip End Date:** (not set)")
-
-                        col_btn1, col_btn2 = st.columns(2)
-                        with col_btn1:
-                            update_clicked = st.form_submit_button("🔄 Update Trip", type="primary", use_container_width=True)
-                        with col_btn2:
-                            cancel_clicked = st.form_submit_button("❌ Cancel Edit", use_container_width=True)
-
-                        if update_clicked:
-                            existing = supabase.table(TXN_TABLE)\
-                                .select("new_id,status")\
-                                .eq("plate_number", plate_number_edit)\
-                                .in_("status", ["Planned", "Loading", "In Transit"])\
-                                .execute()
-                            conflict = any(row['new_id'] != trip_id for row in existing.data)
-                            if conflict:
-                                st.error(f"❌ Vehicle {plate_number_edit} already has another active trip. Complete that trip first.")
-                            else:
-                                loading_start_dt = combine_date_with_current_time(loading_start_edit) if loading_start_edit else None
-                                loading_end_dt = combine_date_with_current_time(loading_end_edit) if loading_end_edit else None
-                                trip_start_dt = combine_date_with_current_time(trip_start_edit) if trip_start_edit else None
-                                arrival_dt = combine_date_with_current_time(arrival_edit) if arrival_edit else None
-                                return_dt_combined = combine_date_with_current_time(return_edit) if return_edit else None
-                                trip_end_dt = combine_date_with_current_time(trip_end_edit) if trip_end_edit else None
-
-                                temp_record = {
-                                    'assigned_date': assigned_date_edit,
-                                    'loading_starting_date': loading_start_edit,
-                                    'trip_starting_date': trip_start_edit,
-                                    'trip_end_date': trip_end_edit
-                                }
-                                status, _ = calculate_status_and_errors(temp_record)
-
-                                update_data = {
-                                    "plate_number": plate_number_edit,
-                                    "driver_name": derived_driver_edit,
-                                    "phone_number": derived_phone_edit if derived_phone_edit else None,
-                                    "vehicle_type": derived_vehicle_type_edit if derived_vehicle_type_edit else None,
-                                    "from_location": from_location_edit,
-                                    "assigned_branch_name": assigned_branch_name_edit,
-                                    "requested_date": str(requested_date_edit) if requested_date_edit else None,
-                                    "requested_by": requested_by_edit,
-                                    "assigned_by": assigned_by_edit,
-                                    "assigned_date": str(assigned_date_edit) if assigned_date_edit else None,
-                                    "status": status,
-                                    "loading_starting_date": format_datetime_for_db(loading_start_dt),
-                                    "loading_date_end": format_datetime_for_db(loading_end_dt),
-                                    "trip_starting_date": format_datetime_for_db(trip_start_dt),
-                                    "arrival_date": format_datetime_for_db(arrival_dt),
-                                    "return_date": format_datetime_for_db(return_dt_combined),
-                                    "trip_end_date": format_datetime_for_db(trip_end_dt),
-                                }
-                                try:
-                                    res = supabase.table(TXN_TABLE).update(update_data).eq("new_id", trip_id).execute()
-                                    if res.data:
-                                        st.success("✅ Trip updated successfully!")
-                                        st.session_state.editing_id = None
-                                        st.session_state.edit_data = None
-                                        st.session_state.edit_initialized = False
-                                        load_assignments.clear()
-                                        st.rerun()
-                                except Exception as e:
-                                    st.error(f"❌ Update failed: {str(e)}")
-
-                        if cancel_clicked:
-                            st.session_state.editing_id = None
-                            st.session_state.edit_data = None
-                            st.session_state.edit_initialized = False
-                            st.rerun()
-
-                    st.markdown('</div>', unsafe_allow_html=True)
 
             # ---- Filters and display ----
             col_filter1, col_filter2, col_filter3 = st.columns(3)
