@@ -448,6 +448,34 @@ def format_days_hours_display(days):
     return f"{sign}{total_hours} hrs ({d} day{'s' if d != 1 else ''})"
 
 # ===================================================
+# STANDARDIZED OTD CALCULATION FUNCTION
+# ===================================================
+def calculate_otd_rate(df: pd.DataFrame) -> tuple:
+    """
+    Calculate On-Time Delivery (OTD) metrics from a DataFrame of trips.
+    Only Completed trips with a non-null delivery_status are considered.
+    OTD rate = (Earlier + Ontime) / Total Completed with delivery_status * 100.
+
+    Returns:
+        tuple: (otd_rate_percent_rounded_to_1_decimal, on_time_count, total_completed)
+    """
+    df_copy = df.copy()
+    completed = df_copy[
+        (df_copy['status'] == 'Completed') &
+        (df_copy.get('is_deleted', False) == False) &
+        (df_copy['delivery_status'].notna())
+    ]
+    total_completed = len(completed)
+    if total_completed == 0:
+        return 0.0, 0, 0
+    if 'delivery_status' not in completed.columns:
+        return 0.0, 0, total_completed
+    on_time_mask = completed['delivery_status'].isin(['Earlier', 'Ontime'])
+    on_time_count = on_time_mask.sum()
+    otd_rate = (on_time_count / total_completed) * 100.0
+    return round(otd_rate, 1), on_time_count, total_completed
+
+# ===================================================
 # DATA LOADING & PREPROCESSING (ONCE PER RERUN)
 # ===================================================
 @st.cache_data(ttl=60, show_spinner=False)
@@ -467,13 +495,11 @@ def process_vehicle_data(df):
     plate_numbers = sorted(df["plate_number"].dropna().unique().tolist())
     from_locations = sorted(df["from_location"].dropna().unique().tolist())
     branches = sorted(df["assigned_branch_name"].dropna().unique().tolist())
-
     plate_to_driver = {}
     plate_to_location = {}
     plate_to_branch = {}
     plate_to_phone = {}
     plate_to_vehicle_type = {}
-
     for _, row in df.iterrows():
         plate = row.get('plate_number')
         if plate:
@@ -482,7 +508,6 @@ def process_vehicle_data(df):
             plate_to_branch[plate] = row.get('assigned_branch_name', '')
             plate_to_phone[plate] = row.get('phone_number', '')
             plate_to_vehicle_type[plate] = row.get('vehicle_type', '')
-
     return {
         'plate_numbers': plate_numbers,
         'from_locations': from_locations,
@@ -541,11 +566,8 @@ if not assignments_df.empty:
     if 'is_deleted' not in assignments_df.columns:
         assignments_df['is_deleted'] = False
 
-    # Compute expected arrival date and expected trip end date based on new logic
-    # Get transit days from branch mapping
     assignments_df['_transit_days'] = assignments_df['assigned_branch_name'].str.strip().map(BRANCH_EXPECTED_DAYS)
 
-    # Expected Arrival Date = trip_start + transit_days
     if 'trip_starting_date' in assignments_df.columns:
         assignments_df['expected_arrival_date'] = pd.NaT
         mask = assignments_df['trip_starting_date'].notna() & assignments_df['_transit_days'].notna()
@@ -556,7 +578,6 @@ if not assignments_df.empty:
     else:
         assignments_df['expected_arrival_date'] = pd.NaT
 
-    # Expected Trip End Date = trip_start + 2 * transit_days
     if 'trip_starting_date' in assignments_df.columns:
         assignments_df['expected_trip_end_date'] = pd.NaT
         mask = assignments_df['trip_starting_date'].notna() & assignments_df['_transit_days'].notna()
@@ -567,7 +588,6 @@ if not assignments_df.empty:
     else:
         assignments_df['expected_trip_end_date'] = pd.NaT
 
-    # On-Time Delivery Time (Days) = arrival_date - expected_arrival_date
     if 'arrival_date' in assignments_df.columns and 'expected_arrival_date' in assignments_df.columns:
         assignments_df['on_time_delivery_days'] = (
             (assignments_df['arrival_date'] - assignments_df['expected_arrival_date']).dt.days
@@ -575,7 +595,6 @@ if not assignments_df.empty:
     else:
         assignments_df['on_time_delivery_days'] = None
 
-    # Trip Variance (Days) = trip_end_date - expected_trip_end_date
     if 'trip_end_date' in assignments_df.columns and 'expected_trip_end_date' in assignments_df.columns:
         assignments_df['trip_variance_days'] = (
             (assignments_df['trip_end_date'] - assignments_df['expected_trip_end_date']).dt.days
@@ -583,7 +602,6 @@ if not assignments_df.empty:
     else:
         assignments_df['trip_variance_days'] = None
 
-    # ---- NEW: Delivery Status and Trip Status ----
     def get_delivery_status(row):
         days = row.get('on_time_delivery_days')
         if pd.isna(days):
@@ -608,11 +626,8 @@ if not assignments_df.empty:
 
     assignments_df['delivery_status'] = assignments_df.apply(get_delivery_status, axis=1)
     assignments_df['trip_status'] = assignments_df.apply(get_trip_status, axis=1)
-
-    # Drop temporary column
     assignments_df.drop(columns=['_transit_days'], inplace=True, errors='ignore')
 
-    # Status function
     def status_func(row):
         if row.get('is_deleted', False):
             return 'Deleted'
@@ -675,15 +690,12 @@ def compute_vehicle_kpis(master_df, assignments_df, maintenance_df):
     under_maint_count = len(under_maint_plates)
     available_plates = all_vehicles - assigned_plates - under_maint_plates
     available_count = len(available_plates)
-
     active_plates = assigned_plates | available_plates
     active_count = len(active_plates)
-
     utilization_rate = (assigned_count / active_count * 100) if active_count > 0 else 0
     fleet_performance = (assigned_count / total_vehicles * 100) if total_vehicles > 0 else 0
     availability_rate = (available_count / total_vehicles * 100) if total_vehicles > 0 else 0
     downtime_rate = (under_maint_count / total_vehicles * 100) if total_vehicles > 0 else 0
-
     return {
         'total_vehicles': total_vehicles,
         'assigned_count': assigned_count,
@@ -984,7 +996,7 @@ def manage_vehicle_master(master_df):
                     st.error(f"❌ Update failed: {str(e)}")
 
 # ===================================================
-# VEHICLE MAINTENANCE (UPDATED with two-dropdown design)
+# VEHICLE MAINTENANCE (unchanged)
 # ===================================================
 def view_vehicle_maintenance(master_df, assignments_df, maintenance_df):
     # ---- Session state ----
@@ -999,13 +1011,11 @@ def view_vehicle_maintenance(master_df, assignments_df, maintenance_df):
     if 'show_delete_confirmation' not in st.session_state:
         st.session_state.show_delete_confirmation = False
 
-    # ----- Section header -----
     st.markdown(
         '<div class="section-header">🚗 Vehicle Maintenance</div>',
         unsafe_allow_html=True
     )
 
-    # ----- TOP ROW: Add New and Edit/Delete buttons -----
     col_top1, col_top2, col_top3 = st.columns([1, 1, 2])
     with col_top1:
         if not st.session_state.show_add_maint:
@@ -1035,8 +1045,6 @@ def view_vehicle_maintenance(master_df, assignments_df, maintenance_df):
     # ----- ADD NEW MAINTENANCE RECORD FORM -----
     if st.session_state.show_add_maint:
         st.markdown("### ➕ Add New Maintenance Record")
-
-        # Plate selection (outside form)
         plate_options_master = sorted(master_df['plate_number'].dropna().astype(str).str.strip().unique().tolist()) if not master_df.empty else []
         plate_options = ["Select Plate Number"] + plate_options_master
         selected_plate = st.selectbox(
@@ -1046,7 +1054,6 @@ def view_vehicle_maintenance(master_df, assignments_df, maintenance_df):
             help="Select the vehicle that requires maintenance."
         )
 
-        # Derive vehicle type from master
         vehicle_type = ""
         if selected_plate != "Select Plate Number" and not master_df.empty:
             row = master_df[master_df['plate_number'].astype(str).str.strip() == selected_plate.strip()]
@@ -1057,12 +1064,10 @@ def view_vehicle_maintenance(master_df, assignments_df, maintenance_df):
         with col_info1:
             st.text_input("Vehicle Type", value=vehicle_type, disabled=True)
         with col_info2:
-            # We can display driver name if needed, but not in maintenance table
             st.text_input("Driver", value="", disabled=True)
         with col_info3:
             st.text_input("Phone", value="", disabled=True)
 
-        # Branch selection (outside form)
         branch_options = ["Select Branch"] + sorted(assignments_df['assigned_branch_name'].dropna().astype(str).str.strip().unique().tolist()) if not assignments_df.empty else ["Select Branch"]
         selected_branch = st.selectbox(
             "Branch *",
@@ -1070,7 +1075,6 @@ def view_vehicle_maintenance(master_df, assignments_df, maintenance_df):
             key="maint_add_branch_select"
         )
 
-        # Workstation selection (from master)
         workstation_values = []
         if not master_df.empty and 'workstation' in master_df.columns:
             workstation_values = sorted(master_df['workstation'].dropna().astype(str).str.strip().unique().tolist())
@@ -1081,7 +1085,6 @@ def view_vehicle_maintenance(master_df, assignments_df, maintenance_df):
             key="maint_add_workstation"
         )
 
-        # Main form
         with st.form(key="maint_add_form"):
             col1, col2, col3, col4 = st.columns(4)
 
@@ -1110,7 +1113,6 @@ def view_vehicle_maintenance(master_df, assignments_df, maintenance_df):
                 remark = st.text_area("Remark", key="maint_add_remark", height=68)
 
             with col4:
-                # Auto-calculate total days
                 if start_date:
                     if back_to_duty == "No":
                         total_days = (date.today() - start_date).days
@@ -1121,7 +1123,7 @@ def view_vehicle_maintenance(master_df, assignments_df, maintenance_df):
                 else:
                     total_days = 0
                 st.number_input("Total Days (auto-calculated)", value=total_days, disabled=True, key="maint_add_total_days")
-                st.empty()  # placeholder for alignment
+                st.empty()
 
             col_btn1, col_btn2 = st.columns(2)
             with col_btn1:
@@ -1195,8 +1197,6 @@ def view_vehicle_maintenance(master_df, assignments_df, maintenance_df):
     # ----- EDIT / DELETE MAINTENANCE RECORD FORM -----
     if st.session_state.show_edit_maint:
         st.markdown("### 📝 Edit or Delete Maintenance Record")
-
-        # Build list of active maintenance records (all, not just active statuses)
         active_maint = maintenance_df[maintenance_df['is_deleted'] == False] if not maintenance_df.empty else pd.DataFrame()
         record_options = [("", "Select Maintenance Record")]
         if not active_maint.empty:
@@ -1204,7 +1204,7 @@ def view_vehicle_maintenance(master_df, assignments_df, maintenance_df):
                 rec_id = row['id']
                 label = f"{row['plate_number']} - {row['maintenace_type']} ({row['maintenance_request_date']})"
                 record_options.append((str(rec_id), label))
-            record_options.sort(key=lambda x: x[1], reverse=True)  # newest first
+            record_options.sort(key=lambda x: x[1], reverse=True)
 
         selected_record_id = st.selectbox(
             "Select Maintenance Record",
@@ -1216,7 +1216,6 @@ def view_vehicle_maintenance(master_df, assignments_df, maintenance_df):
         st.caption("Choose a maintenance record from the list below to edit or delete it.")
 
         if selected_record_id:
-            # Load record data if not loaded or changed
             if st.session_state.edit_maint_id != selected_record_id:
                 record_data = get_maintenance_by_id(selected_record_id)
                 if record_data:
@@ -1234,7 +1233,6 @@ def view_vehicle_maintenance(master_df, assignments_df, maintenance_df):
                 st.markdown('<div class="edit-container">', unsafe_allow_html=True)
                 st.markdown(f"### ✏️ Edit Maintenance Record – {plate_display}")
 
-                # Pre-fill values
                 current_plate = edit_data.get('plate_number', '')
                 current_branch = edit_data.get('branch', '')
                 current_workstation = edit_data.get('maintenance_workstation', '')
@@ -1248,7 +1246,6 @@ def view_vehicle_maintenance(master_df, assignments_df, maintenance_df):
                 current_back = edit_data.get('back_to_duty', '')
                 current_total_days = edit_data.get('maintenance_total_day', 0)
 
-                # Plate selection (outside form)
                 plate_options_master = sorted(master_df['plate_number'].dropna().astype(str).str.strip().unique().tolist()) if not master_df.empty else []
                 plate_options = ["Select Plate Number"] + plate_options_master
                 plate_edit = st.selectbox(
@@ -1257,7 +1254,6 @@ def view_vehicle_maintenance(master_df, assignments_df, maintenance_df):
                     index=plate_options.index(current_plate) if current_plate in plate_options else 0,
                     key="maint_edit_plate_select"
                 )
-                # Derive vehicle type
                 vehicle_type_edit = ""
                 if plate_edit != "Select Plate Number" and not master_df.empty:
                     row = master_df[master_df['plate_number'].astype(str).str.strip() == plate_edit.strip()]
@@ -1272,7 +1268,6 @@ def view_vehicle_maintenance(master_df, assignments_df, maintenance_df):
                 with col_info3:
                     st.text_input("Phone", value="", disabled=True)
 
-                # Branch selection (outside form)
                 branch_options = ["Select Branch"] + sorted(assignments_df['assigned_branch_name'].dropna().astype(str).str.strip().unique().tolist()) if not assignments_df.empty else ["Select Branch"]
                 branch_edit = st.selectbox(
                     "Branch *",
@@ -1281,7 +1276,6 @@ def view_vehicle_maintenance(master_df, assignments_df, maintenance_df):
                     key="maint_edit_branch_select"
                 )
 
-                # Workstation selection
                 workstation_values = []
                 if not master_df.empty and 'workstation' in master_df.columns:
                     workstation_values = sorted(master_df['workstation'].dropna().astype(str).str.strip().unique().tolist())
@@ -1293,7 +1287,6 @@ def view_vehicle_maintenance(master_df, assignments_df, maintenance_df):
                     key="maint_edit_workstation"
                 )
 
-                # Main edit form
                 with st.form(key="maint_edit_form"):
                     col1, col2, col3, col4 = st.columns(4)
 
@@ -1347,7 +1340,6 @@ def view_vehicle_maintenance(master_df, assignments_df, maintenance_df):
                         )
 
                     with col4:
-                        # Auto-calculate total days
                         if start_date_edit:
                             if back_to_duty_edit == "No":
                                 total_days_edit = (date.today() - start_date_edit).days
@@ -1358,7 +1350,7 @@ def view_vehicle_maintenance(master_df, assignments_df, maintenance_df):
                         else:
                             total_days_edit = 0
                         st.number_input("Total Days (auto-calculated)", value=total_days_edit, disabled=True, key="maint_edit_total_days")
-                        st.empty()  # placeholder
+                        st.empty()
 
                     col_btn1, col_btn2, col_btn3 = st.columns([1, 1, 1])
                     with col_btn1:
@@ -1435,7 +1427,6 @@ def view_vehicle_maintenance(master_df, assignments_df, maintenance_df):
 
                 st.markdown('</div>', unsafe_allow_html=True)
 
-                # Delete confirmation (outside form)
                 if st.session_state.show_delete_confirmation:
                     st.warning("Are you sure you want to delete this maintenance record?")
                     col_conf1, col_conf2 = st.columns(2)
@@ -1468,7 +1459,6 @@ def view_vehicle_maintenance(master_df, assignments_df, maintenance_df):
     # ----- MAINTENANCE RECORDS TABLE -----
     st.markdown('<div class="section-header">📋 Vehicle Maintenance Information Table</div>', unsafe_allow_html=True)
 
-    # Filters
     active_maint = maintenance_df[maintenance_df['is_deleted'] == False] if not maintenance_df.empty else pd.DataFrame()
     col_filter1, col_filter2 = st.columns(2)
     with col_filter1:
@@ -1479,7 +1469,6 @@ def view_vehicle_maintenance(master_df, assignments_df, maintenance_df):
             key="maint_plate_filter_table"
         )
     with col_filter2:
-        # Optionally add more filters (e.g., maintenance type)
         type_options = ["All"] + sorted(active_maint['maintenace_type'].dropna().unique().tolist()) if not active_maint.empty else ["All"]
         selected_type_filter = st.selectbox(
             "Filter by Maintenance Type",
@@ -1497,10 +1486,8 @@ def view_vehicle_maintenance(master_df, assignments_df, maintenance_df):
     if filtered_maint.empty:
         st.info("📭 No active maintenance records found.")
     else:
-        # Prepare display dataframe
         if 'maintenance_total_day' not in filtered_maint.columns:
             filtered_maint['maintenance_total_day'] = None
-        # Compute total days if missing
         if filtered_maint['maintenance_total_day'].isna().all():
             def compute_days(row):
                 start = row.get('maintenance_starting_date')
@@ -1518,12 +1505,10 @@ def view_vehicle_maintenance(master_df, assignments_df, maintenance_df):
                 return None
             filtered_maint['maintenance_total_day'] = filtered_maint.apply(compute_days, axis=1)
 
-        # Sort by request date descending
         if 'maintenance_request_date' in filtered_maint.columns:
             filtered_maint['maintenance_request_date'] = pd.to_datetime(filtered_maint['maintenance_request_date'], errors='coerce')
             filtered_maint = filtered_maint.sort_values(by='maintenance_request_date', ascending=False)
 
-        # Select columns to display
         display_columns = [
             ('ID', 'id'),
             ('Plate', 'plate_number'),
@@ -1559,7 +1544,6 @@ def view_vehicle_maintenance(master_df, assignments_df, maintenance_df):
         st.dataframe(display_df, use_container_width=True, hide_index=True)
         st.caption(f"Showing {len(display_df)} record(s)")
 
-        # Export to CSV
         col_export1, col_export2 = st.columns([1, 5])
         with col_export1:
             if st.button("📥 Export to CSV"):
@@ -1572,7 +1556,6 @@ def view_vehicle_maintenance(master_df, assignments_df, maintenance_df):
                     key="download_maint_csv"
                 )
 
-    # Deleted records expander
     with st.expander("🗑️ Deleted Maintenance Records", expanded=False):
         deleted_maint = maintenance_df[maintenance_df['is_deleted'] == True] if not maintenance_df.empty else pd.DataFrame()
         if deleted_maint.empty:
@@ -1581,7 +1564,7 @@ def view_vehicle_maintenance(master_df, assignments_df, maintenance_df):
             st.dataframe(deleted_maint, use_container_width=True, hide_index=True)
 
 # ===================================================
-# TRIP MANAGEMENT (unchanged)
+# TRIP MANAGEMENT (with fixed edit form population)
 # ===================================================
 def show_trip_management(assignments_df, master_df):
     if 'show_add_form' not in st.session_state:
@@ -1597,13 +1580,11 @@ def show_trip_management(assignments_df, master_df):
     if 'show_delete_confirmation' not in st.session_state:
         st.session_state.show_delete_confirmation = False
 
-    # ----- Section title (same style as the table header) -----
     st.markdown(
         '<div class="section-header">🚛 Vehicle Trip Management</div>',
         unsafe_allow_html=True
     )
 
-    # ----- TOP ROW: Add New Trip and Edit/Delete buttons -----
     col_top1, col_top2, col_top3 = st.columns([1, 1, 2])
     with col_top1:
         if not st.session_state.show_add_form:
@@ -1627,18 +1608,14 @@ def show_trip_management(assignments_df, master_df):
     with col_top3:
         st.empty()
 
-    # Add a separator and spacing between the buttons and the forms
     st.markdown("---")
-    st.write("")  # vertical spacing
+    st.write("")
 
-    # ----- ADD NEW TRIP FORM (if shown) -----
+    # ----- ADD NEW TRIP FORM -----
     if st.session_state.show_add_form:
         st.markdown("### ➕ Add New Trip")
-
-        # Get available vehicles
         available_vehicles = get_available_vehicles(master_df, assignments_df, maintenance_df)
 
-        # ---- Plate selection (outside form) ----
         plate_options = ["Select Plate Number"] + available_vehicles
         selected_plate = st.selectbox(
             "Plate Number *",
@@ -1647,7 +1624,6 @@ def show_trip_management(assignments_df, master_df):
             help="Only vehicles without active trips and not under maintenance are shown."
         )
 
-        # Derive info from master data (if a valid plate is selected)
         if selected_plate and selected_plate != "Select Plate Number":
             driver = plate_to_driver.get(selected_plate, "")
             phone = plate_to_phone.get(selected_plate, "")
@@ -1657,7 +1633,6 @@ def show_trip_management(assignments_df, master_df):
             phone = ""
             vehicle_type = ""
 
-        # Show derived info in 3 disabled fields
         col_info1, col_info2, col_info3 = st.columns(3)
         with col_info1:
             st.text_input("Driver", value=driver, disabled=True)
@@ -1666,7 +1641,6 @@ def show_trip_management(assignments_df, master_df):
         with col_info3:
             st.text_input("Truck Type", value=vehicle_type, disabled=True)
 
-        # ---- Branch selection (outside form) ----
         branch_options = ["Select Assigned Branch"] + branches
         assigned_branch_name = st.selectbox(
             "Assigned Branch *",
@@ -1674,15 +1648,12 @@ def show_trip_management(assignments_df, master_df):
             key="add_branch_outside"
         )
 
-        # Compute Expected Transit Days based on branch selection
         expected_transit_days = None
         if assigned_branch_name and assigned_branch_name != "Select Assigned Branch":
             expected_transit_days = BRANCH_EXPECTED_DAYS.get(assigned_branch_name.strip())
         st.markdown(f"**Expected Transit Days:** {expected_transit_days if expected_transit_days is not None else '—'}")
 
-        # Now the form with all other fields
         with st.form(key=f"add_trip_form_{st.session_state.add_form_key}"):
-            # ---- Row 2: From, Requested By, Assigned By (Branch removed) ----
             col5, col6, col7, col8 = st.columns(4)
             with col5:
                 from_options = ["Select Location"] + from_locations
@@ -1694,7 +1665,6 @@ def show_trip_management(assignments_df, master_df):
             with col8:
                 st.empty()
 
-            # ---- Row 3: Dates (Requested, Assigned, Loading Start, Loading End) ----
             col9, col10, col11, col12 = st.columns(4)
             with col9:
                 requested_date = st.date_input("Requested Date *", value=None, key="add_requested_date")
@@ -1705,7 +1675,6 @@ def show_trip_management(assignments_df, master_df):
             with col12:
                 loading_end = st.date_input("Loading Date End", value=None, key="add_loading_end")
 
-            # ---- Row 4: Trip Start, Return, Actual Trip End, Arrival Date ----
             col13, col14, col15, col16 = st.columns(4)
             with col13:
                 trip_start = st.date_input("Trip Starting Date", value=None, key="add_trip_start")
@@ -1716,14 +1685,12 @@ def show_trip_management(assignments_df, master_df):
             with col16:
                 arrival = st.date_input("Arrival Date", value=None, key="add_arrival")
 
-            # ---- Row 5: Buttons ----
             col_btn1, col_btn2 = st.columns(2)
             with col_btn1:
                 save_clicked = st.form_submit_button("💾 Save Trip", type="primary", use_container_width=True)
             with col_btn2:
                 cancel_clicked = st.form_submit_button("❌ Cancel", use_container_width=True)
 
-            # ---- Form submission handling ----
             if save_clicked:
                 errors = []
                 if not selected_plate or selected_plate == "Select Plate Number":
@@ -1745,7 +1712,6 @@ def show_trip_management(assignments_df, master_df):
                     current_vehicle_type = vehicle_type
                     current_plate = selected_plate
 
-                    # Check for active trip
                     existing = supabase.table(TXN_TABLE)\
                         .select("new_id,status")\
                         .eq("plate_number", current_plate)\
@@ -1810,13 +1776,11 @@ def show_trip_management(assignments_df, master_df):
                 st.rerun()
 
         st.markdown("---")
-        st.write("")  # extra spacing after the add form
+        st.write("")
 
-    # ----- EDIT / DELETE FORM (if shown) -----
+    # ----- EDIT / DELETE FORM (FIXED for reliable population) -----
     if st.session_state.show_edit_form:
         st.markdown("### 📝 Edit or Delete Trip")
-
-        # Build list of editable trips (Planned, Loading, In Transit)
         active_trips = assignments_df[assignments_df['is_deleted'] == False] if not assignments_df.empty else pd.DataFrame()
         editable_trips = active_trips[active_trips['status'].str.title().isin(['Planned', 'Loading', 'In Transit'])] if not active_trips.empty else pd.DataFrame()
         trip_options = [("", "Select Trip")]
@@ -1826,8 +1790,6 @@ def show_trip_management(assignments_df, master_df):
                 trip_label = f"{row.get('plate_number', 'N/A')} - {row.get('driver_name', 'N/A')} ({status_display})"
                 trip_options.append((row['new_id'], trip_label))
 
-        # ---- Select Trip dropdown (outside form) ----
-        # Hide the label by using label_visibility="collapsed"
         selected_trip_id = st.selectbox(
             "Select Trip",
             options=[opt[0] for opt in trip_options],
@@ -1835,307 +1797,345 @@ def show_trip_management(assignments_df, master_df):
             key="edit_trip_select",
             label_visibility="collapsed"
         )
-        # Add a small placeholder text above the dropdown for clarity
         st.caption("Choose a trip from the list below to edit or delete it.")
 
-        # If a trip is selected, load its data and display the edit form
+        # ------------------------------------------------------------------
+        # NEW LOGIC: Always fetch and refresh trip data for the selected ID
+        # ------------------------------------------------------------------
         if selected_trip_id:
-            # Fetch trip data if not already loaded or if changed
-            if st.session_state.edit_trip_id != selected_trip_id:
-                trip_data = get_trip_by_id(selected_trip_id)
-                if trip_data:
-                    st.session_state.edit_trip_data = trip_data
-                    st.session_state.edit_trip_id = selected_trip_id
-                else:
-                    st.error("Could not load trip data.")
-                    st.session_state.edit_trip_data = None
-                    st.session_state.edit_trip_id = None
+            # Always fetch fresh trip data – no conditional based on ID change
+            trip_data = get_trip_by_id(selected_trip_id)
+            if trip_data:
+                # Store the raw data in session state
+                st.session_state.edit_trip_data = trip_data
+                st.session_state.edit_trip_id = selected_trip_id
 
-            if st.session_state.edit_trip_data:
-                edit_data = st.session_state.edit_trip_data
-                plate_display = edit_data.get('plate_number', 'Unknown')
+                # Overwrite all date session state keys with the new values
+                # This ensures the widgets always show the saved dates.
+                st.session_state["edit_requested_date"] = get_date_from_value(trip_data.get('requested_date'))
+                st.session_state["edit_assigned_date"] = get_date_from_value(trip_data.get('assigned_date'))
+                st.session_state["edit_loading_start"] = get_date_from_value(trip_data.get('loading_starting_date'))
+                st.session_state["edit_loading_end"] = get_date_from_value(trip_data.get('loading_date_end'))
+                st.session_state["edit_trip_start"] = get_date_from_value(trip_data.get('trip_starting_date'))
+                st.session_state["edit_arrival"] = get_date_from_value(trip_data.get('arrival_date'))
+                st.session_state["edit_return"] = get_date_from_value(trip_data.get('return_date'))
+                st.session_state["edit_trip_end"] = get_date_from_value(trip_data.get('trip_end_date'))
+            else:
+                st.error("Could not load trip data.")
+                # Clear session state to avoid stale data
+                st.session_state.edit_trip_data = None
+                st.session_state.edit_trip_id = None
+                for key in ["edit_requested_date", "edit_assigned_date", "edit_loading_start",
+                            "edit_loading_end", "edit_trip_start", "edit_arrival", "edit_return", "edit_trip_end"]:
+                    if key in st.session_state:
+                        del st.session_state[key]
 
-                st.markdown('<div class="edit-container">', unsafe_allow_html=True)
-                st.markdown(f"### ✏️ Edit Trip – {plate_display}")
-
-                # Pre-fill values from edit_data
-                current_plate = edit_data.get('plate_number', '')
-                current_from = edit_data.get('from_location', '')
-                current_branch = edit_data.get('assigned_branch_name', '')
-                current_requested_by = edit_data.get('requested_by', '')
-                current_assigned_by = edit_data.get('assigned_by', '')
-                current_requested_date = get_date_from_value(edit_data.get('requested_date'))
-                current_assigned_date = get_date_from_value(edit_data.get('assigned_date'))
-                current_loading_start = get_date_from_value(edit_data.get('loading_starting_date'))
-                current_loading_end = get_date_from_value(edit_data.get('loading_date_end'))
-                current_trip_start = get_date_from_value(edit_data.get('trip_starting_date'))
-                current_arrival = get_date_from_value(edit_data.get('arrival_date'))
-                current_return = get_date_from_value(edit_data.get('return_date'))
-                current_trip_end = get_date_from_value(edit_data.get('trip_end_date'))
-
-                # Derive driver info from master data (or fallback to trip's stored values)
-                if current_plate in plate_to_driver:
-                    derived_driver = plate_to_driver[current_plate]
-                    derived_phone = plate_to_phone.get(current_plate, '')
-                    derived_vehicle_type = plate_to_vehicle_type.get(current_plate, '')
-                else:
-                    derived_driver = edit_data.get('driver_name', '')
-                    derived_phone = edit_data.get('phone_number', '')
-                    derived_vehicle_type = edit_data.get('vehicle_type', '')
-
-                # Expected dates (computed, display only)
-                computed_expected_arrival = None
-                computed_expected_trip_end = None
-                if current_branch and current_trip_start:
-                    transit_days = BRANCH_EXPECTED_DAYS.get(current_branch.strip())
-                    if transit_days is not None:
-                        computed_expected_arrival = current_trip_start + timedelta(days=transit_days)
-                        computed_expected_trip_end = current_trip_start + timedelta(days=2 * transit_days)
-
-                # ---- Form: same fields as Add New Trip, but pre-filled ----
-                # Plate selection (outside form)
-                plate_edit = st.selectbox(
-                    "Plate Number *",
-                    options=plate_numbers,
-                    index=plate_numbers.index(current_plate) if current_plate in plate_numbers else 0,
-                    key="edit_plate_select"
-                )
-                # Re‑derive driver info if plate changes (this will rerun when selection changes)
-                if plate_edit in plate_to_driver:
-                    derived_driver = plate_to_driver[plate_edit]
-                    derived_phone = plate_to_phone.get(plate_edit, '')
-                    derived_vehicle_type = plate_to_vehicle_type.get(plate_edit, '')
-                else:
-                    derived_driver = ''
-                    derived_phone = ''
-                    derived_vehicle_type = ''
-
-                col_info1, col_info2, col_info3 = st.columns(3)
-                with col_info1:
-                    st.text_input("Driver", value=derived_driver, disabled=True)
-                with col_info2:
-                    st.text_input("Phone", value=derived_phone, disabled=True)
-                with col_info3:
-                    st.text_input("Truck Type", value=derived_vehicle_type, disabled=True)
-
-                # Branch selection (outside form)
-                branch_edit = st.selectbox(
-                    "Assigned Branch *",
-                    options=branches,
-                    index=branches.index(current_branch) if current_branch in branches else 0,
-                    key="edit_branch_select"
-                )
-                transit_days = BRANCH_EXPECTED_DAYS.get(branch_edit.strip(), None)
-                st.caption(f"Expected Transit Days: {transit_days if transit_days is not None else '—'}")
-
-                # Now the form with all other fields
-                with st.form(key="edit_trip_form"):
-                    # Row 1: From Location, Requested By, Assigned By
-                    col5, col6, col7, col8 = st.columns(4)
-                    with col5:
-                        from_location_edit = st.selectbox(
-                            "From Location *",
-                            options=from_locations,
-                            index=from_locations.index(current_from) if current_from in from_locations else 0,
-                            key="edit_from"
-                        )
-                    with col6:
-                        requested_by_edit = st.text_input(
-                            "Requested By *",
-                            value=current_requested_by,
-                            key="edit_requested_by"
-                        )
-                    with col7:
-                        assigned_by_edit = st.text_input(
-                            "Assigned By *",
-                            value=current_assigned_by,
-                            key="edit_assigned_by"
-                        )
-                    with col8:
-                        st.empty()
-
-                    # Row 2: Requested Date, Assigned Date, Loading Start, Loading End
-                    col9, col10, col11, col12 = st.columns(4)
-                    with col9:
-                        requested_date_edit = st.date_input(
-                            "Requested Date",
-                            value=current_requested_date,
-                            key="edit_requested_date"
-                        )
-                    with col10:
-                        assigned_date_edit = st.date_input(
-                            "Assigned Date",
-                            value=current_assigned_date,
-                            key="edit_assigned_date"
-                        )
-                    with col11:
-                        loading_start_edit = st.date_input(
-                            "Loading Starting Date",
-                            value=current_loading_start,
-                            key="edit_loading_start"
-                        )
-                    with col12:
-                        loading_end_edit = st.date_input(
-                            "Loading Date End",
-                            value=current_loading_end,
-                            key="edit_loading_end"
-                        )
-
-                    # Row 3: Trip Start, Return, Actual Trip End, Arrival
-                    col13, col14, col15, col16 = st.columns(4)
-                    with col13:
-                        trip_start_edit = st.date_input(
-                            "Trip Starting Date",
-                            value=current_trip_start,
-                            key="edit_trip_start"
-                        )
-                    with col14:
-                        return_edit = st.date_input(
-                            "Return Date",
-                            value=current_return,
-                            key="edit_return"
-                        )
-                    with col15:
-                        trip_end_edit = st.date_input(
-                            "Actual Trip End Date",
-                            value=current_trip_end,
-                            key="edit_trip_end"
-                        )
-                    with col16:
-                        arrival_edit = st.date_input(
-                            "Arrival Date",
-                            value=current_arrival,
-                            key="edit_arrival"
-                        )
-
-                    # Expected dates (display only)
-                    st.caption(f"**Expected Arrival:** {computed_expected_arrival.strftime('%Y-%m-%d') if computed_expected_arrival else '—'}")
-                    st.caption(f"**Expected Trip End:** {computed_expected_trip_end.strftime('%Y-%m-%d') if computed_expected_trip_end else '—'}")
-
-                    # ---- Buttons: Update (primary) and Delete (red) ----
-                    col_btn1, col_btn2, col_btn3 = st.columns([1, 1, 1])
-                    with col_btn1:
-                        update_clicked = st.form_submit_button("🔄 Update Trip", type="primary", use_container_width=True)
-                    with col_btn2:
-                        delete_clicked = st.form_submit_button("🗑️ Delete Trip", use_container_width=True)
-                    with col_btn3:
-                        cancel_clicked = st.form_submit_button("❌ Cancel", use_container_width=True)
-
-                    if update_clicked:
-                        errors = []
-                        if not plate_edit:
-                            errors.append("Plate Number is required.")
-                        if not requested_date_edit:
-                            errors.append("Requested Date is required.")
-                        if not assigned_date_edit:
-                            errors.append("Assigned Date is required.")
-                        if not from_location_edit:
-                            errors.append("From Location is required.")
-                        if not branch_edit:
-                            errors.append("Assigned Branch is required.")
-                        if errors:
-                            for err in errors:
-                                st.error(f"❌ {err}")
-                        else:
-                            existing = supabase.table(TXN_TABLE)\
-                                .select("new_id,status")\
-                                .eq("plate_number", plate_edit)\
-                                .in_("status", ["Planned", "Loading", "In Transit"])\
-                                .execute()
-                            conflict = any(row['new_id'] != selected_trip_id for row in existing.data)
-                            if conflict:
-                                st.error(f"❌ Vehicle {plate_edit} already has another active trip. Complete that trip first.")
-                            else:
-                                loading_start_dt = combine_date_with_current_time(loading_start_edit) if loading_start_edit else None
-                                loading_end_dt = combine_date_with_current_time(loading_end_edit) if loading_end_edit else None
-                                trip_start_dt = combine_date_with_current_time(trip_start_edit) if trip_start_edit else None
-                                arrival_dt = combine_date_with_current_time(arrival_edit) if arrival_edit else None
-                                return_dt_combined = combine_date_with_current_time(return_edit) if return_edit else None
-                                trip_end_dt = combine_date_with_current_time(trip_end_edit) if trip_end_edit else None
-
-                                temp_record = {
-                                    'assigned_date': assigned_date_edit,
-                                    'loading_starting_date': loading_start_edit,
-                                    'trip_starting_date': trip_start_edit,
-                                    'trip_end_date': trip_end_edit
-                                }
-                                status, _ = calculate_status_and_errors(temp_record)
-
-                                update_data = {
-                                    "plate_number": plate_edit,
-                                    "driver_name": derived_driver,
-                                    "phone_number": derived_phone if derived_phone else None,
-                                    "vehicle_type": derived_vehicle_type if derived_vehicle_type else None,
-                                    "from_location": from_location_edit,
-                                    "assigned_branch_name": branch_edit,
-                                    "requested_date": str(requested_date_edit) if requested_date_edit else None,
-                                    "requested_by": requested_by_edit,
-                                    "assigned_by": assigned_by_edit,
-                                    "assigned_date": str(assigned_date_edit) if assigned_date_edit else None,
-                                    "status": status,
-                                    "loading_starting_date": format_datetime_for_db(loading_start_dt),
-                                    "loading_date_end": format_datetime_for_db(loading_end_dt),
-                                    "trip_starting_date": format_datetime_for_db(trip_start_dt),
-                                    "arrival_date": format_datetime_for_db(arrival_dt),
-                                    "return_date": format_datetime_for_db(return_dt_combined),
-                                    "trip_end_date": format_datetime_for_db(trip_end_dt),
-                                }
-                                try:
-                                    res = supabase.table(TXN_TABLE).update(update_data).eq("new_id", selected_trip_id).execute()
-                                    if res.data:
-                                        st.success("✅ Trip updated successfully!")
-                                        st.session_state.show_edit_form = False
-                                        st.session_state.edit_trip_id = None
-                                        st.session_state.edit_trip_data = None
-                                        load_assignments.clear()
-                                        st.rerun()
-                                except Exception as e:
-                                    st.error(f"❌ Update failed: {str(e)}")
-
-                    if delete_clicked:
-                        st.session_state.show_delete_confirmation = True
-                        st.rerun()
-
-                    if cancel_clicked:
-                        st.session_state.show_edit_form = False
-                        st.session_state.edit_trip_id = None
-                        st.session_state.edit_trip_data = None
-                        st.rerun()
-
-                st.markdown('</div>', unsafe_allow_html=True)
-
-                # ---- Delete confirmation (outside form) ----
-                if st.session_state.show_delete_confirmation:
-                    st.warning("Are you sure you want to delete this trip?")
-                    col_conf1, col_conf2 = st.columns(2)
-                    with col_conf1:
-                        if st.button("✅ Yes, Delete", key="confirm_delete_trip_edit_final"):
-                            try:
-                                supabase.table(TXN_TABLE).update({
-                                    "is_deleted": True,
-                                    "deleted_at": datetime.now().isoformat()
-                                }).eq("new_id", selected_trip_id).execute()
-                                st.success("✅ Trip deleted successfully!")
-                                st.session_state.show_delete_confirmation = False
-                                st.session_state.show_edit_form = False
-                                st.session_state.edit_trip_id = None
-                                st.session_state.edit_trip_data = None
-                                load_assignments.clear()
-                                st.rerun()
-                            except Exception as e:
-                                st.error(f"❌ Delete failed: {str(e)}")
-                    with col_conf2:
-                        if st.button("❌ Cancel", key="cancel_delete_trip_edit_final"):
-                            st.session_state.show_delete_confirmation = False
-                            st.rerun()
+        # If no trip selected, clear any existing edit data
         else:
-            # Informative message when no trip is selected
+            if st.session_state.edit_trip_data is not None:
+                st.session_state.edit_trip_data = None
+                st.session_state.edit_trip_id = None
+                for key in ["edit_requested_date", "edit_assigned_date", "edit_loading_start",
+                            "edit_loading_end", "edit_trip_start", "edit_arrival", "edit_return", "edit_trip_end"]:
+                    if key in st.session_state:
+                        del st.session_state[key]
+
+        # Now render the edit form if we have data
+        if st.session_state.edit_trip_data:
+            edit_data = st.session_state.edit_trip_data
+            plate_display = edit_data.get('plate_number', 'Unknown')
+
+            st.markdown('<div class="edit-container">', unsafe_allow_html=True)
+            st.markdown(f"### ✏️ Edit Trip – {plate_display}")
+
+            # Pre-fill values from edit_data
+            current_plate = edit_data.get('plate_number', '')
+            current_from = edit_data.get('from_location', '')
+            current_branch = edit_data.get('assigned_branch_name', '')
+            current_requested_by = edit_data.get('requested_by', '')
+            current_assigned_by = edit_data.get('assigned_by', '')
+            # We don't need to use these directly; we'll use session state keys
+
+            # Derive driver info from master data (or fallback to trip's stored values)
+            if current_plate in plate_to_driver:
+                derived_driver = plate_to_driver[current_plate]
+                derived_phone = plate_to_phone.get(current_plate, '')
+                derived_vehicle_type = plate_to_vehicle_type.get(current_plate, '')
+            else:
+                derived_driver = edit_data.get('driver_name', '')
+                derived_phone = edit_data.get('phone_number', '')
+                derived_vehicle_type = edit_data.get('vehicle_type', '')
+
+            # Expected dates (computed, display only) – using current values from session state
+            current_trip_start = st.session_state.get("edit_trip_start", None)
+            computed_expected_arrival = None
+            computed_expected_trip_end = None
+            if current_branch and current_trip_start:
+                transit_days = BRANCH_EXPECTED_DAYS.get(current_branch.strip())
+                if transit_days is not None:
+                    computed_expected_arrival = current_trip_start + timedelta(days=transit_days)
+                    computed_expected_trip_end = current_trip_start + timedelta(days=2 * transit_days)
+
+            # ---- Form: same fields as Add New Trip, but pre-filled ----
+            # Plate selection (outside form)
+            plate_edit = st.selectbox(
+                "Plate Number *",
+                options=plate_numbers,
+                index=plate_numbers.index(current_plate) if current_plate in plate_numbers else 0,
+                key="edit_plate_select"
+            )
+            # Re‑derive driver info if plate changes
+            if plate_edit in plate_to_driver:
+                derived_driver = plate_to_driver[plate_edit]
+                derived_phone = plate_to_phone.get(plate_edit, '')
+                derived_vehicle_type = plate_to_vehicle_type.get(plate_edit, '')
+            else:
+                derived_driver = ''
+                derived_phone = ''
+                derived_vehicle_type = ''
+
+            col_info1, col_info2, col_info3 = st.columns(3)
+            with col_info1:
+                st.text_input("Driver", value=derived_driver, disabled=True)
+            with col_info2:
+                st.text_input("Phone", value=derived_phone, disabled=True)
+            with col_info3:
+                st.text_input("Truck Type", value=derived_vehicle_type, disabled=True)
+
+            # Branch selection (outside form)
+            branch_edit = st.selectbox(
+                "Assigned Branch *",
+                options=branches,
+                index=branches.index(current_branch) if current_branch in branches else 0,
+                key="edit_branch_select"
+            )
+            transit_days = BRANCH_EXPECTED_DAYS.get(branch_edit.strip(), None)
+            st.caption(f"Expected Transit Days: {transit_days if transit_days is not None else '—'}")
+
+            # Now the form with all other fields, using session state for dates
+            with st.form(key="edit_trip_form"):
+                # Row 1: From Location, Requested By, Assigned By
+                col5, col6, col7, col8 = st.columns(4)
+                with col5:
+                    from_location_edit = st.selectbox(
+                        "From Location *",
+                        options=from_locations,
+                        index=from_locations.index(current_from) if current_from in from_locations else 0,
+                        key="edit_from"
+                    )
+                with col6:
+                    requested_by_edit = st.text_input(
+                        "Requested By *",
+                        value=current_requested_by,
+                        key="edit_requested_by"
+                    )
+                with col7:
+                    assigned_by_edit = st.text_input(
+                        "Assigned By *",
+                        value=current_assigned_by,
+                        key="edit_assigned_by"
+                    )
+                with col8:
+                    st.empty()
+
+                # Row 2: Requested Date, Assigned Date, Loading Start, Loading End
+                # Use session state values (which are always up-to-date)
+                col9, col10, col11, col12 = st.columns(4)
+                with col9:
+                    requested_date_edit = st.date_input(
+                        "Requested Date",
+                        value=st.session_state.get("edit_requested_date", None),
+                        key="edit_requested_date"
+                    )
+                with col10:
+                    assigned_date_edit = st.date_input(
+                        "Assigned Date",
+                        value=st.session_state.get("edit_assigned_date", None),
+                        key="edit_assigned_date"
+                    )
+                with col11:
+                    loading_start_edit = st.date_input(
+                        "Loading Starting Date",
+                        value=st.session_state.get("edit_loading_start", None),
+                        key="edit_loading_start"
+                    )
+                with col12:
+                    loading_end_edit = st.date_input(
+                        "Loading Date End",
+                        value=st.session_state.get("edit_loading_end", None),
+                        key="edit_loading_end"
+                    )
+
+                # Row 3: Trip Start, Return, Actual Trip End, Arrival
+                col13, col14, col15, col16 = st.columns(4)
+                with col13:
+                    trip_start_edit = st.date_input(
+                        "Trip Starting Date",
+                        value=st.session_state.get("edit_trip_start", None),
+                        key="edit_trip_start"
+                    )
+                with col14:
+                    return_edit = st.date_input(
+                        "Arrival Date",
+                        value=st.session_state.get("edit_arrival", None),
+                        key="edit_arrival"
+                    )
+                with col15:
+                    trip_end_edit = st.date_input(
+                        "Return Date",
+                        value=st.session_state.get("return_end", None),
+                        key="return_end"
+                    )
+                with col16:
+                    arrival_edit = st.date_input(
+                        "Actual Trip End Date",
+                        value=st.session_state.get("edit_trip_end", None),
+                        key="edit_trip_end"
+                    )
+
+                # Expected dates (display only)
+                st.caption(f"**Expected Arrival:** {computed_expected_arrival.strftime('%Y-%m-%d') if computed_expected_arrival else '—'}")
+                st.caption(f"**Expected Trip End:** {computed_expected_trip_end.strftime('%Y-%m-%d') if computed_expected_trip_end else '—'}")
+
+                # ---- Buttons: Update, Delete, Cancel ----
+                col_btn1, col_btn2, col_btn3 = st.columns([1, 1, 1])
+                with col_btn1:
+                    update_clicked = st.form_submit_button("🔄 Update Trip", type="primary", use_container_width=True)
+                with col_btn2:
+                    delete_clicked = st.form_submit_button("🗑️ Delete Trip", use_container_width=True)
+                with col_btn3:
+                    cancel_clicked = st.form_submit_button("❌ Cancel", use_container_width=True)
+
+                if update_clicked:
+                    errors = []
+                    if not plate_edit:
+                        errors.append("Plate Number is required.")
+                    if not requested_date_edit:
+                        errors.append("Requested Date is required.")
+                    if not assigned_date_edit:
+                        errors.append("Assigned Date is required.")
+                    if not from_location_edit:
+                        errors.append("From Location is required.")
+                    if not branch_edit:
+                        errors.append("Assigned Branch is required.")
+                    if errors:
+                        for err in errors:
+                            st.error(f"❌ {err}")
+                    else:
+                        # Check for conflicting active trips (except this one)
+                        existing = supabase.table(TXN_TABLE)\
+                            .select("new_id,status")\
+                            .eq("plate_number", plate_edit)\
+                            .in_("status", ["Planned", "Loading", "In Transit"])\
+                            .execute()
+                        conflict = any(row['new_id'] != selected_trip_id for row in existing.data)
+                        if conflict:
+                            st.error(f"❌ Vehicle {plate_edit} already has another active trip. Complete that trip first.")
+                        else:
+                            loading_start_dt = combine_date_with_current_time(loading_start_edit) if loading_start_edit else None
+                            loading_end_dt = combine_date_with_current_time(loading_end_edit) if loading_end_edit else None
+                            trip_start_dt = combine_date_with_current_time(trip_start_edit) if trip_start_edit else None
+                            arrival_dt = combine_date_with_current_time(arrival_edit) if arrival_edit else None
+                            return_dt_combined = combine_date_with_current_time(return_edit) if return_edit else None
+                            trip_end_dt = combine_date_with_current_time(trip_end_edit) if trip_end_edit else None
+
+                            temp_record = {
+                                'assigned_date': assigned_date_edit,
+                                'loading_starting_date': loading_start_edit,
+                                'trip_starting_date': trip_start_edit,
+                                'trip_end_date': trip_end_edit
+                            }
+                            status, _ = calculate_status_and_errors(temp_record)
+
+                            update_data = {
+                                "plate_number": plate_edit,
+                                "driver_name": derived_driver,
+                                "phone_number": derived_phone if derived_phone else None,
+                                "vehicle_type": derived_vehicle_type if derived_vehicle_type else None,
+                                "from_location": from_location_edit,
+                                "assigned_branch_name": branch_edit,
+                                "requested_date": str(requested_date_edit) if requested_date_edit else None,
+                                "requested_by": requested_by_edit,
+                                "assigned_by": assigned_by_edit,
+                                "assigned_date": str(assigned_date_edit) if assigned_date_edit else None,
+                                "status": status,
+                                "loading_starting_date": format_datetime_for_db(loading_start_dt),
+                                "loading_date_end": format_datetime_for_db(loading_end_dt),
+                                "trip_starting_date": format_datetime_for_db(trip_start_dt),
+                                "arrival_date": format_datetime_for_db(arrival_dt),
+                                "return_date": format_datetime_for_db(return_dt_combined),
+                                "trip_end_date": format_datetime_for_db(trip_end_dt),
+                            }
+                            try:
+                                res = supabase.table(TXN_TABLE).update(update_data).eq("new_id", selected_trip_id).execute()
+                                if res.data:
+                                    st.success("✅ Trip updated successfully!")
+                                    st.session_state.show_edit_form = False
+                                    st.session_state.edit_trip_id = None
+                                    st.session_state.edit_trip_data = None
+                                    # Clear session state keys for date fields
+                                    for key in ["edit_requested_date", "edit_assigned_date", "edit_loading_start",
+                                                "edit_loading_end", "edit_trip_start", "edit_arrival", "edit_return", "edit_trip_end"]:
+                                        if key in st.session_state:
+                                            del st.session_state[key]
+                                    load_assignments.clear()
+                                    st.rerun()
+                            except Exception as e:
+                                st.error(f"❌ Update failed: {str(e)}")
+
+                if delete_clicked:
+                    st.session_state.show_delete_confirmation = True
+                    st.rerun()
+
+                if cancel_clicked:
+                    st.session_state.show_edit_form = False
+                    st.session_state.edit_trip_id = None
+                    st.session_state.edit_trip_data = None
+                    # Clear session state keys for date fields
+                    for key in ["edit_requested_date", "edit_assigned_date", "edit_loading_start",
+                                "edit_loading_end", "edit_trip_start", "edit_arrival", "edit_return", "edit_trip_end"]:
+                        if key in st.session_state:
+                            del st.session_state[key]
+                    st.rerun()
+
+            st.markdown('</div>', unsafe_allow_html=True)
+
+            # ---- Delete confirmation (outside form) ----
+            if st.session_state.show_delete_confirmation:
+                st.warning("Are you sure you want to delete this trip?")
+                col_conf1, col_conf2 = st.columns(2)
+                with col_conf1:
+                    if st.button("✅ Yes, Delete", key="confirm_delete_trip_edit_final"):
+                        try:
+                            supabase.table(TXN_TABLE).update({
+                                "is_deleted": True,
+                                "deleted_at": datetime.now().isoformat()
+                            }).eq("new_id", selected_trip_id).execute()
+                            st.success("✅ Trip deleted successfully!")
+                            st.session_state.show_delete_confirmation = False
+                            st.session_state.show_edit_form = False
+                            st.session_state.edit_trip_id = None
+                            st.session_state.edit_trip_data = None
+                            # Clear session state keys
+                            for key in ["edit_requested_date", "edit_assigned_date", "edit_loading_start",
+                                        "edit_loading_end", "edit_trip_start", "edit_arrival", "edit_return", "edit_trip_end"]:
+                                if key in st.session_state:
+                                    del st.session_state[key]
+                            load_assignments.clear()
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"❌ Delete failed: {str(e)}")
+                with col_conf2:
+                    if st.button("❌ Cancel", key="cancel_delete_trip_edit_final"):
+                        st.session_state.show_delete_confirmation = False
+                        st.rerun()
+        else:
             st.info("👆 Please select a trip from the dropdown above to edit or delete it.")
 
         st.markdown("---")
-        st.write("")  # extra spacing after the edit form
+        st.write("")
 
-    # ----- TRIP RECORDS TABLE (always shown below the forms) -----
+    # ----- TRIP RECORDS TABLE -----
     st.markdown('<div class="section-header">📋 Vehicle Trip Information Table</div>', unsafe_allow_html=True)
 
     try:
@@ -2148,13 +2148,11 @@ def show_trip_management(assignments_df, master_df):
             else:
                 data = data.sort_values(by="new_id", ascending=False)
 
-            # Ensure new columns exist (they are computed in preprocessing)
             for col in ['expected_arrival_date', 'expected_trip_end_date', 'on_time_delivery_days', 'trip_variance_days',
                         'delivery_status', 'trip_status']:
                 if col not in data.columns:
                     data[col] = None
 
-            # Base display columns – we will reorder later
             base_columns = [
                 "new_id", "plate_number", "driver_name", "phone_number", "vehicle_type",
                 "from_location", "assigned_branch_name", "requested_date",
@@ -2172,7 +2170,6 @@ def show_trip_management(assignments_df, master_df):
                 if col not in data.columns:
                     data[col] = None
 
-            # Define desired column order for display
             display_cols_order = [
                 "plate_number", "driver_name", "phone_number", "vehicle_type",
                 "from_location", "assigned_branch_name", "requested_date",
@@ -2192,7 +2189,6 @@ def show_trip_management(assignments_df, master_df):
                 if col not in data.columns:
                     data[col] = None
 
-            # ---- Filters and display ----
             col_filter1, col_filter2, col_filter3 = st.columns(3)
             with col_filter1:
                 status_options = ["All"]
@@ -2368,6 +2364,201 @@ def show_trip_management(assignments_df, master_df):
         logger.error(f"Dashboard load error: {e}")
 
 # ===================================================
+# ON-TIME DELIVERY PERFORMANCE SECTION (using unified function)
+# ===================================================
+def show_otd_analysis(assignments_df):
+    """
+    Renders the On-Time Delivery Performance section with KPIs, charts, and filters.
+    OTD rate is computed using the unified calculate_otd_rate() function based on delivery_status.
+    """
+    completed = assignments_df[assignments_df['status'] == 'Completed'].copy()
+    if completed.empty:
+        st.info("No completed trips available for OTD analysis.")
+        return
+
+    st.subheader("Filters")
+    col_f1, col_f2, col_f3 = st.columns(3)
+    with col_f1:
+        min_date = completed['trip_end_date'].min()
+        max_date = completed['trip_end_date'].max()
+        if pd.notna(min_date) and pd.notna(max_date):
+            start_date = st.date_input("Start Date", value=min_date, key="otd_start")
+            end_date = st.date_input("End Date", value=max_date, key="otd_end")
+        else:
+            start_date = None
+            end_date = None
+    with col_f2:
+        branches = sorted(completed['assigned_branch_name'].dropna().unique())
+        selected_branches = st.multiselect("Branch", options=branches, default=branches, key="otd_branches")
+    with col_f3:
+        vehicles = sorted(completed['plate_number'].dropna().unique())
+        selected_vehicles = st.multiselect("Vehicle", options=vehicles, default=vehicles, key="otd_vehicles")
+
+    filtered = completed.copy()
+    if start_date and end_date:
+        filtered = filtered[(filtered['trip_end_date'] >= pd.Timestamp(start_date)) & (filtered['trip_end_date'] <= pd.Timestamp(end_date))]
+    if selected_branches:
+        filtered = filtered[filtered['assigned_branch_name'].isin(selected_branches)]
+    if selected_vehicles:
+        filtered = filtered[filtered['plate_number'].isin(selected_vehicles)]
+
+    if filtered.empty:
+        st.info("No completed trips match the selected filters.")
+        return
+
+    # Compute OTD using unified function
+    otd_rate, on_time_count, total_completed = calculate_otd_rate(filtered)
+    delayed_count = total_completed - on_time_count
+    delayed_rate = (delayed_count / total_completed) * 100 if total_completed > 0 else 0
+
+    # Average delay days (using on_time_delivery_days)
+    delayed_days = filtered[filtered['on_time_delivery_days'] > 0]['on_time_delivery_days']
+    avg_delay = delayed_days.mean() if not delayed_days.empty else 0
+    early_mask = filtered['on_time_delivery_days'] < 0
+    early_days = filtered.loc[early_mask, 'on_time_delivery_days']
+    avg_early = early_days.mean() if not early_days.empty else 0
+
+    # Best and worst vehicles
+    vehicle_stats = filtered.groupby('plate_number').agg(
+        total_trips=('plate_number', 'count'),
+        on_time=('delivery_status', lambda x: (x.isin(['Earlier', 'Ontime'])).sum()),
+        delayed=('delivery_status', lambda x: (x == 'Later').sum()),
+        avg_delay=('on_time_delivery_days', lambda x: x[x > 0].mean() if (x > 0).any() else 0)
+    ).reset_index()
+    vehicle_stats['otd_rate'] = (vehicle_stats['on_time'] / vehicle_stats['total_trips']) * 100
+    vehicle_stats_sorted = vehicle_stats.sort_values('otd_rate', ascending=False)
+    best_vehicle = vehicle_stats_sorted.iloc[0] if not vehicle_stats_sorted.empty else None
+    worst_vehicle = vehicle_stats_sorted.iloc[-1] if not vehicle_stats_sorted.empty else None
+
+    # Best and worst branches
+    branch_stats = filtered.groupby('assigned_branch_name').agg(
+        total_trips=('assigned_branch_name', 'count'),
+        on_time=('delivery_status', lambda x: (x.isin(['Earlier', 'Ontime'])).sum()),
+        delayed=('delivery_status', lambda x: (x == 'Later').sum())
+    ).reset_index()
+    branch_stats['otd_rate'] = (branch_stats['on_time'] / branch_stats['total_trips']) * 100
+    branch_stats_sorted = branch_stats.sort_values('otd_rate', ascending=False)
+    best_branch = branch_stats_sorted.iloc[0] if not branch_stats_sorted.empty else None
+    worst_branch = branch_stats_sorted.iloc[-1] if not branch_stats_sorted.empty else None
+
+    # Display KPI cards
+    st.subheader("Key Metrics")
+    col1, col2, col3, col4 = st.columns(4)
+    with col1:
+        st.metric("OTD Rate", f"{otd_rate:.1f}%")
+    with col2:
+        st.metric("Delayed Rate", f"{delayed_rate:.1f}%")
+    with col3:
+        st.metric("Avg Delivery Delay (Days)", f"{avg_delay:.1f}" if avg_delay else "N/A")
+    with col4:
+        st.metric("Avg Early Delivery (Days)", f"{avg_early:.1f}" if avg_early else "N/A")
+
+    col5, col6, col7, col8 = st.columns(4)
+    with col5:
+        if best_vehicle is not None:
+            st.metric("Best Vehicle", f"{best_vehicle['plate_number']}", f"{best_vehicle['otd_rate']:.1f}% OTD")
+        else:
+            st.metric("Best Vehicle", "N/A")
+    with col6:
+        if worst_vehicle is not None:
+            st.metric("Worst Vehicle", f"{worst_vehicle['plate_number']}", f"{worst_vehicle['otd_rate']:.1f}% OTD")
+        else:
+            st.metric("Worst Vehicle", "N/A")
+    with col7:
+        if best_branch is not None:
+            st.metric("Best Branch", f"{best_branch['assigned_branch_name']}", f"{best_branch['otd_rate']:.1f}% OTD")
+        else:
+            st.metric("Best Branch", "N/A")
+    with col8:
+        if worst_branch is not None:
+            st.metric("Worst Branch", f"{worst_branch['assigned_branch_name']}", f"{worst_branch['otd_rate']:.1f}% OTD")
+        else:
+            st.metric("Worst Branch", "N/A")
+
+    # Charts
+    st.subheader("Top 10 Vehicles by On-Time Delivery Performance")
+    top_on_time = vehicle_stats_sorted.head(10)
+    if not top_on_time.empty:
+        fig_top_on_time = px.bar(
+            top_on_time,
+            x='otd_rate',
+            y='plate_number',
+            orientation='h',
+            title='Top 10 Vehicles by On-Time Delivery Performance',
+            labels={'otd_rate': 'OTD Rate (%)', 'plate_number': 'Plate Number'},
+            text='otd_rate',
+            hover_data={'total_trips': True, 'on_time': True, 'otd_rate': ':.1f'}
+        )
+        fig_top_on_time.update_traces(texttemplate='%{text:.1f}%', textposition='outside')
+        fig_top_on_time.update_layout(xaxis_title='OTD Rate (%)', yaxis_title='Plate Number', height=400)
+        st.plotly_chart(fig_top_on_time, use_container_width=True)
+    else:
+        st.info("No vehicle data available.")
+
+    st.subheader("Top 10 Vehicles with Frequent Delayed Deliveries")
+    vehicle_stats['delay_rate'] = (vehicle_stats['delayed'] / vehicle_stats['total_trips']) * 100
+    top_delayed = vehicle_stats.sort_values('delay_rate', ascending=False).head(10)
+    if not top_delayed.empty:
+        fig_top_delayed = px.bar(
+            top_delayed,
+            x='delay_rate',
+            y='plate_number',
+            orientation='h',
+            title='Top 10 Vehicles with Frequent Delayed Deliveries',
+            labels={'delay_rate': 'Delay Rate (%)', 'plate_number': 'Plate Number'},
+            text='delay_rate',
+            hover_data={'total_trips': True, 'delayed': True, 'delay_rate': ':.1f'}
+        )
+        fig_top_delayed.update_traces(texttemplate='%{text:.1f}%', textposition='outside')
+        fig_top_delayed.update_layout(xaxis_title='Delay Rate (%)', yaxis_title='Plate Number', height=400)
+        st.plotly_chart(fig_top_delayed, use_container_width=True)
+    else:
+        st.info("No vehicle data available.")
+
+    st.subheader("Monthly OTD Trend")
+    filtered['month_year'] = filtered['trip_end_date'].dt.to_period('M').dt.strftime('%Y-%m')
+    monthly_stats = filtered.groupby('month_year').agg(
+        total=('month_year', 'count'),
+        on_time=('delivery_status', lambda x: (x.isin(['Earlier', 'Ontime'])).sum())
+    ).reset_index()
+    monthly_stats['otd_rate'] = (monthly_stats['on_time'] / monthly_stats['total']) * 100
+    monthly_stats = monthly_stats.sort_values('month_year')
+    if not monthly_stats.empty:
+        fig_monthly = px.line(
+            monthly_stats,
+            x='month_year',
+            y='otd_rate',
+            title='Monthly OTD Trend',
+            labels={'month_year': 'Month-Year', 'otd_rate': 'OTD Rate (%)'},
+            markers=True
+        )
+        fig_monthly.update_layout(xaxis_title='Month-Year', yaxis_title='OTD Rate (%)', height=400)
+        st.plotly_chart(fig_monthly, use_container_width=True)
+    else:
+        st.info("No monthly data available.")
+
+    st.subheader("Top 10 Branches by OTD Rate")
+    top_branches = branch_stats_sorted.head(10)
+    if not top_branches.empty:
+        fig_branches = px.bar(
+            top_branches,
+            x='otd_rate',
+            y='assigned_branch_name',
+            orientation='h',
+            title='Top 10 Branches by OTD Rate',
+            labels={'otd_rate': 'OTD Rate (%)', 'assigned_branch_name': 'Branch'},
+            text='otd_rate',
+            hover_data={'total_trips': True, 'on_time': True, 'otd_rate': ':.1f'}
+        )
+        fig_branches.update_traces(texttemplate='%{text:.1f}%', textposition='outside')
+        fig_branches.update_layout(xaxis_title='OTD Rate (%)', yaxis_title='Branch', height=400)
+        st.plotly_chart(fig_branches, use_container_width=True)
+    else:
+        st.info("No branch data available.")
+
+# ===================================================
+# KPIs & ANALYSIS PAGE (using unified OTD function)
+# ===================================================
 def show_kpis_analysis(assignments_df, master_df, maintenance_df, kpis):
     if 'selected_kpi' not in st.session_state:
         st.session_state.selected_kpi = None
@@ -2423,14 +2614,25 @@ def show_kpis_analysis(assignments_df, master_df, maintenance_df, kpis):
     completed = active_assign[active_assign['status'] == 'Completed'] if not active_assign.empty else pd.DataFrame()
     completed_count = len(completed)
 
-    otd_rate = 0
-    trip_variance_rate = 0
-    if completed_count > 0:
-        otd_count = len(completed[completed['delivery_status'].isin(['Ontime', 'Earlier'])]) if 'delivery_status' in completed.columns else 0
-        otd_rate = (otd_count / completed_count) * 100
-        on_schedule_count = len(completed[completed['trip_status'].isin(['On Schedule', 'Early Return'])]) if 'trip_status' in completed.columns else 0
-        trip_variance_rate = (on_schedule_count / completed_count) * 100
+    # --- Unified OTD calculation based on delivery_status ---
+    otd_rate, on_time_count, total_completed = calculate_otd_rate(completed)
 
+    # Optional validation: warn if inconsistent (should never happen)
+    if total_completed > 0:
+        earlier_pct = ((completed['delivery_status'] == 'Earlier').sum() / total_completed) * 100
+        ontime_pct = ((completed['delivery_status'] == 'Ontime').sum() / total_completed) * 100
+        if round(otd_rate, 1) != round(earlier_pct + ontime_pct, 1):
+            st.warning("OTD calculation inconsistency detected. Check data.")
+
+    # Trip variance rate (for on-schedule trips)
+    trip_variance_rate = 0
+    completed_with_trip_status = completed[completed['trip_status'].notna()]
+    completed_with_trip_status_count = len(completed_with_trip_status)
+    if completed_with_trip_status_count > 0:
+        on_schedule_count = len(completed_with_trip_status[completed_with_trip_status['trip_status'].isin(['On Schedule', 'Early Return'])])
+        trip_variance_rate = (on_schedule_count / completed_with_trip_status_count) * 100
+
+    # Average idle time
     if not active_assign.empty and 'total_idle' in active_assign.columns:
         total_idle_sum = active_assign['total_idle'].sum()
         active_vehicles = active_assign['plate_number'].nunique() if 'plate_number' in active_assign.columns else 0
@@ -2500,6 +2702,7 @@ def show_kpis_analysis(assignments_df, master_df, maintenance_df, kpis):
                 </div>
                 """, unsafe_allow_html=True)
 
+    # KPI detail views (unchanged)
     if st.session_state.selected_kpi:
         selected_key = st.session_state.selected_kpi
         selected_label = None
@@ -2540,11 +2743,11 @@ def show_kpis_analysis(assignments_df, master_df, maintenance_df, kpis):
                 if 'assigned_date' in filtered.columns:
                     filtered = filtered.sort_values('assigned_date', ascending=False).drop_duplicates('plate_number')
                 display_columns = [
-                    "plate_number", "driver_name", "phone_number", "vehicle_type", 
-                    "from_location", "assigned_branch_name", "requested_date", 
+                    "plate_number", "driver_name", "phone_number", "vehicle_type",
+                    "from_location", "assigned_branch_name", "requested_date",
                     "requested_by", "assigned_by", "assigned_date",
-                    "loading_starting_date", "loading_date_end", "trip_starting_date", 
-                    "arrival_date", "return_date", "trip_end_date", 
+                    "loading_starting_date", "loading_date_end", "trip_starting_date",
+                    "arrival_date", "return_date", "trip_end_date",
                     "expected_arrival_date", "expected_trip_end_date",
                     "status", "created_at",
                     "loading_time", "ongoing_time", "incoming_time", "total_trip_time",
@@ -2885,6 +3088,16 @@ def show_kpis_analysis(assignments_df, master_df, maintenance_df, kpis):
     else:
         st.info("No trip data available.")
 
+    # ===================================================
+    # ON-TIME DELIVERY PERFORMANCE SECTION (moved before Charts)
+    # ===================================================
+    st.markdown("---")
+    st.markdown('<div class="section-header">🚛 On-Time Delivery Performance</div>', unsafe_allow_html=True)
+    show_otd_analysis(assignments_df)
+
+    # ===================================================
+    # CHARTS & DETAILED ANALYSIS (redundant KPI cards removed)
+    # ===================================================
     st.markdown("---")
     st.subheader("📈 Charts & Detailed Analysis")
 
@@ -2941,29 +3154,7 @@ def show_kpis_analysis(assignments_df, master_df, maintenance_df, kpis):
         if data['trip_date'].isna().all():
             data['trip_date'] = data.index
 
-        latest_trips = data.sort_values('trip_date', ascending=False).drop_duplicates('plate_number')
-
-        status_counts = latest_trips['status'].value_counts()
-        planned_vehicles = status_counts.get('Planned', 0)
-        loading_vehicles = status_counts.get('Loading', 0)
-        in_transit_vehicles = status_counts.get('In Transit', 0)
-        completed_vehicles = status_counts.get('Completed', 0)
-        total_unique_vehicles = latest_trips['plate_number'].nunique()
-        completion_rate = (completed_vehicles / total_unique_vehicles * 100) if total_unique_vehicles > 0 else 0
-
-        col_metric1, col_metric2, col_metric3, col_metric4, col_metric5, col_metric6 = st.columns(6)
-        with col_metric1:
-            st.metric("Total Vehicles", total_unique_vehicles)
-        with col_metric2:
-            st.metric("Planned", planned_vehicles)
-        with col_metric3:
-            st.metric("Loading", loading_vehicles)
-        with col_metric4:
-            st.metric("In Transit", in_transit_vehicles)
-        with col_metric5:
-            st.metric("Completed", completed_vehicles)
-        with col_metric6:
-            st.metric("Completion Rate", f"{completion_rate:.1f}%")
+        # Redundant KPI cards removed (no more six metrics)
 
         charts = create_charts(data)
         col_chart1, col_chart2 = st.columns(2)
