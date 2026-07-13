@@ -350,6 +350,7 @@ def parse_date(date_str):
         return None
 
 def get_date_from_value(value):
+    """Convert various date representations to a date object."""
     if value is None:
         return None
     if isinstance(value, date):
@@ -358,14 +359,19 @@ def get_date_from_value(value):
         return value.date()
     if isinstance(value, str):
         try:
-            dt = datetime.strptime(value, '%Y-%m-%d %H:%M:%S')
-            return dt.date()
+            # Try pandas to handle many formats
+            dt = pd.to_datetime(value, errors='coerce')
+            if pd.notna(dt):
+                return dt.date()
         except:
+            pass
+        # Fallback: manual parse for common formats
+        for fmt in ('%Y-%m-%d %H:%M:%S', '%Y-%m-%d'):
             try:
-                dt = datetime.strptime(value, '%Y-%m-%d')
+                dt = datetime.strptime(value.strip(), fmt)
                 return dt.date()
             except:
-                return None
+                continue
     return None
 
 def get_trip_by_id(trip_id: int):
@@ -421,31 +427,47 @@ def calculate_status_and_errors(record):
     else:
         return "Planned", None
 
-def format_days_hours(days):
+# NEW DURATION FORMATTING FUNCTIONS
+def format_duration_short(days):
+    """Return a short human-readable string like '1d 11h'."""
     if pd.isna(days):
-        return ''
-    sign = '-' if days < 0 else ''
-    days_abs = abs(days)
-    d = int(days_abs)
-    h = int(round((days_abs - d) * 24))
-    if h == 24:
-        d += 1
-        h = 0
-    return f"{sign}{d}:{h}"
+        return "N/A"
+    total_hours = int(round(days * 24))
+    d = total_hours // 24
+    h = total_hours % 24
+    parts = []
+    if d > 0:
+        parts.append(f"{d}d")
+    if h > 0:
+        parts.append(f"{h}h")
+    if not parts:
+        return "0h"
+    return " ".join(parts)
+
+def format_duration_long(days):
+    """Return a long human-readable string like '1 day 11 hours'."""
+    if pd.isna(days):
+        return "N/A"
+    total_hours = int(round(days * 24))
+    d = total_hours // 24
+    h = total_hours % 24
+    parts = []
+    if d > 0:
+        parts.append(f"{d} day{'s' if d != 1 else ''}")
+    if h > 0:
+        parts.append(f"{h} hour{'s' if h != 1 else ''}")
+    if not parts:
+        return "0 hours"
+    return " ".join(parts)
+
+# For backward compatibility, we keep a wrapper
+def format_days_hours(days):
+    # This was previously used only in tables; now we use format_duration_long for tables
+    return format_duration_long(days)
 
 def format_days_hours_display(days):
-    """Format as 'X hrs (Y days)' for display."""
-    if pd.isna(days):
-        return ''
-    sign = '-' if days < 0 else ''
-    days_abs = abs(days)
-    d = int(days_abs)
-    h = int(round((days_abs - d) * 24))
-    if h == 24:
-        d += 1
-        h = 0
-    total_hours = d * 24 + h
-    return f"{sign}{total_hours} hrs ({d} day{'s' if d != 1 else ''})"
+    # This was used for KPI short display; now we use format_duration_short
+    return format_duration_short(days)
 
 # ===================================================
 # STANDARDIZED OTD CALCULATION FUNCTION
@@ -1576,7 +1598,7 @@ def view_vehicle_maintenance(master_df, assignments_df, maintenance_df):
             st.dataframe(deleted_maint, use_container_width=True, hide_index=True)
 
 # ===================================================
-# TRIP MANAGEMENT (with fixed edit form population)
+# TRIP MANAGEMENT (FIXED – all fields populated)
 # ===================================================
 def show_trip_management(assignments_df, master_df):
     if 'show_add_form' not in st.session_state:
@@ -1793,7 +1815,7 @@ def show_trip_management(assignments_df, master_df):
         st.markdown("---")
         st.write("")
 
-    # ----- EDIT / DELETE FORM (FIXED for reliable population) -----
+    # ----- EDIT / DELETE FORM (FIXED) -----
     if st.session_state.show_edit_form:
         st.markdown("### 📝 Edit or Delete Trip")
         active_trips = assignments_df[assignments_df['is_deleted'] == False] if not assignments_df.empty else pd.DataFrame()
@@ -1814,46 +1836,57 @@ def show_trip_management(assignments_df, master_df):
         )
         st.caption("Choose a trip from the list below to edit or delete it.")
 
-        # ------------------------------------------------------------------
-        # NEW LOGIC: Always fetch and refresh trip data for the selected ID
-        # ------------------------------------------------------------------
+        # If a trip is selected, fetch and populate session state
         if selected_trip_id:
-            # Always fetch fresh trip data – no conditional based on ID change
-            trip_data = get_trip_by_id(selected_trip_id)
-            if trip_data:
-                # Store the raw data in session state
-                st.session_state.edit_trip_data = trip_data
-                st.session_state.edit_trip_id = selected_trip_id
+            # Only fetch if we don't already have data for this ID
+            if st.session_state.edit_trip_id != selected_trip_id:
+                trip_data = get_trip_by_id(selected_trip_id)
+                if trip_data:
+                    st.session_state.edit_trip_data = trip_data
+                    st.session_state.edit_trip_id = selected_trip_id
 
-                # Overwrite all date session state keys with the new values
-                # This ensures the widgets always show the saved dates.
-                st.session_state["edit_requested_date"] = get_date_from_value(trip_data.get('requested_date'))
-                st.session_state["edit_assigned_date"] = get_date_from_value(trip_data.get('assigned_date'))
-                st.session_state["edit_loading_start"] = get_date_from_value(trip_data.get('loading_starting_date'))
-                st.session_state["edit_loading_end"] = get_date_from_value(trip_data.get('loading_date_end'))
-                st.session_state["edit_trip_start"] = get_date_from_value(trip_data.get('trip_starting_date'))
-                st.session_state["edit_arrival"] = get_date_from_value(trip_data.get('arrival_date'))
-                st.session_state["edit_return"] = get_date_from_value(trip_data.get('return_date'))
-                st.session_state["edit_trip_end"] = get_date_from_value(trip_data.get('trip_end_date'))
-            else:
-                st.error("Could not load trip data.")
-                # Clear session state to avoid stale data
-                st.session_state.edit_trip_data = None
-                st.session_state.edit_trip_id = None
-                for key in ["edit_requested_date", "edit_assigned_date", "edit_loading_start",
-                            "edit_loading_end", "edit_trip_start", "edit_arrival", "edit_return", "edit_trip_end"]:
-                    if key in st.session_state:
-                        del st.session_state[key]
+                    # Set date session states
+                    st.session_state["edit_requested_date"] = get_date_from_value(trip_data.get('requested_date'))
+                    st.session_state["edit_assigned_date"] = get_date_from_value(trip_data.get('assigned_date'))
+                    st.session_state["edit_loading_start"] = get_date_from_value(trip_data.get('loading_starting_date'))
+                    st.session_state["edit_loading_end"] = get_date_from_value(trip_data.get('loading_date_end'))
+                    st.session_state["edit_trip_start"] = get_date_from_value(trip_data.get('trip_starting_date'))
+                    st.session_state["edit_arrival"] = get_date_from_value(trip_data.get('arrival_date'))
+                    st.session_state["edit_return"] = get_date_from_value(trip_data.get('return_date'))
+                    st.session_state["edit_trip_end"] = get_date_from_value(trip_data.get('trip_end_date'))
 
-        # If no trip selected, clear any existing edit data
+                    # Set non-date session states
+                    st.session_state["edit_plate_select"] = trip_data.get('plate_number', '')
+                    st.session_state["edit_from"] = trip_data.get('from_location', '')
+                    st.session_state["edit_branch_select"] = trip_data.get('assigned_branch_name', '')
+                    st.session_state["edit_requested_by"] = trip_data.get('requested_by', '')
+                    st.session_state["edit_assigned_by"] = trip_data.get('assigned_by', '')
+
+                    # Rerun to apply session state updates
+                    st.rerun()
+                else:
+                    st.error("Could not load trip data.")
+                    # Clear session state
+                    st.session_state.edit_trip_data = None
+                    st.session_state.edit_trip_id = None
+                    for key in ["edit_requested_date", "edit_assigned_date", "edit_loading_start",
+                                "edit_loading_end", "edit_trip_start", "edit_arrival", "edit_return", "edit_trip_end",
+                                "edit_plate_select", "edit_from", "edit_branch_select", "edit_requested_by", "edit_assigned_by"]:
+                        if key in st.session_state:
+                            del st.session_state[key]
+                    st.rerun()
+
+        # If no trip selected, clear existing data
         else:
             if st.session_state.edit_trip_data is not None:
                 st.session_state.edit_trip_data = None
                 st.session_state.edit_trip_id = None
                 for key in ["edit_requested_date", "edit_assigned_date", "edit_loading_start",
-                            "edit_loading_end", "edit_trip_start", "edit_arrival", "edit_return", "edit_trip_end"]:
+                            "edit_loading_end", "edit_trip_start", "edit_arrival", "edit_return", "edit_trip_end",
+                            "edit_plate_select", "edit_from", "edit_branch_select", "edit_requested_by", "edit_assigned_by"]:
                     if key in st.session_state:
                         del st.session_state[key]
+                st.rerun()
 
         # Now render the edit form if we have data
         if st.session_state.edit_trip_data:
@@ -1869,7 +1902,6 @@ def show_trip_management(assignments_df, master_df):
             current_branch = edit_data.get('assigned_branch_name', '')
             current_requested_by = edit_data.get('requested_by', '')
             current_assigned_by = edit_data.get('assigned_by', '')
-            # We don't need to use these directly; we'll use session state keys
 
             # Derive driver info from master data (or fallback to trip's stored values)
             if current_plate in plate_to_driver:
@@ -2089,9 +2121,10 @@ def show_trip_management(assignments_df, master_df):
                                     st.session_state.show_edit_form = False
                                     st.session_state.edit_trip_id = None
                                     st.session_state.edit_trip_data = None
-                                    # Clear session state keys for date fields
+                                    # Clear session state keys
                                     for key in ["edit_requested_date", "edit_assigned_date", "edit_loading_start",
-                                                "edit_loading_end", "edit_trip_start", "edit_arrival", "edit_return", "edit_trip_end"]:
+                                                "edit_loading_end", "edit_trip_start", "edit_arrival", "edit_return", "edit_trip_end",
+                                                "edit_plate_select", "edit_from", "edit_branch_select", "edit_requested_by", "edit_assigned_by"]:
                                         if key in st.session_state:
                                             del st.session_state[key]
                                     load_assignments.clear()
@@ -2107,9 +2140,10 @@ def show_trip_management(assignments_df, master_df):
                     st.session_state.show_edit_form = False
                     st.session_state.edit_trip_id = None
                     st.session_state.edit_trip_data = None
-                    # Clear session state keys for date fields
+                    # Clear session state keys
                     for key in ["edit_requested_date", "edit_assigned_date", "edit_loading_start",
-                                "edit_loading_end", "edit_trip_start", "edit_arrival", "edit_return", "edit_trip_end"]:
+                                "edit_loading_end", "edit_trip_start", "edit_arrival", "edit_return", "edit_trip_end",
+                                "edit_plate_select", "edit_from", "edit_branch_select", "edit_requested_by", "edit_assigned_by"]:
                         if key in st.session_state:
                             del st.session_state[key]
                     st.rerun()
@@ -2134,7 +2168,8 @@ def show_trip_management(assignments_df, master_df):
                             st.session_state.edit_trip_data = None
                             # Clear session state keys
                             for key in ["edit_requested_date", "edit_assigned_date", "edit_loading_start",
-                                        "edit_loading_end", "edit_trip_start", "edit_arrival", "edit_return", "edit_trip_end"]:
+                                        "edit_loading_end", "edit_trip_start", "edit_arrival", "edit_return", "edit_trip_end",
+                                        "edit_plate_select", "edit_from", "edit_branch_select", "edit_requested_by", "edit_assigned_by"]:
                                 if key in st.session_state:
                                     del st.session_state[key]
                             load_assignments.clear()
@@ -2302,13 +2337,14 @@ def show_trip_management(assignments_df, master_df):
                 if 'Trip Status' in display_data.columns:
                     display_data['Trip Status'] = display_data['Trip Status'].apply(format_trip_status)
 
+                # Apply new duration formatting to table columns
                 time_cols = [
                     'Loading Time', 'Ongoing Time', 'Incoming Time', 'Total Trip Time',
                     'Idle (Assigned→Loading)', 'Idle (Loading→Trip)', 'Idle (Assigned→End)', 'Total Idle'
                 ]
                 for col in time_cols:
                     if col in display_data.columns:
-                        display_data[col] = display_data[col].apply(format_days_hours)
+                        display_data[col] = display_data[col].apply(format_duration_long)
 
                 date_cols = ['Requested Date', 'Loading Starting Date', 'Loading Date End', 'Trip Starting Date',
                              'Arrival Date', 'Return Date', 'Actual Trip End Date', 'Expected Arrival Date', 'Expected Trip End Date']
@@ -2648,14 +2684,14 @@ def show_kpis_analysis(assignments_df, master_df, maintenance_df, kpis):
         on_schedule_count = len(completed_with_trip_status[completed_with_trip_status['trip_status'].isin(['On Schedule', 'Early Return'])])
         trip_variance_rate = (on_schedule_count / completed_with_trip_status_count) * 100
 
-    # Average idle time
+    # Average idle time – use short format for KPI
+    avg_idle_display = "N/A"
     if not active_assign.empty and 'total_idle' in active_assign.columns:
         total_idle_sum = active_assign['total_idle'].sum()
         active_vehicles = active_assign['plate_number'].nunique() if 'plate_number' in active_assign.columns else 0
-        avg_idle = total_idle_sum / active_vehicles if active_vehicles > 0 else 0
-        avg_idle_display = format_days_hours_display(avg_idle)
-    else:
-        avg_idle_display = "0 hrs (0 days)"
+        if active_vehicles > 0:
+            avg_idle = total_idle_sum / active_vehicles
+            avg_idle_display = format_duration_short(avg_idle)
 
     st.subheader("🚗 Vehicle Status")
 
@@ -2829,7 +2865,7 @@ def show_kpis_analysis(assignments_df, master_df, maintenance_df, kpis):
                 ]
                 for col in time_cols:
                     if col in display_data.columns:
-                        display_data[col] = display_data[col].apply(format_days_hours)
+                        display_data[col] = display_data[col].apply(format_duration_long)
                 date_cols = ['Requested Date', 'Loading Starting Date', 'Loading Date End', 'Trip Starting Date',
                              'Arrival Date', 'Return Date', 'Actual Trip End Date', 'Expected Arrival Date', 'Expected Trip End Date']
                 for col in date_cols:
