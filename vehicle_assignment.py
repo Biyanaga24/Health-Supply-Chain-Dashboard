@@ -520,21 +520,33 @@ def process_vehicle_data(df):
     }
 
 def get_available_vehicles(master_df, assignments_df, maintenance_df):
+    """
+    Return a list of vehicle plate numbers that are NOT currently active
+    (i.e., no non‑deleted trip with status Planned, Loading, or In Transit)
+    and NOT under non‑deleted maintenance.
+    """
     if master_df.empty:
         return []
     all_plates = set(master_df['plate_number'].dropna().unique())
     active_plates = set()
     if not assignments_df.empty and 'status' in assignments_df.columns:
         active_statuses = ['Planned', 'Loading', 'In Transit']
-        active = assignments_df[assignments_df['status'].isin(active_statuses)]
+        # Only consider non-deleted trips
+        active = assignments_df[
+            (assignments_df['status'].isin(active_statuses)) &
+            (assignments_df.get('is_deleted', False) == False)
+        ]
         active_plates = set(active['plate_number'].dropna().unique())
     maint_plates = set()
     if not maintenance_df.empty and 'plate_number' in maintenance_df.columns:
+        # Only consider non-deleted maintenance records where vehicle is still under maintenance
         under_maint = maintenance_df[
-            maintenance_df['back_to_duty'].astype(str).str.strip().str.lower() == 'no'
+            (maintenance_df['back_to_duty'].astype(str).str.strip().str.lower() == 'no') &
+            (maintenance_df.get('is_deleted', False) == False)
         ]
         maint_plates = set(under_maint['plate_number'].dropna().unique())
     available_plates = all_plates - active_plates - maint_plates
+    # Optional: sort by last end date (for convenience)
     last_end_date = {}
     if not assignments_df.empty:
         trips = assignments_df[assignments_df['plate_number'].isin(available_plates)]
@@ -1675,15 +1687,16 @@ def show_trip_management(assignments_df, master_df):
             with col12:
                 loading_end = st.date_input("Loading Date End", value=None, key="add_loading_end")
 
+            # Timeline columns: Trip Starting Date, Arrival Date, Return Date, Actual Trip End Date
             col13, col14, col15, col16 = st.columns(4)
             with col13:
                 trip_start = st.date_input("Trip Starting Date", value=None, key="add_trip_start")
             with col14:
-                return_dt = st.date_input("Return Date", value=None, key="add_return")
-            with col15:
-                trip_end = st.date_input("Actual Trip End Date", value=None, key="add_trip_end")
-            with col16:
                 arrival = st.date_input("Arrival Date", value=None, key="add_arrival")
+            with col15:
+                return_dt = st.date_input("Return Date", value=None, key="add_return")
+            with col16:
+                trip_end = st.date_input("Actual Trip End Date", value=None, key="add_trip_end")
 
             col_btn1, col_btn2 = st.columns(2)
             with col_btn1:
@@ -1712,10 +1725,12 @@ def show_trip_management(assignments_df, master_df):
                     current_vehicle_type = vehicle_type
                     current_plate = selected_plate
 
+                    # Only consider non-deleted trips as active
                     existing = supabase.table(TXN_TABLE)\
                         .select("new_id,status")\
                         .eq("plate_number", current_plate)\
                         .in_("status", ["Planned", "Loading", "In Transit"])\
+                        .eq("is_deleted", False)\
                         .execute()
                     if existing.data:
                         st.error(
@@ -1966,7 +1981,7 @@ def show_trip_management(assignments_df, master_df):
                         key="edit_loading_end"
                     )
 
-                # Row 3: Trip Start, Return, Actual Trip End, Arrival
+                # Row 3: Trip Start, Arrival, Return, Actual Trip End (same order as Add form)
                 col13, col14, col15, col16 = st.columns(4)
                 with col13:
                     trip_start_edit = st.date_input(
@@ -1975,19 +1990,19 @@ def show_trip_management(assignments_df, master_df):
                         key="edit_trip_start"
                     )
                 with col14:
-                    return_edit = st.date_input(
+                    arrival_edit = st.date_input(
                         "Arrival Date",
                         value=st.session_state.get("edit_arrival", None),
                         key="edit_arrival"
                     )
                 with col15:
-                    trip_end_edit = st.date_input(
+                    return_edit = st.date_input(
                         "Return Date",
-                        value=st.session_state.get("return_end", None),
-                        key="return_end"
+                        value=st.session_state.get("edit_return", None),
+                        key="edit_return"
                     )
                 with col16:
-                    arrival_edit = st.date_input(
+                    trip_end_edit = st.date_input(
                         "Actual Trip End Date",
                         value=st.session_state.get("edit_trip_end", None),
                         key="edit_trip_end"
@@ -2022,11 +2037,12 @@ def show_trip_management(assignments_df, master_df):
                         for err in errors:
                             st.error(f"❌ {err}")
                     else:
-                        # Check for conflicting active trips (except this one)
+                        # Check for conflicting active trips (except this one) – exclude deleted
                         existing = supabase.table(TXN_TABLE)\
                             .select("new_id,status")\
                             .eq("plate_number", plate_edit)\
                             .in_("status", ["Planned", "Loading", "In Transit"])\
+                            .eq("is_deleted", False)\
                             .execute()
                         conflict = any(row['new_id'] != selected_trip_id for row in existing.data)
                         if conflict:
