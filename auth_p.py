@@ -1,4 +1,3 @@
-
 import streamlit as st
 import hashlib
 import pandas as pd
@@ -19,7 +18,7 @@ logging.getLogger("requests").setLevel(logging.ERROR)
 # ===================================================
 SUPABASE_URL = "https://etjfrptbjecafupbbase.supabase.co"
 SUPABASE_KEY = "sb_publishable_j0JwaJAJBuJO79-xh7RkYg_PFKqLK1H"
-USERS_TABLE = "users_vehicle"   # <-- using your existing table
+USERS_TABLE = "users_vehicle"
 
 @st.cache_resource
 def get_supabase():
@@ -27,7 +26,6 @@ def get_supabase():
 
 supabase = get_supabase()
 
-# Timezone for Addis Ababa
 ADDIS_ABABA_TZ = pytz.timezone('Africa/Addis_Ababa')
 
 def get_current_time():
@@ -52,14 +50,13 @@ def format_time_for_display(dt):
     return str(dt)
 
 # ===================================================
-# AUTHENTICATION HELPERS (from auth.py)
+# AUTHENTICATION HELPERS
 # ===================================================
 
 def hash_password(password: str) -> str:
     return hashlib.sha256(password.encode()).hexdigest()
 
 def authenticate_user(email, password):
-    """Check credentials – returns user dict or {'error': 'not_approved'}"""
     hashed = hash_password(password)
     try:
         response = supabase.table(USERS_TABLE) \
@@ -83,7 +80,6 @@ def authenticate_user(email, password):
         return None
 
 def create_user(email, password, full_name):
-    """Insert new user with hashed password – pending approval (unless first admin)"""
     try:
         hashed = hash_password(password)
         existing = supabase.table(USERS_TABLE).select("*").eq("email", email).execute()
@@ -188,7 +184,6 @@ def get_online_users():
         return []
 
 def get_admin_count():
-    """Return number of admin users (for first-user logic)."""
     try:
         resp = supabase.table(USERS_TABLE).select("id").eq("role", "admin").execute()
         return len(resp.data) if resp.data else 0
@@ -196,44 +191,197 @@ def get_admin_count():
         return 0
 
 # ===================================================
-# EXPORTED INTERFACE (for vehicle_assignment.py)
+# EXPORTED INTERFACE
 # ===================================================
 
 def setup_auth() -> bool:
-    """Main authentication UI – returns True if authenticated."""
     if 'authenticated' in st.session_state and st.session_state.authenticated:
         return True
 
-    # ---- Orange Theme CSS ----
     st.markdown("""
     <style>
-        .stApp { background-color: #fff8f0; }
-        .stButton button { background-color: #FF8C00 !important; color: white !important; border-radius: 8px !important; font-weight: bold !important; border: none !important; }
-        .stButton button:hover { background-color: #e67e00 !important; box-shadow: 0 4px 12px rgba(255,140,0,0.4) !important; }
-        .stTabs [data-baseweb="tab-list"] button [data-testid="stMarkdownContainer"] p { font-weight: 600 !important; color: #333 !important; }
-        .stTabs [data-baseweb="tab-list"] button[aria-selected="true"] { border-bottom: 3px solid #FF8C00 !important; }
-        h1, h2, h3 { color: #e67e00 !important; }
-        .feature-card { background: white; padding: 1rem 1.2rem; border-radius: 12px; border-left: 6px solid #FF8C00; box-shadow: 0 2px 8px rgba(0,0,0,0.06); margin-bottom: 0.8rem; transition: transform 0.2s; }
-        .feature-card:hover { transform: translateX(4px); box-shadow: 0 4px 12px rgba(255,140,0,0.15); }
-        .feature-card h4 { margin: 0 0 0.3rem 0; color: #e67e00; font-size: 1.1rem; }
-        .feature-card p { margin: 0; font-size: 0.95rem; color: #333; }
-        .auth-container { background: white; padding: 1.5rem 1.8rem; border-radius: 16px; box-shadow: 0 4px 20px rgba(0,0,0,0.08); border: 1px solid #f0e0d0; }
-        .auth-container .stTabs { margin-top: 0.5rem; }
-        .auth-container .stTextInput > div > div > input { border-radius: 8px; }
+        /* Force Times New Roman everywhere */
+        * {
+            font-family: 'Times New Roman', Times, serif !important;
+        }
+        .stApp { background-color: #f5f7fa; }
+        .stButton button { 
+            background-color: #FF8C00 !important; 
+            color: white !important; 
+            border-radius: 8px !important; 
+            font-weight: bold !important; 
+            border: none !important; 
+            font-family: 'Times New Roman', Times, serif !important;
+        }
+        .stButton button:hover { 
+            background-color: #e67e00 !important; 
+            box-shadow: 0 4px 12px rgba(255,140,0,0.4) !important; 
+        }
+        .stTabs [data-baseweb="tab-list"] button [data-testid="stMarkdownContainer"] p { 
+            font-weight: 600 !important; 
+            color: #333 !important; 
+        }
+        .stTabs [data-baseweb="tab-list"] button[aria-selected="true"] { 
+            border-bottom: 3px solid #FF8C00 !important; 
+        }
+        h1, h2, h3 { 
+            color: #1E88E5 !important; 
+            font-family: 'Times New Roman', Times, serif !important;
+        }
+
+        /* Big card – centered with strong visible edges */
+        .big-card-wrapper {
+            display: flex;
+            justify-content: center;
+            margin: 1rem 0;
+        }
+        .big-card {
+            background: white;
+            padding: 2rem 2.5rem;
+            border-radius: 20px;
+            border: 4px solid #1E88E5;
+            box-shadow: 0 8px 30px rgba(30, 136, 229, 0.3);
+            max-width: 1100px;
+            width: 100%;
+            border-left: 8px solid #1E88E5;
+            border-right: 8px solid #1E88E5;
+        }
+        .big-card h2 {
+            color: #1E88E5;
+            margin-top: 0;
+            font-size: 1.6rem;
+        }
+
+        /* Feature cards grid – white background */
+        .feature-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 1rem;
+            margin: 1.2rem 0;
+        }
+        .feature-card {
+            background: white;
+            border: 1px solid #d0d7e3;
+            border-radius: 12px;
+            padding: 1rem 1.2rem;
+            box-shadow: 0 2px 6px rgba(0,0,0,0.04);
+            transition: all 0.2s ease;
+        }
+        .feature-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 16px rgba(30, 136, 229, 0.15);
+            border-color: #1E88E5;
+        }
+        .feature-card strong {
+            color: #1E88E5;
+            font-size: 1.05rem;
+            display: block;
+            margin-bottom: 0.2rem;
+        }
+        .feature-card p {
+            margin: 0;
+            font-size: 0.95rem;
+            color: #333;
+            line-height: 1.4;
+        }
+
+        /* Auth container – pure white background */
+        .auth-container {
+            background: white !important;
+            padding: 1.2rem 1.8rem;
+            border-radius: 16px;
+            border: 1px solid #d0d7e3;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+        }
+        /* Force white background for auth container and all its children */
+        .auth-container,
+        .auth-container .stTabs,
+        .auth-container .stTabs [data-baseweb="tab-list"],
+        .auth-container .stTabs [data-baseweb="tab-panel"],
+        .auth-container .stForm,
+        .auth-container .stTextInput > div > div > input,
+        .auth-container .stTextInput > div > div {
+            background-color: white !important;
+        }
+        /* Ensure the tab panels and forms inside are white */
+        .auth-container .stTabs [data-baseweb="tab-panel"] {
+            background-color: white !important;
+        }
+        .auth-container .stForm {
+            background-color: white !important;
+        }
+        .auth-container .stTextInput > div > div > input {
+            background-color: white !important;
+        }
+
+        .stTextInput > div > div > input { border-radius: 8px; }
+
+        /* Slow moving title */
+        @keyframes slideTitle {
+            0% { transform: translateX(-20px); opacity: 0; }
+            20% { opacity: 1; }
+            80% { opacity: 1; }
+            100% { transform: translateX(20px); opacity: 0; }
+        }
+        .moving-title {
+            display: inline-block;
+            animation: slideTitle 6s ease-in-out infinite;
+            animation-direction: alternate;
+        }
+
+        /* Responsive */
+        @media (max-width: 768px) {
+            .big-card { padding: 1.5rem; border-width: 3px; border-left-width: 4px; border-right-width: 4px; }
+            .auth-container { margin-top: 1.5rem; }
+            .feature-grid { grid-template-columns: 1fr; }
+        }
     </style>
     """, unsafe_allow_html=True)
 
-    st.title("🚚 EPSS Fleet Management System")
-    col_left, col_right = st.columns([1.2, 1], gap="large")
+    # Animated title
+    st.markdown(
+        "<h1 style='text-align: center; color: #1E88E5;'>"
+        "<span class='moving-title'>🚚 EPSS Fleet Management System</span>"
+        "</h1>",
+        unsafe_allow_html=True
+    )
+
+    st.markdown('<div class="big-card-wrapper"><div class="big-card">', unsafe_allow_html=True)
+
+    col_left, col_right = st.columns([2.2, 1], gap="large")
 
     with col_left:
-        st.markdown("### 📋 Key Features")
         st.markdown("""
-        <div class="feature-card"><h4>📝 Trip Management</h4><p>Create, edit, and delete trips with real‑time status tracking.</p></div>
-        <div class="feature-card"><h4>📊 Vehicle KPIs</h4><p>At‑a‑glance metrics: Total, Active, Grounded, Assigned, and Available vehicles.</p></div>
-        <div class="feature-card"><h4>📈 Performance Analytics</h4><p>Interactive charts for trip volume, branch distribution, driver performance, and timeline trends.</p></div>
-        <div class="feature-card"><h4>👑 Admin Panel</h4><p>Approve or reject new user registrations (admin only).</p></div>
-        <div class="feature-card"><h4>🔒 Secure Authentication</h4><p>Email/password login with role‑based access control.</p></div>
+        <h2>📊 Dashboard Overview</h2>
+        <p style="font-size:1rem;">
+            Welcome to the <strong>Ethiopian Pharmaceutical Supply Service (EPSS)</strong> fleet management system.
+            This dashboard provides all the tools to manage your vehicle fleet efficiently.
+        </p>
+        <div class="feature-grid">
+            <div class="feature-card">
+                <strong>📋 Trip Management</strong>
+                <p>Plan, assign, and track trips with real‑time status updates.</p>
+            </div>
+            <div class="feature-card">
+                <strong>📊 KPIs & Analysis</strong>
+                <p>Monitor utilisation, OTD, trip variance, and idle times.</p>
+            </div>
+            <div class="feature-card">
+                <strong>🔧 Vehicle Maintenance</strong>
+                <p>Record maintenance events, costs, and service history.</p>
+            </div>
+            <div class="feature-card">
+                <strong>👑 Admin Panel</strong>
+                <p>Manage users, roles, and vehicle master data.</p>
+            </div>
+            <div class="feature-card" style="grid-column: span 2;">
+                <strong>🔐 Role‑Based Access</strong>
+                <p>Secure access tailored to each user's responsibilities.</p>
+            </div>
+        </div>
+        <p style="margin-top:0.8rem; font-style:italic; font-size:0.95rem;">
+            Log in or register to access your personalised dashboard.
+        </p>
         """, unsafe_allow_html=True)
 
     with col_right:
@@ -287,14 +435,12 @@ def setup_auth() -> bool:
                         st.error("Password must be at least 6 characters")
                     else:
                         with st.spinner("Creating account..."):
-                            # Check if first user (no admins) -> auto-approve and make admin
                             admin_count = get_admin_count()
                             is_first = (admin_count == 0)
 
                             success, message = create_user(email, password, full_name)
                             if success:
                                 if is_first:
-                                    # Get the newly created user and update role & approval
                                     user_resp = supabase.table(USERS_TABLE).select("id").eq("email", email).execute()
                                     if user_resp.data:
                                         supabase.table(USERS_TABLE).update({
@@ -312,10 +458,12 @@ def setup_auth() -> bool:
 
         st.markdown('</div>', unsafe_allow_html=True)
 
+    st.markdown('</div></div>', unsafe_allow_html=True)
+
     return False
 
 # ===================================================
-# EXPORTED FUNCTIONS (for vehicle_assignment.py)
+# EXPORTED FUNCTIONS
 # ===================================================
 
 def get_user_email():
@@ -344,11 +492,10 @@ def is_authenticated():
     return st.session_state.get('authenticated', False)
 
 # ===================================================
-# ADMIN PANEL (inline, no extra imports)
+# ADMIN PANEL
 # ===================================================
 
 def admin_panel():
-    """Admin panel widget (called from vehicle_assignment.py)."""
     if not is_authenticated() or st.session_state.get('user', {}).get('role') != 'admin':
         st.error("⚠️ Admin access required.")
         return
