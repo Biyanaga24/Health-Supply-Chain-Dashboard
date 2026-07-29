@@ -52,6 +52,7 @@ BRANCH_EXPECTED_DAYS = {
     "Gambela": 2,
     "Gondar": 2,
     "Hawassa": 0,
+    "HO":0,
     "Kebridehar": 2,
     "Jigjiga": 1,
     "Jimma": 0,
