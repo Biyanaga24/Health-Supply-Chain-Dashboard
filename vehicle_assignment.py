@@ -47,22 +47,45 @@ BRANCH_EXPECTED_DAYS = {
     "Arbamnch": 1,
     "Assosa": 2,
     "Bahir dar": 1,
+    "Bole": 0,
     "Dessie": 1,
     "Dire dawa": 1,
     "Gambela": 2,
     "Gondar": 2,
     "Hawassa": 0,
-    "HO":0,
-    "Kebridehar": 2,
+    "HO": 0,  # <-- HO added here
     "Jigjiga": 1,
     "Jimma": 0,
+    "Kebridehar": 2,
     "Mekele": 2,
     "Negeleborena": 1,
     "Nekemte": 0,
     "Semera": 1,
-    "Shire": 3,
-    "Bole": 0
+    "Shire": 3
 }
+
+# ===================================================
+# BRANCH CONFIGURATION - DEFAULT BRANCHES
+# ===================================================
+DEFAULT_BRANCHES = [
+    "AA1", "AA2", "Adama", "Arbamnch", "Assosa", "Bahir dar", 
+    "Bole", "Dessie", "Dire dawa", "Gambela", "Gondar", "Hawassa", 
+    "HO",  # <-- HO added here
+    "Jigjiga", "Jimma", "Kebridehar", "Mekele", "Negeleborena", 
+    "Nekemte", "Semera", "Shire"
+]
+
+def get_all_branches(assignments_df=None):
+    """
+    Get all branches from assignments plus default branches.
+    This ensures HO and other default branches appear in dropdowns even without trip data.
+    """
+    if assignments_df is not None and not assignments_df.empty:
+        existing = assignments_df['assigned_branch_name'].dropna().astype(str).str.strip().unique().tolist()
+        all_branches = sorted(set(existing + DEFAULT_BRANCHES))
+    else:
+        all_branches = sorted(DEFAULT_BRANCHES)
+    return all_branches
 
 # ===================================================
 # CACHED RESOURCES
@@ -171,10 +194,14 @@ is_admin_user = is_admin
 
 user_metadata = get_user_metadata()
 
-st.set_page_config(page_title="EPSS Fleet Dashboard", layout="wide")
+# ===================================================
+# PAGE CONFIG – updated title to "EPSS Fleet Management System"
+# ===================================================
+st.set_page_config(page_title="EPSS Fleet Management System", layout="wide")
 
 # ===================================================
 # CUSTOM CSS (font: Times New Roman except tables)
+# Added slow-slide animation for the main title
 # ===================================================
 st.markdown("""
 <style>
@@ -288,10 +315,26 @@ st.markdown("""
         align-items: center;
         gap: 2px;
     }
+
+    /* ---- Slow sliding animation for the main title ---- */
+    @keyframes slowSlide {
+        0% { transform: translateX(-8px); }
+        100% { transform: translateX(8px); }
+    }
+    .moving-title {
+        display: inline-block;
+        animation: slowSlide 8s ease-in-out infinite alternate;
+    }
 </style>
 """, unsafe_allow_html=True)
 
-st.title("EPSS Fleet Management Dashboard")
+# ===================================================
+# MAIN TITLE – now "EPSS Fleet Management System" with slow slide animation
+# ===================================================
+st.markdown(
+    "<h1 style='text-align: center; color: #1E88E5;' class='moving-title'>🚚 EPSS Fleet Management System</h1>",
+    unsafe_allow_html=True
+)
 
 # ===================================================
 # SIDEBAR – SHOW ONLY PAGES USER CAN ACCESS
@@ -309,6 +352,8 @@ if any(role in user_roles for role in ['maintenance', 'admin']):
     nav_options.append("🔧 Vehicle Maintenance")
 if 'admin' in user_roles:
     nav_options.append("👑 Admin Panel")
+if 'admin' in user_roles:
+    nav_options.append("🔍 Data Consistency Check")
 
 selected_page = st.sidebar.radio("Go to", nav_options, index=0)
 
@@ -507,7 +552,7 @@ def process_vehicle_data(df):
         return {
             'plate_numbers': [],
             'from_locations': [],
-            'branches': [],
+            'branches': DEFAULT_BRANCHES,  # Use DEFAULT_BRANCHES instead of empty
             'plate_to_driver': {},
             'plate_to_location': {},
             'plate_to_branch': {},
@@ -517,7 +562,9 @@ def process_vehicle_data(df):
     df.columns = df.columns.str.strip()
     plate_numbers = sorted(df["plate_number"].dropna().unique().tolist())
     from_locations = sorted(df["from_location"].dropna().unique().tolist())
-    branches = sorted(df["assigned_branch_name"].dropna().unique().tolist())
+    # Combine existing branches with default branches
+    existing_branches = df["assigned_branch_name"].dropna().unique().tolist()
+    branches = sorted(set(existing_branches + DEFAULT_BRANCHES))
     plate_to_driver = {}
     plate_to_location = {}
     plate_to_branch = {}
@@ -581,6 +628,76 @@ def get_available_vehicles(master_df, assignments_df, maintenance_df):
         key=lambda p: (last_end_date.get(p) is None, last_end_date.get(p) or datetime.min)
     )
     return sorted_plates
+
+# ===================================================
+# DATA CONSISTENCY CHECK FUNCTION
+# ===================================================
+def identify_conflicting_vehicles(assignments_df, maintenance_df):
+    """
+    Identify vehicles that are BOTH active (have trips with status Planned, Loading, or In Transit)
+    AND under maintenance (back_to_duty = 'No').
+
+    Returns:
+        dict: Contains conflicting plate numbers and their details
+    """
+    conflicts = {
+        'plate_numbers': [],
+        'active_trips': {},
+        'maintenance_records': {},
+        'details': []
+    }
+
+    # Get active vehicles (non-deleted trips with status Planned, Loading, In Transit)
+    active_vehicles = set()
+    active_trips_details = {}
+    if not assignments_df.empty and 'status' in assignments_df.columns:
+        active = assignments_df[
+            (assignments_df['status'].isin(['Planned', 'Loading', 'In Transit'])) &
+            (assignments_df.get('is_deleted', False) == False)
+        ]
+        if not active.empty:
+            active_vehicles = set(active['plate_number'].dropna().unique())
+            # Get details of active trips
+            for plate in active_vehicles:
+                trips = active[active['plate_number'] == plate]
+                active_trips_details[plate] = trips[['new_id', 'status', 'assigned_date', 'trip_starting_date']].to_dict('records')
+
+    # Get vehicles under maintenance (non-deleted, back_to_duty = 'No')
+    maintenance_vehicles = set()
+    maintenance_details = {}
+    if not maintenance_df.empty and 'plate_number' in maintenance_df.columns:
+        under_maint = maintenance_df[
+            (maintenance_df['back_to_duty'].astype(str).str.strip().str.lower() == 'no') &
+            (maintenance_df.get('is_deleted', False) == False)
+        ]
+        if not under_maint.empty:
+            maintenance_vehicles = set(under_maint['plate_number'].dropna().unique())
+            # Get details of maintenance records
+            for plate in maintenance_vehicles:
+                records = under_maint[under_maint['plate_number'] == plate]
+                maintenance_details[plate] = records[['id', 'maintenace_type', 'maintenance_starting_date', 'maintenance_ending_date']].to_dict('records')
+
+    # Find intersection (vehicles in both sets)
+    conflicting_plates = active_vehicles.intersection(maintenance_vehicles)
+
+    if conflicting_plates:
+        conflicts['plate_numbers'] = list(conflicting_plates)
+        conflicts['active_trips'] = {p: active_trips_details[p] for p in conflicting_plates if p in active_trips_details}
+        conflicts['maintenance_records'] = {p: maintenance_details[p] for p in conflicting_plates if p in maintenance_details}
+
+        # Build detailed summary
+        for plate in conflicting_plates:
+            active_count = len(active_trips_details.get(plate, []))
+            maint_count = len(maintenance_details.get(plate, []))
+            conflicts['details'].append({
+                'plate_number': plate,
+                'active_trip_count': active_count,
+                'maintenance_record_count': maint_count,
+                'active_statuses': [t['status'] for t in active_trips_details.get(plate, [])],
+                'maintenance_types': [m['maintenace_type'] for m in maintenance_details.get(plate, [])]
+            })
+
+    return conflicts
 
 # Load data once per rerun
 master_df = load_master()
@@ -758,6 +875,126 @@ plate_to_location = vehicle_data['plate_to_location']
 plate_to_branch = vehicle_data['plate_to_branch']
 plate_to_phone = vehicle_data['plate_to_phone']
 plate_to_vehicle_type = vehicle_data['plate_to_vehicle_type']
+
+# ===================================================
+# DATA CONSISTENCY CHECK PAGE
+# ===================================================
+# ===================================================
+# DATA CONSISTENCY CHECK PAGE - FIXED
+# ===================================================
+def show_data_consistency_check(assignments_df, maintenance_df, master_df):
+    st.markdown('<div class="section-header">🔍 Data Consistency Check</div>', unsafe_allow_html=True)
+
+    st.markdown("""
+    This page helps identify data consistency issues in the fleet management system.
+    Specifically, it finds vehicles that are **both active** (have an ongoing trip) 
+    and **under maintenance** simultaneously - which should not happen.
+    """)
+
+    # Check for conflicting vehicles
+    conflicts = identify_conflicting_vehicles(assignments_df, maintenance_df)
+
+    if not conflicts['plate_numbers']:
+        st.success("✅ No conflicting vehicles found! All active vehicles are properly separated from vehicles under maintenance.")
+        return
+
+    # Display conflicts
+    st.error(f"⚠️ Found {len(conflicts['plate_numbers'])} vehicle(s) that are BOTH active AND under maintenance!")
+
+    st.markdown("### 📋 Conflicting Vehicles Summary")
+
+    # Create summary dataframe - FIXED: Handle None values
+    summary_data = []
+    for detail in conflicts['details']:
+        # Convert None values to empty strings for joining
+        active_statuses = [str(s) if s is not None else 'Unknown' for s in detail.get('active_statuses', [])]
+        maintenance_types = [str(m) if m is not None else 'Unknown' for m in detail.get('maintenance_types', [])]
+
+        summary_data.append({
+            'Plate Number': detail.get('plate_number', 'Unknown'),
+            'Active Trips': detail.get('active_trip_count', 0),
+            'Maintenance Records': detail.get('maintenance_record_count', 0),
+            'Active Statuses': ', '.join(active_statuses) if active_statuses else 'No active trips',
+            'Maintenance Types': ', '.join(maintenance_types) if maintenance_types else 'No maintenance records'
+        })
+
+    summary_df = pd.DataFrame(summary_data)
+    st.dataframe(summary_df, use_container_width=True, hide_index=True)
+
+    # Show detailed view for each conflicting vehicle
+    st.markdown("### 🔍 Detailed View")
+
+    for plate in conflicts['plate_numbers']:
+        with st.expander(f"🚗 {plate} - {len(conflicts['active_trips'].get(plate, []))} active trip(s), {len(conflicts['maintenance_records'].get(plate, []))} maintenance record(s)"):
+            col1, col2 = st.columns(2)
+
+            with col1:
+                st.markdown("#### Active Trips")
+                active_trips = conflicts['active_trips'].get(plate, [])
+                if active_trips:
+                    # Clean up active trips data
+                    cleaned_trips = []
+                    for trip in active_trips:
+                        cleaned_trip = {
+                            'Trip ID': trip.get('new_id', 'N/A'),
+                            'Status': trip.get('status', 'Unknown'),
+                            'Assigned Date': trip.get('assigned_date', 'N/A'),
+                            'Trip Start': trip.get('trip_starting_date', 'N/A')
+                        }
+                        cleaned_trips.append(cleaned_trip)
+                    trips_df = pd.DataFrame(cleaned_trips)
+                    st.dataframe(trips_df, use_container_width=True, hide_index=True)
+                else:
+                    st.info("No active trips found")
+
+            with col2:
+                st.markdown("#### Maintenance Records")
+                maint_records = conflicts['maintenance_records'].get(plate, [])
+                if maint_records:
+                    # Clean up maintenance records data
+                    cleaned_maint = []
+                    for record in maint_records:
+                        cleaned_record = {
+                            'Record ID': record.get('id', 'N/A'),
+                            'Type': record.get('maintenace_type', 'Unknown'),
+                            'Start Date': record.get('maintenance_starting_date', 'N/A'),
+                            'End Date': record.get('maintenance_ending_date', 'N/A')
+                        }
+                        cleaned_maint.append(cleaned_record)
+                    maint_df = pd.DataFrame(cleaned_maint)
+                    st.dataframe(maint_df, use_container_width=True, hide_index=True)
+                else:
+                    st.info("No maintenance records found")
+
+            st.markdown("#### Recommended Action")
+            st.warning(f"Vehicle {plate} should not be both active and under maintenance. Please either:")
+            st.markdown("""
+            1. **Complete the active trip** and mark it as Completed, OR
+            2. **Mark the maintenance as completed** (set Back to Duty = 'Yes'), OR
+            3. **Cancel the trip** if the vehicle is truly under maintenance
+            """)
+
+    # Show master data for reference
+    st.markdown("### 📊 Vehicle Master Data Reference")
+    if not master_df.empty:
+        conflicting_plates = conflicts['plate_numbers']
+        master_filtered = master_df[master_df['plate_number'].isin(conflicting_plates)]
+        if not master_filtered.empty:
+            # Clean up master data display
+            display_cols = ['plate_number', 'driver_name', 'phone_number', 'vehicle_type']
+            available_cols = [col for col in display_cols if col in master_filtered.columns]
+            st.dataframe(master_filtered[available_cols], use_container_width=True, hide_index=True)
+
+    # Export option
+    if st.button("📥 Export Conflict Report"):
+        csv = summary_df.to_csv(index=False)
+        st.download_button(
+            label="Download CSV",
+            data=csv,
+            file_name=f"vehicle_conflicts_{date.today()}.csv",
+            mime="text/csv",
+            key="download_conflicts_csv"
+        )
 
 # ===================================================
 # ADMIN USER MANAGEMENT (unchanged)
@@ -1031,7 +1268,7 @@ def manage_vehicle_master(master_df):
                     st.error(f"❌ Update failed: {str(e)}")
 
 # ===================================================
-# VEHICLE MAINTENANCE (unchanged)
+# VEHICLE MAINTENANCE - UPDATED WITH DEFAULT BRANCHES
 # ===================================================
 def view_vehicle_maintenance(master_df, assignments_df, maintenance_df):
     # ---- Session state ----
@@ -1045,6 +1282,8 @@ def view_vehicle_maintenance(master_df, assignments_df, maintenance_df):
         st.session_state.edit_maint_data = None
     if 'show_delete_confirmation' not in st.session_state:
         st.session_state.show_delete_confirmation = False
+    if 'add_form_key' not in st.session_state:
+        st.session_state.add_form_key = 0
 
     st.markdown(
         '<div class="section-header">🚗 Vehicle Maintenance</div>',
@@ -1103,12 +1342,16 @@ def view_vehicle_maintenance(master_df, assignments_df, maintenance_df):
         with col_info3:
             st.text_input("Phone", value="", disabled=True)
 
-        branch_options = ["Select Branch"] + sorted(assignments_df['assigned_branch_name'].dropna().astype(str).str.strip().unique().tolist()) if not assignments_df.empty else ["Select Branch"]
+        # --- UPDATED BRANCH DROPDOWN WITH DEFAULT BRANCHES INCLUDING HO ---
+        all_branches = get_all_branches(assignments_df)
+        branch_options = ["Select Branch"] + all_branches
+
         selected_branch = st.selectbox(
             "Branch *",
             options=branch_options,
             key="maint_add_branch_select"
         )
+        # --- END UPDATED BRANCH DROPDOWN ---
 
         workstation_values = []
         if not master_df.empty and 'workstation' in master_df.columns:
@@ -1120,7 +1363,7 @@ def view_vehicle_maintenance(master_df, assignments_df, maintenance_df):
             key="maint_add_workstation"
         )
 
-        with st.form(key="maint_add_form"):
+        with st.form(key=f"maint_add_form_{st.session_state.add_form_key}"):
             col1, col2, col3, col4 = st.columns(4)
 
             with col1:
@@ -1303,13 +1546,17 @@ def view_vehicle_maintenance(master_df, assignments_df, maintenance_df):
                 with col_info3:
                     st.text_input("Phone", value="", disabled=True)
 
-                branch_options = ["Select Branch"] + sorted(assignments_df['assigned_branch_name'].dropna().astype(str).str.strip().unique().tolist()) if not assignments_df.empty else ["Select Branch"]
+                # --- UPDATED BRANCH DROPDOWN FOR EDIT WITH DEFAULT BRANCHES ---
+                all_branches = get_all_branches(assignments_df)
+                branch_options = ["Select Branch"] + all_branches
+
                 branch_edit = st.selectbox(
                     "Branch *",
                     options=branch_options,
                     index=branch_options.index(current_branch) if current_branch in branch_options else 0,
                     key="maint_edit_branch_select"
                 )
+                # --- END UPDATED BRANCH DROPDOWN ---
 
                 workstation_values = []
                 if not master_df.empty and 'workstation' in master_df.columns:
@@ -1599,7 +1846,7 @@ def view_vehicle_maintenance(master_df, assignments_df, maintenance_df):
             st.dataframe(deleted_maint, use_container_width=True, hide_index=True)
 
 # ===================================================
-# TRIP MANAGEMENT (FIXED – all fields populated)
+# TRIP MANAGEMENT - UPDATED WITH DEFAULT BRANCHES
 # ===================================================
 def show_trip_management(assignments_df, master_df):
     if 'show_add_form' not in st.session_state:
@@ -1676,12 +1923,15 @@ def show_trip_management(assignments_df, master_df):
         with col_info3:
             st.text_input("Truck Type", value=vehicle_type, disabled=True)
 
-        branch_options = ["Select Assigned Branch"] + branches
+        # --- UPDATED BRANCH DROPDOWN WITH DEFAULT BRANCHES INCLUDING HO ---
+        all_branches = get_all_branches(assignments_df)
+        branch_options = ["Select Assigned Branch"] + all_branches
         assigned_branch_name = st.selectbox(
             "Assigned Branch *",
             options=branch_options,
             key="add_branch_outside"
         )
+        # --- END UPDATED BRANCH DROPDOWN ---
 
         expected_transit_days = None
         if assigned_branch_name and assigned_branch_name != "Select Assigned Branch":
@@ -1816,7 +2066,7 @@ def show_trip_management(assignments_df, master_df):
         st.markdown("---")
         st.write("")
 
-    # ----- EDIT / DELETE FORM (FIXED) -----
+    # ----- EDIT / DELETE FORM -----
     if st.session_state.show_edit_form:
         st.markdown("### 📝 Edit or Delete Trip")
         active_trips = assignments_df[assignments_df['is_deleted'] == False] if not assignments_df.empty else pd.DataFrame()
@@ -1950,13 +2200,18 @@ def show_trip_management(assignments_df, master_df):
             with col_info3:
                 st.text_input("Truck Type", value=derived_vehicle_type, disabled=True)
 
-            # Branch selection (outside form)
+            # --- UPDATED BRANCH DROPDOWN WITH DEFAULT BRANCHES ---
+            all_branches = get_all_branches(assignments_df)
+            branch_options = ["Select Assigned Branch"] + all_branches
+
             branch_edit = st.selectbox(
                 "Assigned Branch *",
-                options=branches,
-                index=branches.index(current_branch) if current_branch in branches else 0,
+                options=branch_options,
+                index=branch_options.index(current_branch) if current_branch in branch_options else 0,
                 key="edit_branch_select"
             )
+            # --- END UPDATED BRANCH DROPDOWN ---
+
             transit_days = BRANCH_EXPECTED_DAYS.get(branch_edit.strip(), None)
             st.caption(f"Expected Transit Days: {transit_days if transit_days is not None else '—'}")
 
@@ -2064,7 +2319,7 @@ def show_trip_management(assignments_df, master_df):
                         errors.append("Assigned Date is required.")
                     if not from_location_edit:
                         errors.append("From Location is required.")
-                    if not branch_edit:
+                    if not branch_edit or branch_edit == "Select Assigned Branch":
                         errors.append("Assigned Branch is required.")
                     if errors:
                         for err in errors:
@@ -3323,6 +3578,10 @@ elif selected_page == "📊 KPIs & Analysis":
         st.stop()
     else:
         show_kpis_analysis(assignments_df, master_df, maintenance_df, kpis)
+    st.stop()
+
+elif selected_page == "🔍 Data Consistency Check" and ('admin' in user_roles):
+    show_data_consistency_check(assignments_df, maintenance_df, master_df)
     st.stop()
 
 else:
