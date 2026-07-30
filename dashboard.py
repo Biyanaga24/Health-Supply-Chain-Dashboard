@@ -2288,7 +2288,82 @@ if st.session_state['user']['role'] == 'admin':
         if st.button("🗑️ Reset All DOS Tracking Data", use_container_width=True, type="secondary"):
             if reset_dos_tracking():
                 st.rerun()
+# ===================================================
+# NSOH SNAPSHOT MANAGEMENT - Sidebar (CLEAN VERSION)
+# ===================================================
+with st.sidebar.expander("📊 NSOH Snapshot Management"):
+    st.caption("Save NSOH snapshots for all materials")
 
+    # Generate month-year options (last 24 months + next 6 months)
+    today = date.today()
+    month_options = []
+    month_values = []
+
+    # Generate last 24 months
+    for i in range(24, -1, -1):
+        month_date = today.replace(day=1) - timedelta(days=i*30)
+        month_date = month_date.replace(day=1)
+        month_label = month_date.strftime('%b-%Y')
+        month_options.append(month_label)
+        month_values.append(month_date)
+
+    # Also include next 6 months
+    for i in range(1, 7):
+        month_date = today.replace(day=1) + timedelta(days=i*30)
+        month_date = month_date.replace(day=1)
+        month_label = month_date.strftime('%b-%Y')
+        month_options.append(month_label)
+        month_values.append(month_date)
+
+    # Month selection for snapshot
+    selected_month_label = st.selectbox(
+        "📅 Select Month-Year to Save",
+        month_options,
+        index=24,  # Default to current month
+        key="nsoh_snapshot_month"
+    )
+
+    # Find the date for the selected month
+    selected_date = None
+    for i, label in enumerate(month_options):
+        if label == selected_month_label:
+            selected_date = month_values[i]
+            break
+
+    if selected_date and not df_filtered.empty:
+        # Single Save button - clean and simple
+        if st.button("💾 Save", use_container_width=True, type="primary"):
+            with st.spinner(f"Saving NSOH snapshots for {selected_month_label}..."):
+                # Prepare batch data
+                materials_data = []
+                for idx, row in df_filtered.iterrows():
+                    material = row.get('Material Description')
+                    if pd.isna(material):
+                        continue
+
+                    nsoh = row.get('NSOH', 0)
+                    try:
+                        nsoh = float(nsoh) if pd.notna(nsoh) else 0
+                    except:
+                        nsoh = 0
+
+                    materials_data.append({
+                        'material_description': material,
+                        'nsoh': nsoh
+                    })
+
+                # Batch save
+                success, saved_count = save_nsoh_snapshots_batch(materials_data, selected_date)
+
+                if success:
+                    # Clear cache to refresh snapshot data
+                    st.cache_data.clear()
+                    st.session_state.nsoh_snapshots = load_nsoh_snapshots()
+                    st.success(f"✅ Saved {saved_count} materials for {selected_month_label}")
+                    time.sleep(1)
+                    st.rerun()
+                else:
+                    st.error("❌ Failed to save snapshots")
 # ---------------------------------------------------
 # Logout
 # ---------------------------------------------------
