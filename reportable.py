@@ -511,17 +511,17 @@ def create_pipeline_stock_status(df, a_amc_data=None):
     final_df = pivot.merge(expiry_df, on=['Material', 'Material Description'], how='left')
     final_df['Expiry Date'] = final_df['Expiry Date'].fillna('')
 
-    # Add A_AMC column from a_amc_data
-    final_df['A_AMC'] = 0.0
+    # Add AMC column from a_amc_data (this is the calculated historical AMC - read-only)
+    final_df['AMC'] = 0.0
     if a_amc_data:
         for idx, row in final_df.iterrows():
             material_desc = row['Material Description']
             if material_desc in a_amc_data:
-                final_df.at[idx, 'A_AMC'] = float(a_amc_data[material_desc])
+                final_df.at[idx, 'AMC'] = float(a_amc_data[material_desc])
 
     # Add editable columns (will be filled from Supabase)
-    final_df['Adjusted AMC'] = ''
-    final_df['Quantity'] = ''
+    final_df['Adjusted AMC'] = 0.0  # Initialize as float
+    final_df['Quantity'] = 0.0
     final_df['EDD'] = ''
     final_df['Procurement Agency'] = ''
     final_df['Pipeline Status'] = ''
@@ -542,15 +542,26 @@ def create_pipeline_stock_status(df, a_amc_data=None):
             material = row['Material']
             saved_row = saved_data[saved_data['material'] == material]
             if not saved_row.empty:
-                # Load only editable fields
-                final_df.at[idx, 'Adjusted AMC'] = str(saved_row.iloc[0].get('adjusted_amc', '')) if saved_row.iloc[0].get('adjusted_amc') else ''
-                final_df.at[idx, 'Quantity'] = str(saved_row.iloc[0].get('quantity', '')) if saved_row.iloc[0].get('quantity') else ''
+                # Load only editable fields - convert to float for numeric columns
+                adj_amc = saved_row.iloc[0].get('adjusted_amc', 0)
+                final_df.at[idx, 'Adjusted AMC'] = float(adj_amc) if adj_amc else 0.0
+
+                qty = saved_row.iloc[0].get('quantity', 0)
+                final_df.at[idx, 'Quantity'] = float(qty) if qty else 0.0
+
                 final_df.at[idx, 'EDD'] = str(saved_row.iloc[0].get('edd', '')) if saved_row.iloc[0].get('edd') else ''
                 final_df.at[idx, 'Procurement Agency'] = str(saved_row.iloc[0].get('procurement_agency', '')) if saved_row.iloc[0].get('procurement_agency') else ''
                 final_df.at[idx, 'Pipeline Status'] = str(saved_row.iloc[0].get('pipeline_status', '')) if saved_row.iloc[0].get('pipeline_status') else ''
                 final_df.at[idx, 'Mitigation Plan'] = str(saved_row.iloc[0].get('mitigation_plan', '')) if saved_row.iloc[0].get('mitigation_plan') else ''
                 final_df.at[idx, 'Risk Response Status'] = str(saved_row.iloc[0].get('risk_response_status', '')) if saved_row.iloc[0].get('risk_response_status') else ''
                 final_df.at[idx, 'Remark'] = str(saved_row.iloc[0].get('remark', '')) if saved_row.iloc[0].get('remark') else ''
+
+    # Set default Adjusted AMC to AMC value if not loaded from Supabase
+    for idx, row in final_df.iterrows():
+        if row['Adjusted AMC'] == 0.0:
+            amc_val = row['AMC']
+            if amc_val and amc_val > 0:
+                final_df.at[idx, 'Adjusted AMC'] = float(amc_val)
 
     # Calculate MOS fields and Risk Level
     for idx, row in final_df.iterrows():
@@ -596,7 +607,7 @@ def create_pipeline_stock_status(df, a_amc_data=None):
     # Keep only required columns
     keep_columns = [
         'Material', 'Material Description', 'Hubs\' SOH', 'NSOH', 'Expiry Date',
-        'A_AMC', 'Adjusted AMC', 'Current MOS', 'Quantity', 'EDD', 
+        'AMC', 'Adjusted AMC', 'Current MOS', 'Quantity', 'EDD', 
         'Pipeline MOS', 'Total MOS', 'Procurement Agency', 'Pipeline Status',
         'Risk Level', 'Mitigation Plan', 'Risk Response Status', 'Remark'
     ]
@@ -616,6 +627,7 @@ def create_pipeline_stock_status(df, a_amc_data=None):
 def create_national_stock_status(df, include_nsoh=True, include_expiry=True, is_issue_data=False):
     """
     Create Health Program National Stock Status as a pivot table.
+    Column order: Material, Material Description, Branches, Hubs' SOH, Head Office, NSOH
     """
     if df is None or df.empty:
         return None
@@ -738,20 +750,21 @@ def create_national_stock_status(df, include_nsoh=True, include_expiry=True, is_
     if include_nsoh:
         pivot['NSOH'] = pivot[plant_columns].sum(axis=1)
 
-    # Reorder columns - Hubs' SOH and Head Office should come before NSOH
+    # NEW COLUMN ORDER: Material, Material Description, Branches, Hubs' SOH, Head Office, NSOH
     new_column_order = ['Material', 'Material Description']
 
-    # Add Hubs' SOH (or Total Issue)
+    # Add all branch columns first (excluding Head Office)
+    branch_cols_sorted = sorted([col for col in plant_columns if col != head_office_col])
+    new_column_order.extend(branch_cols_sorted)
+
+    # Add Hubs' SOH
     new_column_order.append(hubs_soh_col_name)
 
     # Add Head Office if it exists and NOT issue data
     if head_office_col and not is_issue_data:
         new_column_order.append(head_office_col)
 
-    # Add all branch columns (excluding Head Office)
-    new_column_order.extend([col for col in plant_columns if col != head_office_col])
-
-    # Add NSOH after branches
+    # Add NSOH at the end
     if include_nsoh:
         new_column_order.append('NSOH')
 
@@ -827,7 +840,7 @@ def create_plant_stock_vs_issue(stock_df, issue_df):
     issue_df = issue_df.copy()
 
     # Get all branch columns from stock data
-    stock_skip_cols = ['Material', 'Material Description', 'Hubs\' SOH', 'NSOH', 'Expiry Date', 'A_AMC', 'Adjusted AMC', 'Current MOS', 'Quantity', 'EDD', 'Pipeline MOS', 'Total MOS', 'Procurement Agency', 'Pipeline Status', 'Risk Level', 'Mitigation Plan', 'Risk Response Status', 'Remark']
+    stock_skip_cols = ['Material', 'Material Description', 'Hubs\' SOH', 'NSOH', 'Expiry Date', 'AMC', 'Adjusted AMC', 'Current MOS', 'Quantity', 'EDD', 'Pipeline MOS', 'Total MOS', 'Procurement Agency', 'Pipeline Status', 'Risk Level', 'Mitigation Plan', 'Risk Response Status', 'Remark']
     stock_branches = [col for col in stock_df.columns if col not in stock_skip_cols]
 
     # Get all branch columns from issue data
@@ -991,10 +1004,10 @@ def create_monthly_issue_data(df, start_date=None, end_date=None):
     # Calculate Actual AMC (Average of all months)
     month_columns = [col for col in pivot.columns if col != material_desc_col]
     if month_columns:
-        pivot['Actual AMC (A_AMC)'] = pivot[month_columns].sum(axis=1) / len(month_columns)
-        pivot['Actual AMC (A_AMC)'] = pivot['Actual AMC (A_AMC)'].round(2)
+        pivot['AMC'] = pivot[month_columns].sum(axis=1) / len(month_columns)
+        pivot['AMC'] = pivot['AMC'].round(2)
     else:
-        pivot['Actual AMC (A_AMC)'] = 0
+        pivot['AMC'] = 0
 
     pivot = pivot.sort_values(material_desc_col, ascending=True).reset_index(drop=True)
 
@@ -1297,7 +1310,7 @@ with st.sidebar:
                                 a_amc_dict = {}
                                 for idx, row in monthly_df.iterrows():
                                     desc = row.get('Material Descr') or row.get('Material Description')
-                                    amc = row.get('Actual AMC (A_AMC)', 0)
+                                    amc = row.get('AMC', 0)
                                     if desc:
                                         a_amc_dict[desc] = amc
                                 st.session_state.a_amc_data = a_amc_dict
@@ -1343,50 +1356,69 @@ st.markdown("""
             letter-spacing: 1px;
             border: 1px solid rgba(255,255,255,0.1);
         }
+        .times-roman {
+            font-family: 'Times New Roman', Times, serif !important;
+        }
         .risk-section-title {
             font-size: 1.1rem;
             font-weight: 600;
             color: #0b2b44;
-            margin-bottom: 10px;
+            margin-bottom: 20px;
             padding-left: 5px;
+            font-family: 'Times New Roman', Times, serif !important;
         }
         .risk-metric-card {
-            background: white;
-            padding: 12px 18px;
-            border-radius: 10px;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.08);
+            background: #f8f9fa;
+            padding: 8px 12px;
+            border-radius: 8px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
             text-align: center;
-            border-left: 5px solid #ccc;
+            border-left: 4px solid #ccc;
             transition: transform 0.2s;
             flex: 0 1 auto;
-            min-width: 120px;
-            max-width: 180px;
+            min-width: 100px;
+            max-width: 150px;
+            font-family: 'Times New Roman', Times, serif !important;
+            margin: 0 auto;
         }
         .risk-metric-card:hover {
-            transform: translateY(-3px);
-            box-shadow: 0 4px 15px rgba(0,0,0,0.12);
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
         }
         .risk-metric-card .risk-label {
-            font-size: 0.9rem;
-            color: #666;
+            font-size: 0.8rem;
+            color: #555;
             font-weight: 500;
+            font-family: 'Times New Roman', Times, serif !important;
         }
         .risk-metric-card .risk-value {
-            font-size: 1.8rem;
+            font-size: 1.5rem;
             font-weight: bold;
-            margin: 3px 0;
+            margin: 2px 0;
+            font-family: 'Times New Roman', Times, serif !important;
         }
         .risk-metric-card .risk-sub {
-            font-size: 0.8rem;
-            color: #888;
+            font-size: 0.7rem;
+            color: #777;
+            font-family: 'Times New Roman', Times, serif !important;
         }
-        .risk-low { border-left-color: #4caf50; }
-        .risk-medium { border-left-color: #ff9800; }
-        .risk-high { border-left-color: #f44336; }
-        .risk-low .risk-value { color: #4caf50; }
-        .risk-medium .risk-value { color: #ff9800; }
-        .risk-high .risk-value { color: #f44336; }
+        .risk-low { 
+            border-left-color: #4caf50;
+            background: #e8f5e9;
+        }
+        .risk-medium { 
+            border-left-color: #ff9800;
+            background: #fff3e0;
+        }
+        .risk-high { 
+            border-left-color: #f44336;
+            background: #ffebee;
+        }
+        .risk-low .risk-value { color: #2e7d32; }
+        .risk-medium .risk-value { color: #e65100; }
+        .risk-high .risk-value { color: #c62828; }
         .colored-subheader {
+            font-family: 'Times New Roman', Times, serif !important;
             background: linear-gradient(135deg, #e8f4f8, #b8d8e8);
             padding: 12px 20px;
             border-radius: 8px;
@@ -1417,9 +1449,29 @@ st.markdown("""
             border-left-color: #00695c;
             color: #004d40;
         }
+        .stTabs [data-baseweb="tab-list"] {
+            gap: 8px;
+            margin-top: 20px;
+        }
         .stTabs [data-baseweb="tab-list"] button [data-testid="stMarkdownContainer"] p {
             font-size: 1.1rem !important;
             font-weight: 600 !important;
+            font-family: 'Times New Roman', Times, serif !important;
+        }
+        .stButton button {
+            font-family: 'Times New Roman', Times, serif !important;
+        }
+        .stDataFrame {
+            font-family: 'Times New Roman', Times, serif !important;
+        }
+        .stMarkdown {
+            font-family: 'Times New Roman', Times, serif !important;
+        }
+        .risk-cards-container {
+            display: flex;
+            justify-content: space-around;
+            gap: 15px;
+            margin-bottom: 25px;
         }
     </style>
     <div class="title-times-roman">🏥 Health Program Commodities Supply Information</div>
@@ -1440,32 +1492,32 @@ if st.session_state.pipeline_stock_data is not None and not st.session_state.pip
 
     with col1:
         st.markdown(f"""
-        <div class="risk-metric-card risk-low">
-            <div class="risk-label">🟢 Low Risk</div>
-            <div class="risk-value">{low_count}</div>
-            <div class="risk-sub">{low_count/total_count*100:.1f}%</div>
+        <div class="risk-metric-card risk-low times-roman" style="background: #c8e6c9;">
+            <div class="risk-label times-roman">🟢 Low Risk</div>
+            <div class="risk-value times-roman" style="color: #2e7d32;">{low_count}</div>
+            <div class="risk-sub times-roman">{low_count/total_count*100:.1f}%</div>
         </div>
         """, unsafe_allow_html=True)
 
     with col2:
         st.markdown(f"""
-        <div class="risk-metric-card risk-medium">
-            <div class="risk-label">🟠 Medium Risk</div>
-            <div class="risk-value">{medium_count}</div>
-            <div class="risk-sub">{medium_count/total_count*100:.1f}%</div>
+        <div class="risk-metric-card risk-medium times-roman" style="background: #ffe0b2;">
+            <div class="risk-label times-roman">🟠 Medium Risk</div>
+            <div class="risk-value times-roman" style="color: #e65100;">{medium_count}</div>
+            <div class="risk-sub times-roman">{medium_count/total_count*100:.1f}%</div>
         </div>
         """, unsafe_allow_html=True)
 
     with col3:
         st.markdown(f"""
-        <div class="risk-metric-card risk-high">
-            <div class="risk-label">🔴 High Risk</div>
-            <div class="risk-value">{high_count}</div>
-            <div class="risk-sub">{high_count/total_count*100:.1f}%</div>
+        <div class="risk-metric-card risk-high times-roman" style="background: #ffcdd2;">
+            <div class="risk-label times-roman">🔴 High Risk</div>
+            <div class="risk-value times-roman" style="color: #c62828;">{high_count}</div>
+            <div class="risk-sub times-roman">{high_count/total_count*100:.1f}%</div>
         </div>
         """, unsafe_allow_html=True)
 
-# Create tabs
+# Create tabs with increased spacing
 tab1, tab2, tab3 = st.tabs(["📊 Stock Data", "📦 Complete Issue Data", "📊 Plant Stock Vs Issue Quantity"])
 
 # Tab 1: Stock Data
@@ -1473,7 +1525,7 @@ with tab1:
     if st.session_state.merge_clicked and st.session_state.merged_data is not None:
         data_to_use = st.session_state.filtered_data if st.session_state.filtered_data is not None else st.session_state.merged_data
 
-        st.markdown('<div class="colored-subheader">🏥 National and Pipeline Stock Status</div>', unsafe_allow_html=True)
+        st.markdown('<div class="colored-subheader times-roman">🏥 National and Pipeline Stock Status</div>', unsafe_allow_html=True)
 
         if st.session_state.pipeline_stock_data is not None and not st.session_state.pipeline_stock_data.empty:
             display_pipeline = st.session_state.pipeline_stock_data.copy()
@@ -1484,23 +1536,26 @@ with tab1:
             original_pipeline = display_pipeline.copy()
 
             with st.form(key="pipeline_form"):
+                # Ensure numeric columns are properly typed for editing
                 edited_df = st.data_editor(
                     display_pipeline,
                     use_container_width=True,
                     height=500,
                     hide_index=True,
                     column_config={
-                        "Adjusted AMC": st.column_config.NumberColumn("Adjusted AMC", help="Enter Adjusted AMC"),
-                        "Quantity": st.column_config.NumberColumn("Quantity", help="Enter Pipeline Quantity"),
-                        "EDD": st.column_config.TextColumn("EDD", help="Estimated Delivery Date"),
-                        "Procurement Agency": st.column_config.TextColumn("Procurement Agency"),
-                        "Pipeline Status": st.column_config.TextColumn("Pipeline Status"),
-                        "Risk Level": st.column_config.TextColumn("Risk Level", help="Auto-calculated"),
-                        "Mitigation Plan": st.column_config.TextColumn("Mitigation Plan"),
-                        "Risk Response Status": st.column_config.TextColumn("Risk Response Status"),
-                        "Remark": st.column_config.TextColumn("Remark"),
+                        "AMC": st.column_config.NumberColumn("AMC", help="Average Monthly Consumption (calculated from historical data - read-only)", disabled=True),
+                        "Adjusted AMC": st.column_config.NumberColumn("Adjusted AMC", help="Enter adjusted AMC value (defaults to AMC)", disabled=False),
+                        "Quantity": st.column_config.NumberColumn("Quantity", help="Enter Pipeline Quantity", disabled=False),
+                        "EDD": st.column_config.TextColumn("EDD", help="Estimated Delivery Date", disabled=False),
+                        "Procurement Agency": st.column_config.TextColumn("Procurement Agency", disabled=False),
+                        "Pipeline Status": st.column_config.TextColumn("Pipeline Status", disabled=False),
+                        "Risk Level": st.column_config.TextColumn("Risk Level", help="Auto-calculated", disabled=True),
+                        "Mitigation Plan": st.column_config.TextColumn("Mitigation Plan", disabled=False),
+                        "Risk Response Status": st.column_config.TextColumn("Risk Response Status", disabled=False),
+                        "Remark": st.column_config.TextColumn("Remark", disabled=False),
                     },
-                    disabled=["Material", "Material Description", "Hubs' SOH", "Head Office", "NSOH", "Expiry Date", "A_AMC", "Current MOS", "Pipeline MOS", "Total MOS", "Risk Level"]
+                    disabled=["Material", "Material Description", "Hubs' SOH", "Head Office", "NSOH", "Expiry Date", "Current MOS", "Pipeline MOS", "Total MOS"],
+                    column_order=["Material", "Material Description", "Hubs' SOH", "Head Office", "NSOH", "Expiry Date", "AMC", "Adjusted AMC", "Current MOS", "Quantity", "EDD", "Pipeline MOS", "Total MOS", "Procurement Agency", "Pipeline Status", "Risk Level", "Mitigation Plan", "Risk Response Status", "Remark"]
                 )
 
                 col1, col2, col3 = st.columns([1, 1, 4])
@@ -1558,19 +1613,26 @@ with tab1:
                         else:
                             st.error("❌ Failed to save changes. Please try again.")
 
-            csv_pipeline = display_pipeline.to_csv(index=False).encode('utf-8')
+            # Convert to Excel for download
+            excel_buffer = BytesIO()
+            with pd.ExcelWriter(excel_buffer, engine='openpyxl') as writer:
+                display_pipeline.to_excel(writer, sheet_name='Pipeline Stock Status', index=False)
+            excel_buffer.seek(0)
+
             st.download_button(
-                label="📥 Download Pipeline Stock Status as CSV",
-                data=csv_pipeline,
-                file_name="Pipeline_Stock_Status.csv",
-                mime="text/csv",
-                key="pipeline_download"
+                label="📥 Download Pipeline Stock Status as Excel",
+                data=excel_buffer,
+                file_name="Pipeline_Stock_Status.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                key="pipeline_download_excel"
             )
 
             with st.expander("ℹ️ About this table"):
                 st.markdown("""
                 **National and Pipeline Stock Status**
 
+                - **AMC**: Average Monthly Consumption (calculated from historical data - read-only)
+                - **Adjusted AMC**: User-adjustable AMC value (defaults to AMC value) - **Editable**
                 - **Risk Level**: Auto-calculated based on Current MOS and EDD
                   - **Low**: Current MOS >= 4 and EDD <= 2 months
                   - **Medium**: 2 <= Current MOS < 4 and 2 <= EDD <= 4 months
@@ -1579,23 +1641,27 @@ with tab1:
         else:
             st.info("No pipeline stock status data available")
 
-        st.markdown('<div class="colored-subheader colored-subheader-green">🏥 National Stock Status</div>', unsafe_allow_html=True)
+        st.markdown('<div class="colored-subheader colored-subheader-green times-roman">🏥 National Stock Status</div>', unsafe_allow_html=True)
 
         if st.session_state.national_stock_data is not None and not st.session_state.national_stock_data.empty:
             display_national = st.session_state.national_stock_data.copy()
             st.dataframe(display_national, use_container_width=True, height=500, hide_index=True)
 
-            csv_national = display_national.to_csv(index=False).encode('utf-8')
+            excel_buffer = BytesIO()
+            with pd.ExcelWriter(excel_buffer, engine='openpyxl') as writer:
+                display_national.to_excel(writer, sheet_name='National Stock Status', index=False)
+            excel_buffer.seek(0)
+
             st.download_button(
-                label="📥 Download National Stock Status as CSV",
-                data=csv_national,
-                file_name="Health_Program_National_Stock_Status.csv",
-                mime="text/csv"
+                label="📥 Download National Stock Status as Excel",
+                data=excel_buffer,
+                file_name="Health_Program_National_Stock_Status.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
             )
         else:
             st.info("No national stock status data available")
 
-        st.markdown('<div class="colored-subheader colored-subheader-purple">📊 Stock Data with Plant Stock and Expiry Date</div>', unsafe_allow_html=True)
+        st.markdown('<div class="colored-subheader colored-subheader-purple times-roman">📊 Stock Data with Plant Stock and Expiry Date</div>', unsafe_allow_html=True)
 
         display_df = data_to_use
         index_columns = ['Index', 'Ser No', 'S.No', 'S. No', 'Unnamed: 0']
@@ -1609,12 +1675,16 @@ with tab1:
 
         st.dataframe(display_df, use_container_width=True, height=600, hide_index=True)
 
-        csv = display_df.to_csv(index=False).encode('utf-8')
+        excel_buffer = BytesIO()
+        with pd.ExcelWriter(excel_buffer, engine='openpyxl') as writer:
+            display_df.to_excel(writer, sheet_name='Stock Data', index=False)
+        excel_buffer.seek(0)
+
         st.download_button(
-            label="📥 Download Stock Data as CSV",
-            data=csv,
-            file_name="Stock_Data.csv",
-            mime="text/csv"
+            label="📥 Download Stock Data as Excel",
+            data=excel_buffer,
+            file_name="Stock_Data.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )
 
         with st.expander("ℹ️ Data Status"):
@@ -1640,12 +1710,12 @@ with tab1:
 
 # Tab 2: Complete Issue Data
 with tab2:
-    st.markdown('<div class="colored-subheader colored-subheader-orange">📦 Complete Issue Data</div>', unsafe_allow_html=True)
+    st.markdown('<div class="colored-subheader colored-subheader-orange times-roman">📦 Complete Issue Data</div>', unsafe_allow_html=True)
 
     if st.session_state.items_loaded and st.session_state.items_merged_data is not None:
         items_data = st.session_state.items_merged_data
 
-        st.markdown('<div class="colored-subheader colored-subheader-teal" style="margin-top:10px;">📅 Filter by Delivery Date Range</div>', unsafe_allow_html=True)
+        st.markdown('<div class="colored-subheader colored-subheader-teal times-roman" style="margin-top:10px;">📅 Filter by Delivery Date Range</div>', unsafe_allow_html=True)
 
         date_col = None
         for col in items_data.columns:
@@ -1684,7 +1754,7 @@ with tab2:
                         filtered_items = items_data[mask]
 
                         if not filtered_items.empty:
-                            st.markdown('<div class="colored-subheader colored-subheader-green">🏥 Hubs Issue Data</div>', unsafe_allow_html=True)
+                            st.markdown('<div class="colored-subheader colored-subheader-green times-roman">🏥 Hubs Issue Data</div>', unsafe_allow_html=True)
 
                             items_national_df = create_national_stock_status(filtered_items, include_nsoh=False, include_expiry=False, is_issue_data=True)
                             st.session_state.items_national_stock_data = items_national_df
@@ -1693,35 +1763,43 @@ with tab2:
                                 display_national = items_national_df.copy()
                                 st.dataframe(display_national, use_container_width=True, height=500, hide_index=True)
 
-                                csv_national = display_national.to_csv(index=False).encode('utf-8')
+                                excel_buffer = BytesIO()
+                                with pd.ExcelWriter(excel_buffer, engine='openpyxl') as writer:
+                                    display_national.to_excel(writer, sheet_name='Hubs Issue Data', index=False)
+                                excel_buffer.seek(0)
+
                                 st.download_button(
-                                    label="📥 Download Hubs Issue Data as CSV",
-                                    data=csv_national,
-                                    file_name="Hubs_Issue_Data.csv",
-                                    mime="text/csv"
+                                    label="📥 Download Hubs Issue Data as Excel",
+                                    data=excel_buffer,
+                                    file_name="Hubs_Issue_Data.xlsx",
+                                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                                 )
                             else:
                                 st.info("No hubs issue data available for the selected date range")
 
-                            st.markdown('<div class="colored-subheader colored-subheader-teal">📊 Monthly Issue Data & Actual AMC</div>', unsafe_allow_html=True)
+                            st.markdown('<div class="colored-subheader colored-subheader-teal times-roman">📊 Monthly Issue Data & AMC</div>', unsafe_allow_html=True)
 
                             monthly_df = create_monthly_issue_data(filtered_items, start_date, end_date)
 
                             if monthly_df is not None and not monthly_df.empty:
                                 st.dataframe(monthly_df, use_container_width=True, height=500, hide_index=True)
 
-                                csv_monthly = monthly_df.to_csv(index=False).encode('utf-8')
+                                excel_buffer = BytesIO()
+                                with pd.ExcelWriter(excel_buffer, engine='openpyxl') as writer:
+                                    monthly_df.to_excel(writer, sheet_name='Monthly Issue Data', index=False)
+                                excel_buffer.seek(0)
+
                                 st.download_button(
-                                    label="📥 Download Monthly Issue Data as CSV",
-                                    data=csv_monthly,
-                                    file_name="Monthly_Issue_Data.csv",
-                                    mime="text/csv"
+                                    label="📥 Download Monthly Issue Data as Excel",
+                                    data=excel_buffer,
+                                    file_name="Monthly_Issue_Data.xlsx",
+                                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                                 )
 
                                 a_amc_dict = {}
                                 for idx, row in monthly_df.iterrows():
                                     desc = row.get('Material Descr') or row.get('Material Description')
-                                    amc = row.get('Actual AMC (A_AMC)', 0)
+                                    amc = row.get('AMC', 0)
                                     if desc:
                                         a_amc_dict[desc] = amc
                                 st.session_state.a_amc_data = a_amc_dict
@@ -1735,7 +1813,7 @@ with tab2:
                             else:
                                 st.info("No monthly issue data available for the selected date range")
 
-                            st.markdown('<div class="colored-subheader colored-subheader-purple">📊 Complete Issue Data</div>', unsafe_allow_html=True)
+                            st.markdown('<div class="colored-subheader colored-subheader-purple times-roman">📊 Complete Issue Data</div>', unsafe_allow_html=True)
 
                             display_df = filtered_items.copy()
                             index_columns = ['Index', 'Ser No', 'S.No', 'S. No', 'Unnamed: 0', 'Delivery_Date']
@@ -1749,12 +1827,16 @@ with tab2:
 
                             st.dataframe(display_df, use_container_width=True, height=600, hide_index=True)
 
-                            csv = display_df.to_csv(index=False).encode('utf-8')
+                            excel_buffer = BytesIO()
+                            with pd.ExcelWriter(excel_buffer, engine='openpyxl') as writer:
+                                display_df.to_excel(writer, sheet_name='Complete Issue Data', index=False)
+                            excel_buffer.seek(0)
+
                             st.download_button(
-                                label="📥 Download Complete Issue Data as CSV",
-                                data=csv,
-                                file_name="Complete_Issue_Data.csv",
-                                mime="text/csv"
+                                label="📥 Download Complete Issue Data as Excel",
+                                data=excel_buffer,
+                                file_name="Complete_Issue_Data.xlsx",
+                                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                             )
                         else:
                             st.warning("No data found for the selected date range")
@@ -1775,45 +1857,105 @@ with tab2:
 
 # Tab 3: Plant Stock Vs Issue Quantity
 with tab3:
-    st.markdown('<div class="colored-subheader colored-subheader-purple">📊 Plant Stock Vs Issue Quantity</div>', unsafe_allow_html=True)
+    st.markdown('<div class="colored-subheader colored-subheader-purple times-roman">📊 Plant Stock Vs Issue Quantity</div>', unsafe_allow_html=True)
 
     if st.session_state.national_stock_data is not None and not st.session_state.national_stock_data.empty and st.session_state.items_national_stock_data is not None and not st.session_state.items_national_stock_data.empty:
 
-        stock_data = st.session_state.national_stock_data.copy()
-        issue_data = st.session_state.items_national_stock_data.copy()
+        # Get date range for issue data
+        if st.session_state.items_merged_data is not None:
+            items_data = st.session_state.items_merged_data
 
-        comparison_df, branches = create_plant_stock_vs_issue(stock_data, issue_data)
+            # Find date column
+            date_col = None
+            for col in items_data.columns:
+                col_lower = col.lower()
+                if 'delivery' in col_lower or 'date' in col_lower:
+                    date_col = col
+                    break
 
-        if comparison_df is not None and not comparison_df.empty and branches is not None and len(branches) > 0:
-            st.dataframe(comparison_df, use_container_width=True, height=500, hide_index=True)
-
-            col1, col2 = st.columns(2)
-            with col1:
-                csv = comparison_df.to_csv(index=False).encode('utf-8')
-                st.download_button(
-                    label="📥 Export as CSV",
-                    data=csv,
-                    file_name="Plant_Stock_Vs_Issue_Quantity.csv",
-                    mime="text/csv",
-                    key="export_csv"
-                )
-            with col2:
+            if date_col:
                 try:
-                    with BytesIO() as buffer:
-                        with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
-                            comparison_df.to_excel(writer, sheet_name='Data', index=False)
-                        buffer.seek(0)
-                        st.download_button(
-                            label="📥 Export as Excel",
-                            data=buffer,
-                            file_name="Plant_Stock_Vs_Issue_Quantity.xlsx",
-                            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                            key="export_excel"
-                        )
+                    items_data['Delivery_Date'] = pd.to_datetime(items_data[date_col], errors='coerce')
+                    min_date = items_data['Delivery_Date'].min()
+                    max_date = items_data['Delivery_Date'].max()
+
+                    if pd.notna(min_date) and pd.notna(max_date):
+                        # Set default to latest month (last 30 days)
+                        default_start = max_date - timedelta(days=30)
+                        default_end = max_date
+
+                        col1, col2 = st.columns(2)
+                        with col1:
+                            start_date = st.date_input(
+                                "Start Date",
+                                value=default_start,
+                                min_value=min_date,
+                                max_value=max_date,
+                                key='comparison_start_date'
+                            )
+                        with col2:
+                            end_date = st.date_input(
+                                "End Date",
+                                value=default_end,
+                                min_value=min_date,
+                                max_value=max_date,
+                                key='comparison_end_date'
+                            )
+
+                        if start_date and end_date:
+                            # Filter items data by date range
+                            mask = (items_data['Delivery_Date'] >= pd.to_datetime(start_date)) & (items_data['Delivery_Date'] <= pd.to_datetime(end_date))
+                            filtered_items = items_data[mask]
+
+                            if not filtered_items.empty:
+                                # Create issue data with date filter
+                                items_national_df = create_national_stock_status(filtered_items, include_nsoh=False, include_expiry=False, is_issue_data=True)
+                                st.session_state.items_national_stock_data = items_national_df
+
+                                stock_data = st.session_state.national_stock_data.copy()
+                                issue_data = items_national_df.copy()
+
+                                comparison_df, branches = create_plant_stock_vs_issue(stock_data, issue_data)
+
+                                if comparison_df is not None and not comparison_df.empty and branches is not None and len(branches) > 0:
+                                    st.dataframe(comparison_df, use_container_width=True, height=500, hide_index=True)
+
+                                    col1, col2 = st.columns(2)
+                                    with col1:
+                                        excel_buffer = BytesIO()
+                                        with pd.ExcelWriter(excel_buffer, engine='openpyxl') as writer:
+                                            comparison_df.to_excel(writer, sheet_name='Comparison Data', index=False)
+                                        excel_buffer.seek(0)
+                                        st.download_button(
+                                            label="📥 Export as Excel",
+                                            data=excel_buffer,
+                                            file_name="Plant_Stock_Vs_Issue_Quantity.xlsx",
+                                            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                                            key="export_excel"
+                                        )
+                                    with col2:
+                                        csv = comparison_df.to_csv(index=False).encode('utf-8')
+                                        st.download_button(
+                                            label="📥 Export as CSV",
+                                            data=csv,
+                                            file_name="Plant_Stock_Vs_Issue_Quantity.csv",
+                                            mime="text/csv",
+                                            key="export_csv"
+                                        )
+                                else:
+                                    st.info("No branches found for comparison.")
+                            else:
+                                st.info("No issue data available for the selected date range")
+                        else:
+                            st.info("Please select both start and end dates")
+                    else:
+                        st.info("No valid dates found in the Delivery Date column")
                 except Exception as e:
-                    st.error(f"Error exporting to Excel: {e}")
-                    st.info("You can still download as CSV")
+                    st.error(f"Error processing dates: {str(e)}")
+                    st.info("Please ensure the Delivery Date column contains valid dates")
+            else:
+                st.info("No Delivery Date column found in the data")
         else:
-            st.info("No branches found for comparison.")
+            st.info("No items data available for date filtering")
     else:
         st.info("📤 Please load both Materials.xlsx and Items.xlsx files to view the comparison.")
