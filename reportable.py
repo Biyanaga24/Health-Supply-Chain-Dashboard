@@ -7,6 +7,7 @@ from datetime import datetime, timedelta
 from supabase import create_client
 from st_aggrid import AgGrid, GridOptionsBuilder
 from st_aggrid.shared import JsCode
+import openpyxl
 
 # Page configuration
 st.set_page_config(
@@ -74,6 +75,8 @@ if 'selected_programs' not in st.session_state:
     st.session_state.selected_programs = []
 if 'selected_sub_categories' not in st.session_state:
     st.session_state.selected_sub_categories = []
+if 'selected_risk_levels' not in st.session_state:
+    st.session_state.selected_risk_levels = []
 if 'date_range' not in st.session_state:
     st.session_state.date_range = None
 if 'a_amc_data' not in st.session_state:
@@ -85,26 +88,69 @@ if 'supabase_loaded' not in st.session_state:
 DEFAULT_MASTER_URL = "https://docs.google.com/spreadsheets/d/1XXLdIN6xwuAgmor-tkMgBgeDlxGqANFasshm6UVA6Wg/edit?gid=0#gid=0"
 DEFAULT_CONVERSION_URL = "https://docs.google.com/spreadsheets/d/1XXLdIN6xwuAgmor-tkMgBgeDlxGqANFasshm6UVA6Wg/edit?gid=1596962045#gid=1596962045"
 
+# --- Function to calculate Risk Level ---
+def calculate_risk_level(current_mos, edd_date):
+    """
+    Calculate Risk Level based on Current MOS and EDD.
+
+    Parameters:
+    -----------
+    current_mos : float
+        Current Months of Stock on Hand
+    edd_date : str or datetime
+        Estimated Delivery Date
+
+    Returns:
+    --------
+    str: Risk Level (Low, Medium, or High)
+    """
+    # If Current MOS is 0 or negative, return High risk
+    if current_mos <= 0:
+        return "High"
+
+    # Convert EDD to datetime if it's a string
+    if isinstance(edd_date, str):
+        try:
+            edd_date = pd.to_datetime(edd_date, errors='coerce')
+        except:
+            return "Medium"  # Default if date can't be parsed
+
+    # If EDD is None or NaT, calculate based on Current MOS only
+    if edd_date is None or pd.isna(edd_date):
+        if current_mos < 2:
+            return "High"
+        elif current_mos < 4:
+            return "Medium"
+        else:
+            return "Low"
+
+    # Calculate months until EDD
+    today = pd.Timestamp.now().normalize()
+    months_until_edd = (edd_date - today).days / 30.44  # Average days per month
+
+    # Determine Risk Level based on both Current MOS and EDD
+    if current_mos >= 4 and months_until_edd <= 2:
+        return "Low"
+    elif 2 <= current_mos < 4 and 2 <= months_until_edd <= 4:
+        return "Medium"
+    elif current_mos < 2 and months_until_edd > 4:
+        return "High"
+    else:
+        # Fallback logic for other combinations
+        if current_mos >= 4:
+            return "Low"
+        elif current_mos >= 2:
+            return "Medium"
+        else:
+            return "High"
+
 # --- Function to create Excel-style grouped header table ---
 def create_grouped_header_table(df, branches):
     """
     Create an Excel-style table with grouped/merged headers using streamlit-aggrid.
-
-    Parameters:
-    -----------
-    df : pandas.DataFrame
-        DataFrame containing the data with columns:
-        - Material
-        - Material Description
-        - {branch}_Plant_Stock for each branch
-        - {branch}_Issue_Qty for each branch
-    branches : list
-        List of branch names
-
-    Returns:
-    --------
-    AgGrid component with grouped headers
     """
+    if df is None or df.empty:
+        return None
 
     # Define the column structure
     column_defs = []
@@ -379,14 +425,13 @@ def save_supabase_data(original_df, edited_df):
                 original = original_row.iloc[0]
                 changed = False
 
-                # Check each editable field
+                # Check each editable field (excluding Risk Level which is auto-calculated)
                 editable_fields = {
                     'adjusted_amc': 'Adjusted AMC',
                     'quantity': 'Quantity',
                     'edd': 'EDD',
                     'procurement_agency': 'Procurement Agency',
                     'pipeline_status': 'Pipeline Status',
-                    'risk_level': 'Risk Level',
                     'mitigation_plan': 'Mitigation Plan',
                     'risk_response_status': 'Risk Response Status',
                     'remark': 'Remark'
@@ -452,6 +497,7 @@ def create_pipeline_stock_status(df, a_amc_data=None):
     Create Health Program Commodities National and Pipeline Stock Status.
     Auto-populated columns: Material to Expiry Date
     Editable columns loaded from Supabase: Adjusted AMC, Quantity, EDD, etc.
+    Risk Level is auto-calculated.
     """
     if df is None or df.empty:
         return None
@@ -615,7 +661,7 @@ def create_pipeline_stock_status(df, a_amc_data=None):
     final_df['EDD'] = ''
     final_df['Procurement Agency'] = ''
     final_df['Pipeline Status'] = ''
-    final_df['Risk Level'] = ''
+    final_df['Risk Level'] = ''  # Auto-calculated, not editable
     final_df['Mitigation Plan'] = ''
     final_df['Risk Response Status'] = ''
     final_df['Remark'] = ''
@@ -625,7 +671,7 @@ def create_pipeline_stock_status(df, a_amc_data=None):
     final_df['Pipeline MOS'] = 0
     final_df['Total MOS'] = 0
 
-    # Load only editable fields from Supabase
+    # Load only editable fields from Supabase (excluding Risk Level)
     saved_data = load_supabase_data()
     if saved_data is not None and not saved_data.empty:
         for idx, row in final_df.iterrows():
@@ -638,12 +684,12 @@ def create_pipeline_stock_status(df, a_amc_data=None):
                 final_df.at[idx, 'EDD'] = saved_row.iloc[0].get('edd', '')
                 final_df.at[idx, 'Procurement Agency'] = saved_row.iloc[0].get('procurement_agency', '')
                 final_df.at[idx, 'Pipeline Status'] = saved_row.iloc[0].get('pipeline_status', '')
-                final_df.at[idx, 'Risk Level'] = saved_row.iloc[0].get('risk_level', '')
+                # Risk Level is auto-calculated, not loaded from DB
                 final_df.at[idx, 'Mitigation Plan'] = saved_row.iloc[0].get('mitigation_plan', '')
                 final_df.at[idx, 'Risk Response Status'] = saved_row.iloc[0].get('risk_response_status', '')
                 final_df.at[idx, 'Remark'] = saved_row.iloc[0].get('remark', '')
 
-    # Calculate MOS fields (using loaded editable values)
+    # Calculate MOS fields and Risk Level
     for idx, row in final_df.iterrows():
         adjusted_amc = row['Adjusted AMC']
         # Convert to float if it's a string
@@ -657,6 +703,7 @@ def create_pipeline_stock_status(df, a_amc_data=None):
         else:
             adjusted_amc = 0
 
+        current_mos = 0
         if adjusted_amc > 0:
             nsoh = float(row['NSOH']) if row['NSOH'] else 0
             quantity = row['Quantity']
@@ -670,9 +717,18 @@ def create_pipeline_stock_status(df, a_amc_data=None):
             else:
                 quantity = 0
 
-            final_df.at[idx, 'Current MOS'] = round(nsoh / adjusted_amc, 2)
+            current_mos = round(nsoh / adjusted_amc, 2)
+            final_df.at[idx, 'Current MOS'] = current_mos
             final_df.at[idx, 'Pipeline MOS'] = round(quantity / adjusted_amc, 2)
             final_df.at[idx, 'Total MOS'] = round((nsoh + quantity) / adjusted_amc, 2)
+        else:
+            final_df.at[idx, 'Current MOS'] = 0
+            final_df.at[idx, 'Pipeline MOS'] = 0
+            final_df.at[idx, 'Total MOS'] = 0
+
+        # Calculate Risk Level based on Current MOS and EDD
+        edd = row['EDD']
+        final_df.at[idx, 'Risk Level'] = calculate_risk_level(current_mos, edd)
 
     # Keep only required columns
     keep_columns = [
@@ -823,7 +879,7 @@ def create_national_stock_status(df, include_nsoh=True, include_expiry=True, is_
     if include_nsoh:
         pivot['NSOH'] = pivot[plant_columns].sum(axis=1)
 
-    # Reorder columns
+    # Reorder columns - Hubs' SOH and Head Office should come before NSOH
     new_column_order = ['Material', 'Material Description']
 
     # Add Hubs' SOH (or Total Issue)
@@ -836,7 +892,7 @@ def create_national_stock_status(df, include_nsoh=True, include_expiry=True, is_
     # Add all branch columns (excluding Head Office)
     new_column_order.extend([col for col in plant_columns if col != head_office_col])
 
-    # Add NSOH if included
+    # Add NSOH after branches
     if include_nsoh:
         new_column_order.append('NSOH')
 
@@ -1236,40 +1292,49 @@ if not st.session_state.sheet_loaded:
 
 # --- Sidebar ---
 with st.sidebar:
-    # Removed "📂 Inventory Dashboard" and other status messages
-    # Removed "✅Master Sheet loaded: 254 rows and ✅ Conversion Sheet loaded: 254 rows"
-    # Removed "🔍 Filter Data" and "Showing 3437 of 3437 rows"
-    # Removed "Data source: Google Sheets + Excel upload"
-
-    # New sidebar layout - Select Program(s) and Select Sub Category(s)
-    st.subheader("Select Program(s)")
     if st.session_state.sheet_loaded and st.session_state.sheet_data is not None:
+        st.markdown("**Program Filter**")
         programs = sorted(st.session_state.sheet_data['Program'].dropna().unique().tolist())
         selected_programs = st.multiselect(
-            "Program(s)",
+            "",
             options=programs,
             default=st.session_state.selected_programs,
-            key='program_filter_sidebar_new'
+            key='program_filter_sidebar_new',
+            placeholder="Select Program(s)"
         )
         st.session_state.selected_programs = selected_programs
 
-    st.subheader("Select Sub Category(s)")
     if st.session_state.sheet_loaded and st.session_state.sheet_data is not None:
+        st.markdown("**Sub Category Filter**")
         sub_categories = sorted(st.session_state.sheet_data['Sub_Category'].dropna().unique().tolist())
         selected_sub_categories = st.multiselect(
-            "Sub Category(s)",
+            "",
             options=sub_categories,
             default=st.session_state.selected_sub_categories,
-            key='sub_category_filter_sidebar_new'
+            key='sub_category_filter_sidebar_new',
+            placeholder="Select Sub Category(s)"
         )
         st.session_state.selected_sub_categories = selected_sub_categories
 
+    # Risk Level Filter - only show if pipeline data is available
+    if st.session_state.pipeline_stock_data is not None and not st.session_state.pipeline_stock_data.empty:
+        st.markdown("**Risk Level Filter**")
+        risk_levels = ['Low', 'Medium', 'High']
+        selected_risk_levels = st.multiselect(
+            "",
+            options=risk_levels,
+            default=st.session_state.selected_risk_levels,
+            key='risk_level_filter_sidebar',
+            placeholder="Select Risk Level(s)"
+        )
+        st.session_state.selected_risk_levels = selected_risk_levels
+
     st.markdown("---")
 
-    # 📁 Upload Materials.xlsx
-    st.subheader("📁 Upload Materials.xlsx")
+    # 📁 Upload Materials.xlsx (removed text label)
+    st.markdown("**📁 Upload Materials.xlsx**")
     uploaded_file = st.file_uploader(
-        "Upload your Materials.xlsx file",
+        "",
         type=['xlsx', 'xls'],
         key='materials_upload_sidebar'
     )
@@ -1339,10 +1404,10 @@ with st.sidebar:
 
     st.markdown("---")
 
-    # 📦 Issue Data - Upload Items.xlsx
-    st.subheader("📦 Issue Data")
+    # 📦 Issue Data (removed text label)
+    st.markdown("**📦 Upload Items.xlsx**")
     items_file = st.file_uploader(
-        "Upload your Items.xlsx file",
+        "",
         type=['xlsx', 'xls'],
         key='items_upload_sidebar'
     )
@@ -1400,7 +1465,7 @@ with st.sidebar:
                                         a_amc_dict[desc] = amc
                                 st.session_state.a_amc_data = a_amc_dict
 
-                                if st.session_state.pipeline_stock_data is not None:
+                                if st.session_state.pipeline_stock_data is not None and st.session_state.merged_data is not None:
                                     updated_pipeline = create_pipeline_stock_status(
                                         st.session_state.merged_data, 
                                         st.session_state.a_amc_data
@@ -1419,21 +1484,78 @@ with st.sidebar:
                 st.session_state.items_merge_clicked = False
 
 # --- Main Dashboard Content ---
-# Changed title to "Health Program Commodities Supply Information" with Times Roman font and skyblue background
 st.markdown("""
     <style>
+        @keyframes subtlePulse {
+            0% { transform: scale(1); }
+            50% { transform: scale(1.01); }
+            100% { transform: scale(1); }
+        }
         .title-times-roman {
             font-family: 'Times New Roman', Times, serif;
-            background-color: skyblue;
-            padding: 10px 20px;
-            border-radius: 8px;
-            font-size: 1.5rem;
+            background: linear-gradient(135deg, #0b2b44, #1a4a6e);
+            padding: 18px 30px;
+            border-radius: 12px;
+            font-size: 2.2rem;
             font-weight: bold;
-            color: #0b2b44;
+            color: white;
             display: inline-block;
-            margin-bottom: 20px;
+            margin-bottom: 15px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.2);
+            animation: subtlePulse 3s ease-in-out infinite;
+            letter-spacing: 1px;
+            border: 1px solid rgba(255,255,255,0.1);
         }
-        /* Make metric titles bold and smaller */
+        /* Risk Level Section */
+        .risk-section-title {
+            font-size: 1.1rem;
+            font-weight: 600;
+            color: #0b2b44;
+            margin-bottom: 10px;
+            padding-left: 5px;
+        }
+        .risk-metrics-container {
+            display: flex;
+            gap: 15px;
+            flex-wrap: wrap;
+            margin-bottom: 15px;
+        }
+        .risk-metric-card {
+            background: white;
+            padding: 12px 18px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.08);
+            text-align: center;
+            border-left: 5px solid #ccc;
+            transition: transform 0.2s;
+            flex: 0 1 auto;
+            min-width: 120px;
+            max-width: 180px;
+        }
+        .risk-metric-card:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 4px 15px rgba(0,0,0,0.12);
+        }
+        .risk-metric-card .risk-label {
+            font-size: 0.9rem;
+            color: #666;
+            font-weight: 500;
+        }
+        .risk-metric-card .risk-value {
+            font-size: 1.8rem;
+            font-weight: bold;
+            margin: 3px 0;
+        }
+        .risk-metric-card .risk-sub {
+            font-size: 0.8rem;
+            color: #888;
+        }
+        .risk-low { border-left-color: #4caf50; }
+        .risk-medium { border-left-color: #ff9800; }
+        .risk-high { border-left-color: #f44336; }
+        .risk-low .risk-value { color: #4caf50; }
+        .risk-medium .risk-value { color: #ff9800; }
+        .risk-high .risk-value { color: #f44336; }
         .stMetricLabel {
             font-weight: bold !important;
             font-size: 0.8rem !important;
@@ -1441,7 +1563,6 @@ st.markdown("""
         .stMetricValue {
             font-size: 1.2rem !important;
         }
-        /* Remove extra spacing */
         .element-container {
             margin-bottom: 0.2rem !important;
         }
@@ -1449,9 +1570,96 @@ st.markdown("""
             font-weight: bold !important;
             font-size: 0.8rem !important;
         }
+        /* Colorful subheaders - Increased text size */
+        .colored-subheader {
+            background: linear-gradient(135deg, #e8f4f8, #b8d8e8);
+            padding: 12px 20px;
+            border-radius: 8px;
+            border-left: 5px solid #0b2b44;
+            margin: 20px 0 15px 0;
+            font-weight: bold;
+            color: #0b2b44;
+            font-size: 1.3rem !important;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+        }
+        .colored-subheader-green {
+            background: linear-gradient(135deg, #e8f5e9, #c8e6c9);
+            border-left-color: #2e7d32;
+            color: #1b5e20;
+        }
+        .colored-subheader-purple {
+            background: linear-gradient(135deg, #f3e5f5, #e1bee7);
+            border-left-color: #6a1b9a;
+            color: #4a148c;
+        }
+        .colored-subheader-orange {
+            background: linear-gradient(135deg, #fff3e0, #ffe0b2);
+            border-left-color: #e65100;
+            color: #bf360c;
+        }
+        .colored-subheader-teal {
+            background: linear-gradient(135deg, #e0f2f1, #b2dfdb);
+            border-left-color: #00695c;
+            color: #004d40;
+        }
+        /* Increase tab text size */
+        .stTabs [data-baseweb="tab-list"] button [data-testid="stMarkdownContainer"] p {
+            font-size: 1.1rem !important;
+            font-weight: 600 !important;
+        }
+        /* Remove extra spacing */
+        .stMarkdownContainer {
+            margin-bottom: 0px !important;
+        }
+        .stSubheader {
+            margin-bottom: 5px !important;
+        }
     </style>
-    <div class="title-times-roman">Health Program Commodities Supply Information</div>
+    <div class="title-times-roman">🏥 Health Program Commodities Supply Information</div>
 """, unsafe_allow_html=True)
+
+# Display Risk Level Metrics as cards with title
+if st.session_state.pipeline_stock_data is not None and not st.session_state.pipeline_stock_data.empty:
+    pipeline_df = st.session_state.pipeline_stock_data
+
+    # Count risk levels
+    low_count = len(pipeline_df[pipeline_df['Risk Level'] == 'Low'])
+    medium_count = len(pipeline_df[pipeline_df['Risk Level'] == 'Medium'])
+    high_count = len(pipeline_df[pipeline_df['Risk Level'] == 'High'])
+    total_count = len(pipeline_df)
+
+    # Display title and cards
+    st.markdown('<div class="risk-section-title">📊 Risk Level Summary</div>', unsafe_allow_html=True)
+
+    # Display as three columns with card styling - minimized width
+    col1, col2, col3 = st.columns([1, 1, 1])
+
+    with col1:
+        st.markdown(f"""
+        <div class="risk-metric-card risk-low">
+            <div class="risk-label">🟢 Low Risk</div>
+            <div class="risk-value">{low_count}</div>
+            <div class="risk-sub">{low_count/total_count*100:.1f}%</div>
+        </div>
+        """, unsafe_allow_html=True)
+
+    with col2:
+        st.markdown(f"""
+        <div class="risk-metric-card risk-medium">
+            <div class="risk-label">🟠 Medium Risk</div>
+            <div class="risk-value">{medium_count}</div>
+            <div class="risk-sub">{medium_count/total_count*100:.1f}%</div>
+        </div>
+        """, unsafe_allow_html=True)
+
+    with col3:
+        st.markdown(f"""
+        <div class="risk-metric-card risk-high">
+            <div class="risk-label">🔴 High Risk</div>
+            <div class="risk-value">{high_count}</div>
+            <div class="risk-sub">{high_count/total_count*100:.1f}%</div>
+        </div>
+        """, unsafe_allow_html=True)
 
 # Create tabs - now 3 tabs
 tab1, tab2, tab3 = st.tabs(["📊 Stock Data", "📦 Complete Issue Data", "📊 Plant Stock Vs Issue Quantity"])
@@ -1463,30 +1671,21 @@ with tab1:
         data_to_use = st.session_state.filtered_data if st.session_state.filtered_data is not None else st.session_state.merged_data
 
         # Show Pipeline Stock Status first (with A_AMC from Issue Data)
-        st.subheader("🏥 Health Program Commodities National and Pipeline Stock Status")
+        st.markdown('<div class="colored-subheader">🏥 National and Pipeline Stock Status</div>', unsafe_allow_html=True)
 
         if st.session_state.pipeline_stock_data is not None and not st.session_state.pipeline_stock_data.empty:
             display_pipeline = st.session_state.pipeline_stock_data.copy()
+
+            # Apply Risk Level filter if selected
+            if st.session_state.selected_risk_levels:
+                display_pipeline = display_pipeline[display_pipeline['Risk Level'].isin(st.session_state.selected_risk_levels)]
+
             # Store original for comparison
             original_pipeline = display_pipeline.copy()
 
-            # Display metrics - removed Total Materials, kept Hubs' SOH, NSOH, Materials with Expiry
-            # Added ℹ️ Data Status indicator
-            col1, col2, col3, col4 = st.columns(4)
-            with col1:
-                st.metric("Total Hubs' SOH", f"{display_pipeline['Hubs\' SOH'].sum():,.0f}" if 'Hubs\' SOH' in display_pipeline.columns else "0")
-            with col2:
-                st.metric("Total NSOH", f"{display_pipeline['NSOH'].sum():,.0f}" if 'NSOH' in display_pipeline.columns else "0")
-            with col3:
-                materials_with_expiry = display_pipeline[display_pipeline['Expiry Date'] != ''].shape[0] if 'Expiry Date' in display_pipeline.columns else 0
-                st.metric("Materials with Expiry", materials_with_expiry)
-            with col4:
-                # ℹ️ Data Status indicator
-                st.info("ℹ️ Data Status: Loaded")
-
             # Editable table with form
             with st.form(key="pipeline_form"):
-                # Display editable DataFrame - Adjusted AMC is now editable
+                # Display editable DataFrame
                 edited_df = st.data_editor(
                     display_pipeline,
                     use_container_width=True,
@@ -1498,12 +1697,12 @@ with tab1:
                         "EDD": st.column_config.TextColumn("EDD", help="Estimated Delivery Date"),
                         "Procurement Agency": st.column_config.TextColumn("Procurement Agency"),
                         "Pipeline Status": st.column_config.TextColumn("Pipeline Status"),
-                        "Risk Level": st.column_config.TextColumn("Risk Level"),
+                        "Risk Level": st.column_config.TextColumn("Risk Level", help="Auto-calculated based on Current MOS and EDD"),
                         "Mitigation Plan": st.column_config.TextColumn("Mitigation Plan"),
                         "Risk Response Status": st.column_config.TextColumn("Risk Response Status"),
                         "Remark": st.column_config.TextColumn("Remark"),
                     },
-                    disabled=["Material", "Material Description", "Hubs' SOH", "Head Office", "NSOH", "Expiry Date", "A_AMC", "Current MOS", "Pipeline MOS", "Total MOS"]
+                    disabled=["Material", "Material Description", "Hubs' SOH", "Head Office", "NSOH", "Expiry Date", "A_AMC", "Current MOS", "Pipeline MOS", "Total MOS", "Risk Level"]
                 )
 
                 # Save button
@@ -1512,10 +1711,9 @@ with tab1:
                     save_button = st.form_submit_button("💾 Save Changes")
 
                 if save_button:
-                    # Recalculate MOS fields based on edited values
+                    # Recalculate MOS fields and Risk Level based on edited values
                     for idx, row in edited_df.iterrows():
                         adjusted_amc = row.get('Adjusted AMC', 0)
-                        # Convert to float if needed
                         if isinstance(adjusted_amc, str):
                             try:
                                 adjusted_amc = float(adjusted_amc) if adjusted_amc else 0
@@ -1526,6 +1724,7 @@ with tab1:
                         else:
                             adjusted_amc = 0
 
+                        current_mos = 0
                         if adjusted_amc > 0:
                             nsoh = float(row.get('NSOH', 0)) if row.get('NSOH') else 0
                             quantity = row.get('Quantity', 0)
@@ -1539,7 +1738,8 @@ with tab1:
                             else:
                                 quantity = 0
 
-                            edited_df.at[idx, 'Current MOS'] = round(nsoh / adjusted_amc, 2)
+                            current_mos = round(nsoh / adjusted_amc, 2)
+                            edited_df.at[idx, 'Current MOS'] = current_mos
                             edited_df.at[idx, 'Pipeline MOS'] = round(quantity / adjusted_amc, 2)
                             edited_df.at[idx, 'Total MOS'] = round((nsoh + quantity) / adjusted_amc, 2)
                         else:
@@ -1547,7 +1747,11 @@ with tab1:
                             edited_df.at[idx, 'Pipeline MOS'] = 0
                             edited_df.at[idx, 'Total MOS'] = 0
 
-                    # Save only changed rows to Supabase
+                        # Calculate Risk Level based on Current MOS and EDD
+                        edd = row.get('EDD', '')
+                        edited_df.at[idx, 'Risk Level'] = calculate_risk_level(current_mos, edd)
+
+                    # Save only changed rows to Supabase (excluding Risk Level)
                     with st.spinner("Saving changes to Supabase..."):
                         success, saved_count = save_supabase_data(original_pipeline, edited_df)
                         if success:
@@ -1572,7 +1776,7 @@ with tab1:
 
             with st.expander("ℹ️ About this table"):
                 st.markdown("""
-                **Health Program Commodities National and Pipeline Stock Status**
+                **National and Pipeline Stock Status**
 
                 This table shows:
 
@@ -1592,7 +1796,10 @@ with tab1:
                 - **Total MOS**: Current MOS + Pipeline MOS
                 - **Procurement Agency**: Who is procuring (user input)
                 - **Pipeline Status**: Status of pipeline (user input)
-                - **Risk Level**: Risk assessment (to be implemented)
+                - **Risk Level**: Auto-calculated based on Current MOS and EDD
+                  - **Low**: Current MOS >= 4 and EDD <= 2 months
+                  - **Medium**: 2 <= Current MOS < 4 and 2 <= EDD <= 4 months
+                  - **High**: Current MOS < 2 and EDD > 4 months
                 - **Mitigation Plan**: Mitigation actions (user input)
                 - **Risk Response Status**: Risk response status (user input)
                 - **Remark**: Additional notes (user input)
@@ -1606,24 +1813,11 @@ with tab1:
         else:
             st.info("No pipeline stock status data available")
 
-        # Show National Stock Status below - removed Total Materials metric
-        st.markdown("---")
-        st.subheader("🏥 Health Program National Stock Status")
+        # Show National Stock Status below
+        st.markdown('<div class="colored-subheader colored-subheader-green">🏥 National Stock Status</div>', unsafe_allow_html=True)
 
         if st.session_state.national_stock_data is not None and not st.session_state.national_stock_data.empty:
             display_national = st.session_state.national_stock_data.copy()
-
-            # Display metrics - removed Total Materials
-            col1, col2, col3 = st.columns(3)
-            with col1:
-                nsoh_col = display_national['NSOH'].sum() if 'NSOH' in display_national.columns else 0
-                st.metric("Total NSOH", f"{nsoh_col:,.0f}")
-            with col2:
-                hubs_soh_col = display_national['Hubs\' SOH'].sum() if 'Hubs\' SOH' in display_national.columns else 0
-                st.metric("Total Hubs' SOH", f"{hubs_soh_col:,.0f}")
-            with col3:
-                materials_with_expiry = display_national[display_national['Expiry Date'] != ''].shape[0] if 'Expiry Date' in display_national.columns else 0
-                st.metric("Materials with Expiry", materials_with_expiry)
 
             st.dataframe(display_national, use_container_width=True, height=500, hide_index=True)
 
@@ -1637,7 +1831,7 @@ with tab1:
 
             with st.expander("ℹ️ About this table"):
                 st.markdown("""
-                **Health Program National Stock Status - Pivot Table**
+                **National Stock Status - Pivot Table**
 
                 This table is structured as a pivot table with:
 
@@ -1660,17 +1854,14 @@ with tab1:
                 - Unrestricted Stock + Stock in Quality Inspection + Stock in Transit
 
                 **Filtering Rules:**
-                - **IMPORTANT**: Only rows with Plant Stock > 0 are included
-                - Rows with Plant Stock = 0 are completely excluded
-                - Expiry Date is only shown for materials that have stock
+                - Only rows with Plant Stock > 0 are included
                 - If Plant Stock = 0, the Expiry Date column will be empty
                 """)
         else:
             st.info("No national stock status data available")
 
-        # Show Stock Data table below - removed Total Materials, Total Rows, Unique Materials, Total Plant Stock, Total Columns metrics
-        st.markdown("---")
-        st.subheader("📊 Stock Data with Plant Stock and Expiry Date")
+        # Show Stock Data table below
+        st.markdown('<div class="colored-subheader colored-subheader-purple">📊 Stock Data with Plant Stock and Expiry Date</div>', unsafe_allow_html=True)
 
         display_df = data_to_use
 
@@ -1697,6 +1888,26 @@ with tab1:
             mime="text/csv"
         )
 
+        # Data Status section moved to Stock Data tab
+        with st.expander("ℹ️ Data Status"):
+            st.write(f"Master Sheet loaded: {st.session_state.sheet_loaded}")
+            if st.session_state.sheet_loaded and st.session_state.sheet_data is not None:
+                st.write(f"Master Sheet rows: {len(st.session_state.sheet_data)}")
+            st.write(f"Materials.xlsx loaded: {st.session_state.excel_loaded}")
+            if st.session_state.excel_loaded and st.session_state.excel_data is not None:
+                st.write(f"Materials.xlsx rows: {len(st.session_state.excel_data)}")
+            st.write(f"Items.xlsx loaded: {st.session_state.items_loaded}")
+            if st.session_state.items_loaded and st.session_state.items_data is not None:
+                st.write(f"Items.xlsx rows: {len(st.session_state.items_data)}")
+            st.write(f"National Stock Data available: {st.session_state.national_stock_data is not None}")
+            st.write(f"Items National Stock Data available: {st.session_state.items_national_stock_data is not None}")
+            st.write(f"Matching rows found (Materials.xlsx): {st.session_state.merge_clicked}")
+            if st.session_state.merge_clicked and st.session_state.merged_data is not None:
+                st.write(f"Total matching rows: {len(st.session_state.merged_data)}")
+            st.write(f"Matching rows found (Items.xlsx): {st.session_state.items_merge_clicked}")
+            if st.session_state.items_merge_clicked and st.session_state.items_merged_data is not None:
+                st.write(f"Total matching rows: {len(st.session_state.items_merged_data)}")
+
     elif st.session_state.excel_loaded and st.session_state.sheet_loaded:
         st.warning("⚠️ No Materials from your Excel file were found in the Google Sheet master list.")
         st.info("Please check that the 'Material' column exists in both datasets and the values match.")
@@ -1705,20 +1916,17 @@ with tab1:
     else:
         st.warning("⏳ Loading Google Sheets... Please wait or refresh the page")
 
-# Tab 2: Complete Issue Data (changed from "Items.xlsx Data")
+# Tab 2: Complete Issue Data
 with tab2:
-    st.subheader("📦 Complete Issue Data")
+    st.markdown('<div class="colored-subheader colored-subheader-orange">📦 Complete Issue Data</div>', unsafe_allow_html=True)
 
     # Check if Items.xlsx is already loaded
     if st.session_state.items_loaded and st.session_state.items_merged_data is not None:
-        st.success(f"✅ Items data loaded: {len(st.session_state.items_merged_data)} rows")
-
         # Display Complete Issue Data
         items_data = st.session_state.items_merged_data
 
         # Date Range Filter
-        st.markdown("---")
-        st.subheader("📅 Filter by Delivery Date Range")
+        st.markdown('<div class="colored-subheader colored-subheader-teal" style="margin-top:10px;">📅 Filter by Delivery Date Range</div>', unsafe_allow_html=True)
 
         # Find Delivery Date column
         date_col = None
@@ -1758,9 +1966,8 @@ with tab2:
                         filtered_items = items_data[mask]
 
                         if not filtered_items.empty:
-                            # Show Hubs Issue Data - removed Total Materials, Total Branches, Total Issue metrics
-                            st.markdown("---")
-                            st.subheader("🏥 Hubs Issue Data")
+                            # Show Hubs Issue Data
+                            st.markdown('<div class="colored-subheader colored-subheader-green">🏥 Hubs Issue Data</div>', unsafe_allow_html=True)
 
                             items_national_df = create_national_stock_status(filtered_items, include_nsoh=False, include_expiry=False, is_issue_data=True)
                             st.session_state.items_national_stock_data = items_national_df
@@ -1768,7 +1975,6 @@ with tab2:
                             if items_national_df is not None and not items_national_df.empty:
                                 display_national = items_national_df.copy()
 
-                                # Removed metrics: Total Materials, Total Branches, Total Issue
                                 st.dataframe(display_national, use_container_width=True, height=500, hide_index=True)
 
                                 csv_national = display_national.to_csv(index=False).encode('utf-8')
@@ -1781,42 +1987,12 @@ with tab2:
                             else:
                                 st.info("No hubs issue data available for the selected date range")
 
-                            # Show Items Data - removed metrics
-                            st.markdown("---")
-                            st.subheader("📊 Complete Issue Data")
-
-                            display_df = filtered_items.copy()
-
-                            # Remove any index columns from display
-                            index_columns = ['Index', 'Ser No', 'S.No', 'S. No', 'Unnamed: 0', 'Delivery_Date']
-                            display_columns = [col for col in display_df.columns if col not in index_columns]
-                            display_df = display_df[display_columns]
-
-                            # Remove Program and Sub_Category columns from display
-                            columns_to_hide = ['Program', 'Sub_Category']
-                            display_columns = [col for col in display_df.columns if col not in columns_to_hide]
-                            display_df = display_df[display_columns]
-
-                            display_df = display_df.reset_index(drop=True)
-
-                            st.dataframe(display_df, use_container_width=True, height=600, hide_index=True)
-
-                            csv = display_df.to_csv(index=False).encode('utf-8')
-                            st.download_button(
-                                label="📥 Download Complete Issue Data as CSV",
-                                data=csv,
-                                file_name="Complete_Issue_Data.csv",
-                                mime="text/csv"
-                            )
-
-                            # Show Monthly Issue Data with Actual AMC - removed Total Materials, Total Months, Total A_AMC metrics
-                            st.markdown("---")
-                            st.subheader("📊 Monthly Issue Data & Actual AMC")
+                            # Show Monthly Issue Data with Actual AMC - moved here
+                            st.markdown('<div class="colored-subheader colored-subheader-teal">📊 Monthly Issue Data & Actual AMC</div>', unsafe_allow_html=True)
 
                             monthly_df = create_monthly_issue_data(filtered_items, start_date, end_date)
 
                             if monthly_df is not None and not monthly_df.empty:
-                                # Removed metrics: Total Materials, Total Months, Total A_AMC
                                 st.dataframe(monthly_df, use_container_width=True, height=500, hide_index=True)
 
                                 csv_monthly = monthly_df.to_csv(index=False).encode('utf-8')
@@ -1865,6 +2041,33 @@ with tab2:
                                     """)
                             else:
                                 st.info("No monthly issue data available for the selected date range")
+
+                            # Show Items Data
+                            st.markdown('<div class="colored-subheader colored-subheader-purple">📊 Complete Issue Data</div>', unsafe_allow_html=True)
+
+                            display_df = filtered_items.copy()
+
+                            # Remove any index columns from display
+                            index_columns = ['Index', 'Ser No', 'S.No', 'S. No', 'Unnamed: 0', 'Delivery_Date']
+                            display_columns = [col for col in display_df.columns if col not in index_columns]
+                            display_df = display_df[display_columns]
+
+                            # Remove Program and Sub_Category columns from display
+                            columns_to_hide = ['Program', 'Sub_Category']
+                            display_columns = [col for col in display_df.columns if col not in columns_to_hide]
+                            display_df = display_df[display_columns]
+
+                            display_df = display_df.reset_index(drop=True)
+
+                            st.dataframe(display_df, use_container_width=True, height=600, hide_index=True)
+
+                            csv = display_df.to_csv(index=False).encode('utf-8')
+                            st.download_button(
+                                label="📥 Download Complete Issue Data as CSV",
+                                data=csv,
+                                file_name="Complete_Issue_Data.csv",
+                                mime="text/csv"
+                            )
                         else:
                             st.warning("No data found for the selected date range")
                     else:
@@ -1884,7 +2087,7 @@ with tab2:
 
 # Tab 3: Plant Stock Vs Issue Quantity
 with tab3:
-    st.subheader("📊 Plant Stock Vs Issue Quantity")
+    st.markdown('<div class="colored-subheader colored-subheader-purple">📊 Plant Stock Vs Issue Quantity</div>', unsafe_allow_html=True)
 
     # Check if both data sources are available
     if st.session_state.national_stock_data is not None and not st.session_state.national_stock_data.empty and st.session_state.items_national_stock_data is not None and not st.session_state.items_national_stock_data.empty:
@@ -1897,16 +2100,13 @@ with tab3:
         comparison_df, branches = create_plant_stock_vs_issue(stock_data, issue_data)
 
         if comparison_df is not None and not comparison_df.empty and branches is not None and len(branches) > 0:
-            # Display metrics - removed Total Materials, Total Branches, Total Stock vs Issue
-            # Show the Excel-style table with grouped headers
-            st.subheader("Plant Stock vs Issue Quantity by Branch")
-            st.caption("Excel-style table with grouped headers - Each branch has two columns: Plant Stock and Issue Qty")
-
             # Display the table using AgGrid
             try:
                 grid_response = create_grouped_header_table(comparison_df, branches)
+                if grid_response is None:
+                    st.warning("No data available to display in the comparison table.")
             except Exception as e:
-                st.error(f"Error displaying table: {e}")
+                st.error(f"Error displaying table: {str(e)}")
                 # Fallback to regular dataframe
                 st.dataframe(comparison_df, use_container_width=True, height=500)
 
@@ -1923,23 +2123,22 @@ with tab3:
                     key="export_csv"
                 )
             with col2:
-                # Export as Excel
-                buffer = BytesIO()
-                with pd.ExcelWriter(buffer, engine='xlsxwriter') as writer:
-                    comparison_df.to_excel(writer, sheet_name='Data', index=False)
-                    workbook = writer.book
-                    worksheet = writer.sheets['Data']
-                    for i, col in enumerate(comparison_df.columns):
-                        max_len = max(comparison_df[col].astype(str).map(len).max(), len(col)) + 2
-                        worksheet.set_column(i, i, max_len)
-                buffer.seek(0)
-                st.download_button(
-                    label="📥 Export as Excel",
-                    data=buffer,
-                    file_name="Plant_Stock_Vs_Issue_Quantity.xlsx",
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                    key="export_excel"
-                )
+                # Export as Excel - using openpyxl instead of xlsxwriter
+                try:
+                    with BytesIO() as buffer:
+                        with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
+                            comparison_df.to_excel(writer, sheet_name='Data', index=False)
+                        buffer.seek(0)
+                        st.download_button(
+                            label="📥 Export as Excel",
+                            data=buffer,
+                            file_name="Plant_Stock_Vs_Issue_Quantity.xlsx",
+                            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                            key="export_excel"
+                        )
+                except Exception as e:
+                    st.error(f"Error exporting to Excel: {e}")
+                    st.info("You can still download as CSV")
 
             with st.expander("ℹ️ About this table"):
                 st.markdown("""
@@ -1972,23 +2171,3 @@ with tab3:
 
         Both files must be loaded and have matching materials to create the comparison.
         """)
-
-# Show detailed status - moved to bottom, still accessible
-with st.expander("ℹ️ Data Status"):
-    st.write(f"Master Sheet loaded: {st.session_state.sheet_loaded}")
-    if st.session_state.sheet_loaded and st.session_state.sheet_data is not None:
-        st.write(f"Master Sheet rows: {len(st.session_state.sheet_data)}")
-    st.write(f"Materials.xlsx loaded: {st.session_state.excel_loaded}")
-    if st.session_state.excel_loaded and st.session_state.excel_data is not None:
-        st.write(f"Materials.xlsx rows: {len(st.session_state.excel_data)}")
-    st.write(f"Items.xlsx loaded: {st.session_state.items_loaded}")
-    if st.session_state.items_loaded and st.session_state.items_data is not None:
-        st.write(f"Items.xlsx rows: {len(st.session_state.items_data)}")
-    st.write(f"National Stock Data available: {st.session_state.national_stock_data is not None}")
-    st.write(f"Items National Stock Data available: {st.session_state.items_national_stock_data is not None}")
-    st.write(f"Matching rows found (Materials.xlsx): {st.session_state.merge_clicked}")
-    if st.session_state.merge_clicked and st.session_state.merged_data is not None:
-        st.write(f"Total matching rows: {len(st.session_state.merged_data)}")
-    st.write(f"Matching rows found (Items.xlsx): {st.session_state.items_merge_clicked}")
-    if st.session_state.items_merge_clicked and st.session_state.items_merged_data is not None:
-        st.write(f"Total matching rows: {len(st.session_state.items_merged_data)}")
