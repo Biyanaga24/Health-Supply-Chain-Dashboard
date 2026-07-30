@@ -5,8 +5,6 @@ import re
 from io import StringIO, BytesIO
 from datetime import datetime, timedelta
 from supabase import create_client
-from st_aggrid import AgGrid, GridOptionsBuilder
-from st_aggrid.shared import JsCode
 import openpyxl
 
 # Page configuration
@@ -143,125 +141,6 @@ def calculate_risk_level(current_mos, edd_date):
             return "Medium"
         else:
             return "High"
-
-# --- Function to create Excel-style grouped header table ---
-def create_grouped_header_table(df, branches):
-    """
-    Create an Excel-style table with grouped/merged headers using streamlit-aggrid.
-    """
-    if df is None or df.empty:
-        return None
-
-    # Define the column structure
-    column_defs = []
-
-    # Fixed columns: Material and Material Description
-    column_defs.append({
-        "headerName": "Material",
-        "field": "Material",
-        "width": 120,
-        "pinned": "left",
-        "cellStyle": {"fontWeight": "bold", "backgroundColor": "#f8f9fa"}
-    })
-
-    column_defs.append({
-        "headerName": "Material Description",
-        "field": "Material Description",
-        "width": 250,
-        "pinned": "left",
-        "cellStyle": {"backgroundColor": "#f8f9fa"}
-    })
-
-    # Dynamic columns: For each branch, create a grouped header with two children
-    for branch in branches:
-        branch_def = {
-            "headerName": branch,
-            "children": [
-                {
-                    "headerName": "Plant Stock",
-                    "field": f"{branch}_Plant_Stock",
-                    "width": 140,
-                    "type": "numericColumn",
-                    "valueFormatter": JsCode('function(params) { return params.value ? params.value.toLocaleString() : "0"; }'),
-                    "cellStyle": {"textAlign": "right", "fontFamily": "monospace"}
-                },
-                {
-                    "headerName": "Issue Qty",
-                    "field": f"{branch}_Issue_Qty",
-                    "width": 140,
-                    "type": "numericColumn",
-                    "valueFormatter": JsCode('function(params) { return params.value ? params.value.toLocaleString() : "0"; }'),
-                    "cellStyle": {"textAlign": "right", "fontFamily": "monospace"}
-                }
-            ]
-        }
-        column_defs.append(branch_def)
-
-    # Build grid options
-    gb = GridOptionsBuilder()
-
-    # Set column definitions directly
-    gb.configure_grid_options(
-        columnDefs=column_defs,
-        enableSorting=True,
-        enableFilter=True,
-        enableColResize=True,
-        enableHover=True,
-        rowHeight=35,
-        headerHeight=60,
-        animateRows=True,
-        defaultColDef={
-            "sortable": True,
-            "filter": "agTextColumnFilter",
-            "resizable": True,
-        },
-        pagination=True,
-        paginationPageSize=50,
-        paginationPageSizeSelector=[25, 50, 100, 200],
-        suppressRowClickSelection=True,
-        enableCellTextSelection=True,
-        ensureDomOrder=True
-    )
-
-    # Build grid options
-    grid_options = gb.build()
-
-    return AgGrid(
-        df,
-        gridOptions=grid_options,
-        height=600,
-        width="100%",
-        theme="alpine",
-        custom_css={
-            ".ag-header-cell": {
-                "background-color": "#f0f0f0",
-                "font-weight": "bold",
-                "border-bottom": "2px solid #d0d0d0"
-            },
-            ".ag-header-group-cell": {
-                "background-color": "#e8e8e8",
-                "font-weight": "bold",
-                "text-align": "center",
-                "border-bottom": "2px solid #c0c0c0"
-            },
-            ".ag-cell": {
-                "border-right": "1px solid #e0e0e0",
-                "border-bottom": "1px solid #e8e8e8"
-            },
-            ".ag-row-odd": {
-                "background-color": "#fafafa"
-            },
-            ".ag-row-even": {
-                "background-color": "#ffffff"
-            },
-            ".ag-row-hover": {
-                "background-color": "#e6f3ff"
-            }
-        },
-        enable_enterprise_modules=False,
-        allow_unsafe_jscode=True,
-        reload_data=False
-    )
 
 # --- Function to load Google Sheet as CSV ---
 def load_google_sheet(sheet_url):
@@ -1331,7 +1210,7 @@ with st.sidebar:
 
     st.markdown("---")
 
-    # 📁 Upload Materials.xlsx (removed text label)
+    # 📁 Upload Materials.xlsx
     st.markdown("**📁 Upload Materials.xlsx**")
     uploaded_file = st.file_uploader(
         "",
@@ -1404,7 +1283,7 @@ with st.sidebar:
 
     st.markdown("---")
 
-    # 📦 Issue Data (removed text label)
+    # 📦 Issue Data
     st.markdown("**📦 Upload Items.xlsx**")
     items_file = st.file_uploader(
         "",
@@ -1506,7 +1385,6 @@ st.markdown("""
             letter-spacing: 1px;
             border: 1px solid rgba(255,255,255,0.1);
         }
-        /* Risk Level Section */
         .risk-section-title {
             font-size: 1.1rem;
             font-weight: 600;
@@ -1570,7 +1448,6 @@ st.markdown("""
             font-weight: bold !important;
             font-size: 0.8rem !important;
         }
-        /* Colorful subheaders - Increased text size */
         .colored-subheader {
             background: linear-gradient(135deg, #e8f4f8, #b8d8e8);
             padding: 12px 20px;
@@ -1602,12 +1479,10 @@ st.markdown("""
             border-left-color: #00695c;
             color: #004d40;
         }
-        /* Increase tab text size */
         .stTabs [data-baseweb="tab-list"] button [data-testid="stMarkdownContainer"] p {
             font-size: 1.1rem !important;
             font-weight: 600 !important;
         }
-        /* Remove extra spacing */
         .stMarkdownContainer {
             margin-bottom: 0px !important;
         }
@@ -1631,7 +1506,6 @@ if st.session_state.pipeline_stock_data is not None and not st.session_state.pip
     # Display title and cards
     st.markdown('<div class="risk-section-title">📊 Risk Level Summary</div>', unsafe_allow_html=True)
 
-    # Display as three columns with card styling - minimized width
     col1, col2, col3 = st.columns([1, 1, 1])
 
     with col1:
@@ -1661,31 +1535,25 @@ if st.session_state.pipeline_stock_data is not None and not st.session_state.pip
         </div>
         """, unsafe_allow_html=True)
 
-# Create tabs - now 3 tabs
+# Create tabs
 tab1, tab2, tab3 = st.tabs(["📊 Stock Data", "📦 Complete Issue Data", "📊 Plant Stock Vs Issue Quantity"])
 
-# Tab 1: Stock Data (Materials.xlsx)
+# Tab 1: Stock Data
 with tab1:
     if st.session_state.merge_clicked and st.session_state.merged_data is not None:
-        # Use filtered data if available, otherwise use merged data
         data_to_use = st.session_state.filtered_data if st.session_state.filtered_data is not None else st.session_state.merged_data
 
-        # Show Pipeline Stock Status first (with A_AMC from Issue Data)
         st.markdown('<div class="colored-subheader">🏥 National and Pipeline Stock Status</div>', unsafe_allow_html=True)
 
         if st.session_state.pipeline_stock_data is not None and not st.session_state.pipeline_stock_data.empty:
             display_pipeline = st.session_state.pipeline_stock_data.copy()
 
-            # Apply Risk Level filter if selected
             if st.session_state.selected_risk_levels:
                 display_pipeline = display_pipeline[display_pipeline['Risk Level'].isin(st.session_state.selected_risk_levels)]
 
-            # Store original for comparison
             original_pipeline = display_pipeline.copy()
 
-            # Editable table with form
             with st.form(key="pipeline_form"):
-                # Display editable DataFrame
                 edited_df = st.data_editor(
                     display_pipeline,
                     use_container_width=True,
@@ -1705,13 +1573,11 @@ with tab1:
                     disabled=["Material", "Material Description", "Hubs' SOH", "Head Office", "NSOH", "Expiry Date", "A_AMC", "Current MOS", "Pipeline MOS", "Total MOS", "Risk Level"]
                 )
 
-                # Save button
                 col1, col2, col3 = st.columns([1, 1, 4])
                 with col1:
                     save_button = st.form_submit_button("💾 Save Changes")
 
                 if save_button:
-                    # Recalculate MOS fields and Risk Level based on edited values
                     for idx, row in edited_df.iterrows():
                         adjusted_amc = row.get('Adjusted AMC', 0)
                         if isinstance(adjusted_amc, str):
@@ -1747,11 +1613,9 @@ with tab1:
                             edited_df.at[idx, 'Pipeline MOS'] = 0
                             edited_df.at[idx, 'Total MOS'] = 0
 
-                        # Calculate Risk Level based on Current MOS and EDD
                         edd = row.get('EDD', '')
                         edited_df.at[idx, 'Risk Level'] = calculate_risk_level(current_mos, edd)
 
-                    # Save only changed rows to Supabase (excluding Risk Level)
                     with st.spinner("Saving changes to Supabase..."):
                         success, saved_count = save_supabase_data(original_pipeline, edited_df)
                         if success:
@@ -1764,7 +1628,6 @@ with tab1:
                         else:
                             st.error("❌ Failed to save changes. Please try again.")
 
-            # Download button
             csv_pipeline = display_pipeline.to_csv(index=False).encode('utf-8')
             st.download_button(
                 label="📥 Download Pipeline Stock Status as CSV",
@@ -1778,42 +1641,28 @@ with tab1:
                 st.markdown("""
                 **National and Pipeline Stock Status**
 
-                This table shows:
-
                 **Columns:**
                 - **Material**: Material code
                 - **Material Description**: Description of the material
                 - **Hubs' SOH**: Sum of all Branch stocks (excluding Head Office)
                 - **Head Office**: Stock at Head Office (if present)
-                - **NSOH**: National Stock on Hand (sum of all branches including Head Office)
+                - **NSOH**: National Stock on Hand
                 - **Expiry Date**: Stock quantities with expiry dates
-                - **A_AMC**: Actual Average Monthly Consumption (from Issue Data)
+                - **A_AMC**: Actual Average Monthly Consumption
                 - **Adjusted AMC**: User-adjustable AMC value
-                - **Current MOS**: NSOH / Adjusted AMC (Months of Stock on Hand)
-                - **Quantity**: Pipeline quantity (user input)
-                - **EDD**: Estimated Delivery Date (user input)
-                - **Pipeline MOS**: Quantity / Adjusted AMC (Months of Pipeline Stock)
+                - **Current MOS**: NSOH / Adjusted AMC
+                - **Quantity**: Pipeline quantity
+                - **EDD**: Estimated Delivery Date
+                - **Pipeline MOS**: Quantity / Adjusted AMC
                 - **Total MOS**: Current MOS + Pipeline MOS
-                - **Procurement Agency**: Who is procuring (user input)
-                - **Pipeline Status**: Status of pipeline (user input)
                 - **Risk Level**: Auto-calculated based on Current MOS and EDD
                   - **Low**: Current MOS >= 4 and EDD <= 2 months
                   - **Medium**: 2 <= Current MOS < 4 and 2 <= EDD <= 4 months
                   - **High**: Current MOS < 2 and EDD > 4 months
-                - **Mitigation Plan**: Mitigation actions (user input)
-                - **Risk Response Status**: Risk response status (user input)
-                - **Remark**: Additional notes (user input)
-
-                **Plant Stock Calculation:**
-                - Unrestricted Stock + Stock in Quality Inspection + Stock in Transit
-
-                **Filtering Rules:**
-                - Only rows with Plant Stock > 0 are included
                 """)
         else:
             st.info("No pipeline stock status data available")
 
-        # Show National Stock Status below
         st.markdown('<div class="colored-subheader colored-subheader-green">🏥 National Stock Status</div>', unsafe_allow_html=True)
 
         if st.session_state.national_stock_data is not None and not st.session_state.national_stock_data.empty:
@@ -1828,49 +1677,17 @@ with tab1:
                 file_name="Health_Program_National_Stock_Status.csv",
                 mime="text/csv"
             )
-
-            with st.expander("ℹ️ About this table"):
-                st.markdown("""
-                **National Stock Status - Pivot Table**
-
-                This table is structured as a pivot table with:
-
-                **Rows:**
-                - Material
-                - Material Description
-
-                **Columns (Branches):**
-                - **Hubs' SOH**: Sum of all Branch stocks (excluding Head Office)
-                - Head Office (if present)
-                - Each Branch shows the Plant Stock for that material at that branch
-
-                **Additional Columns:**
-                - **NSOH**: National Stock on Hand (sum of all branch columns including Head Office)
-                - **Expiry Date**: Shows the stock quantity with its corresponding expiry date in the format:
-                  - `Stock_Quantity (MMM_YYYY)`
-                  - Example: `1,250 (Jan_2027), 800 (Mar_2027), 450 (Jun_2028)`
-
-                **Plant Stock Calculation:**
-                - Unrestricted Stock + Stock in Quality Inspection + Stock in Transit
-
-                **Filtering Rules:**
-                - Only rows with Plant Stock > 0 are included
-                - If Plant Stock = 0, the Expiry Date column will be empty
-                """)
         else:
             st.info("No national stock status data available")
 
-        # Show Stock Data table below
         st.markdown('<div class="colored-subheader colored-subheader-purple">📊 Stock Data with Plant Stock and Expiry Date</div>', unsafe_allow_html=True)
 
         display_df = data_to_use
 
-        # Remove any index columns from display
         index_columns = ['Index', 'Ser No', 'S.No', 'S. No', 'Unnamed: 0']
         display_columns = [col for col in display_df.columns if col not in index_columns]
         display_df = display_df[display_columns]
 
-        # Remove Program and Sub_Category columns from display
         columns_to_hide = ['Program', 'Sub_Category']
         display_columns = [col for col in display_df.columns if col not in columns_to_hide]
         display_df = display_df[display_columns]
@@ -1879,7 +1696,6 @@ with tab1:
 
         st.dataframe(display_df, use_container_width=True, height=600, hide_index=True)
 
-        # Download button
         csv = display_df.to_csv(index=False).encode('utf-8')
         st.download_button(
             label="📥 Download Stock Data as CSV",
@@ -1888,7 +1704,6 @@ with tab1:
             mime="text/csv"
         )
 
-        # Data Status section moved to Stock Data tab
         with st.expander("ℹ️ Data Status"):
             st.write(f"Master Sheet loaded: {st.session_state.sheet_loaded}")
             if st.session_state.sheet_loaded and st.session_state.sheet_data is not None:
@@ -1899,8 +1714,6 @@ with tab1:
             st.write(f"Items.xlsx loaded: {st.session_state.items_loaded}")
             if st.session_state.items_loaded and st.session_state.items_data is not None:
                 st.write(f"Items.xlsx rows: {len(st.session_state.items_data)}")
-            st.write(f"National Stock Data available: {st.session_state.national_stock_data is not None}")
-            st.write(f"Items National Stock Data available: {st.session_state.items_national_stock_data is not None}")
             st.write(f"Matching rows found (Materials.xlsx): {st.session_state.merge_clicked}")
             if st.session_state.merge_clicked and st.session_state.merged_data is not None:
                 st.write(f"Total matching rows: {len(st.session_state.merged_data)}")
@@ -1910,7 +1723,6 @@ with tab1:
 
     elif st.session_state.excel_loaded and st.session_state.sheet_loaded:
         st.warning("⚠️ No Materials from your Excel file were found in the Google Sheet master list.")
-        st.info("Please check that the 'Material' column exists in both datasets and the values match.")
     elif st.session_state.sheet_loaded:
         st.info("📤 Please upload your Materials.xlsx file to see matching materials")
     else:
@@ -1920,15 +1732,11 @@ with tab1:
 with tab2:
     st.markdown('<div class="colored-subheader colored-subheader-orange">📦 Complete Issue Data</div>', unsafe_allow_html=True)
 
-    # Check if Items.xlsx is already loaded
     if st.session_state.items_loaded and st.session_state.items_merged_data is not None:
-        # Display Complete Issue Data
         items_data = st.session_state.items_merged_data
 
-        # Date Range Filter
         st.markdown('<div class="colored-subheader colored-subheader-teal" style="margin-top:10px;">📅 Filter by Delivery Date Range</div>', unsafe_allow_html=True)
 
-        # Find Delivery Date column
         date_col = None
         for col in items_data.columns:
             col_lower = col.lower()
@@ -1966,7 +1774,6 @@ with tab2:
                         filtered_items = items_data[mask]
 
                         if not filtered_items.empty:
-                            # Show Hubs Issue Data
                             st.markdown('<div class="colored-subheader colored-subheader-green">🏥 Hubs Issue Data</div>', unsafe_allow_html=True)
 
                             items_national_df = create_national_stock_status(filtered_items, include_nsoh=False, include_expiry=False, is_issue_data=True)
@@ -1974,7 +1781,6 @@ with tab2:
 
                             if items_national_df is not None and not items_national_df.empty:
                                 display_national = items_national_df.copy()
-
                                 st.dataframe(display_national, use_container_width=True, height=500, hide_index=True)
 
                                 csv_national = display_national.to_csv(index=False).encode('utf-8')
@@ -1987,7 +1793,6 @@ with tab2:
                             else:
                                 st.info("No hubs issue data available for the selected date range")
 
-                            # Show Monthly Issue Data with Actual AMC - moved here
                             st.markdown('<div class="colored-subheader colored-subheader-teal">📊 Monthly Issue Data & Actual AMC</div>', unsafe_allow_html=True)
 
                             monthly_df = create_monthly_issue_data(filtered_items, start_date, end_date)
@@ -2003,7 +1808,6 @@ with tab2:
                                     mime="text/csv"
                                 )
 
-                                # Update A_AMC data in Pipeline Stock Status
                                 a_amc_dict = {}
                                 for idx, row in monthly_df.iterrows():
                                     desc = row.get('Material Descr') or row.get('Material Description')
@@ -2012,47 +1816,23 @@ with tab2:
                                         a_amc_dict[desc] = amc
                                 st.session_state.a_amc_data = a_amc_dict
 
-                                # Update Pipeline Stock Status with A_AMC
                                 if st.session_state.pipeline_stock_data is not None and st.session_state.merged_data is not None:
                                     updated_pipeline = create_pipeline_stock_status(
                                         st.session_state.merged_data, 
                                         st.session_state.a_amc_data
                                     )
                                     st.session_state.pipeline_stock_data = updated_pipeline
-
-                                with st.expander("ℹ️ About this table"):
-                                    st.markdown("""
-                                    **Monthly Issue Data & Actual AMC**
-
-                                    This table shows:
-
-                                    **Rows:**
-                                    - Material Descriptions
-
-                                    **Columns:**
-                                    - Each Month-Year (from Delivery Date)
-                                    - **Actual AMC (A_AMC)**: Average of all months (Total Quantity / Number of Months)
-
-                                    **Values:**
-                                    - Sum of Quantity for each Material-Month combination
-
-                                    **Calculation:**
-                                    - A_AMC = (Sum of all months' quantities) / (Number of months)
-                                    """)
                             else:
                                 st.info("No monthly issue data available for the selected date range")
 
-                            # Show Items Data
                             st.markdown('<div class="colored-subheader colored-subheader-purple">📊 Complete Issue Data</div>', unsafe_allow_html=True)
 
                             display_df = filtered_items.copy()
 
-                            # Remove any index columns from display
                             index_columns = ['Index', 'Ser No', 'S.No', 'S. No', 'Unnamed: 0', 'Delivery_Date']
                             display_columns = [col for col in display_df.columns if col not in index_columns]
                             display_df = display_df[display_columns]
 
-                            # Remove Program and Sub_Category columns from display
                             columns_to_hide = ['Program', 'Sub_Category']
                             display_columns = [col for col in display_df.columns if col not in columns_to_hide]
                             display_df = display_df[display_columns]
@@ -2089,31 +1869,18 @@ with tab2:
 with tab3:
     st.markdown('<div class="colored-subheader colored-subheader-purple">📊 Plant Stock Vs Issue Quantity</div>', unsafe_allow_html=True)
 
-    # Check if both data sources are available
     if st.session_state.national_stock_data is not None and not st.session_state.national_stock_data.empty and st.session_state.items_national_stock_data is not None and not st.session_state.items_national_stock_data.empty:
 
-        # Get the filtered data (respecting Program and Sub_Category filters)
         stock_data = st.session_state.national_stock_data.copy()
         issue_data = st.session_state.items_national_stock_data.copy()
 
-        # Create the comparison table
         comparison_df, branches = create_plant_stock_vs_issue(stock_data, issue_data)
 
         if comparison_df is not None and not comparison_df.empty and branches is not None and len(branches) > 0:
-            # Display the table using AgGrid
-            try:
-                grid_response = create_grouped_header_table(comparison_df, branches)
-                if grid_response is None:
-                    st.warning("No data available to display in the comparison table.")
-            except Exception as e:
-                st.error(f"Error displaying table: {str(e)}")
-                # Fallback to regular dataframe
-                st.dataframe(comparison_df, use_container_width=True, height=500)
+            st.dataframe(comparison_df, use_container_width=True, height=500, hide_index=True)
 
-            # Export functionality
             col1, col2 = st.columns(2)
             with col1:
-                # Export as CSV
                 csv = comparison_df.to_csv(index=False).encode('utf-8')
                 st.download_button(
                     label="📥 Export as CSV",
@@ -2123,7 +1890,6 @@ with tab3:
                     key="export_csv"
                 )
             with col2:
-                # Export as Excel - using openpyxl instead of xlsxwriter
                 try:
                     with BytesIO() as buffer:
                         with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
@@ -2142,32 +1908,15 @@ with tab3:
 
             with st.expander("ℹ️ About this table"):
                 st.markdown("""
-                **Plant Stock Vs Issue Quantity - Excel-Style Table**
+                **Plant Stock Vs Issue Quantity**
 
-                This table displays:
-
-                - **Grouped Headers**: Each branch has a parent header spanning two child columns
-                - **Fixed Columns**: Material and Material Description are pinned to the left
-                - **Sorting**: Click any column header to sort
-                - **Filtering**: Use the filter icons in column headers
-                - **Resizing**: Drag column borders to resize
-                - **Export**: Download as CSV or Excel
-                - **Pagination**: Navigate through pages for large datasets
+                This table displays Plant Stock and Issue Quantity side by side for each branch.
 
                 **Data Source:**
                 - Plant Stock comes from Materials.xlsx (Health Program National Stock Status)
                 - Issue Qty comes from Items.xlsx (Hubs Issue Data)
-
-                **Note:** Branch names are normalized (e.g., "Adama Branch (AD01)" becomes "Adama Branch")
                 """)
         else:
             st.info("No branches found for comparison. Please ensure both Stock Data and Issue Data have branch data.")
     else:
         st.info("📤 Please load both Materials.xlsx and Items.xlsx files to view the comparison.")
-        st.info("""
-        **Required files:**
-        1. **Materials.xlsx** - Load in Stock Data tab
-        2. **Items.xlsx** - Load in Issue Data tab
-
-        Both files must be loaded and have matching materials to create the comparison.
-        """)
