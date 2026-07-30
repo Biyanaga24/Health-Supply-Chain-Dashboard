@@ -16,3 +16,4 @@ scikit-learn
 scipy
 openpyxl
 pytz
+st-aggrid
