@@ -138,6 +138,155 @@ def reset_dos_tracking():
         return True
     return False
 # ===================================================
+# NSOH SNAPSHOT FUNCTIONS
+# ===================================================
+
+def load_nsoh_snapshots():
+    """Load ALL NSOH snapshots from Supabase with pagination"""
+    try:
+        if st.session_state.get('supabase_client') is None:
+            return pd.DataFrame()
+
+        # Use pagination to get ALL data
+        all_data = []
+        page = 0
+        page_size = 1000
+
+        while True:
+            response = st.session_state.supabase_client.table("ho_nsoh_snapshots") \
+                .select("*") \
+                .order("snapshot_date", desc=False) \
+                .range(page * page_size, (page + 1) * page_size - 1) \
+                .execute()
+
+            if not response.data:
+                break
+
+            all_data.extend(response.data)
+
+            # Stop when last page reached
+            if len(response.data) < page_size:
+                break
+
+            page += 1
+
+        if not all_data:
+            return pd.DataFrame()
+
+        df = pd.DataFrame(all_data)
+
+        # Convert snapshot_date to datetime
+        df['snapshot_date'] = pd.to_datetime(df['snapshot_date'])
+        # Format as Month-Year for display
+        df['Month_Year'] = df['snapshot_date'].dt.strftime('%b-%Y')
+
+        return df
+    except Exception as e:
+        if "relation" in str(e) and "does not exist" in str(e):
+            return pd.DataFrame()
+        st.error(f"Error loading NSOH snapshots: {e}")
+        return pd.DataFrame()
+
+def save_nsoh_snapshot(material_description, nsoh_value, snapshot_date):
+    """Save NSOH snapshot to Supabase"""
+    try:
+        if st.session_state.get('supabase_client') is None:
+            return False
+
+        # Check if entry already exists for this material and date
+        existing = st.session_state.supabase_client.table("ho_nsoh_snapshots") \
+            .select("*") \
+            .eq("material_description", material_description) \
+            .eq("snapshot_date", snapshot_date.isoformat()) \
+            .execute()
+
+        if existing.data:
+            # Update existing
+            response = st.session_state.supabase_client.table("ho_nsoh_snapshots") \
+                .update({"nsoh": float(nsoh_value)}) \
+                .eq("material_description", material_description) \
+                .eq("snapshot_date", snapshot_date.isoformat()) \
+                .execute()
+        else:
+            # Insert new
+            record = {
+                'material_description': material_description,
+                'nsoh': float(nsoh_value),
+                'snapshot_date': snapshot_date.isoformat()
+            }
+            response = st.session_state.supabase_client.table("ho_nsoh_snapshots").insert(record).execute()
+
+        return True
+    except Exception as e:
+        st.error(f"Error saving NSOH snapshot: {e}")
+        return False
+
+def clear_nsoh_snapshots():
+    """Clear all NSOH snapshots from Supabase"""
+    try:
+        if st.session_state.get('supabase_client') is None:
+            return False
+
+        response = st.session_state.supabase_client.table("ho_nsoh_snapshots").delete().neq("id", "").execute()
+        return True
+    except Exception as e:
+        st.error(f"Error clearing NSOH snapshots: {e}")
+        return False
+
+def create_nsoh_pivot_table(snapshots_df):
+    """Create a pivot table from snapshots: rows=Material Description, columns=Month_Year, values=NSOH"""
+    if snapshots_df.empty:
+        return pd.DataFrame()
+
+    # Remove duplicates before pivoting
+    snapshots_df_clean = snapshots_df.drop_duplicates(subset=['material_description', 'Month_Year'], keep='first')
+
+    # Pivot the data
+    pivot_df = snapshots_df_clean.pivot_table(
+        index='material_description',
+        columns='Month_Year',
+        values='nsoh',
+        aggfunc='first'  # Use first value if duplicates exist
+    ).fillna(0)
+
+    # Sort columns chronologically
+    try:
+        # Extract date from Month-Year for sorting
+        date_order = sorted(pivot_df.columns, key=lambda x: pd.to_datetime(x, format='%b-%Y'))
+        pivot_df = pivot_df[date_order]
+    except:
+        pass
+
+    return pivot_df
+
+def get_available_months(snapshots_df):
+    """Get sorted list of available months from snapshots"""
+    if snapshots_df.empty:
+        return []
+
+    # Get unique months and sort them
+    months = snapshots_df['Month_Year'].unique().tolist()
+
+    try:
+        # Sort chronologically
+        def parse_month(month_str):
+            try:
+                return pd.to_datetime(month_str, format='%b-%Y')
+            except:
+                try:
+                    return pd.to_datetime(month_str)
+                except:
+                    return None
+
+        months_with_dates = [(m, parse_month(m)) for m in months]
+        months_with_dates = [(m, dt) for m, dt in months_with_dates if dt is not None]
+        months_with_dates.sort(key=lambda x: x[1])
+        sorted_months = [m for m, dt in months_with_dates]
+
+        return sorted_months
+    except Exception as e:
+        return sorted(months)
+# ===================================================
 # PO REQUESTED DATES FUNCTIONS
 # ===================================================
 
@@ -4231,7 +4380,8 @@ with tab1:
                 file_name=f"{sheet_name}_Monthly_National_Pipeline_Report_{datetime.now().strftime('%Y%m%d')}.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                 use_container_width=True,
-                type="primary"
+                type="primary",
+                key="download_monthly_report_excel"
             )
             st.caption(f"Report includes columns from Material Description to TMOS ({len(report_columns)} columns)")
 
@@ -4243,77 +4393,235 @@ with tab1:
                 data=csv_data,
                 file_name=f"{sheet_name}_Monthly_National_Pipeline_Report_{datetime.now().strftime('%Y%m%d')}.csv",
                 mime="text/csv",
-                use_container_width=True
-            )
-
-        # STOCK CHANGES TABLE
-        st.markdown("---")
-        st.markdown("<h4 style='font-size: 20px; font-weight: bold; font-family: Times New Roman;'>📈 Stock Changes Since Last Update</h4>", unsafe_allow_html=True)
-
-        if st.session_state.nsoh_changes is not None and not st.session_state.nsoh_changes.empty:
-            added = st.session_state.nsoh_changes[st.session_state.nsoh_changes['Change Type'] == '📦 STOCK ADDED']
-            consumed = st.session_state.nsoh_changes[st.session_state.nsoh_changes['Change Type'] == '📉 STOCK CONSUMED']
-            no_change = st.session_state.nsoh_changes[st.session_state.nsoh_changes['Change Type'] == '➖ NO CHANGE']
-
-            col1, col2, col3, col4, col5 = st.columns(5)
-            with col1:
-                st.metric("📋 Total Materials", len(st.session_state.nsoh_changes))
-            with col2:
-                st.metric("➕ Stock Added", len(added))
-            with col3:
-                st.metric("📉 Stock Consumed", len(consumed))
-            with col4:
-                st.metric("➖ No Change", len(no_change))
-            with col5:
-                total_added = 0
-                for val in added['NSOH_Change']:
-                    try:
-                        total_added += int(val.replace(',', '').replace('+', ''))
-                    except:
-                        pass
-                total_consumed = 0
-                for val in consumed['NSOH_Change']:
-                    try:
-                        total_consumed += abs(int(val.replace(',', '')))
-                    except:
-                        pass
-                net_change = total_added - total_consumed
-                st.metric("📊 Net Change", f"{net_change:+,}")
-
-            st.markdown("---")
-
-            filter_type = st.radio(
-                "Filter by Change Type:",
-                ["All", "📦 STOCK ADDED", "📉 STOCK CONSUMED", "➖ NO CHANGE"],
-                horizontal=True
-            )
-
-            if filter_type != "All":
-                filtered_changes = st.session_state.nsoh_changes[st.session_state.nsoh_changes['Change Type'] == filter_type]
-            else:
-                filtered_changes = st.session_state.nsoh_changes
-
-            st.markdown(f"Showing **{len(filtered_changes)}** materials")
-
-            st.dataframe(
-                filtered_changes,
                 use_container_width=True,
-                hide_index=True
+                key="download_monthly_report_csv"
             )
 
-            changes_csv = st.session_state.nsoh_changes.to_csv(index=False)
-            st.download_button(
-                label="📥 Download Stock Changes (CSV)",
-                data=changes_csv,
-                file_name=f"stock_changes_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
-                mime="text/csv",
-                use_container_width=True
-            )
+        # ============================================
+        # 📈 NSOH HISTORICAL TREND SECTION
+        # ============================================
+        st.markdown("---")
+        st.markdown("<h4 style='font-size: 20px; font-weight: bold; font-family: Times New Roman;'>📈 NSOH Historical Trend</h4>", unsafe_allow_html=True)
+        st.caption("Historical NSOH values from saved snapshots - rows are materials, columns are months with NSOH values")
 
-        elif st.session_state.raw_previous_data is not None:
-            st.info("ℹ️ No previous data available for comparison. Stock change tracking will appear after the next update.")
+        # Load snapshots from Supabase with caching
+        @st.cache_data(ttl=300, show_spinner=False)
+        def get_cached_nsoh_snapshots():
+            """Cached version of load_nsoh_snapshots"""
+            return load_nsoh_snapshots()
+
+        # Use cached version
+        if 'nsoh_snapshots' not in st.session_state:
+            st.session_state.nsoh_snapshots = get_cached_nsoh_snapshots()
+
+        snapshots_df = st.session_state.nsoh_snapshots
+
+        if not snapshots_df.empty:
+            # Create pivot table
+            pivot_df = create_nsoh_pivot_table(snapshots_df)
+
+            if not pivot_df.empty:
+                # Filter to only materials that are in the current filtered dataset
+                materials_in_filter = df_filtered['Material Description'].dropna().unique()
+                pivot_df = pivot_df[pivot_df.index.isin(materials_in_filter)]
+
+                # ============================================
+                # DATE RANGE FILTER - User selectable
+                # ============================================
+                st.markdown("#### 📅 Select Date Range")
+
+                # Get available months from the pivot table
+                available_months = get_available_months(snapshots_df)
+
+                if available_months:
+                    # Create columns for the date range selector
+                    col_date_from, col_date_to = st.columns(2)
+
+                    with col_date_from:
+                        # Default to first available month
+                        default_from_index = 0
+                        # Try to find Dec-2025
+                        if 'Dec-2025' in available_months:
+                            default_from_index = available_months.index('Dec-2025')
+
+                        selected_from = st.selectbox(
+                            "From Month",
+                            available_months,
+                            index=default_from_index,
+                            key="nsoh_trend_from"
+                        )
+
+                    with col_date_to:
+                        # Default to last available month
+                        default_to_index = len(available_months) - 1
+
+                        selected_to = st.selectbox(
+                            "To Month",
+                            available_months,
+                            index=default_to_index,
+                            key="nsoh_trend_to"
+                        )
+
+                    # Validate selection
+                    from_idx = available_months.index(selected_from)
+                    to_idx = available_months.index(selected_to)
+
+                    if from_idx <= to_idx:
+                        # Filter columns based on selected date range
+                        selected_months = available_months[from_idx:to_idx + 1]
+
+                        # Filter the pivot table to only include selected months
+                        pivot_df_filtered = pivot_df[selected_months]
+
+                        st.info(f"📊 Showing data from {selected_from} to {selected_to} ({len(selected_months)} months)")
+                    else:
+                        st.warning("⚠️ 'From' date must be earlier than 'To' date. Please select a valid range.")
+                        pivot_df_filtered = pivot_df
+                else:
+                    st.info("No date data available")
+                    pivot_df_filtered = pivot_df
+
+                if not pivot_df_filtered.empty:
+                    # Sort materials by program order
+                    master_order = []
+                    if sheet_name != "All" and sheet_name in google_sheets:
+                        master_order = google_sheets[sheet_name]['Material Description'].dropna().tolist()
+                    elif sheet_name == "All":
+                        all_materials = []
+                        for prog_name, prog_df in google_sheets.items():
+                            if 'Material Description' in prog_df.columns:
+                                all_materials.extend(prog_df['Material Description'].dropna().tolist())
+                        master_order = list(dict.fromkeys(all_materials))
+
+                    # FIX: Remove duplicates from pivot_df_filtered index BEFORE reindexing
+                    pivot_df_filtered = pivot_df_filtered.loc[~pivot_df_filtered.index.duplicated(keep='first')]
+
+                    # Reorder pivot_df according to master order (only materials that exist in pivot)
+                    pivot_df_filtered = pivot_df_filtered.reindex([m for m in master_order if m in pivot_df_filtered.index])
+
+                    # Display the pivot table
+                    st.dataframe(
+                        pivot_df_filtered,
+                        use_container_width=True,
+                        height=min(600, (len(pivot_df_filtered) + 1) * 35)
+                    )
+
+                    # Download button for pivot table
+                    st.download_button(
+                        label="📥 Download NSOH Trend Data (CSV)",
+                        data=pivot_df_filtered.reset_index().to_csv(index=False),
+                        file_name=f"nsoh_trend_{datetime.now().strftime('%Y%m%d')}.csv",
+                        mime="text/csv",
+                        use_container_width=True,
+                        key="download_nsoh_trend"
+                    )
+
+                    # ============================================
+                    # MATERIAL TREND VISUALIZATION - WITH ALL DATA VISIBLE
+                    # ============================================
+                    st.markdown("---")
+                    st.markdown("#### 📊 NSOH Trend Visualization")
+
+                    # Get material list
+                    material_list = pivot_df_filtered.index.tolist()
+
+                    if material_list:
+                        # Dropdown for material selection
+                        selected_material = st.selectbox(
+                            "Select a material to view its NSOH trend:",
+                            material_list,
+                            key="nsoh_trend_material_select"
+                        )
+
+                        # Immediately display the trend for the selected material
+                        if selected_material and selected_material in pivot_df_filtered.index:
+                            # Get the data for the selected material
+                            material_data = pivot_df_filtered.loc[selected_material]
+
+                            # Create a line chart with filled area and data labels
+                            fig_trend = go.Figure()
+
+                            # Add filled area (colored region between line and x-axis)
+                            fig_trend.add_trace(go.Scatter(
+                                x=material_data.index,
+                                y=material_data.values,
+                                mode='lines+markers+text',
+                                name=selected_material[:50] if len(selected_material) > 50 else selected_material,
+                                line=dict(color='#1a5276', width=3),
+                                marker=dict(size=10, color='#1a5276'),
+                                text=material_data.values,
+                                texttemplate='%{text:,.0f}',
+                                textposition='top center',
+                                textfont=dict(
+                                    size=12,
+                                    color='#1a5276',
+                                    family='Arial Black'
+                                ),
+                                fill='tozeroy',
+                                fillcolor='rgba(26, 82, 118, 0.25)',
+                                hovertemplate='<b>%{x}</b><br>NSOH: %{y:,.0f} units<extra></extra>'
+                            ))
+
+                            # Add a horizontal line at y=0 for reference
+                            fig_trend.add_hline(y=0, line_dash="dash", line_color="gray", line_width=1)
+
+                            fig_trend.update_layout(
+                                title=f"NSOH Trend for {selected_material[:50]}" if len(selected_material) <= 50 else f"NSOH Trend for {selected_material[:47]}...",
+                                xaxis_title="Month",
+                                yaxis_title="NSOH (Units)",
+                                height=450,
+                                hovermode='x unified',
+                                plot_bgcolor='white',
+                                margin=dict(
+                                    l=50,
+                                    r=50,
+                                    t=60,
+                                    b=80
+                                )
+                            )
+
+                            # Improve x-axis appearance with more space
+                            fig_trend.update_xaxes(
+                                tickangle=0,
+                                gridcolor='lightgray',
+                                showgrid=True,
+                                gridwidth=0.5,
+                                range=[-0.5, len(material_data.index) - 0.5]
+                            )
+
+                            # Improve y-axis appearance with padding for text labels
+                            y_max = material_data.values.max() if len(material_data.values) > 0 else 100
+                            y_min = material_data.values.min() if len(material_data.values) > 0 else 0
+                            y_padding = (y_max - y_min) * 0.15 if y_max > y_min else 10
+
+                            fig_trend.update_yaxes(
+                                gridcolor='lightgray',
+                                showgrid=True,
+                                gridwidth=0.5,
+                                zeroline=True,
+                                zerolinecolor='gray',
+                                zerolinewidth=1,
+                                range=[y_min - y_padding, y_max + y_padding + 10]
+                            )
+
+                            st.plotly_chart(fig_trend, use_container_width=True)
+
+                            # Show the data as a table
+                            trend_df = pd.DataFrame({
+                                'Month': material_data.index,
+                                'NSOH': material_data.values
+                            })
+                            st.dataframe(trend_df, use_container_width=True, hide_index=True)
+                        else:
+                            st.info("Select a material to view its NSOH trend.")
+                else:
+                    st.info("No data available for the selected date range.")
+            else:
+                st.info("No pivot data available after filtering.")
         else:
-            st.info("ℹ️ Stock change tracking will appear after the next data update. (Need at least 2 data points to compare)")
+            st.info("No NSOH snapshots available. Use the 'NSOH Snapshot Management' section in the sidebar to save snapshots.")
+
+    #st.stop()
 
         # ===================================================
     # TAB 2 - KPIs & Analytics
@@ -4729,8 +5037,8 @@ with tab3:
     else:
         st.info("No data available.")
 
-    # ---------------------------------------------------
-# TAB 4 - Hubs Distribution
+# ---------------------------------------------------
+# TAB 4 - Hubs Distribution (COMPLETE FIXED CODE)
 # ---------------------------------------------------
 with tab4:
     try:
@@ -4803,54 +5111,70 @@ with tab4:
                                 st.metric("High Variation (>100%)", f"{high_count} ({high_pct:.1f}%)")
 
                         # ============================================
-                        # GET MASTER MATERIAL ORDER FROM PROGRAM
+                        # GET MASTER MATERIAL ORDER FROM PROGRAM (WITH DEDUPLICATION - FIXED)
                         # ============================================
+                        # Initialize as empty list
                         master_material_order = []
 
-                        # Define program order (Malaria first, then HIV, OI, TB, etc.)
+                        # Use a set to track seen materials for deduplication
+                        seen_materials = set()
+
+                        # Define program order
                         program_order_list = ["Malaria", "HIV", "OI", "Hepatitis", "STI", "TB", "Drug Susceptible -TB Medicine (DS-TB)", "Drug Resisitance -TB Medicine (DR-TB)",
                                               "Leprosy Medicines", "Nutrition","Lab TB","TB diagnostics& Laboratory reagent","TB Lab Supplies","HIV VL Reagents","CD4 _AHD _HIV_RTKs"]
 
                         if google_sheets:
-                            # Collect materials in program order
+                            # Collect materials in program order - WITH DEDUPLICATION
                             for prog in program_order_list:
                                 if prog in google_sheets:
                                     prog_df = google_sheets[prog]
                                     if 'Material Description' in prog_df.columns:
                                         for material in prog_df['Material Description'].dropna().tolist():
-                                            if material not in master_material_order:
-                                                # Skip subcategory headers
-                                                is_header = False
-                                                if prog in PROGRAM_HIERARCHY:
-                                                    subcategory_list = PROGRAM_HIERARCHY[prog]["subcategories"]
-                                                    if material in subcategory_list:
-                                                        is_header = True
-                                                if not is_header:
-                                                    master_material_order.append(material)
+                                            # Skip subcategory headers
+                                            is_header = False
+                                            if prog in PROGRAM_HIERARCHY:
+                                                subcategory_list = PROGRAM_HIERARCHY[prog]["subcategories"]
+                                                if material in subcategory_list:
+                                                    is_header = True
+                                            if not is_header and material not in seen_materials:
+                                                seen_materials.add(material)
+                                                master_material_order.append(material)
 
-                            # Add any remaining programs not in the predefined list
+                            # Add any remaining programs not in the predefined list - WITH DEDUPLICATION
                             for prog in google_sheets.keys():
                                 if prog not in program_order_list:
                                     prog_df = google_sheets[prog]
                                     if 'Material Description' in prog_df.columns:
                                         for material in prog_df['Material Description'].dropna().tolist():
-                                            if material not in master_material_order:
+                                            if material not in seen_materials:
+                                                seen_materials.add(material)
                                                 master_material_order.append(material)
 
-                        # If no program order found, use sorted order
+                        # If no program order found, use sorted order (also deduplicated)
                         if not master_material_order:
                             master_material_order = sorted(df['Material Description'].dropna().unique())
 
                         # ============================================
-                        # MOS Heatmap - Using master program order
+                        # MOS Heatmap - Using master program order (WITH FIX)
                         # ============================================
                         if division_df.shape[1] > 2:
                             branch_cols_list = [col for col in division_df.columns if col not in ['Material Description', 'CV (%)', 'CV Category']]
                             heatmap_df = division_df.copy()
 
-                            # Reorder materials according to master program order
+                            # CRITICAL FIX: Remove duplicates from heatmap_df index BEFORE reindexing
                             heatmap_df = heatmap_df.set_index('Material Description')
-                            heatmap_df = heatmap_df.reindex([m for m in master_material_order if m in heatmap_df.index])
+                            # Remove duplicate indices from heatmap_df itself
+                            heatmap_df = heatmap_df[~heatmap_df.index.duplicated(keep='first')]
+
+                            # Then filter master_material_order to only include materials in heatmap_df
+                            # AND remove any duplicates
+                            unique_master_order = []
+                            for m in master_material_order:
+                                if m in heatmap_df.index and m not in unique_master_order:
+                                    unique_master_order.append(m)
+
+                            # Reindex with the unique ordered list
+                            heatmap_df = heatmap_df.reindex(unique_master_order)
                             heatmap_df = heatmap_df.reset_index()
 
                             heatmap_df_indexed = heatmap_df.set_index('Material Description')
@@ -4905,12 +5229,12 @@ with tab4:
                                 st.markdown("🔵 **> 4** : Overstock")
 
                             # ============================================
-                            # EPSS Hubs SOH Heatmap - ALPHABETICAL HUBS, NO CAPTIONS
+                            # EPSS Hubs SOH Heatmap (WITH FIX)
                             # ============================================
                             st.markdown("---")
                             st.markdown("<h5 style='font-size: 20px; font-weight: bold;'>🔥 EPSS Stock on Hand (SOH) Heatmap</h5>", unsafe_allow_html=True)
 
-                            # Add filter option - WITH HEAD OFFICE AS DEFAULT
+                            # Add filter option
                             heatmap_filter = st.radio(
                                 "Select View:",
                                 ["🏪 Hubs Only", "🏢 With Head Office"],
@@ -4928,8 +5252,6 @@ with tab4:
 
                             branch_soh_cols = list(set(branch_soh_cols))
                             branch_soh_cols = [col for col in branch_soh_cols if col != 'Material Description']
-
-                            # Sort hubs alphabetically
                             branch_soh_cols = sorted(branch_soh_cols)
 
                             if branch_soh_cols:
@@ -4939,20 +5261,29 @@ with tab4:
                                 for col in branch_soh_cols:
                                     heatmap_data[col] = pd.to_numeric(heatmap_data[col], errors='coerce').fillna(0)
 
-                                # Reorder using SAME master program order
+                                # CRITICAL FIX: Remove duplicates and reindex
                                 heatmap_data_indexed = heatmap_data.set_index('Material Description')
-                                heatmap_data_indexed = heatmap_data_indexed.reindex([m for m in master_material_order if m in heatmap_data_indexed.index])
+                                # Remove duplicate indices
+                                heatmap_data_indexed = heatmap_data_indexed[~heatmap_data_indexed.index.duplicated(keep='first')]
+
+                                # Create unique ordered list
+                                unique_master_order_soh = []
+                                for m in master_material_order:
+                                    if m in heatmap_data_indexed.index and m not in unique_master_order_soh:
+                                        unique_master_order_soh.append(m)
+
+                                heatmap_data_indexed = heatmap_data_indexed.reindex(unique_master_order_soh)
                                 heatmap_data_indexed = heatmap_data_indexed.fillna(0)
                                 heatmap_data_transposed = heatmap_data_indexed.T
 
-                                # Add Head Office based on filter selection (Head Office at the end/last row)
+                                # Add Head Office
                                 if heatmap_filter == "🏢 With Head Office" and 'Head Office' in df.columns:
                                     head_office_data = df[['Material Description', 'Head Office']].copy()
                                     head_office_data['Head Office'] = pd.to_numeric(head_office_data['Head Office'], errors='coerce').fillna(0)
                                     head_office_data = head_office_data.set_index('Material Description')
-
-                                    # Reindex to match master program order
-                                    head_office_data = head_office_data.reindex([m for m in master_material_order if m in head_office_data.index])
+                                    # Remove duplicates
+                                    head_office_data = head_office_data[~head_office_data.index.duplicated(keep='first')]
+                                    head_office_data = head_office_data.reindex(unique_master_order_soh)
                                     head_office_data = head_office_data.fillna(0)
                                     head_office_data = head_office_data.T
                                     head_office_data.index = ['🏢 Head Office']
@@ -4962,7 +5293,6 @@ with tab4:
                                     heatmap_data_transposed = heatmap_data_transposed[common_materials]
                                     head_office_aligned = head_office_data[common_materials]
 
-                                    # Combine: Hubs first (alphabetical), then Head Office at the end
                                     combined_heatmap = pd.concat([heatmap_data_transposed, head_office_aligned])
                                 else:
                                     combined_heatmap = heatmap_data_transposed
@@ -4994,12 +5324,10 @@ with tab4:
                                     end_idx_soh = min(start_idx_soh + materials_per_page_soh, total_materials_soh)
                                     page_materials_soh = combined_heatmap.columns[start_idx_soh:end_idx_soh]
                                     heatmap_page_df_soh = combined_heatmap[page_materials_soh]
-                                    # REMOVED: st.info(f"Showing materials {start_idx_soh + 1} to {end_idx_soh} of {total_materials_soh}")
                                 else:
                                     heatmap_page_df_soh = combined_heatmap
 
                                 if not heatmap_page_df_soh.empty:
-                                    # Create the heatmap
                                     fig_soh = go.Figure(data=go.Heatmap(
                                         z=heatmap_page_df_soh.values,
                                         y=heatmap_page_df_soh.index,
@@ -5014,7 +5342,6 @@ with tab4:
                                         hovertemplate='<b>Material:</b> %{x}<br><b>Location:</b> %{y}<br><b>SOH:</b> %{z:,.0f} units<br><extra></extra>'
                                     ))
 
-                                    # Update layout
                                     fig_soh.update_layout(
                                         title="EPSS Stock on Hand Distribution",
                                         xaxis={
