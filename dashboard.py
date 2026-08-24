@@ -286,6 +286,22 @@ def get_available_months(snapshots_df):
         return sorted_months
     except Exception as e:
         return sorted(months)
+
+def save_nsoh_snapshots_batch(materials_data, snapshot_date):
+    """Save multiple NSOH snapshots in batch"""
+    try:
+        if st.session_state.get('supabase_client') is None:
+            return False, 0
+
+        saved_count = 0
+        for item in materials_data:
+            if save_nsoh_snapshot(item['material_description'], item['nsoh'], snapshot_date):
+                saved_count += 1
+
+        return True, saved_count
+    except Exception as e:
+        st.error(f"Error saving snapshots in batch: {e}")
+        return False, 0
 # ===================================================
 # PO REQUESTED DATES FUNCTIONS
 # ===================================================
@@ -366,7 +382,7 @@ if not st.session_state['auth']:
 # Page Setup
 # ---------------------------------------------------
 st.set_page_config(
-    page_title="Health Program Medicines Dashboard", 
+    page_title="HPC STOCK MANAGEMENT DASHBORD", 
     layout="wide", 
     initial_sidebar_state="expanded"
 )
@@ -413,6 +429,14 @@ st.markdown("""
         0%, 100% { transform: translateX(0); }
         25%, 75% { transform: translateX(-1px); }
         50% { transform: translateX(1px); }
+    }
+
+    @keyframes float-shake {
+        0%, 100% { transform: translateY(0) translateX(0); }
+        20% { transform: translateY(-3px) translateX(2px); }
+        40% { transform: translateY(0) translateX(-2px); }
+        60% { transform: translateY(-2px) translateX(1px); }
+        80% { transform: translateY(0) translateX(-1px); }
     }
 
     .stButton button:hover {
@@ -492,6 +516,17 @@ st.markdown("""
         width: 20px;
         height: 20px;
         border-radius: 3px;
+    }
+
+    /* Animated Header */
+    .animated-header {
+        animation: float-shake 3s ease-in-out infinite;
+        display: inline-block;
+    }
+
+    .animated-subtitle {
+        animation: float-shake 4s ease-in-out infinite;
+        display: inline-block;
     }
 
     /* ============================================ */
@@ -673,6 +708,8 @@ if 'last_summary_section' not in st.session_state:
     st.session_state.last_summary_section = None
 if 'requested_dates' not in st.session_state:
     st.session_state.requested_dates = load_all_requested_dates()
+if 'selected_programs' not in st.session_state:
+    st.session_state.selected_programs = ["All"]
 
 # Check connection periodically
 if st.session_state.supabase_client and not check_supabase_connection():
@@ -1731,37 +1768,120 @@ with st.sidebar:
             st.warning(notif)
 
 # ---------------------------------------------------
-# Program Selection
+# Program Selection - MULTI-SELECT (UPDATED)
 # ---------------------------------------------------
 if google_sheets:
-    program_list = ["All"] + list(google_sheets.keys())
+    # Define program order based on sheets
+    PROGRAM_ORDER_LIST = [
+        "Malaria",
+        "HIV", 
+        "OI and Hepatitis",
+        "Hepatitis",
+        "STI",
+        "TB",
+        "Drug Susceptible -TB Medicine (DS-TB)",
+        "Drug Resisitance -TB Medicine (DR-TB)",
+        "Leprosy Medicines",
+        "Nutrition",
+        "Lab TB",
+        "TB diagnostics& Laboratory reagent",
+        "TB Lab Supplies",
+        "HIV Lab",
+        "HIV VL Reagents",
+        "CD4 ,AHD &HIV RTKs"
+    ]
+
+    # Get all sheet names and sort them according to PROGRAM_ORDER_LIST
+    sheet_names = list(google_sheets.keys())
+
+    # Sort sheets according to PROGRAM_ORDER_LIST
+    sorted_sheets = []
+    for prog in PROGRAM_ORDER_LIST:
+        if prog in sheet_names:
+            sorted_sheets.append(prog)
+
+    # Add any remaining sheets not in the list
+    for sheet in sheet_names:
+        if sheet not in sorted_sheets:
+            sorted_sheets.append(sheet)
+
+    # Add "All" at the beginning
+    program_list = ["All"] + sorted_sheets
 else:
     program_list = ["All"]
 
-sheet_name = st.sidebar.selectbox("Program", program_list, index=0, key="program_selector")
+# Multi-select for programs
+selected_programs = st.sidebar.multiselect(
+    "Program(s)",
+    program_list,
+    default=st.session_state.selected_programs if st.session_state.selected_programs else ["All"],
+    key="program_multiselect"
+)
 
+# Update session state
+st.session_state.selected_programs = selected_programs
+
+# Determine if "All" is selected
+if "All" in selected_programs:
+    # If "All" is selected, use all programs
+    selected_programs_list = [p for p in program_list if p != "All"]
+    show_all_programs = True
+else:
+    selected_programs_list = selected_programs
+    show_all_programs = False
+
+# Subcategory filter - only show if exactly one program is selected and it has subcategories
 subcategory_options = ["All"]
-if sheet_name in PROGRAM_HIERARCHY and PROGRAM_HIERARCHY[sheet_name]["is_parent"]:
-    subcategory_options = ["All"] + PROGRAM_HIERARCHY[sheet_name]["subcategories"]
+show_subcategory_filter = False
+
+if len(selected_programs_list) == 1:
+    single_program = selected_programs_list[0]
+    if single_program in PROGRAM_HIERARCHY and PROGRAM_HIERARCHY[single_program]["is_parent"]:
+        subcategory_options = ["All"] + PROGRAM_HIERARCHY[single_program]["subcategories"]
+        show_subcategory_filter = True
+
+if show_subcategory_filter:
     subcategory_filter = st.sidebar.selectbox("Subcategory", subcategory_options, key="subcategory_filter")
 else:
     subcategory_filter = "All"
     st.session_state.subcategory_filter = "All"
 
-if sheet_name != st.session_state.last_sheet_name:
-    st.session_state.heatmap_page = 1
-    st.session_state.last_sheet_name = sheet_name
+# ---------------------------------------------------
+# Data loading based on selected programs
+# ---------------------------------------------------
+if show_all_programs or len(selected_programs_list) == 0:
+    # Use all programs
+    if google_sheets:
+        all_dfs = []
+        for name, df_program in google_sheets.items():
+            if df_program.empty:
+                continue
+            df_copy = df_program.copy()
+            df_copy.columns = df_copy.columns.astype(str)
+            if df_copy.columns.duplicated().any():
+                df_copy = df_copy.loc[:, ~df_copy.columns.duplicated()]
+            all_dfs.append(df_copy)
 
-if sheet_name == "All" and google_sheets:
+        if all_dfs:
+            try:
+                df_google = pd.concat(all_dfs, ignore_index=True, sort=False)
+            except Exception as concat_error:
+                st.error(f"Error combining sheets: {concat_error}")
+                df_google = pd.DataFrame()
+        else:
+            df_google = pd.DataFrame()
+    else:
+        df_google = pd.DataFrame()
+else:
+    # Combine selected programs
     all_dfs = []
-    for name, df_program in google_sheets.items():
-        if df_program.empty:
-            continue
-        df_copy = df_program.copy()
-        df_copy.columns = df_copy.columns.astype(str)
-        if df_copy.columns.duplicated().any():
-            df_copy = df_copy.loc[:, ~df_copy.columns.duplicated()]
-        all_dfs.append(df_copy)
+    for program in selected_programs_list:
+        if program in google_sheets:
+            df_program = google_sheets[program].copy()
+            df_program.columns = df_program.columns.astype(str)
+            if df_program.columns.duplicated().any():
+                df_program = df_program.loc[:, ~df_program.columns.duplicated()]
+            all_dfs.append(df_program)
 
     if all_dfs:
         try:
@@ -1771,13 +1891,6 @@ if sheet_name == "All" and google_sheets:
             df_google = pd.DataFrame()
     else:
         df_google = pd.DataFrame()
-elif google_sheets and sheet_name in google_sheets:
-    df_google = google_sheets[sheet_name].copy()
-    df_google.columns = df_google.columns.astype(str)
-    if df_google.columns.duplicated().any():
-        df_google = df_google.loc[:, ~df_google.columns.duplicated()]
-else:
-    df_google = pd.DataFrame()
 
 if not df_google.empty:
     required_cols = [
@@ -1929,15 +2042,20 @@ if not df.empty:
         df['CV Category'] = "Unknown"
 
     # Handle subcategory filtering BEFORE other operations
-    if sheet_name in PROGRAM_HIERARCHY:
-        subcategory_list = PROGRAM_HIERARCHY[sheet_name]["subcategories"]
-        # Assign subcategories to remaining materials
-        subcategory_mapping = assign_subcategories_to_materials(df, subcategory_list)
-        df['Assigned Subcategory'] = df['Material Description'].map(subcategory_mapping)
+    # Only assign subcategories if exactly one program is selected
+    if len(selected_programs_list) == 1:
+        single_program = selected_programs_list[0]
+        if single_program in PROGRAM_HIERARCHY:
+            subcategory_list = PROGRAM_HIERARCHY[single_program]["subcategories"]
+            # Assign subcategories to remaining materials
+            subcategory_mapping = assign_subcategories_to_materials(df, subcategory_list)
+            df['Assigned Subcategory'] = df['Material Description'].map(subcategory_mapping)
 
-        # Apply subcategory filter if selected
-        if subcategory_filter != "All":
-            df = df[df['Assigned Subcategory'] == subcategory_filter]
+            # Apply subcategory filter if selected
+            if subcategory_filter != "All":
+                df = df[df['Assigned Subcategory'] == subcategory_filter]
+        else:
+            df['Assigned Subcategory'] = None
     else:
         df['Assigned Subcategory'] = None
 
@@ -1992,9 +2110,9 @@ if 'Material Description' in df.columns:
     # Handle NaN values in Material Description for sorting
     unique_materials = df['Material Description'].dropna().astype(str).unique()
 
-    # Filter out subcategory headers from material list (dropdown only)
-    if sheet_name in PROGRAM_HIERARCHY:
-        subcategory_list = PROGRAM_HIERARCHY[sheet_name]["subcategories"]
+    # Filter out subcategory headers from material list (dropdown only) if exactly one program
+    if len(selected_programs_list) == 1 and selected_programs_list[0] in PROGRAM_HIERARCHY:
+        subcategory_list = PROGRAM_HIERARCHY[selected_programs_list[0]]["subcategories"]
         unique_materials = [m for m in unique_materials if m not in subcategory_list]
 
     materials = ["All"] + sorted(unique_materials)
@@ -2027,8 +2145,8 @@ if 'Material Description' in df.columns:
     display_df_filtered = display_df.copy()
 
     # ========== REMOVE SUBCATEGORY HEADERS FROM DATA ==========
-    if sheet_name in PROGRAM_HIERARCHY:
-        subcategory_list = PROGRAM_HIERARCHY[sheet_name]["subcategories"]
+    if len(selected_programs_list) == 1 and selected_programs_list[0] in PROGRAM_HIERARCHY:
+        subcategory_list = PROGRAM_HIERARCHY[selected_programs_list[0]]["subcategories"]
         mask = ~df_filtered['Material Description'].astype(str).str.strip().isin(subcategory_list)
         df_filtered = df_filtered[mask].copy()
         display_df_filtered = display_df_filtered[mask].copy()
@@ -2072,6 +2190,8 @@ if 'Material Description' in df.columns:
         active_filters.append(f"Status: {', '.join(status_filter)}")
     if material_filter and "All" not in material_filter:
         active_filters.append(f"Materials: {len(material_filter)} selected")
+    if not show_all_programs and selected_programs_list:
+        active_filters.append(f"Programs: {len(selected_programs_list)} selected")
 
     if active_filters:
         st.sidebar.markdown("---")
@@ -2417,7 +2537,7 @@ elif page == "Issue Data":
 
     # Get materials from selected program in PROGRAM ORDER
     with st.spinner("Loading program materials from Google Sheets..."):
-        if sheet_name == "All":
+        if show_all_programs or len(selected_programs_list) == 0:
             all_program_materials = []
             # Follow program order
             for prog_name in PROGRAM_ORDER_LIST:
@@ -2431,11 +2551,16 @@ elif page == "Issue Data":
                     all_program_materials.extend(materials)
             program_materials = list(dict.fromkeys(all_program_materials))  # Preserve order, remove duplicates
         else:
-            if sheet_name in google_sheets and 'Material Description' in google_sheets[sheet_name].columns:
-                program_materials = google_sheets[sheet_name]['Material Description'].dropna().tolist()
-            else:
-                st.error(f"No material data found for program: {sheet_name}")
-                st.stop()
+            program_materials = []
+            for prog_name in selected_programs_list:
+                if prog_name in google_sheets and 'Material Description' in google_sheets[prog_name].columns:
+                    materials = google_sheets[prog_name]['Material Description'].dropna().tolist()
+                    program_materials.extend(materials)
+            program_materials = list(dict.fromkeys(program_materials))  # Remove duplicates
+
+        if not program_materials:
+            st.error(f"No material data found for selected programs.")
+            st.stop()
 
     # Load ALL issue data from Supabase
     if st.session_state.supabase_client is None:
@@ -3570,7 +3695,7 @@ elif page == "Executive Summary":
     # EXECUTIVE SUMMARY PAGE
     # ===================================================
     st.markdown("<h1 style='font-size: 36px; font-weight: bold; font-family: Times New Roman;' class='gradient-text'>📊 Executive Summary Dashboard</h1>", unsafe_allow_html=True)
-    st.caption(f"Report Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} | Program: {sheet_name if sheet_name != 'All' else 'All Programs'}")
+    st.caption(f"Report Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} | Program: {', '.join(selected_programs_list) if selected_programs_list else 'All Programs'}")
 
     # Check if we have data
     if df_filtered.empty:
@@ -3899,7 +4024,7 @@ elif page == "Executive Summary":
     summary_text = f"""
 EXECUTIVE SUMMARY REPORT
 Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
-Program: {sheet_name if sheet_name != 'All' else 'All Programs'}
+Program: {', '.join(selected_programs_list) if selected_programs_list else 'All Programs'}
 
 ================================================================================
 1. PERFORMANCE METRICS
@@ -3960,7 +4085,18 @@ Program: {sheet_name if sheet_name != 'All' else 'All Programs'}
 # MAIN DASHBOARD (7 Tabs)
 # ===================================================
 else:
-    # Header Row
+    # Define program_display at the top of the Dashboard page
+    if show_all_programs or len(selected_programs_list) == 0:
+        program_display = "All Programs"
+    elif len(selected_programs_list) == 1:
+        program_display = selected_programs_list[0]
+    else:
+        program_display = f"{len(selected_programs_list)} Programs"
+
+    if subcategory_filter != "All" and len(selected_programs_list) == 1:
+        program_display = f"{selected_programs_list[0]} - {subcategory_filter}"
+
+    # Header Row with Animated Text
     col_logo, col_title, col_settings = st.columns([1, 3, 1])
 
     with col_logo:
@@ -3969,8 +4105,8 @@ else:
     with col_title:
         st.markdown("""
         <div>
-            <p style='font-size: 18px; color: #1a5276; margin: 0; font-weight: bold;'>ETHIOPIAN PHARMACEUTICAL SUPPLY SERVICE</p>
-            <h1 style='font-size: 32px; font-weight: bold; font-family: Times New Roman; margin: 0;' class='gradient-text'>Health Program Medicines Dashboard</h1>
+            <p class='animated-subtitle' style='font-size: 18px; color: #1a5276; margin: 0; font-weight: bold;'>ETHIOPIAN PHARMACEUTICAL SUPPLY SERVICE</p>
+            <h1 class='animated-header' style='font-size: 32px; font-weight: bold; font-family: Times New Roman; margin: 0;' class='gradient-text'>HPC STOCK MANAGEMENT DASHBOARD</h1>
         </div>
         """, unsafe_allow_html=True)
 
@@ -3985,13 +4121,16 @@ else:
 
     st.markdown("---")
 
-    # Quick Summary Section
-    if sheet_name == "All":
+    # Quick Summary Section - Use program_display here
+    if show_all_programs or len(selected_programs_list) == 0:
         program_name = "All Programs"
-    elif subcategory_filter != "All":
-        program_name = f"{sheet_name} - {subcategory_filter}"
+    elif len(selected_programs_list) == 1:
+        program_name = selected_programs_list[0]
     else:
-        program_name = sheet_name
+        program_name = f"{len(selected_programs_list)} Programs"
+
+    if subcategory_filter != "All" and len(selected_programs_list) == 1:
+        program_name = f"{selected_programs_list[0]} - {subcategory_filter}"
 
     # Calculate metrics
     if not df_filtered.empty and 'NMOS' in df_filtered.columns:
@@ -4009,8 +4148,8 @@ else:
         avg_lead_time_display = "N/A"
         if not df_new_deliveries.empty:
             # Get materials for the selected program
-            if sheet_name != "All" and sheet_name in google_sheets:
-                program_materials = google_sheets[sheet_name]['Material Description'].dropna().tolist()
+            if not show_all_programs and len(selected_programs_list) == 1 and selected_programs_list[0] in google_sheets:
+                program_materials = google_sheets[selected_programs_list[0]]['Material Description'].dropna().tolist()
                 # Filter deliveries by program materials
                 filtered_lead_df = df_new_deliveries[df_new_deliveries['Material Description'].isin(program_materials)].copy()
             else:
@@ -4425,10 +4564,10 @@ with tab1:
 
         try:
             with pd.ExcelWriter(output, engine='openpyxl') as writer:
-                if sheet_name == "All":
+                if show_all_programs or len(selected_programs_list) == 0:
                     report_title = "All Programs Medicines Monthly National and Pipeline Report"
                 else:
-                    report_title = f"{sheet_name} Medicines Monthly National and Pipeline Report"
+                    report_title = f"{', '.join(selected_programs_list)} Medicines Monthly National and Pipeline Report"
 
                 report_df.to_excel(writer, sheet_name=report_title[:31], index=False)
                 worksheet = writer.sheets[report_title[:31]]
@@ -4451,9 +4590,9 @@ with tab1:
 
             output.seek(0)
             st.download_button(
-                label=f"📊 Download {sheet_name} Monthly National and Pipeline Report (Excel)",
+                label=f"📊 Download {program_display} Monthly National and Pipeline Report (Excel)",
                 data=output,
-                file_name=f"{sheet_name}_Monthly_National_Pipeline_Report_{datetime.now().strftime('%Y%m%d')}.xlsx",
+                file_name=f"{program_display.replace(' ', '_')}_Monthly_National_Pipeline_Report_{datetime.now().strftime('%Y%m%d')}.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                 use_container_width=True,
                 type="primary",
@@ -4465,16 +4604,16 @@ with tab1:
             st.error(f"Error creating Excel file: {excel_error}")
             csv_data = report_df.to_csv(index=False)
             st.download_button(
-                label=f"📊 Download {sheet_name} Monthly National and Pipeline Report (CSV)",
+                label=f"📊 Download {program_display} Monthly National and Pipeline Report (CSV)",
                 data=csv_data,
-                file_name=f"{sheet_name}_Monthly_National_Pipeline_Report_{datetime.now().strftime('%Y%m%d')}.csv",
+                file_name=f"{program_display.replace(' ', '_')}_Monthly_National_Pipeline_Report_{datetime.now().strftime('%Y%m%d')}.csv",
                 mime="text/csv",
                 use_container_width=True,
                 key="download_monthly_report_csv"
             )
 
         # ============================================
-        # 📈 NSOH HISTORICAL TREND SECTION
+        # 📈 NSOH HISTORICAL TREND SECTION - INSIDE TAB 1 ONLY
         # ============================================
         st.markdown("---")
         st.markdown("<h4 style='font-size: 20px; font-weight: bold; font-family: Times New Roman;'>📈 NSOH Historical Trend</h4>", unsafe_allow_html=True)
@@ -4560,16 +4699,47 @@ with tab1:
                 if not pivot_df_filtered.empty:
                     # Sort materials by program order
                     master_order = []
-                    if sheet_name != "All" and sheet_name in google_sheets:
-                        master_order = google_sheets[sheet_name]['Material Description'].dropna().tolist()
-                    elif sheet_name == "All":
-                        all_materials = []
-                        for prog_name, prog_df in google_sheets.items():
-                            if 'Material Description' in prog_df.columns:
-                                all_materials.extend(prog_df['Material Description'].dropna().tolist())
-                        master_order = list(dict.fromkeys(all_materials))
 
-                    # FIX: Remove duplicates from pivot_df_filtered index BEFORE reindexing
+                    # Get materials from selected programs in order
+                    if show_all_programs or len(selected_programs_list) == 0:
+                        # All programs - follow program order
+                        for prog_name in PROGRAM_ORDER_LIST:
+                            if prog_name in google_sheets and 'Material Description' in google_sheets[prog_name].columns:
+                                materials = google_sheets[prog_name]['Material Description'].dropna().tolist()
+                                # Filter out subcategory headers
+                                if prog_name in PROGRAM_HIERARCHY:
+                                    subcategory_list = PROGRAM_HIERARCHY[prog_name]["subcategories"]
+                                    materials = [m for m in materials if m not in subcategory_list]
+                                master_order.extend(materials)
+                        # Add any remaining programs
+                        for prog_name in google_sheets.keys():
+                            if prog_name not in PROGRAM_ORDER_LIST and 'Material Description' in google_sheets[prog_name].columns:
+                                materials = google_sheets[prog_name]['Material Description'].dropna().tolist()
+                                if prog_name in PROGRAM_HIERARCHY:
+                                    subcategory_list = PROGRAM_HIERARCHY[prog_name]["subcategories"]
+                                    materials = [m for m in materials if m not in subcategory_list]
+                                master_order.extend(materials)
+                    else:
+                        # Selected programs only
+                        for prog_name in selected_programs_list:
+                            if prog_name in google_sheets and 'Material Description' in google_sheets[prog_name].columns:
+                                materials = google_sheets[prog_name]['Material Description'].dropna().tolist()
+                                # Filter out subcategory headers
+                                if prog_name in PROGRAM_HIERARCHY:
+                                    subcategory_list = PROGRAM_HIERARCHY[prog_name]["subcategories"]
+                                    materials = [m for m in materials if m not in subcategory_list]
+                                master_order.extend(materials)
+
+                    # Remove duplicates while preserving order
+                    seen = set()
+                    master_order_unique = []
+                    for m in master_order:
+                        if m not in seen:
+                            seen.add(m)
+                            master_order_unique.append(m)
+                    master_order = master_order_unique
+
+                    # Remove duplicates from pivot_df_filtered index BEFORE reindexing
                     pivot_df_filtered = pivot_df_filtered.loc[~pivot_df_filtered.index.duplicated(keep='first')]
 
                     # Reorder pivot_df according to master order (only materials that exist in pivot)
@@ -4593,7 +4763,7 @@ with tab1:
                     )
 
                     # ============================================
-                    # MATERIAL TREND VISUALIZATION - WITH ALL DATA VISIBLE
+                    # MATERIAL TREND VISUALIZATION
                     # ============================================
                     st.markdown("---")
                     st.markdown("#### 📊 NSOH Trend Visualization")
@@ -4609,15 +4779,14 @@ with tab1:
                             key="nsoh_trend_material_select"
                         )
 
-                        # Immediately display the trend for the selected material
+                        # Display the trend for the selected material
                         if selected_material and selected_material in pivot_df_filtered.index:
                             # Get the data for the selected material
                             material_data = pivot_df_filtered.loc[selected_material]
 
-                            # Create a line chart with filled area and data labels
+                            # Create a line chart
                             fig_trend = go.Figure()
 
-                            # Add filled area (colored region between line and x-axis)
                             fig_trend.add_trace(go.Scatter(
                                 x=material_data.index,
                                 y=material_data.values,
@@ -4638,7 +4807,6 @@ with tab1:
                                 hovertemplate='<b>%{x}</b><br>NSOH: %{y:,.0f} units<extra></extra>'
                             ))
 
-                            # Add a horizontal line at y=0 for reference
                             fig_trend.add_hline(y=0, line_dash="dash", line_color="gray", line_width=1)
 
                             fig_trend.update_layout(
@@ -4648,15 +4816,9 @@ with tab1:
                                 height=450,
                                 hovermode='x unified',
                                 plot_bgcolor='white',
-                                margin=dict(
-                                    l=50,
-                                    r=50,
-                                    t=60,
-                                    b=80
-                                )
+                                margin=dict(l=50, r=50, t=60, b=80)
                             )
 
-                            # Improve x-axis appearance with more space
                             fig_trend.update_xaxes(
                                 tickangle=0,
                                 gridcolor='lightgray',
@@ -4665,7 +4827,6 @@ with tab1:
                                 range=[-0.5, len(material_data.index) - 0.5]
                             )
 
-                            # Improve y-axis appearance with padding for text labels
                             y_max = material_data.values.max() if len(material_data.values) > 0 else 100
                             y_min = material_data.values.min() if len(material_data.values) > 0 else 0
                             y_padding = (y_max - y_min) * 0.15 if y_max > y_min else 10
@@ -4696,19 +4857,22 @@ with tab1:
                 st.info("No pivot data available after filtering.")
         else:
             st.info("No NSOH snapshots available. Use the 'NSOH Snapshot Management' section in the sidebar to save snapshots.")
-
-    #st.stop()
+    else:
+        st.warning("No data available to display in the stock status table.")
 
         # ===================================================
     # TAB 2 - KPIs & Analytics
     # ===================================================
     with tab2:
-        if sheet_name == "All":
+        if show_all_programs or len(selected_programs_list) == 0:
             program_display = "All Programs"
-        elif subcategory_filter != "All":
-            program_display = f"{sheet_name} - {subcategory_filter}"
+        elif len(selected_programs_list) == 1:
+            program_display = selected_programs_list[0]
         else:
-            program_display = sheet_name
+            program_display = f"{len(selected_programs_list)} Programs"
+
+        if subcategory_filter != "All" and len(selected_programs_list) == 1:
+            program_display = f"{selected_programs_list[0]} - {subcategory_filter}"
 
         st.markdown(f"<h3 style='font-size: 28px; font-weight: bold; font-family: Times New Roman;'>{program_display} Medicines Performance Metrics</h3>", unsafe_allow_html=True)
 
@@ -4872,7 +5036,7 @@ with tab1:
 # TAB 3 - Decision Briefs (UPDATED)
 # ---------------------------------------------------
 with tab3:
-    if sheet_name == "All":
+    if show_all_programs or len(selected_programs_list) == 0:
         st.markdown("<h3 style='font-size: 28px; font-weight: bold; font-family: Times New Roman;'>All Programs - Medicines Needing Immediate Action</h3>", unsafe_allow_html=True)
     else:
         st.markdown(f"<h3 style='font-size: 28px; font-weight: bold; font-family: Times New Roman;'>{program_display} Medicines Needing Immediate Action</h3>", unsafe_allow_html=True)
@@ -5044,7 +5208,7 @@ with tab3:
                 st.download_button(
                     label="📥 Download Current View (CSV)", 
                     data=edited_result.to_csv(index=False), 
-                    file_name=f"{sheet_name}_decision_briefs_{datetime.now().strftime('%Y%m%d')}.csv".replace(" ", "_"), 
+                    file_name=f"{program_display.replace(' ', '_')}_decision_briefs_{datetime.now().strftime('%Y%m%d')}.csv".replace(" ", "_"), 
                     mime="text/csv",
                     use_container_width=True
                 )
@@ -5052,7 +5216,7 @@ with tab3:
                 st.download_button(
                     label="📊 Download Full Data (CSV)", 
                     data=decision_df.to_csv(index=False), 
-                    file_name=f"{sheet_name}_decision_briefs_full_{datetime.now().strftime('%Y%m%d')}.csv".replace(" ", "_"), 
+                    file_name=f"{program_display.replace(' ', '_')}_decision_briefs_full_{datetime.now().strftime('%Y%m%d')}.csv".replace(" ", "_"), 
                     mime="text/csv",
                     use_container_width=True
                 )
@@ -6392,8 +6556,8 @@ with tab5:
     # TAB 7 - New Deliveries with Lead Time Tracking
     # ---------------------------------------------------
     with tab7:
-        if not df_new_deliveries.empty and sheet_name != "All" and sheet_name in google_sheets:
-            program_materials = google_sheets[sheet_name]['Material Description'].dropna().tolist()
+        if not df_new_deliveries.empty and not show_all_programs and len(selected_programs_list) == 1 and selected_programs_list[0] in google_sheets:
+            program_materials = google_sheets[selected_programs_list[0]]['Material Description'].dropna().tolist()
             df_new_deliveries = df_new_deliveries[df_new_deliveries['Material Description'].isin(program_materials)]
 
         st.markdown("<h3 style='font-size: 28px; font-weight: bold; font-family: Times New Roman;'>🚚 New Deliveries Tracking with Lead Time</h3>", unsafe_allow_html=True)
