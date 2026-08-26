@@ -3584,10 +3584,9 @@ elif page == "Advanced Analytics":
             if map_data:
                 map_df = pd.DataFrame(map_data)
 
-                # FIXED: Use go.Figure with Scattermapbox instead of px.scatter_mapbox
+                # ========== FIXED CODE STARTS HERE ==========
                 fig = go.Figure()
 
-                # Add traces for each status
                 for status, color in [('Understock', 'red'), ('Normal', 'green'), ('Overstock', 'skyblue')]:
                     status_df = map_df[map_df['Status'] == status]
                     if not status_df.empty:
