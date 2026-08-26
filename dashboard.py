@@ -3533,7 +3533,7 @@ elif page == "Advanced Analytics":
         else:
             st.info("Google Sheets data not available for program comparison")
 
-    # ========== TAB 6: Regional Map ==========
+       # ========== TAB 6: Regional Map ==========
     with aa_tab6:
         st.markdown("<h3 style='font-size: 24px; font-weight: bold;'>Regional Stock Distribution Map</h3>", unsafe_allow_html=True)
         st.caption("🔴 Red = HMOS < 2 (Understock) | 🟢 Green = HMOS 2-4 (Normal) | 🔵 Skyblue = HMOS > 4 (Overstock)")
@@ -3583,12 +3583,49 @@ elif page == "Advanced Analytics":
 
             if map_data:
                 map_df = pd.DataFrame(map_data)
-                fig = px.scatter_mapbox(map_df, lat='Latitude', lon='Longitude', size='Average HMOS', size_max=30,
-                                       color='Status', hover_name='Branch', hover_data=['Average HMOS'],
-                                       color_discrete_map={'Understock': 'red', 'Normal': 'green', 'Overstock': 'skyblue'},
-                                       zoom=5, height=600, title='Branch Stock Distribution Map (Average HMOS)')
-                fig.update_layout(mapbox_style='open-street-map')
-                fig.update_layout(margin=dict(l=0, r=0, t=30, b=0))
+
+                # FIXED: Use go.Figure with Scattermapbox instead of px.scatter_mapbox
+                fig = go.Figure()
+
+                # Add traces for each status
+                for status, color in [('Understock', 'red'), ('Normal', 'green'), ('Overstock', 'skyblue')]:
+                    status_df = map_df[map_df['Status'] == status]
+                    if not status_df.empty:
+                        fig.add_trace(go.Scattermapbox(
+                            lat=status_df['Latitude'],
+                            lon=status_df['Longitude'],
+                            mode='markers',
+                            marker=dict(
+                                size=status_df['Average HMOS'] * 4 + 15,
+                                color=color,
+                                opacity=0.8
+                            ),
+                            text=status_df['Branch'],
+                            name=status,
+                            hoverinfo='text',
+                            hovertext=status_df.apply(
+                                lambda row: f"<b>{row['Branch']}</b><br>Avg HMOS: {row['Average HMOS']} months<br>Status: {row['Status']}",
+                                axis=1
+                            ).tolist()
+                        ))
+
+                fig.update_layout(
+                    mapbox=dict(
+                        style='open-street-map',
+                        center=dict(lat=9.0, lon=38.0),
+                        zoom=5
+                    ),
+                    height=600,
+                    title='Branch Stock Distribution Map (Average HMOS)',
+                    margin=dict(l=0, r=0, t=40, b=0),
+                    legend=dict(
+                        orientation='h',
+                        yanchor='bottom',
+                        y=1.02,
+                        xanchor='center',
+                        x=0.5
+                    )
+                )
                 st.plotly_chart(fig, use_container_width=True)
                 st.dataframe(map_df[['Branch', 'Average HMOS', 'Status']], use_container_width=True, hide_index=True)
             else:
