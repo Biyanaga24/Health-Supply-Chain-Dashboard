@@ -3584,40 +3584,65 @@ elif page == "Advanced Analytics":
             if map_data:
                 map_df = pd.DataFrame(map_data)
 
-                # ========== WORKING FIX USING scatter_geo ==========
-                fig = px.scatter_geo(
-                    map_df,
-                    lat='Latitude',
-                    lon='Longitude',
-                    size='Average HMOS',
-                    size_max=30,
-                    color='Status',
-                    hover_name='Branch',
-                    hover_data=['Average HMOS'],
-                    color_discrete_map={'Understock': 'red', 'Normal': 'green', 'Overstock': 'skyblue'},
-                    title='Branch Stock Distribution Map (Average HMOS)'
-                )
-                fig.update_geos(
-                    projection_type="equirectangular",
-                    showcountries=True,
-                    countrycolor="Black",
-                    coastlinecolor="Black",
-                    landcolor="white",
-                    oceancolor="lightblue",
-                    showocean=True,
-                    showframe=True,
-                    framecolor="Black"
-                )
-                fig.update_layout(
-                    height=600,
-                    margin=dict(l=0, r=0, t=40, b=0),
-                    geo=dict(
-                        scope='africa',
-                        center=dict(lat=9.0, lon=38.0),
-                        projection_scale=4
+                # ========== UNIVERSAL FIX - Works with any Plotly version ==========
+                try:
+                    # Try using plotly express scatter_geo first
+                    fig = px.scatter_geo(
+                        map_df,
+                        lat='Latitude',
+                        lon='Longitude',
+                        size='Average HMOS',
+                        size_max=30,
+                        color='Status',
+                        hover_name='Branch',
+                        hover_data=['Average HMOS'],
+                        color_discrete_map={'Understock': 'red', 'Normal': 'green', 'Overstock': 'skyblue'},
+                        title='Branch Stock Distribution Map (Average HMOS)'
                     )
-                )
-                st.plotly_chart(fig, use_container_width=True)
+                    fig.update_geos(
+                        projection_type="equirectangular",
+                        showcountries=True,
+                        countrycolor="Black",
+                        coastlinecolor="Black",
+                        landcolor="white",
+                        oceancolor="lightblue",
+                        showocean=True,
+                        showframe=True,
+                        framecolor="Black"
+                    )
+                    fig.update_layout(
+                        height=600,
+                        margin=dict(l=0, r=0, t=40, b=0),
+                        geo=dict(
+                            scope='africa',
+                            center=dict(lat=9.0, lon=38.0),
+                            projection_scale=4
+                        )
+                    )
+                    st.plotly_chart(fig, use_container_width=True)
+
+                except Exception as e:
+                    # Fallback: Use a simple bar chart if map fails
+                    st.warning(f"Map visualization not available. Showing bar chart instead.")
+
+                    fig = px.bar(
+                        map_df,
+                        x='Branch',
+                        y='Average HMOS',
+                        color='Status',
+                        title='Branch Average HMOS Distribution',
+                        color_discrete_map={'Understock': 'red', 'Normal': 'green', 'Overstock': 'skyblue'},
+                        text='Average HMOS'
+                    )
+                    fig.update_traces(textposition='outside')
+                    fig.update_layout(
+                        height=500,
+                        xaxis_tickangle=-45,
+                        yaxis_title='Average HMOS (Months)'
+                    )
+                    st.plotly_chart(fig, use_container_width=True)
+
+                # Show the data table
                 st.dataframe(map_df[['Branch', 'Average HMOS', 'Status']], use_container_width=True, hide_index=True)
             else:
                 st.info("Map data not available.")
