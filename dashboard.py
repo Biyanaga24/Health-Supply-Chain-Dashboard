@@ -3584,45 +3584,37 @@ elif page == "Advanced Analytics":
             if map_data:
                 map_df = pd.DataFrame(map_data)
 
-                # ========== FIXED CODE STARTS HERE ==========
-                fig = go.Figure()
-
-                for status, color in [('Understock', 'red'), ('Normal', 'green'), ('Overstock', 'skyblue')]:
-                    status_df = map_df[map_df['Status'] == status]
-                    if not status_df.empty:
-                        fig.add_trace(go.Scattermapbox(
-                            lat=status_df['Latitude'],
-                            lon=status_df['Longitude'],
-                            mode='markers',
-                            marker=dict(
-                                size=status_df['Average HMOS'] * 4 + 15,
-                                color=color,
-                                opacity=0.8
-                            ),
-                            text=status_df['Branch'],
-                            name=status,
-                            hoverinfo='text',
-                            hovertext=status_df.apply(
-                                lambda row: f"<b>{row['Branch']}</b><br>Avg HMOS: {row['Average HMOS']} months<br>Status: {row['Status']}",
-                                axis=1
-                            ).tolist()
-                        ))
-
+                # ========== WORKING FIX USING scatter_geo ==========
+                fig = px.scatter_geo(
+                    map_df,
+                    lat='Latitude',
+                    lon='Longitude',
+                    size='Average HMOS',
+                    size_max=30,
+                    color='Status',
+                    hover_name='Branch',
+                    hover_data=['Average HMOS'],
+                    color_discrete_map={'Understock': 'red', 'Normal': 'green', 'Overstock': 'skyblue'},
+                    title='Branch Stock Distribution Map (Average HMOS)'
+                )
+                fig.update_geos(
+                    projection_type="equirectangular",
+                    showcountries=True,
+                    countrycolor="Black",
+                    coastlinecolor="Black",
+                    landcolor="white",
+                    oceancolor="lightblue",
+                    showocean=True,
+                    showframe=True,
+                    framecolor="Black"
+                )
                 fig.update_layout(
-                    mapbox=dict(
-                        style='open-street-map',
-                        center=dict(lat=9.0, lon=38.0),
-                        zoom=5
-                    ),
                     height=600,
-                    title='Branch Stock Distribution Map (Average HMOS)',
                     margin=dict(l=0, r=0, t=40, b=0),
-                    legend=dict(
-                        orientation='h',
-                        yanchor='bottom',
-                        y=1.02,
-                        xanchor='center',
-                        x=0.5
+                    geo=dict(
+                        scope='africa',
+                        center=dict(lat=9.0, lon=38.0),
+                        projection_scale=4
                     )
                 )
                 st.plotly_chart(fig, use_container_width=True)
