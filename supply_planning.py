@@ -144,15 +144,15 @@ def inject_custom_css():
             letter-spacing: 0.5px;
         }
 
-        /* Header Styles with Animation - Ruby color */
+        /* Header Styles with Animation - Jade color */
         .app-header {
-            background: linear-gradient(135deg, #9b111e 0%, #e0115f 50%, #9b111e 100%);
+            background: linear-gradient(135deg, #00A86B 0%, #00C78C 50%, #00A86B 100%);
             padding: 20px 30px;
             border-radius: 12px;
             margin-bottom: 20px;
             color: white;
             animation: slideIn 1s ease-out;
-            box-shadow: 0 4px 20px rgba(155, 17, 30, 0.3);
+            box-shadow: 0 4px 20px rgba(0, 168, 107, 0.3);
         }
         @keyframes slideIn {
             0% {
@@ -2863,87 +2863,107 @@ def render_supply_planning_exercise(df_filtered, supply_df, supply_plan, ordered
         use_container_width=True
     )
 
-    # Add pie charts for Identified Problem and Responsible Body
+    # Add pie charts for Identified Problem and Responsible Body - SINGLE COLUMN
     if action_df is not None and not action_df.empty:
         st.markdown("---")
         st.markdown("### 📊 Problem & Responsible Body Distribution")
 
-        col_pie1, col_pie2 = st.columns(2)
+        # Chart 1: Identified Problem - Full width with legend on right
+        problem_counts = action_df['Identified Problem'].value_counts().reset_index()
+        problem_counts.columns = ['Problem', 'Count']
 
-        with col_pie1:
-            # Identified Problem pie chart
-            problem_counts = action_df['Identified Problem'].value_counts().reset_index()
-            problem_counts.columns = ['Problem', 'Count']
+        # Create custom text: "Count (Percentage%)"
+        total_problems = problem_counts['Count'].sum()
+        problem_counts['Text'] = problem_counts.apply(
+            lambda row: f"{row['Count']} ({round(row['Count']/total_problems*100, 1)}%)", axis=1
+        )
 
-            fig_problem = go.Figure(data=[go.Pie(
-                labels=problem_counts['Problem'],
-                values=problem_counts['Count'],
-                hole=0.3,
-                marker=dict(colors=['#FF6B6B', '#FCC419', '#FF922B', '#4DABF7', '#CC5DE8']),
-                textinfo='label+percent',
-                textfont=dict(size=12, family='Times New Roman, Times, serif'),
-                hoverinfo='label+value+percent'
-            )])
-            fig_problem.update_layout(
-                title=dict(
-                    text="Identified Problems",
-                    font=dict(size=14, color='#333', family='Times New Roman, Times, serif')
-                ),
-                height=350,
-                font=dict(family='Times New Roman, Times, serif'),
-                plot_bgcolor='white',
-                paper_bgcolor='white',
-                legend=dict(
-                    orientation='h',
-                    yanchor='bottom',
-                    y=-0.1,
-                    xanchor='center',
-                    x=0.5,
-                    font=dict(size=11, family='Times New Roman, Times, serif')
-                )
-            )
-            st.plotly_chart(fig_problem, use_container_width=True, config={'displayModeBar': True})
+        fig_problem = go.Figure(data=[go.Pie(
+            labels=problem_counts['Problem'],
+            values=problem_counts['Count'],
+            hole=0.3,
+            text=problem_counts['Text'],
+            textposition='inside',
+            textfont=dict(size=12, color='white', family='Times New Roman, Times, serif'),
+            marker=dict(colors=['#FF6B6B', '#FCC419', '#FF922B', '#4DABF7', '#CC5DE8']),
+            hoverinfo='label+value+percent',
+            showlegend=True
+        )])
+        fig_problem.update_layout(
+            title=dict(
+                text="Identified Problems",
+                font=dict(size=16, color='#333', family='Times New Roman, Times, serif')
+            ),
+            height=450,
+            font=dict(family='Times New Roman, Times, serif'),
+            plot_bgcolor='white',
+            paper_bgcolor='white',
+            legend=dict(
+                orientation='v',
+                yanchor='middle',
+                y=0.5,
+                xanchor='left',
+                x=1.05,
+                font=dict(size=12, family='Times New Roman, Times, serif'),
+                bgcolor='rgba(255,255,255,0.9)',
+                bordercolor='rgba(0,0,0,0.1)',
+                borderwidth=1
+            ),
+            margin=dict(l=40, r=200, t=60, b=40)
+        )
+        st.plotly_chart(fig_problem, use_container_width=True, config={'displayModeBar': True})
 
-        with col_pie2:
-            # Responsible Body pie chart - split by comma
-            # Split responsible bodies by comma and explode
-            all_bodies = []
-            for body_str in action_df['Responsible Body'].dropna():
-                # Split by comma and strip whitespace
-                bodies = [b.strip() for b in body_str.split(',') if b.strip()]
-                all_bodies.extend(bodies)
+        st.markdown("---")
 
-            body_counts = pd.Series(all_bodies).value_counts().reset_index()
-            body_counts.columns = ['Responsible Body', 'Count']
+        # Chart 2: Responsible Body - Full width with legend on right
+        all_bodies = []
+        for body_str in action_df['Responsible Body'].dropna():
+            bodies = [b.strip() for b in body_str.split(',') if b.strip()]
+            all_bodies.extend(bodies)
 
-            fig_body = go.Figure(data=[go.Pie(
-                labels=body_counts['Responsible Body'],
-                values=body_counts['Count'],
-                hole=0.3,
-                marker=dict(colors=['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd', '#8c564b', '#e377c2']),
-                textinfo='label+percent',
-                textfont=dict(size=12, family='Times New Roman, Times, serif'),
-                hoverinfo='label+value+percent'
-            )])
-            fig_body.update_layout(
-                title=dict(
-                    text="Responsible Bodies",
-                    font=dict(size=14, color='#333', family='Times New Roman, Times, serif')
-                ),
-                height=350,
-                font=dict(family='Times New Roman, Times, serif'),
-                plot_bgcolor='white',
-                paper_bgcolor='white',
-                legend=dict(
-                    orientation='h',
-                    yanchor='bottom',
-                    y=-0.1,
-                    xanchor='center',
-                    x=0.5,
-                    font=dict(size=11, family='Times New Roman, Times, serif')
-                )
-            )
-            st.plotly_chart(fig_body, use_container_width=True, config={'displayModeBar': True})
+        body_counts = pd.Series(all_bodies).value_counts().reset_index()
+        body_counts.columns = ['Responsible Body', 'Count']
+
+        # Create custom text: "Count (Percentage%)"
+        total_bodies = body_counts['Count'].sum()
+        body_counts['Text'] = body_counts.apply(
+            lambda row: f"{row['Count']} ({round(row['Count']/total_bodies*100, 1)}%)", axis=1
+        )
+
+        fig_body = go.Figure(data=[go.Pie(
+            labels=body_counts['Responsible Body'],
+            values=body_counts['Count'],
+            hole=0.3,
+            text=body_counts['Text'],
+            textposition='inside',
+            textfont=dict(size=12, color='white', family='Times New Roman, Times, serif'),
+            marker=dict(colors=['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd', '#8c564b', '#e377c2']),
+            hoverinfo='label+value+percent',
+            showlegend=True
+        )])
+        fig_body.update_layout(
+            title=dict(
+                text="Responsible Bodies",
+                font=dict(size=16, color='#333', family='Times New Roman, Times, serif')
+            ),
+            height=450,
+            font=dict(family='Times New Roman, Times, serif'),
+            plot_bgcolor='white',
+            paper_bgcolor='white',
+            legend=dict(
+                orientation='v',
+                yanchor='middle',
+                y=0.5,
+                xanchor='left',
+                x=1.05,
+                font=dict(size=12, family='Times New Roman, Times, serif'),
+                bgcolor='rgba(255,255,255,0.9)',
+                bordercolor='rgba(0,0,0,0.1)',
+                borderwidth=1
+            ),
+            margin=dict(l=40, r=200, t=60, b=40)
+        )
+        st.plotly_chart(fig_body, use_container_width=True, config={'displayModeBar': True})
 
 def render_action_plan_graph(df_filtered, material_problems, action_df, nsoh_pivot, sheet_name):
     """Render action plan graph as time-series with NMOS, AMOS, and horizontal threshold lines"""
@@ -3330,6 +3350,7 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
         nmos = row.get('NMOS', 0)
         tmos = row.get('TMOS', 0)
         status = row.get('Status', '')
+        expiry = row.get('Expiry', '')
 
         if material in material_problems:
             pmos = material_problems[material]['PMOS']
@@ -3347,7 +3368,8 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
             'nmos': round(nmos, 2),
             'tmos': round(tmos, 2),
             'mos_needed': round(mos_needed, 2),
-            'status': status if status else 'N/A'
+            'status': status if status else 'N/A',
+            'expiry': expiry if expiry else 'N/A'
         }
 
     def get_system_generated_problems(material):
@@ -3377,7 +3399,7 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
         st.session_state.selected_material_for_expert = selected_material
 
     # =========================================================================
-    # NMOS TREND GRAPH WITH FUTURE PROJECTIONS (6 months)
+    # NMOS TREND GRAPH WITH FUTURE PROJECTIONS (6 months) - INCREASED X-AXIS SPACING
     # =========================================================================
     if selected_material and not nsoh_pivot.empty:
         st.markdown("---")
@@ -3486,7 +3508,7 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
                         nmos_color = '#87CEEB'
                         status_text = "🔵 Overstock"
 
-                    # Create the graph - only Safety Stock, Min, Max, Reorder Point, and Current
+                    # Create the graph - with increased x-axis spacing
                     fig = go.Figure()
 
                     # Add area fill (shadow) between x-axis and NMOS line
@@ -3634,7 +3656,7 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
                         xaxis_title=dict(text='Month-Year', font=dict(size=13, family='Times New Roman, Times, serif')),
                         yaxis_title=dict(text='Months of Stock (NMOS)', font=dict(size=13, family='Times New Roman, Times, serif')),
                         height=550,
-                        margin=dict(l=60, r=180, t=60, b=60),
+                        margin=dict(l=60, r=180, t=60, b=80),  # Increased bottom margin for more spacing
                         legend=dict(
                             orientation='h',
                             yanchor='bottom',
@@ -3652,7 +3674,8 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
                             tickangle=45,
                             tickfont=dict(size=11, family='Times New Roman, Times, serif'),
                             categoryorder='array',
-                            categoryarray=all_months_extended
+                            categoryarray=all_months_extended,
+                            dtick=1  # Show every month with increased spacing
                         ),
                         yaxis=dict(
                             showgrid=True,
@@ -3680,7 +3703,7 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
     # END OF NMOS TREND GRAPH WITH FUTURE PROJECTIONS
     # =========================================================================
 
-    # Display material info card when toggled
+    # Display material info card when toggled - ADDED EXPIRY
     if st.session_state.show_material_info and selected_material:
         base_info = get_material_base_info(selected_material)
         system_problems = get_system_generated_problems(selected_material)
@@ -3692,6 +3715,7 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
             nmos_str = f"{base_info['nmos']:.2f}" if base_info['nmos'] else "0.00"
             tmos_str = f"{base_info['tmos']:.2f}" if base_info['tmos'] else "0.00"
             status_str = base_info['status']
+            expiry_str = base_info['expiry']
 
             # Build card HTML
             html = '<div style="background: #87CEEB; padding: 3px; border-radius: 12px; margin: 10px 0;">'
@@ -3704,6 +3728,7 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
             html += f'<div style="background: white; padding: 8px 12px; border-radius: 6px; margin-bottom: 5px;"><strong>NMOS:</strong> {nmos_str}</div>'
             html += f'<div style="background: white; padding: 8px 12px; border-radius: 6px; margin-bottom: 5px;"><strong>TMOS:</strong> {tmos_str}</div>'
             html += f'<div style="background: white; padding: 8px 12px; border-radius: 6px; margin-bottom: 5px;"><strong>Status:</strong> {status_str}</div>'
+            html += f'<div style="background: white; padding: 8px 12px; border-radius: 6px; margin-bottom: 5px;"><strong>Expiry:</strong> {expiry_str}</div>'
 
             if system_problems:
                 html += '<div style="margin-top: 10px;"><strong>System Generated Action Items:</strong><br>'
@@ -3712,7 +3737,7 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
                     html += f'<div><span style="display: inline-block; width: 12px; height: 12px; border-radius: 50%; background: #87CEEB; margin-right: 8px;"></span>'
                     html += f'<strong>{idx}. Identified Problem:</strong> {prob["problem"]}</div>'
                     html += f'<div style="padding-left: 24px;"><strong>Action Point:</strong> {prob["action"]}</div>'
-                    html += f'<div style="padding-left: 24px; font-size: 12px; opacity: 0.8;"><strong>Due:</strong> {prob["due_date"]} | <strong>Responsible:</strong> {prob["responsible"]}</div>'
+                    html += f'<div style="padding-left: 24px; font-size: 12px; opacity: 0.8;"><strong>Responsible:</strong> {prob["responsible"]} | <strong>Due:</strong> {prob["due_date"]}</div>'
                     html += '</div>'
                 html += '</div>'
             else:
@@ -3817,7 +3842,7 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
             st.session_state.show_change_list = False
 
     # =========================================================================
-    # ADD/EDIT ACTION POINT FORM - Removed "Responsible Body (optional)"
+    # ADD/EDIT ACTION POINT FORM - RESPONSIBLE BODY BEFORE DUE DATE
     # =========================================================================
     is_editing = st.session_state.edit_record_id is not None
     is_adding = st.session_state.adding_action_point
@@ -3870,14 +3895,11 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
             with col2:
                 order_quantity = st.text_input("Order Quantity", value=order_quantity_val, key="ap_order_quantity")
                 action_point = st.text_area("Action Point", value=action_val, key="ap_action", height=60)
-                due_date = st.text_input("Due Date", value=due_val, key="ap_due_date")
-                status = st.selectbox("Status", ["Initiated", "Ongoing", "Pending", "Completed"], index=["Initiated", "Ongoing", "Pending", "Completed"].index(status_val) if status_val in ["Initiated", "Ongoing", "Pending", "Completed"] else 0, key="ap_status")
 
-            # Responsible Body as a multiselect
+            # Responsible Body as a multiselect - BEFORE Due Date
             st.markdown("**Responsible Body**")
             default_responsible = []
             if is_editing and edit_record and resp_val:
-                # Split by comma and strip whitespace
                 default_responsible = [b.strip() for b in resp_val.split(',') if b.strip()]
             additional_responsible = st.multiselect(
                 "Select responsible bodies",
@@ -3885,8 +3907,11 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
                 default=default_responsible,
                 key="ap_additional_responsible"
             )
-
             final_responsible = ", ".join(additional_responsible) if additional_responsible else ""
+
+            # Due Date after Responsible Body
+            due_date = st.text_input("Due Date", value=due_val, key="ap_due_date")
+            status = st.selectbox("Status", ["Initiated", "Ongoing", "Pending", "Completed"], index=["Initiated", "Ongoing", "Pending", "Completed"].index(status_val) if status_val in ["Initiated", "Ongoing", "Pending", "Completed"] else 0, key="ap_status")
 
             col_btn1, col_btn2 = st.columns(2)
             with col_btn1:
@@ -3958,7 +3983,7 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
     st.markdown("---")
 
     # =========================================================================
-    # DISPLAY ALL RECORDS TABLE - WITH FILTERS AND GROUPED BY QUARTER
+    # DISPLAY ALL RECORDS TABLE - RESPONSIBLE BODY BEFORE DUE DATE
     # =========================================================================
     if st.session_state.expert_plan_records:
         records_df = pd.DataFrame(st.session_state.expert_plan_records)
@@ -4073,7 +4098,7 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
 
                         st.markdown(f"### 📋 {quarter}, {year_str} - {program_str}")
 
-                        # Select columns to display
+                        # Select columns to display - Responsible Body BEFORE Due Date
                         cols = ['Material', 'NSOH', 'AMC', 'PMOS', 'NMOS', 'TMOS', 
                                 'Purchase Order', 'Order Quantity', 'Identified Problem', 
                                 'Action Point', 'Responsible Body', 'Due Date', 'Status']
@@ -4138,7 +4163,7 @@ def render_ap_progress_follow_up(sheet_name, selected_quarter, selected_year, se
         df['Status'] = "Pending"
 
     # =========================================================================
-    # FILTERS - Updated to remove header and use only the summary table
+    # FILTERS
     # =========================================================================
     # Determine the latest quarter
     latest_quarter = None
@@ -4151,7 +4176,7 @@ def render_ap_progress_follow_up(sheet_name, selected_quarter, selected_year, se
             latest_quarter = latest_row['Quarter']
             latest_year = latest_row['Year']
 
-    # Display title with latest quarter, year, and program
+    # Display title with latest quarter, year, and program (only once)
     program_name = sheet_name if sheet_name != "All" else "All Programs"
     if latest_quarter and latest_year:
         st.markdown(f"### 📋 {latest_quarter}, {latest_year} - {program_name} Action Plan Summary Table")
@@ -4178,7 +4203,41 @@ def render_ap_progress_follow_up(sheet_name, selected_quarter, selected_year, se
         problem_filter = st.selectbox("Problem Type", problem_options, key="problem_filter_dropdown")
 
     with col_filter2:
-        body_options = ["All"] + sorted(df['Responsible Body'].unique().tolist()) if 'Responsible Body' in df.columns else ["All"]
+        # Get all unique responsible bodies (split by comma and combine)
+        all_responsible_bodies = []
+        for body_str in df['Responsible Body'].dropna():
+            bodies = [b.strip() for b in body_str.split(',') if b.strip()]
+            all_responsible_bodies.extend(bodies)
+
+        # Group responsible bodies by organization
+        def get_organization(body):
+            epss_bodies = ['EPSS_CMD', 'EPSS_DMD', 'EPSS_PMD', 'EPSS_Finance']
+            moh_bodies = ['MOH_PMED', 'MOH_Program']
+            msh_bodies = ['MSH_SCS']
+
+            if body in epss_bodies:
+                return 'EPSS'
+            elif body in moh_bodies:
+                return 'MOH'
+            elif body in msh_bodies:
+                return 'MSH_SCS'
+            else:
+                return 'Other'
+
+        # Group by organization
+        organization_groups = {}
+        for body in set(all_responsible_bodies):
+            org = get_organization(body)
+            if org not in organization_groups:
+                organization_groups[org] = []
+            organization_groups[org].append(body)
+
+        # Create options for dropdown: EPSS, MOH, MSH_SCS, Other (if they exist)
+        body_options = ["All"]
+        for org in ['EPSS', 'MOH', 'MSH_SCS', 'Other']:
+            if org in organization_groups and organization_groups[org]:
+                body_options.append(org)
+
         body_filter = st.selectbox("Responsible Body", body_options, key="body_filter_dropdown")
 
     with col_filter3:
@@ -4196,8 +4255,23 @@ def render_ap_progress_follow_up(sheet_name, selected_quarter, selected_year, se
     if problem_filter != "All" and 'Identified Problem' in filtered_df.columns:
         filtered_df = filtered_df[filtered_df['Identified Problem'] == problem_filter]
 
+    # Apply responsible body filter - filter by organization
     if body_filter != "All" and 'Responsible Body' in filtered_df.columns:
-        filtered_df = filtered_df[filtered_df['Responsible Body'] == body_filter]
+        # Define which bodies belong to the selected organization
+        epss_bodies = ['EPSS_CMD', 'EPSS_DMD', 'EPSS_PMD', 'EPSS_Finance']
+        moh_bodies = ['MOH_PMED', 'MOH_Program']
+        msh_bodies = ['MSH_SCS']
+
+        if body_filter == 'EPSS':
+            filtered_df = filtered_df[filtered_df['Responsible Body'].str.contains('|'.join(epss_bodies), na=False)]
+        elif body_filter == 'MOH':
+            filtered_df = filtered_df[filtered_df['Responsible Body'].str.contains('|'.join(moh_bodies), na=False)]
+        elif body_filter == 'MSH_SCS':
+            filtered_df = filtered_df[filtered_df['Responsible Body'].str.contains('|'.join(msh_bodies), na=False)]
+        elif body_filter == 'Other':
+            # Filter out EPSS, MOH, MSH_SCS bodies
+            all_org_bodies = epss_bodies + moh_bodies + msh_bodies
+            filtered_df = filtered_df[~filtered_df['Responsible Body'].str.contains('|'.join(all_org_bodies), na=False)]
 
     if status_filter != "All" and 'Status' in filtered_df.columns:
         filtered_df = filtered_df[filtered_df['Status'] == status_filter]
@@ -4224,10 +4298,6 @@ def render_ap_progress_follow_up(sheet_name, selected_quarter, selected_year, se
             if filtered_df.empty:
                 st.info(f"No records found for the latest quarter ({latest_quarter_val}, {latest_year_val}).")
                 return
-
-            # Update title with latest quarter info
-            program_name = sheet_name if sheet_name != "All" else "All Programs"
-            st.markdown(f"### 📋 {latest_quarter_val}, {latest_year_val} - {program_name} Action Plan Summary Table")
 
     # Sort materials alphabetically
     filtered_df = filtered_df.sort_values('Material')
@@ -4354,12 +4424,11 @@ def render_ap_progress_follow_up(sheet_name, selected_quarter, selected_year, se
 
     # =========================================================================
     # BAR CHARTS - Side by side: Program Action Points Breakdown and Responsible Body
+    # CHARTS KEPT, TITLES REMOVED
     # =========================================================================
     col_bar1, col_bar2 = st.columns(2)
 
     with col_bar1:
-        st.markdown(f"### 📊 Program Action Points Breakdown")
-
         # Get program breakdown
         if 'Program' in filtered_df.columns:
             program_breakdown = filtered_df['Program'].value_counts().reset_index()
@@ -4436,8 +4505,6 @@ def render_ap_progress_follow_up(sheet_name, selected_quarter, selected_year, se
             st.info("No program data available.")
 
     with col_bar2:
-        st.markdown(f"### 📊 Responsible Body Breakdown")
-
         # Split responsible bodies by comma and explode
         all_bodies = []
         for body_str in filtered_df['Responsible Body'].dropna():
@@ -4445,44 +4512,62 @@ def render_ap_progress_follow_up(sheet_name, selected_quarter, selected_year, se
             all_bodies.extend(bodies)
 
         if all_bodies:
-            body_counts = pd.Series(all_bodies).value_counts().reset_index()
-            body_counts.columns = ['Responsible Body', 'Count']
-            body_counts['Percentage'] = (body_counts['Count'] / total * 100).round(1)
+            # Group by organization for the chart
+            def get_organization(body):
+                epss_bodies = ['EPSS_CMD', 'EPSS_DMD', 'EPSS_PMD', 'EPSS_Finance']
+                moh_bodies = ['MOH_PMED', 'MOH_Program']
+                msh_bodies = ['MSH_SCS']
 
-            # Sort by count descending
-            body_counts = body_counts.sort_values('Count', ascending=False)
+                if body in epss_bodies:
+                    return 'EPSS'
+                elif body in moh_bodies:
+                    return 'MOH'
+                elif body in msh_bodies:
+                    return 'MSH_SCS'
+                else:
+                    return 'Other'
 
-            fig_body_bar = go.Figure()
+            # Group by organization
+            org_counts = {}
+            for body in all_bodies:
+                org = get_organization(body)
+                org_counts[org] = org_counts.get(org, 0) + 1
 
-            colors = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd', '#8c564b', '#e377c2', '#7f7f7f', '#bcbd22', '#17becf']
+            # Convert to DataFrame for chart
+            org_df = pd.DataFrame(list(org_counts.items()), columns=['Organization', 'Count'])
+            org_df['Percentage'] = (org_df['Count'] / total * 100).round(1)
+            org_df = org_df.sort_values('Count', ascending=False)
 
-            fig_body_bar.add_trace(go.Bar(
-                x=body_counts['Responsible Body'],
-                y=body_counts['Percentage'],
-                marker_color=colors[:len(body_counts)],
-                text=body_counts['Percentage'].apply(lambda x: f'{x:.1f}%'),
+            fig_org_bar = go.Figure()
+
+            colors = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd']
+
+            fig_org_bar.add_trace(go.Bar(
+                x=org_df['Organization'],
+                y=org_df['Percentage'],
+                marker_color=colors[:len(org_df)],
+                text=org_df['Percentage'].apply(lambda x: f'{x:.1f}%'),
                 textposition='inside',
                 textfont=dict(size=11, color='white', family='Times New Roman, Times, serif', weight='bold'),
                 hovertemplate='<b>%{x}</b><br>Percentage: %{y:.1f}%<br>Count: %{customdata}<extra></extra>',
-                customdata=body_counts['Count'],
+                customdata=org_df['Count'],
                 width=0.6
             ))
 
-            fig_body_bar.update_layout(
+            fig_org_bar.update_layout(
                 title=dict(
-                    text="Action Points by Responsible Body",
+                    text="Action Points by Organization",
                     font=dict(size=14, color='#333', family='Times New Roman, Times, serif')
                 ),
-                xaxis_title=dict(text="Responsible Body", font=dict(size=12, family='Times New Roman, Times, serif')),
+                xaxis_title=dict(text="Organization", font=dict(size=12, family='Times New Roman, Times, serif')),
                 yaxis_title=dict(text="Percentage of Total (%)", font=dict(size=12, family='Times New Roman, Times, serif')),
                 height=400,
                 xaxis=dict(
-                    tickfont=dict(size=10, family='Times New Roman, Times, serif'),
+                    tickfont=dict(size=12, family='Times New Roman, Times, serif'),
                     showgrid=False,
                     showline=True,
                     linecolor='#333',
-                    linewidth=1.5,
-                    tickangle=45
+                    linewidth=1.5
                 ),
                 yaxis=dict(
                     tickfont=dict(size=11, family='Times New Roman, Times, serif'),
@@ -4491,19 +4576,19 @@ def render_ap_progress_follow_up(sheet_name, selected_quarter, selected_year, se
                     showline=True,
                     linecolor='#333',
                     linewidth=1.5,
-                    range=[0, max(60, body_counts['Percentage'].max() + 10)] if not body_counts.empty else [0, 100],
+                    range=[0, max(60, org_df['Percentage'].max() + 10)] if not org_df.empty else [0, 100],
                     tickformat='.0f',
                     ticksuffix='%'
                 ),
                 plot_bgcolor='white',
-                margin=dict(l=50, r=30, t=60, b=80),
+                margin=dict(l=50, r=30, t=60, b=50),
                 font=dict(family='Times New Roman, Times, serif')
             )
 
-            for i, row in body_counts.iterrows():
+            for i, row in org_df.iterrows():
                 if row['Count'] > 0:
-                    fig_body_bar.add_annotation(
-                        x=row['Responsible Body'],
+                    fig_org_bar.add_annotation(
+                        x=row['Organization'],
                         y=row['Percentage'] / 2,
                         text=f"n={row['Count']}",
                         showarrow=False,
@@ -4512,7 +4597,7 @@ def render_ap_progress_follow_up(sheet_name, selected_quarter, selected_year, se
                         borderpad=0
                     )
 
-            st.plotly_chart(fig_body_bar, use_container_width=True, config={'displayModeBar': True})
+            st.plotly_chart(fig_org_bar, use_container_width=True, config={'displayModeBar': True})
         else:
             st.info("No responsible body data available.")
 
@@ -4520,8 +4605,14 @@ def render_ap_progress_follow_up(sheet_name, selected_quarter, selected_year, se
 
     # =========================================================================
     # DETAILED BAR CHART - EPSS Breakdown (EPSS_CMD, EPSS_PMD, EPSS_DMD, EPSS_Finance)
+    # This shows detailed breakdown by individual EPSS body
     # =========================================================================
     # Check if EPSS has data - use the exploded body list
+    all_bodies = []
+    for body_str in filtered_df['Responsible Body'].dropna():
+        bodies = [b.strip() for b in body_str.split(',') if b.strip()]
+        all_bodies.extend(bodies)
+
     epss_bodies = ['EPSS_CMD', 'EPSS_DMD', 'EPSS_PMD', 'EPSS_Finance']
     epss_total = 0
     for body in epss_bodies:
@@ -4647,6 +4738,169 @@ def render_ap_progress_follow_up(sheet_name, selected_quarter, selected_year, se
             epss_display.columns = ['Body', 'Total', 'Completed', 'Completed %', 'Not Completed', 'Not Completed %', 'Pending', 'Pending %']
             st.dataframe(epss_display, use_container_width=True, hide_index=True)
 
+            st.markdown("---")
+
+    # =========================================================================
+    # ORGANIZATION BREAKDOWN SUMMARY TABLE - EPSS, MOH, MSH_SCS (ALL IN ONE TABLE)
+    # EPSS is COMBINED as a single row (not broken down by individual bodies)
+    # =========================================================================
+    if all_bodies:
+        # Define organization groups
+        epss_bodies = ['EPSS_CMD', 'EPSS_DMD', 'EPSS_PMD', 'EPSS_Finance']
+        moh_bodies = ['MOH_PMED', 'MOH_Program']
+        msh_bodies = ['MSH_SCS']
+
+        # Collect all data for a single combined table
+        combined_data = []
+
+        # EPSS - COMBINED as single row (sum of all EPSS bodies)
+        epss_total_count = 0
+        epss_completed = 0
+        epss_not_completed = 0
+        epss_pending = 0
+
+        for body in epss_bodies:
+            body_count = len([b for b in all_bodies if b == body])
+            if body_count > 0:
+                epss_total_count += body_count
+                body_status_counts = {}
+                for _, row in filtered_df.iterrows():
+                    responsible = row.get('Responsible Body', '')
+                    if body in [b.strip() for b in responsible.split(',') if b.strip()]:
+                        status = row.get('Status', 'Pending')
+                        body_status_counts[status] = body_status_counts.get(status, 0) + 1
+
+                epss_completed += body_status_counts.get('Completed', 0)
+                epss_not_completed += body_status_counts.get('Initiated', 0) + body_status_counts.get('Ongoing', 0)
+                epss_pending += body_status_counts.get('Pending', 0)
+
+        if epss_total_count > 0:
+            combined_data.append({
+                'Organization': 'EPSS',
+                'Total': epss_total_count,
+                'Completed': epss_completed,
+                'Completed %': round(epss_completed / epss_total_count * 100, 1) if epss_total_count > 0 else 0,
+                'Not Completed': epss_not_completed,
+                'Not Completed %': round(epss_not_completed / epss_total_count * 100, 1) if epss_total_count > 0 else 0,
+                'Pending': epss_pending,
+                'Pending %': round(epss_pending / epss_total_count * 100, 1) if epss_total_count > 0 else 0
+            })
+
+        # MOH - COMBINED as single row (sum of all MOH bodies)
+        moh_total_count = 0
+        moh_completed = 0
+        moh_not_completed = 0
+        moh_pending = 0
+
+        for body in moh_bodies:
+            body_count = len([b for b in all_bodies if b == body])
+            if body_count > 0:
+                moh_total_count += body_count
+                body_status_counts = {}
+                for _, row in filtered_df.iterrows():
+                    responsible = row.get('Responsible Body', '')
+                    if body in [b.strip() for b in responsible.split(',') if b.strip()]:
+                        status = row.get('Status', 'Pending')
+                        body_status_counts[status] = body_status_counts.get(status, 0) + 1
+
+                moh_completed += body_status_counts.get('Completed', 0)
+                moh_not_completed += body_status_counts.get('Initiated', 0) + body_status_counts.get('Ongoing', 0)
+                moh_pending += body_status_counts.get('Pending', 0)
+
+        if moh_total_count > 0:
+            combined_data.append({
+                'Organization': 'MOH',
+                'Total': moh_total_count,
+                'Completed': moh_completed,
+                'Completed %': round(moh_completed / moh_total_count * 100, 1) if moh_total_count > 0 else 0,
+                'Not Completed': moh_not_completed,
+                'Not Completed %': round(moh_not_completed / moh_total_count * 100, 1) if moh_total_count > 0 else 0,
+                'Pending': moh_pending,
+                'Pending %': round(moh_pending / moh_total_count * 100, 1) if moh_total_count > 0 else 0
+            })
+
+        # MSH_SCS - COMBINED as single row
+        msh_total_count = 0
+        msh_completed = 0
+        msh_not_completed = 0
+        msh_pending = 0
+
+        for body in msh_bodies:
+            body_count = len([b for b in all_bodies if b == body])
+            if body_count > 0:
+                msh_total_count += body_count
+                body_status_counts = {}
+                for _, row in filtered_df.iterrows():
+                    responsible = row.get('Responsible Body', '')
+                    if body in [b.strip() for b in responsible.split(',') if b.strip()]:
+                        status = row.get('Status', 'Pending')
+                        body_status_counts[status] = body_status_counts.get(status, 0) + 1
+
+                msh_completed += body_status_counts.get('Completed', 0)
+                msh_not_completed += body_status_counts.get('Initiated', 0) + body_status_counts.get('Ongoing', 0)
+                msh_pending += body_status_counts.get('Pending', 0)
+
+        if msh_total_count > 0:
+            combined_data.append({
+                'Organization': 'MSH_SCS',
+                'Total': msh_total_count,
+                'Completed': msh_completed,
+                'Completed %': round(msh_completed / msh_total_count * 100, 1) if msh_total_count > 0 else 0,
+                'Not Completed': msh_not_completed,
+                'Not Completed %': round(msh_not_completed / msh_total_count * 100, 1) if msh_total_count > 0 else 0,
+                'Pending': msh_pending,
+                'Pending %': round(msh_pending / msh_total_count * 100, 1) if msh_total_count > 0 else 0
+            })
+
+        # Other bodies (combined)
+        other_bodies = []
+        for body in set(all_bodies):
+            if body not in epss_bodies and body not in moh_bodies and body not in msh_bodies:
+                other_bodies.append(body)
+
+        other_total_count = 0
+        other_completed = 0
+        other_not_completed = 0
+        other_pending = 0
+
+        for body in other_bodies:
+            body_count = len([b for b in all_bodies if b == body])
+            if body_count > 0:
+                other_total_count += body_count
+                body_status_counts = {}
+                for _, row in filtered_df.iterrows():
+                    responsible = row.get('Responsible Body', '')
+                    if body in [b.strip() for b in responsible.split(',') if b.strip()]:
+                        status = row.get('Status', 'Pending')
+                        body_status_counts[status] = body_status_counts.get(status, 0) + 1
+
+                other_completed += body_status_counts.get('Completed', 0)
+                other_not_completed += body_status_counts.get('Initiated', 0) + body_status_counts.get('Ongoing', 0)
+                other_pending += body_status_counts.get('Pending', 0)
+
+        if other_total_count > 0:
+            combined_data.append({
+                'Organization': 'Other',
+                'Total': other_total_count,
+                'Completed': other_completed,
+                'Completed %': round(other_completed / other_total_count * 100, 1) if other_total_count > 0 else 0,
+                'Not Completed': other_not_completed,
+                'Not Completed %': round(other_not_completed / other_total_count * 100, 1) if other_total_count > 0 else 0,
+                'Pending': other_pending,
+                'Pending %': round(other_pending / other_total_count * 100, 1) if other_total_count > 0 else 0
+            })
+
+        if combined_data:
+            st.markdown("### 📊 Organization Breakdown Summary Table")
+            combined_df = pd.DataFrame(combined_data)
+            # Sort by Organization
+            combined_df = combined_df.sort_values('Organization')
+            st.dataframe(combined_df, use_container_width=True, hide_index=True)
+    else:
+        st.info("No responsible body data available.")
+
+    st.markdown("---")
+
 def main():
     st.set_page_config(
         page_title="Supply Planning – EPSS",
@@ -4688,7 +4942,7 @@ def main():
     inject_custom_css()
     inject_javascript()
 
-    # App Header - Ruby color (removed subtitle)
+    # App Header - Jade color
     st.markdown("""
     <div class="app-header fade-in">
         <h1>📦 Supply Planning Dashboard</h1>
