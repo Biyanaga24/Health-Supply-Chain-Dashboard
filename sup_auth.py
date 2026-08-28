@@ -25,7 +25,7 @@ import hashlib
 import re
 import time
 from datetime import datetime
-ffrom supabase import create_client
+from supabase import create_client
 
 
 # ============================================================================
