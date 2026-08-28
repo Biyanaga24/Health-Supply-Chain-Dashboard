@@ -25,7 +25,7 @@ import hashlib
 import re
 import time
 from datetime import datetime
-from supabase import create_client
+from supabase_py import create_client
 
 
 # ============================================================================
