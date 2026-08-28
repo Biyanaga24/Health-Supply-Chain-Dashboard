@@ -9,7 +9,7 @@ import os
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from io import BytesIO
 import re
-from supabase_py import create_client
+from supabase import create_client
 import base64
 import time
 import asyncio
