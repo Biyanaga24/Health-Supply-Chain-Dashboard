@@ -647,7 +647,7 @@ def show_login_page():
     # Hero Section
     st.markdown("""
     <div class="hero-section">
-        <div class="hero-title">💊 Health Program Medicines Dashboard</div>
+        <div class="hero-title">💊 HPC STOCK MANAGEMENT DASHBOARD</div>
         <div class="hero-subtitle">Comprehensive Stock Management & Analytics Platform</div>
         <p style="opacity: 0.95; font-size: 1.1rem;">Secure • Real-time • Data-driven Decision Making</p>
     </div>
