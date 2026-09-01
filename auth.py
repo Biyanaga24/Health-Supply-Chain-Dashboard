@@ -86,7 +86,7 @@ def show_footer():
     }
     </style>
     <div class="footer">
-        © 2026 Health Program Medicines Dashboard | Developed by Biyensa Negera
+        © 2026 HPC STOCK MANAGEMENT Dashboard | Developed by Biyensa Negera
     </div>
     """, unsafe_allow_html=True)
 
