@@ -464,26 +464,47 @@ def show_login_page():
         background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
     }
 
-    /* Hero Section */
+    /* Hero Section Animation */
+    @keyframes gentlePulse {
+        0% { transform: scale(1); }
+        50% { transform: scale(1.02); }
+        100% { transform: scale(1); }
+    }
+
+    @keyframes fadeInUp {
+        from { opacity: 0; transform: translateY(20px); }
+        to { opacity: 1; transform: translateY(0); }
+    }
+
+    /* Hero Section - Skyblue Background */
     .hero-section {
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        background: linear-gradient(135deg, #87CEEB 0%, #4A90D9 100%);
         border-radius: 20px;
-        padding: 50px;
+        padding: 35px 50px;
         text-align: center;
         color: white;
         margin-bottom: 40px;
-        box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+        box-shadow: 0 10px 30px rgba(0,0,0,0.15);
+        animation: gentlePulse 3s ease-in-out infinite;
     }
     .hero-title {
-        font-size: 3.5rem;
-        margin-bottom: 1rem;
+        font-size: 2.2rem;
+        margin-bottom: 0.8rem;
         font-weight: bold;
+        font-family: 'Times New Roman', Times, serif;
         text-shadow: 2px 2px 4px rgba(0,0,0,0.2);
+        animation: fadeInUp 0.8s ease-out;
     }
     .hero-subtitle {
-        font-size: 1.3rem;
+        font-size: 1.1rem;
+        font-family: 'Times New Roman', Times, serif;
         opacity: 0.95;
-        margin-bottom: 1.5rem;
+        margin-bottom: 1rem;
+        animation: fadeInUp 1s ease-out;
+    }
+    .hero-section p {
+        font-family: 'Times New Roman', Times, serif;
+        animation: fadeInUp 1.2s ease-out;
     }
 
     /* Time Display */
@@ -549,7 +570,7 @@ def show_login_page():
 
     /* Info Section */
     .info-section {
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        background: linear-gradient(135deg, #87CEEB 0%, #4A90D9 100%);
         border-radius: 15px;
         padding: 35px;
         margin-top: 30px;
@@ -560,6 +581,7 @@ def show_login_page():
         color: white;
         margin-bottom: 20px;
         font-size: 1.8rem;
+        font-family: 'Times New Roman', Times, serif;
     }
     .step-box {
         background: rgba(255,255,255,0.15);
@@ -568,6 +590,7 @@ def show_login_page():
         text-align: left;
         backdrop-filter: blur(10px);
         transition: all 0.3s ease;
+        font-family: 'Times New Roman', Times, serif;
     }
     .step-box:hover {
         background: rgba(255,255,255,0.25);
@@ -590,7 +613,7 @@ def show_login_page():
         background-color: #f0f2f6;
     }
     .stTabs [aria-selected="true"] {
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        background: linear-gradient(135deg, #87CEEB 0%, #4A90D9 100%);
         color: white;
     }
 
@@ -599,7 +622,7 @@ def show_login_page():
         background: transparent;
     }
     .stButton > button {
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        background: linear-gradient(135deg, #87CEEB 0%, #4A90D9 100%);
         color: white;
         border: none;
         border-radius: 10px;
@@ -609,7 +632,7 @@ def show_login_page():
     }
     .stButton > button:hover {
         transform: translateY(-2px);
-        box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
+        box-shadow: 0 5px 15px rgba(74, 144, 217, 0.4);
     }
 
     /* Welcome Section */
@@ -619,13 +642,15 @@ def show_login_page():
     }
     .welcome-title {
         font-size: 2rem;
-        color: #667eea;
+        color: #4A90D9;
         font-weight: bold;
         margin-bottom: 15px;
+        font-family: 'Times New Roman', Times, serif;
     }
     .welcome-text {
         font-size: 1.1rem;
         color: #555;
+        font-family: 'Times New Roman', Times, serif;
     }
 
     /* Alert Styling */
@@ -644,57 +669,14 @@ def show_login_page():
     </div>
     """, unsafe_allow_html=True)
 
-    # Hero Section with Skyblue Background, Times Roman, and Animation
-st.markdown("""
-<style>
-/* Hero Section Animation */
-@keyframes gentlePulse {
-    0% { transform: scale(1); }
-    50% { transform: scale(1.02); }
-    100% { transform: scale(1); }
-}
-
-@keyframes fadeInUp {
-    from { opacity: 0; transform: translateY(20px); }
-    to { opacity: 1; transform: translateY(0); }
-}
-
-.hero-section {
-    background: linear-gradient(135deg, #87CEEB 0%, #4A90D9 100%);
-    border-radius: 20px;
-    padding: 35px 50px;
-    text-align: center;
-    color: white;
-    margin-bottom: 40px;
-    box-shadow: 0 10px 30px rgba(0,0,0,0.15);
-    animation: gentlePulse 3s ease-in-out infinite;
-}
-.hero-title {
-    font-size: 2.2rem;
-    margin-bottom: 0.8rem;
-    font-weight: bold;
-    font-family: 'Times New Roman', Times, serif;
-    text-shadow: 2px 2px 4px rgba(0,0,0,0.2);
-    animation: fadeInUp 0.8s ease-out;
-}
-.hero-subtitle {
-    font-size: 1.1rem;
-    font-family: 'Times New Roman', Times, serif;
-    opacity: 0.95;
-    margin-bottom: 1rem;
-    animation: fadeInUp 1s ease-out;
-}
-.hero-section p {
-    font-family: 'Times New Roman', Times, serif;
-    animation: fadeInUp 1.2s ease-out;
-}
-</style>
-<div class="hero-section">
-    <div class="hero-title">💊 HPC STOCK MANAGEMENT DASHBOARD</div>
-    <div class="hero-subtitle">Comprehensive Stock Management & Analytics Platform</div>
-    <p style="opacity: 0.95; font-size: 1rem;">Secure • Real-time • Data-driven Decision Making</p>
-</div>
-""", unsafe_allow_html=True)
+    # Hero Section - Skyblue with animation
+    st.markdown("""
+    <div class="hero-section">
+        <div class="hero-title">💊 HPC STOCK MANAGEMENT DASHBOARD</div>
+        <div class="hero-subtitle">Comprehensive Stock Management & Analytics Platform</div>
+        <p style="opacity: 0.95; font-size: 1rem;">Secure • Real-time • Data-driven Decision Making</p>
+    </div>
+    """, unsafe_allow_html=True)
 
     # Create two columns for layout
     left_col, right_col = st.columns([1, 1], gap="large")
@@ -721,12 +703,12 @@ st.markdown("""
 
         for icon, title, desc in features:
             st.markdown(f"""
-            <div style="background: white; border-radius: 12px; padding: 15px; margin-bottom: 12px; border-left: 4px solid #667eea; box-shadow: 0 2px 8px rgba(0,0,0,0.05);">
+            <div style="background: white; border-radius: 12px; padding: 15px; margin-bottom: 12px; border-left: 4px solid #4A90D9; box-shadow: 0 2px 8px rgba(0,0,0,0.05);">
                 <div style="display: flex; align-items: center; gap: 15px;">
                     <div style="font-size: 2rem;">{icon}</div>
                     <div>
-                        <strong style="font-size: 1rem; color: #667eea;">{title}</strong>
-                        <div style="color: #666; font-size: 0.9rem;">{desc}</div>
+                        <strong style="font-size: 1rem; color: #4A90D9; font-family: 'Times New Roman', Times, serif;">{title}</strong>
+                        <div style="color: #666; font-size: 0.9rem; font-family: 'Times New Roman', Times, serif;">{desc}</div>
                     </div>
                 </div>
             </div>
@@ -736,8 +718,8 @@ st.markdown("""
         st.markdown("""
         <div class="auth-container">
             <div style="text-align: center; margin-bottom: 20px;">
-                <h2 style="color: #667eea; margin: 0;">🔐 Account Access</h2>
-                <p style="color: #666;">Login or create a new account</p>
+                <h2 style="color: #4A90D9; margin: 0; font-family: 'Times New Roman', Times, serif;">🔐 Account Access</h2>
+                <p style="color: #666; font-family: 'Times New Roman', Times, serif;">Login or create a new account</p>
             </div>
         """, unsafe_allow_html=True)
 
@@ -848,7 +830,7 @@ def show_online_users():
             last_active_str = user.get('last_active_display', 'Unknown')
 
             st.markdown(f"""
-            <div style="background: linear-gradient(135deg, #667eea15 0%, #764ba215 100%); border-left: 4px solid #4caf50; padding: 10px; margin: 8px 0; border-radius: 8px;">
+            <div style="background: linear-gradient(135deg, #87CEEB15 0%, #4A90D915 100%); border-left: 4px solid #4caf50; padding: 10px; margin: 8px 0; border-radius: 8px;">
                 <div style="display: flex; justify-content: space-between; align-items: center;">
                     <div>
                         <span style="display: inline-block; width: 10px; height: 10px; border-radius: 50%; background-color: #4caf50; animation: pulse 2s infinite; margin-right: 8px;"></span>
@@ -866,13 +848,13 @@ def show_online_users():
 
 def show_profile_page():
     """Display user profile page"""
-    st.markdown("<h1 style='font-size: 32px; font-weight: bold; color: #667eea;'>👤 User Profile</h1>", unsafe_allow_html=True)
+    st.markdown("<h1 style='font-size: 32px; font-weight: bold; color: #4A90D9; font-family: Times New Roman, Times, serif;'>👤 User Profile</h1>", unsafe_allow_html=True)
 
     # Display current Addis Ababa time
     current_time = get_current_time()
     st.markdown(f"""
-    <div style="text-align: right; margin-bottom: 20px; padding: 10px; background: rgba(102,126,234,0.1); border-radius: 10px;">
-        <small>🕐 Local Time (Addis Ababa): {current_time.strftime('%Y-%m-%d %H:%M:%S')}</small>
+    <div style="text-align: right; margin-bottom: 20px; padding: 10px; background: rgba(74,144,217,0.1); border-radius: 10px;">
+        <small style="font-family: 'Times New Roman', Times, serif;">🕐 Local Time (Addis Ababa): {current_time.strftime('%Y-%m-%d %H:%M:%S')}</small>
     </div>
     """, unsafe_allow_html=True)
 
@@ -883,17 +865,17 @@ def show_profile_page():
 
         with col1:
             st.markdown(f"""
-            <div style='background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); 
+            <div style='background: linear-gradient(135deg, #87CEEB 0%, #4A90D9 100%); 
                         border-radius: 15px; 
                         padding: 30px; 
                         text-align: center;
                         color: white;
                         box-shadow: 0 10px 25px rgba(0,0,0,0.1);'>
                 <div style='font-size: 48px; margin-bottom: 10px;'>👤</div>
-                <h3 style='margin: 0;'>{user.get('full_name', 'N/A')}</h3>
-                <p style='margin: 5px 0; opacity: 0.9;'>{user.get('role', 'user').title()}</p>
-                <p style='margin: 5px 0; font-size: 12px; opacity: 0.8;'>{user.get('email', 'N/A')}</p>
-                <p style='margin: 5px 0; font-size: 11px; opacity: 0.7;'>✅ Account Approved</p>
+                <h3 style='margin: 0; font-family: Times New Roman, Times, serif;'>{user.get('full_name', 'N/A')}</h3>
+                <p style='margin: 5px 0; opacity: 0.9; font-family: Times New Roman, Times, serif;'>{user.get('role', 'user').title()}</p>
+                <p style='margin: 5px 0; font-size: 12px; opacity: 0.8; font-family: Times New Roman, Times, serif;'>{user.get('email', 'N/A')}</p>
+                <p style='margin: 5px 0; font-size: 11px; opacity: 0.7; font-family: Times New Roman, Times, serif;'>✅ Account Approved</p>
             </div>
             """, unsafe_allow_html=True)
 
@@ -919,7 +901,7 @@ def show_profile_page():
                 created_at_display = "Unknown"
 
             st.markdown(f"""
-            <div style="background: #f8f9fa; border-radius: 10px; padding: 20px;">
+            <div style="background: #f8f9fa; border-radius: 10px; padding: 20px; font-family: 'Times New Roman', Times, serif;">
             <table style="width: 100%;">
                 <tr>
                     <td><strong>Full Name</strong></td>
@@ -1022,14 +1004,14 @@ def show_user_statistics():
                 transition: transform 0.3s;">
         <div style="font-size: 32px; margin-bottom: 5px;">{icon}</div>
         <div style="font-size: 24px; font-weight: bold;">{value}</div>
-        <div style="font-size: 12px; opacity: 0.9;">{label}</div>
+        <div style="font-size: 12px; opacity: 0.9; font-family: Times New Roman, Times, serif;">{label}</div>
     </div>
     """
 
     with col1:
         st.markdown(metric_style.format(
             icon="👥", value=stats.get('total_users', 0),
-            label="Total Users", color1="#667eea", color2="#764ba2"
+            label="Total Users", color1="#87CEEB", color2="#4A90D9"
         ), unsafe_allow_html=True)
 
     with col2:
@@ -1070,7 +1052,7 @@ def show_user_statistics():
             'Count': [stats.get('admin_users', 0), stats.get('regular_users', 0)]
         })
 
-        colors = ['#764ba2', '#667eea']
+        colors = ['#4A90D9', '#87CEEB']
 
         fig = px.pie(role_data, values='Count', names='Role',
                      title='User Roles',
@@ -1083,7 +1065,8 @@ def show_user_statistics():
             height=400,
             margin=dict(t=50, l=0, r=0, b=0),
             paper_bgcolor='rgba(0,0,0,0)',
-            plot_bgcolor='rgba(0,0,0,0)'
+            plot_bgcolor='rgba(0,0,0,0)',
+            font_family="Times New Roman, Times, serif"
         )
 
         fig.update_traces(textposition='inside', textinfo='percent+label')
@@ -1108,7 +1091,8 @@ def show_user_statistics():
             height=400,
             margin=dict(t=50, l=0, r=0, b=0),
             paper_bgcolor='rgba(0,0,0,0)',
-            plot_bgcolor='rgba(0,0,0,0)'
+            plot_bgcolor='rgba(0,0,0,0)',
+            font_family="Times New Roman, Times, serif"
         )
 
         fig2.update_traces(textposition='inside', textinfo='percent+label')
@@ -1137,7 +1121,8 @@ def show_user_statistics():
                 paper_bgcolor='rgba(0,0,0,0)',
                 plot_bgcolor='rgba(0,0,0,0)',
                 xaxis_title="",
-                yaxis_title="Number of Users"
+                yaxis_title="Number of Users",
+                font_family="Times New Roman, Times, serif"
             )
             st.plotly_chart(fig3, use_container_width=True)
 
@@ -1153,8 +1138,8 @@ def show_user_statistics():
                               markers=True,
                               line_shape='spline')
 
-                fig4.update_traces(line=dict(color='#667eea', width=3),
-                                  marker=dict(size=8, color='#764ba2'))
+                fig4.update_traces(line=dict(color='#4A90D9', width=3),
+                                  marker=dict(size=8, color='#87CEEB'))
 
                 fig4.update_layout(
                     height=400,
@@ -1163,7 +1148,8 @@ def show_user_statistics():
                     plot_bgcolor='rgba(0,0,0,0)',
                     xaxis_title="Hour of Day (0-23)",
                     yaxis_title="Number of Active Users",
-                    xaxis=dict(tickmode='linear', tick0=0, dtick=2)
+                    xaxis=dict(tickmode='linear', tick0=0, dtick=2),
+                    font_family="Times New Roman, Times, serif"
                 )
                 st.plotly_chart(fig4, use_container_width=True)
             else:
@@ -1196,7 +1182,7 @@ def show_user_statistics():
                 x=reg_df['created_date'],
                 y=reg_df['count'],
                 name='New Users',
-                marker_color='#667eea',
+                marker_color='#4A90D9',
                 text=reg_df['count'],
                 textposition='outside'
             ))
@@ -1220,7 +1206,8 @@ def show_user_statistics():
                 showlegend=True,
                 legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="center", x=0.5),
                 paper_bgcolor='rgba(0,0,0,0)',
-                plot_bgcolor='rgba(0,0,0,0)'
+                plot_bgcolor='rgba(0,0,0,0)',
+                font_family="Times New Roman, Times, serif"
             )
 
             st.plotly_chart(fig5, use_container_width=True)
@@ -1272,13 +1259,13 @@ def show_user_statistics():
 
 def show_admin_panel():
     """Display admin panel - User Management with Approval/Rejection and Deletion"""
-    st.markdown("<h1 style='font-size: 32px; font-weight: bold; color: #667eea;'>👑 Admin Panel - User Management</h1>", unsafe_allow_html=True)
+    st.markdown("<h1 style='font-size: 32px; font-weight: bold; color: #4A90D9; font-family: Times New Roman, Times, serif;'>👑 Admin Panel - User Management</h1>", unsafe_allow_html=True)
 
     # Display current Addis Ababa time
     current_time = get_current_time()
     st.markdown(f"""
-    <div style="text-align: right; margin-bottom: 20px; padding: 10px; background: rgba(102,126,234,0.1); border-radius: 10px;">
-        <small>🕐 Local Time (Addis Ababa): {current_time.strftime('%Y-%m-%d %H:%M:%S')}</small>
+    <div style="text-align: right; margin-bottom: 20px; padding: 10px; background: rgba(74,144,217,0.1); border-radius: 10px;">
+        <small style="font-family: 'Times New Roman', Times, serif;">🕐 Local Time (Addis Ababa): {current_time.strftime('%Y-%m-%d %H:%M:%S')}</small>
     </div>
     """, unsafe_allow_html=True)
 
