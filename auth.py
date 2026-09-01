@@ -644,14 +644,57 @@ def show_login_page():
     </div>
     """, unsafe_allow_html=True)
 
-    # Hero Section
-    st.markdown("""
-    <div class="hero-section">
-        <div class="hero-title">💊 HPC STOCK MANAGEMENT DASHBOARD</div>
-        <div class="hero-subtitle">Comprehensive Stock Management & Analytics Platform</div>
-        <p style="opacity: 0.95; font-size: 1.1rem;">Secure • Real-time • Data-driven Decision Making</p>
-    </div>
-    """, unsafe_allow_html=True)
+    # Hero Section with Skyblue Background, Times Roman, and Animation
+st.markdown("""
+<style>
+/* Hero Section Animation */
+@keyframes gentlePulse {
+    0% { transform: scale(1); }
+    50% { transform: scale(1.02); }
+    100% { transform: scale(1); }
+}
+
+@keyframes fadeInUp {
+    from { opacity: 0; transform: translateY(20px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+.hero-section {
+    background: linear-gradient(135deg, #87CEEB 0%, #4A90D9 100%);
+    border-radius: 20px;
+    padding: 35px 50px;
+    text-align: center;
+    color: white;
+    margin-bottom: 40px;
+    box-shadow: 0 10px 30px rgba(0,0,0,0.15);
+    animation: gentlePulse 3s ease-in-out infinite;
+}
+.hero-title {
+    font-size: 2.2rem;
+    margin-bottom: 0.8rem;
+    font-weight: bold;
+    font-family: 'Times New Roman', Times, serif;
+    text-shadow: 2px 2px 4px rgba(0,0,0,0.2);
+    animation: fadeInUp 0.8s ease-out;
+}
+.hero-subtitle {
+    font-size: 1.1rem;
+    font-family: 'Times New Roman', Times, serif;
+    opacity: 0.95;
+    margin-bottom: 1rem;
+    animation: fadeInUp 1s ease-out;
+}
+.hero-section p {
+    font-family: 'Times New Roman', Times, serif;
+    animation: fadeInUp 1.2s ease-out;
+}
+</style>
+<div class="hero-section">
+    <div class="hero-title">💊 HPC STOCK MANAGEMENT DASHBOARD</div>
+    <div class="hero-subtitle">Comprehensive Stock Management & Analytics Platform</div>
+    <p style="opacity: 0.95; font-size: 1rem;">Secure • Real-time • Data-driven Decision Making</p>
+</div>
+""", unsafe_allow_html=True)
 
     # Create two columns for layout
     left_col, right_col = st.columns([1, 1], gap="large")
