@@ -4,48 +4,52 @@ import numpy as np
 import plotly.graph_objects as go
 from datetime import datetime, timedelta
 import requests
-import sys
-import os
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from io import BytesIO
 import re
 from supabase import create_client
-import base64
 import time
-import asyncio
-from concurrent.futures import ThreadPoolExecutor
 import random
 
 CACHE_TTL = 3600
 
-# Custom CSS for better UI
+# ============================================================================
+# AUTHENTICATION IMPORTS
+# ============================================================================
+from sup_auth import (
+    require_auth, get_current_user, get_user_role, 
+    is_admin, logout, get_user_program_access,
+    get_all_users, get_pending_users, approve_user, reject_user,
+    update_user_role, toggle_user_active, update_user_program_access
+)
+
+# ============================================================================
+# CUSTOM CSS - Only expanders and sidebar use system fonts, main uses Times New Roman
+# ============================================================================
 def inject_custom_css():
     st.markdown("""
     <style>
-        /* Global Styles */
-        .main {
-            padding: 0rem 1rem;
-        }
-        .stApp {
-            background-color: #f8f9fa;
+        .main { padding: 0rem 1rem; }
+        .stApp { background-color: #f8f9fa; }
+
+        /* Times New Roman for main content only */
+        .main * { font-family: 'Times New Roman', Times, serif !important; }
+
+        /* Sidebar - system fonts ONLY */
+        .css-1d391kg, .sidebar-content, .stSidebar, .stSidebar * { 
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif !important; 
         }
 
-        /* Font Styles - Times New Roman for main content */
-        .main * {
-            font-family: 'Times New Roman', Times, serif !important;
+        /* Expanders - system fonts ONLY */
+        .streamlit-expanderHeader, .streamlit-expanderContent, 
+        .streamlit-expanderHeader *, .streamlit-expanderContent * { 
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif !important; 
         }
 
-        /* Sidebar - keep default font */
-        .css-1d391kg, .sidebar-content, .stSidebar * {
-            font-family: inherit !important;
+        /* Tabs - system fonts */
+        .stTabs [data-baseweb="tab"], .stTabs [data-baseweb="tab-list"] button {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif !important;
         }
 
-        /* Expander - keep default font */
-        .streamlit-expanderHeader, .streamlit-expanderContent * {
-            font-family: inherit !important;
-        }
-
-        /* Card Styles */
         .custom-card {
             background: white;
             border-radius: 12px;
@@ -60,7 +64,6 @@ def inject_custom_css():
             box-shadow: 0 4px 20px rgba(0,0,0,0.12);
         }
 
-        /* Metric Cards */
         .metric-card {
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             border-radius: 12px;
@@ -69,17 +72,9 @@ def inject_custom_css():
             text-align: center;
             margin: 5px 0;
         }
-        .metric-card .metric-value {
-            font-size: 28px;
-            font-weight: 700;
-            margin: 5px 0;
-        }
-        .metric-card .metric-label {
-            font-size: 14px;
-            opacity: 0.9;
-        }
+        .metric-card .metric-value { font-size: 28px; font-weight: 700; margin: 5px 0; }
+        .metric-card .metric-label { font-size: 14px; opacity: 0.9; }
 
-        /* Status Badges */
         .status-badge {
             display: inline-block;
             padding: 4px 12px;
@@ -89,25 +84,15 @@ def inject_custom_css():
             cursor: pointer;
             transition: all 0.3s;
         }
-        .status-badge:hover {
-            transform: scale(1.05);
-            box-shadow: 0 2px 8px rgba(0,0,0,0.2);
-        }
+        .status-badge:hover { transform: scale(1.05); box-shadow: 0 2px 8px rgba(0,0,0,0.2); }
         .status-badge.completed { background: #28a745; color: white; }
         .status-badge.ongoing { background: #007bff; color: white; }
         .status-badge.pending { background: #ffc107; color: #333; }
         .status-badge.initiated { background: #6f42c1; color: white; }
 
-        /* Clickable Rows */
-        .clickable-row {
-            cursor: pointer;
-            transition: background-color 0.2s;
-        }
-        .clickable-row:hover {
-            background-color: #f0f0f0;
-        }
+        .clickable-row { cursor: pointer; transition: background-color 0.2s; }
+        .clickable-row:hover { background-color: #f0f0f0; }
 
-        /* Tab Styles - Bold, Larger, No Card */
         .stTabs [data-baseweb="tab-list"] {
             gap: 8px;
             background-color: transparent;
@@ -141,13 +126,7 @@ def inject_custom_css():
             border-bottom: 4px solid #9b111e;
             box-shadow: none;
         }
-        .stTabs [data-baseweb="tab-list"] button {
-            font-weight: 700 !important;
-            font-size: 20px !important;
-            letter-spacing: 0.5px;
-        }
 
-        /* Header Styles with Animation - Jade color */
         .app-header {
             background: linear-gradient(135deg, #00A86B 0%, #00C78C 50%, #00A86B 100%);
             padding: 20px 30px;
@@ -158,27 +137,16 @@ def inject_custom_css():
             box-shadow: 0 4px 20px rgba(0, 168, 107, 0.3);
         }
         @keyframes slideIn {
-            0% {
-                transform: translateX(-100%);
-                opacity: 0;
-            }
-            100% {
-                transform: translateX(0);
-                opacity: 1;
-            }
+            0% { transform: translateX(-100%); opacity: 0; }
+            100% { transform: translateX(0); opacity: 1; }
         }
         @keyframes slowMove {
             0% { transform: translateX(0); }
             50% { transform: translateX(10px); }
             100% { transform: translateX(0); }
         }
-        .app-header h1 {
-            margin: 0;
-            font-weight: 700;
-            animation: slowMove 3s ease-in-out infinite;
-        }
+        .app-header h1 { margin: 0; font-weight: 700; animation: slowMove 3s ease-in-out infinite; }
 
-        /* Table Styles */
         .dataframe-container {
             background: white;
             border-radius: 12px;
@@ -190,16 +158,13 @@ def inject_custom_css():
             background-color: #667eea;
             color: white;
             padding: 12px;
-            font-family: 'Times New Roman', Times, serif !important;
             font-size: 14px;
         }
         .dataframe-container td {
             padding: 10px 12px;
-            font-family: 'Times New Roman', Times, serif !important;
             font-size: 14px;
         }
 
-        /* Button Styles */
         .stButton > button {
             border-radius: 8px;
             font-weight: 500;
@@ -210,42 +175,21 @@ def inject_custom_css():
             box-shadow: 0 4px 15px rgba(102, 126, 234, 0.4);
         }
 
-        /* Expander Styles */
         .streamlit-expanderHeader {
             background-color: white;
             border-radius: 8px;
             font-weight: 500;
         }
 
-        /* Sidebar Styles */
-        .css-1d391kg {
-            background-color: white;
-        }
-
-        /* Selectbox Styles - Gray background, black text */
         .stSelectbox > div > div {
             background-color: #e8e8e8 !important;
             color: #000000 !important;
             border-radius: 6px;
             border: 1px solid #ccc;
         }
-        .stSelectbox > div > div > div {
-            color: #000000 !important;
-        }
-        .stSelectbox label {
-            color: #333 !important;
-        }
+        .stSelectbox > div > div > div { color: #000000 !important; }
+        .stSelectbox label { color: #333 !important; }
 
-        /* Dropdown options - Gray background, black text */
-        .stSelectbox > div > div > div > div {
-            background-color: #e8e8e8 !important;
-            color: #000000 !important;
-        }
-        .stSelectbox > div > div > div > div:hover {
-            background-color: #d0d0d0 !important;
-        }
-
-        /* Text inputs */
         .stTextInput > div > div > input {
             background-color: white !important;
             color: #333 !important;
@@ -257,47 +201,13 @@ def inject_custom_css():
             border-radius: 6px;
         }
 
-        /* Title Styles - Times New Roman */
-        h1, h2, h3, h4, h5, h6 {
-            font-family: 'Times New Roman', Times, serif !important;
-        }
+        h1, h2, h3, h4, h5, h6 { font-family: 'Times New Roman', Times, serif !important; }
 
-        /* Download Button */
-        .download-btn {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: white;
-            border: none;
-            padding: 10px 20px;
-            border-radius: 8px;
-            font-weight: 500;
-            cursor: pointer;
-            transition: all 0.3s;
-            text-decoration: none;
-            display: inline-block;
-        }
-        .download-btn:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 4px 15px rgba(102, 126, 234, 0.4);
-        }
+        ::-webkit-scrollbar { width: 8px; height: 8px; }
+        ::-webkit-scrollbar-track { background: #f1f1f1; border-radius: 10px; }
+        ::-webkit-scrollbar-thumb { background: #667eea; border-radius: 10px; }
+        ::-webkit-scrollbar-thumb:hover { background: #764ba2; }
 
-        /* Scrollbar */
-        ::-webkit-scrollbar {
-            width: 8px;
-            height: 8px;
-        }
-        ::-webkit-scrollbar-track {
-            background: #f1f1f1;
-            border-radius: 10px;
-        }
-        ::-webkit-scrollbar-thumb {
-            background: #667eea;
-            border-radius: 10px;
-        }
-        ::-webkit-scrollbar-thumb:hover {
-            background: #764ba2;
-        }
-
-        /* Progress Status Cards - Colorful, Reduced Height */
         .progress-status-card {
             border-radius: 12px;
             padding: 8px 10px;
@@ -319,18 +229,14 @@ def inject_custom_css():
         .progress-status-card .status-number {
             font-size: 24px;
             font-weight: 700;
-            font-family: 'Times New Roman', Times, serif !important;
             color: white;
             line-height: 1.2;
         }
         .progress-status-card .status-label {
             font-size: 12px;
             color: rgba(255,255,255,0.9);
-            font-family: 'Times New Roman', Times, serif !important;
         }
-        .progress-status-card .status-icon {
-            font-size: 18px;
-        }
+        .progress-status-card .status-icon { font-size: 18px; }
 
         .progress-status-card.card-total { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); }
         .progress-status-card.card-completed { background: linear-gradient(135deg, #28a745 0%, #20c997 100%); }
@@ -338,25 +244,15 @@ def inject_custom_css():
         .progress-status-card.card-pending { background: linear-gradient(135deg, #fcc419 0%, #ff922b 100%); }
         .progress-status-card.card-initiated { background: linear-gradient(135deg, #6f42c1 0%, #cc5de8 100%); }
 
-        /* Progress Summary Row */
         .progress-summary-row {
             display: grid;
             grid-template-columns: repeat(5, 1fr);
             gap: 10px;
             margin: 10px 0 15px 0;
         }
-        @media (max-width: 768px) {
-            .progress-summary-row {
-                grid-template-columns: repeat(3, 1fr);
-            }
-        }
-        @media (max-width: 480px) {
-            .progress-summary-row {
-                grid-template-columns: 1fr;
-            }
-        }
+        @media (max-width: 768px) { .progress-summary-row { grid-template-columns: repeat(3, 1fr); } }
+        @media (max-width: 480px) { .progress-summary-row { grid-template-columns: 1fr; } }
 
-        /* Filter Row */
         .filter-row {
             display: grid;
             grid-template-columns: repeat(4, 1fr);
@@ -367,63 +263,8 @@ def inject_custom_css():
             border-radius: 12px;
             box-shadow: 0 2px 10px rgba(0,0,0,0.05);
         }
-        @media (max-width: 768px) {
-            .filter-row {
-                grid-template-columns: 1fr;
-            }
-        }
+        @media (max-width: 768px) { .filter-row { grid-template-columns: 1fr; } }
 
-        /* Material Info Card - Ruby color */
-        .material-info-card {
-            background: linear-gradient(135deg, #9b111e 0%, #e0115f 50%, #9b111e 100%);
-            padding: 25px;
-            border-radius: 12px;
-            border: none;
-            margin: 10px 0;
-            box-shadow: 0 4px 20px rgba(155, 17, 30, 0.3);
-        }
-        .material-info-card h4 {
-            color: white;
-            font-size: 20px;
-            font-weight: 700;
-        }
-        .material-info-card .info-row {
-            padding: 8px 12px;
-            border-radius: 6px;
-            background: rgba(255,255,255,0.15);
-            color: white;
-        }
-
-        /* Action Buttons */
-        .action-btn-group {
-            display: flex;
-            gap: 10px;
-            margin: 10px 0;
-            flex-wrap: wrap;
-        }
-        .action-btn-group .stButton {
-            flex: 1;
-        }
-
-        /* Filter Row Title */
-        .filter-title {
-            font-size: 16px;
-            font-weight: 600;
-            color: #333;
-            margin-bottom: 5px;
-            font-family: 'Times New Roman', Times, serif !important;
-        }
-
-        /* Progress Summary Title */
-        .progress-summary-title {
-            font-size: 18px;
-            font-weight: 700;
-            color: #333;
-            margin: 5px 0 5px 0;
-            font-family: 'Times New Roman', Times, serif !important;
-        }
-
-        /* Time Range Selector */
         .time-range-selector {
             background: white;
             padding: 15px 20px;
@@ -435,103 +276,53 @@ def inject_custom_css():
         .time-range-selector label {
             font-weight: 600;
             color: #333;
-            font-family: 'Times New Roman', Times, serif !important;
         }
 
-        /* Progress Status Summary - Reduced height */
-        .progress-summary-container {
-            margin-bottom: 10px;
-        }
-        .progress-summary-container .stColumns {
-            gap: 5px;
-        }
+        .progress-summary-container { margin-bottom: 10px; }
+        .progress-summary-container .stColumns { gap: 5px; }
 
-        /* Expert Action Card */
-        .expert-action-card {
-            background: white;
-            border-radius: 12px;
-            padding: 20px;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.08);
-            margin: 10px 0;
-            border-left: 4px solid #9b111e;
-        }
-        .expert-action-card h4 {
-            color: #9b111e;
-            font-weight: 700;
-        }
-
-        /* Status Distribution Summary */
-        .status-distribution-card {
-            background: white;
-            border-radius: 12px;
-            padding: 15px 20px;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.05);
-            margin: 10px 0;
-            border-left: 4px solid #667eea;
-        }
-        .status-distribution-card h3 {
+        .progress-summary-title {
             font-size: 18px;
             font-weight: 700;
             color: #333;
-            margin-bottom: 10px;
-            font-family: 'Times New Roman', Times, serif !important;
-        }
-        .status-distribution-item {
-            display: flex;
-            align-items: center;
-            gap: 12px;
-            padding: 6px 0;
-            font-family: 'Times New Roman', Times, serif !important;
-        }
-        .status-distribution-item .status-dot {
-            width: 12px;
-            height: 12px;
-            border-radius: 50%;
-            display: inline-block;
-        }
-        .status-distribution-item .status-label {
-            font-weight: 600;
-            min-width: 100px;
-            font-family: 'Times New Roman', Times, serif !important;
-        }
-        .status-distribution-item .status-count {
-            font-weight: 700;
-            font-family: 'Times New Roman', Times, serif !important;
+            margin: 5px 0 5px 0;
         }
 
-        /* Two-column layout for charts */
-        .chart-row {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 20px;
-            margin: 10px 0;
-        }
-        @media (max-width: 768px) {
-            .chart-row {
-                grid-template-columns: 1fr;
-            }
-        }
-
-        /* Clear axis lines for charts */
-        .js-plotly-plot .plotly .main-svg {
-            overflow: visible !important;
-        }
+        .js-plotly-plot .plotly .main-svg { overflow: visible !important; }
         .js-plotly-plot .plotly .xaxislayer-above, 
         .js-plotly-plot .plotly .yaxislayer-above {
             stroke: #333 !important;
             stroke-width: 1.5px !important;
         }
+
+        /* HIDE LOADING SPINNER */
+        .stSpinner {
+            display: none !important;
+        }
+        .stAlert {
+            border: none !important;
+            background: transparent !important;
+        }
+
+        /* Sidebar section headers */
+        .sidebar-section {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif !important;
+        }
+        .sidebar-section * {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif !important;
+        }
     </style>
     """, unsafe_allow_html=True)
 
-# Helper function to sort months chronologically
+# ============================================================================
+# HELPER FUNCTIONS
+# ============================================================================
 def sort_months_chronologically(month_list):
     """Sort month strings (MMM-YYYY) chronologically"""
     def parse_month(month_str):
         try:
             return pd.to_datetime(month_str, format='%b-%Y')
         except:
-            # Manual fallback
             try:
                 mon, year = month_str.split('-')
                 month_map = {'Jan':1, 'Feb':2, 'Mar':3, 'Apr':4, 'May':5, 'Jun':6,
@@ -541,11 +332,9 @@ def sort_months_chronologically(month_list):
                 return datetime(1900, 1, 1)
     return sorted(month_list, key=parse_month)
 
-# JavaScript for click handlers
 def inject_javascript():
     st.markdown("""
     <script>
-        // Click handler for status badges
         document.addEventListener('click', function(e) {
             const badge = e.target.closest('.status-badge');
             if (badge) {
@@ -559,7 +348,6 @@ def inject_javascript():
             }
         });
 
-        // Click handler for table rows
         document.addEventListener('click', function(e) {
             const row = e.target.closest('.clickable-row');
             if (row) {
@@ -571,7 +359,6 @@ def inject_javascript():
             }
         });
 
-        // Click handler for progress status cards
         document.addEventListener('click', function(e) {
             const card = e.target.closest('.progress-status-card');
             if (card) {
@@ -585,6 +372,218 @@ def inject_javascript():
     </script>
     """, unsafe_allow_html=True)
 
+# ============================================================================
+# CACHED DATA LOADING - ALL DATA LOADED ONCE WITH NO SPINNER
+# ============================================================================
+@st.cache_data(ttl=3600, show_spinner=False)
+def load_all_data_cached():
+    """Load all data once with caching - NO SPINNER"""
+    df_national = load_national_data()
+    df_issue = load_issue_data()
+    df_deliveries = load_new_deliveries()
+    df_ho_nsoh = load_ho_nsoh_snapshots()
+    sheet_id = "14VvZ7IyOmpM4SZrY5_ArHDgLkeFN4inW"
+    google_sheets = load_google_sheets(sheet_id)
+    branch_amc = load_branch_amc("12Z5xqX32QIzjoN6tNvGbjutMheXx5US1")
+    dos_tracking = load_dos_tracking()
+
+    return {
+        'national': df_national,
+        'issue': df_issue,
+        'deliveries': df_deliveries,
+        'ho_nsoh': df_ho_nsoh,
+        'google_sheets': google_sheets,
+        'branch_amc': branch_amc,
+        'dos_tracking': dos_tracking
+    }
+
+# ============================================================================
+# ADMIN PAGE
+# ============================================================================
+def render_admin_page():
+    col1, col2 = st.columns([1, 4])
+    with col1:
+        if st.button("← Back to Dashboard", use_container_width=True, type="primary"):
+            st.session_state.show_admin_page = False
+            st.rerun()
+
+    st.markdown("""
+    <div class="app-header fade-in">
+        <h1>🔐 Admin Panel</h1>
+    </div>
+    """, unsafe_allow_html=True)
+
+    all_users = get_all_users()
+    pending_users = get_pending_users()
+
+    col1, col2, col3, col4 = st.columns(4)
+    with col1:
+        st.metric("👥 Total Users", len(all_users))
+    with col2:
+        st.metric("⏳ Pending Approvals", len(pending_users))
+    with col3:
+        approved = len([u for u in all_users if u.get('is_approved', False)])
+        st.metric("✅ Approved", approved)
+    with col4:
+        active = len([u for u in all_users if u.get('is_active', True)])
+        st.metric("🟢 Active", active)
+
+    st.markdown("---")
+
+    tab1, tab2, tab3 = st.tabs(["📋 Pending Approvals", "👥 All Users", "📊 User Statistics"])
+
+    with tab1:
+        st.markdown("### Pending Approvals")
+        if pending_users:
+            for user in pending_users:
+                with st.container():
+                    st.markdown(f"""
+                    <div style="background: #f8f9fa; padding: 15px; border-radius: 10px; margin-bottom: 10px; border-left: 4px solid #ffc107;">
+                        <div style="display: flex; justify-content: space-between; align-items: center;">
+                            <div>
+                                <strong style="font-size: 16px;">{user.get('full_name', 'Unknown')}</strong><br>
+                                <span style="color: #666;">📧 {user.get('email', '')}</span><br>
+                                <span style="font-size: 12px; color: #999;">Registered: {user.get('created_at', '')[:19] if user.get('created_at') else 'Unknown'}</span>
+                            </div>
+                        </div>
+                    </div>
+                    """, unsafe_allow_html=True)
+
+                    col1, col2, col3, col4 = st.columns([1, 1, 1, 1])
+                    with col1:
+                        if st.button(f"✅ Approve", key=f"approve_{user['id']}", use_container_width=True):
+                            if approve_user(user['id']):
+                                st.success("User approved!")
+                                st.rerun()
+                    with col2:
+                        if st.button(f"❌ Reject", key=f"reject_{user['id']}", use_container_width=True):
+                            if reject_user(user['id']):
+                                st.success("User rejected!")
+                                st.rerun()
+                    with col3:
+                        new_role = st.selectbox(
+                            "Assign Role",
+                            ['viewer', 'editor', 'admin'],
+                            index=0,
+                            key=f"role_pending_{user['id']}",
+                            label_visibility="collapsed"
+                        )
+                    with col4:
+                        if st.button(f"Assign", key=f"assign_role_{user['id']}", use_container_width=True):
+                            if update_user_role(user['id'], new_role):
+                                st.success(f"Role set to {new_role}!")
+                                st.rerun()
+                    st.divider()
+        else:
+            st.info("✅ No pending approvals.")
+
+    with tab2:
+        st.markdown("### All Users")
+        if all_users:
+            user_data = []
+            for user in all_users:
+                user_data.append({
+                    "Name": user.get('full_name', ''),
+                    "Email": user.get('email', ''),
+                    "Role": user.get('role', 'viewer'),
+                    "Approved": "✅" if user.get('is_approved', False) else "❌",
+                    "Active": "✅" if user.get('is_active', True) else "❌",
+                    "Program Access": user.get('program_access', ''),
+                    "Registered": user.get('created_at', '')[:10] if user.get('created_at') else '',
+                    "ID": user.get('id', '')
+                })
+            df_users = pd.DataFrame(user_data)
+            st.dataframe(df_users[['Name', 'Email', 'Role', 'Approved', 'Active', 'Program Access', 'Registered']], 
+                        use_container_width=True, hide_index=True)
+
+            st.markdown("---")
+            st.markdown("### Edit User")
+            user_options = [f"{u.get('full_name', '')} ({u.get('email', '')})" for u in all_users]
+            if user_options:
+                selected_user_idx = st.selectbox("Select User to Edit", range(len(user_options)), 
+                                                format_func=lambda x: user_options[x])
+                if selected_user_idx is not None:
+                    selected_user = all_users[selected_user_idx]
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        st.markdown("#### Role Management")
+                        current_role = selected_user.get('role', 'viewer')
+                        new_role = st.selectbox(
+                            "Select Role",
+                            ['viewer', 'editor', 'admin'],
+                            index=['viewer', 'editor', 'admin'].index(current_role) if current_role in ['viewer', 'editor', 'admin'] else 0,
+                            key=f"edit_role_{selected_user['id']}"
+                        )
+                        if st.button("🔄 Update Role", use_container_width=True):
+                            if update_user_role(selected_user['id'], new_role):
+                                st.success(f"Role updated to {new_role}!")
+                                st.rerun()
+                    with col2:
+                        st.markdown("#### Program Access")
+                        current_programs = selected_user.get('program_access', '').split(',')
+                        current_programs = [p.strip() for p in current_programs if p.strip()]
+                        program_options = ["All", "Malaria", "HIV", "TB", "OI and Hepatitis", "Nutrition", "Lab TB", "HIV Lab"]
+                        new_programs = st.multiselect(
+                            "Select Programs",
+                            program_options,
+                            default=current_programs if current_programs else ['All'],
+                            key=f"edit_programs_{selected_user['id']}"
+                        )
+                        if st.button("📋 Update Program Access", use_container_width=True):
+                            if update_user_program_access(selected_user['id'], new_programs):
+                                st.success("Program access updated!")
+                                st.rerun()
+                    st.markdown("---")
+                    st.markdown("#### Account Status")
+                    col3, col4 = st.columns(2)
+                    with col3:
+                        is_active = selected_user.get('is_active', True)
+                        if st.button("🔴 Deactivate" if is_active else "🟢 Activate", use_container_width=True):
+                            if toggle_user_active(selected_user['id'], not is_active):
+                                st.success(f"User {'deactivated' if is_active else 'activated'}!")
+                                st.rerun()
+                    with col4:
+                        if st.button("🗑️ Delete User", use_container_width=True, type="secondary"):
+                            if reject_user(selected_user['id']):
+                                st.success("User deleted!")
+                                st.rerun()
+        else:
+            st.info("No users found.")
+
+    with tab3:
+        st.markdown("### User Statistics")
+        if all_users:
+            col1, col2 = st.columns(2)
+            with col1:
+                roles = {}
+                for user in all_users:
+                    role = user.get('role', 'viewer')
+                    roles[role] = roles.get(role, 0) + 1
+                fig_roles = go.Figure(data=[go.Pie(
+                    labels=list(roles.keys()),
+                    values=list(roles.values()),
+                    hole=0.3,
+                    marker=dict(colors=['#4DABF7', '#FCC419', '#FF6B6B']),
+                    textinfo='label+percent'
+                )])
+                fig_roles.update_layout(title="Role Distribution", height=350)
+                st.plotly_chart(fig_roles, use_container_width=True)
+            with col2:
+                approved_count = len([u for u in all_users if u.get('is_approved', False)])
+                pending_count = len([u for u in all_users if not u.get('is_approved', False)])
+                fig_status = go.Figure(data=[go.Pie(
+                    labels=['Approved', 'Pending'],
+                    values=[approved_count, pending_count],
+                    hole=0.3,
+                    marker=dict(colors=['#2ED573', '#FF6B6B']),
+                    textinfo='label+percent'
+                )])
+                fig_status.update_layout(title="Approval Status", height=350)
+                st.plotly_chart(fig_status, use_container_width=True)
+
+# ============================================================================
+# SUPABASE FUNCTIONS
+# ============================================================================
 @st.cache_resource
 def init_supabase():
     try:
@@ -604,27 +603,18 @@ def get_supabase():
     return _supabase
 
 # ============================================================================
-# RESPONSIBLE BODY DROPDOWN OPTIONS
+# RESPONSIBLE BODY OPTIONS
 # ============================================================================
-
 RESPONSIBLE_BODIES = [
-    "EPSS_CMD",
-    "EPSS_DMD", 
-    "EPSS_PMD",
-    "EPSS_Finance",
-    "MOH_PMED",
-    "MOH_Program",
-    "MSH_SCS",
-    "Other"
+    "EPSS_CMD", "EPSS_DMD", "EPSS_PMD", "EPSS_Finance",
+    "MOH_PMED", "MOH_Program", "MSH_SCS", "Other"
 ]
 
 # ============================================================================
-# OPTIMIZED DATA LOADING FUNCTIONS
+# DATA LOADING FUNCTIONS - ALL WITH show_spinner=False
 # ============================================================================
-
 @st.cache_data(ttl=CACHE_TTL, show_spinner=False)
 def load_national_data_raw():
-    """Load raw national data from Supabase - cached"""
     supabase = get_supabase()
     if supabase is None:
         return pd.DataFrame()
@@ -655,10 +645,8 @@ def load_national_data_raw():
 
 @st.cache_data(ttl=CACHE_TTL, show_spinner=False)
 def process_national_data(df):
-    """Process raw national data - cached"""
     if df.empty:
         return df
-
     column_mapping = {
         'material_description': 'Material Description',
         'adama_branch': 'Adama Branch',
@@ -696,7 +684,6 @@ def process_national_data(df):
 
 @st.cache_data(ttl=CACHE_TTL, show_spinner=False)
 def load_national_data():
-    """Main function to load and process national data with caching"""
     df_raw = load_national_data_raw()
     if df_raw.empty:
         return pd.DataFrame()
@@ -704,7 +691,6 @@ def load_national_data():
 
 @st.cache_data(ttl=CACHE_TTL, show_spinner=False)
 def load_issue_data_raw():
-    """Load raw issue data from Supabase - cached"""
     supabase = get_supabase()
     if supabase is None:
         return pd.DataFrame()
@@ -726,16 +712,13 @@ def load_issue_data_raw():
         if not all_data:
             return pd.DataFrame()
         return pd.DataFrame(all_data)
-    except Exception as e:
-        st.warning(f"Could not load issue data: {e}")
+    except Exception:
         return pd.DataFrame()
 
 @st.cache_data(ttl=CACHE_TTL, show_spinner=False)
 def process_issue_data(df):
-    """Process raw issue data - cached"""
     if df.empty:
         return df
-
     df = df.rename(columns={
         'material_descr': 'Material Description',
         'plant': 'Plant',
@@ -750,7 +733,6 @@ def process_issue_data(df):
 
 @st.cache_data(ttl=CACHE_TTL, show_spinner=False)
 def load_issue_data():
-    """Main function to load and process issue data with caching"""
     df_raw = load_issue_data_raw()
     if df_raw.empty:
         return pd.DataFrame()
@@ -758,7 +740,6 @@ def load_issue_data():
 
 @st.cache_data(ttl=CACHE_TTL, show_spinner=False)
 def load_new_deliveries_raw():
-    """Load raw new deliveries data from Supabase - cached"""
     supabase = get_supabase()
     if supabase is None:
         return pd.DataFrame()
@@ -774,18 +755,14 @@ def load_new_deliveries_raw():
 
 @st.cache_data(ttl=CACHE_TTL, show_spinner=False)
 def process_new_deliveries(df):
-    """Process raw new deliveries data - cached"""
     if df.empty:
         return df
-
     possible_material = ['material_description', 'material_descr', 'material', 'item_description', 'item']
     possible_date = ['posting_date', 'postingdate', 'date', 'delivery_date', 'deliverydate']
     possible_qty = ['quantity', 'qty', 'delivered_quantity', 'delivered_qty', 'order_qty']
-
     material_col = None
     date_col = None
     qty_col = None
-
     for col in df.columns:
         col_lower = col.lower().strip()
         if material_col is None and any(p in col_lower for p in possible_material):
@@ -794,10 +771,8 @@ def process_new_deliveries(df):
             date_col = col
         if qty_col is None and any(p in col_lower for p in possible_qty):
             qty_col = col
-
     if material_col is None or date_col is None or qty_col is None:
         return pd.DataFrame()
-
     df = df.rename(columns={
         material_col: 'Material Description',
         date_col: 'Posting Date',
@@ -811,7 +786,6 @@ def process_new_deliveries(df):
 
 @st.cache_data(ttl=CACHE_TTL, show_spinner=False)
 def load_new_deliveries():
-    """Main function to load and process new deliveries data with caching"""
     df_raw = load_new_deliveries_raw()
     if df_raw.empty:
         return pd.DataFrame()
@@ -819,37 +793,26 @@ def load_new_deliveries():
 
 @st.cache_data(ttl=CACHE_TTL, show_spinner=False)
 def load_google_sheets_raw(sheet_id):
-    """Load raw Google Sheets data - cached with better error handling"""
     url = f"https://docs.google.com/spreadsheets/d/{sheet_id}/export?format=xlsx"
     try:
-        # Use a session with proper headers to mimic a browser
         session = requests.Session()
         session.headers.update({
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
             'Accept-Language': 'en-US,en;q=0.5',
-            'Accept-Encoding': 'gzip, deflate, br',
-            'Connection': 'keep-alive',
-            'Upgrade-Insecure-Requests': '1'
         })
         session.trust_env = False
         response = session.get(url, timeout=60)
         response.raise_for_status()
         return response.content
-    except requests.exceptions.RequestException as e:
-        st.warning(f"Could not load Google Sheets: {e}")
-        return None
-    except Exception as e:
-        st.warning(f"Unexpected error loading Google Sheets: {e}")
+    except Exception:
         return None
 
 @st.cache_data(ttl=CACHE_TTL, show_spinner=False)
-def process_google_sheets(content, sheet_id):
-    """Process raw Google Sheets data - cached"""
+def process_google_sheets(content):
     if content is None:
         return {}
     try:
-        # Try with openpyxl engine first
         sheets = pd.read_excel(BytesIO(content), sheet_name=None, header=2, engine='openpyxl')
         cleaned = {}
         for name, df in sheets.items():
@@ -863,30 +826,11 @@ def process_google_sheets(content, sheet_id):
                     df[col] = df[col].fillna("")
             cleaned[name] = df
         return cleaned
-    except Exception as e:
-        st.warning(f"Error processing Google Sheets with openpyxl: {e}")
-        try:
-            # Try with xlrd engine as fallback
-            sheets = pd.read_excel(BytesIO(content), sheet_name=None, header=2, engine='xlrd')
-            cleaned = {}
-            for name, df in sheets.items():
-                if df.empty:
-                    cleaned[name] = df
-                    continue
-                df = df.loc[:, ~df.columns.str.contains("^Unnamed")]
-                df.columns = df.columns.str.strip()
-                for col in df.columns:
-                    if df[col].dtype == 'object':
-                        df[col] = df[col].fillna("")
-                cleaned[name] = df
-            return cleaned
-        except Exception as e2:
-            st.warning(f"Error processing Google Sheets with xlrd: {e2}")
-            return {}
+    except Exception:
+        return {}
 
 def load_google_sheets_fallback():
-    """Provide fallback program data if Google Sheets fails to load"""
-    fallback_programs = {
+    return {
         "Malaria": pd.DataFrame(),
         "HIV": pd.DataFrame(),
         "TB": pd.DataFrame(),
@@ -895,30 +839,23 @@ def load_google_sheets_fallback():
         "Lab TB": pd.DataFrame(),
         "HIV Lab": pd.DataFrame()
     }
-    return fallback_programs
 
 @st.cache_data(ttl=CACHE_TTL, show_spinner=False)
 def load_google_sheets(sheet_id):
-    """Main function to load and process Google Sheets data with caching and fallback"""
     content = load_google_sheets_raw(sheet_id)
     if content is None:
-        st.warning("Using fallback program data. Google Sheets could not be loaded.")
         return load_google_sheets_fallback()
-    result = process_google_sheets(content, sheet_id)
+    result = process_google_sheets(content)
     if not result:
-        st.warning("Using fallback program data. Google Sheets data could not be processed.")
         return load_google_sheets_fallback()
     return result
 
 @st.cache_data(ttl=CACHE_TTL, show_spinner=False)
 def load_branch_amc_raw(sheet_id):
-    """Load raw branch AMC data - cached"""
     url = f"https://docs.google.com/spreadsheets/d/{sheet_id}/export?format=xlsx"
     try:
         session = requests.Session()
-        session.headers.update({
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
-        })
+        session.headers.update({'User-Agent': 'Mozilla/5.0'})
         session.trust_env = False
         response = session.get(url, timeout=45)
         response.raise_for_status()
@@ -928,7 +865,6 @@ def load_branch_amc_raw(sheet_id):
 
 @st.cache_data(ttl=CACHE_TTL, show_spinner=False)
 def process_branch_amc(content):
-    """Process raw branch AMC data - cached"""
     if content is None:
         return pd.DataFrame()
     try:
@@ -944,7 +880,6 @@ def process_branch_amc(content):
 
 @st.cache_data(ttl=CACHE_TTL, show_spinner=False)
 def load_branch_amc(sheet_id):
-    """Main function to load and process branch AMC data with caching"""
     content = load_branch_amc_raw(sheet_id)
     if content is None:
         return pd.DataFrame()
@@ -952,7 +887,6 @@ def load_branch_amc(sheet_id):
 
 @st.cache_data(ttl=CACHE_TTL, show_spinner=False)
 def load_ho_nsoh_snapshots_raw():
-    """Load raw HO NSOH snapshots from Supabase - cached"""
     supabase = get_supabase()
     if supabase is None:
         return pd.DataFrame()
@@ -980,7 +914,6 @@ def load_ho_nsoh_snapshots_raw():
 
 @st.cache_data(ttl=CACHE_TTL, show_spinner=False)
 def process_ho_nsoh_snapshots(df):
-    """Process raw HO NSOH snapshots - cached"""
     if df.empty:
         return df
     if 'snapshot_date' in df.columns:
@@ -989,7 +922,6 @@ def process_ho_nsoh_snapshots(df):
 
 @st.cache_data(ttl=CACHE_TTL, show_spinner=False)
 def load_ho_nsoh_snapshots():
-    """Main function to load and process HO NSOH snapshots with caching"""
     df_raw = load_ho_nsoh_snapshots_raw()
     if df_raw.empty:
         return pd.DataFrame()
@@ -997,7 +929,6 @@ def load_ho_nsoh_snapshots():
 
 @st.cache_data(ttl=CACHE_TTL, show_spinner=False)
 def load_dos_tracking_raw():
-    """Load raw DOS tracking data - cached"""
     supabase = get_supabase()
     if supabase is None:
         return {}
@@ -1017,11 +948,9 @@ def load_dos_tracking_raw():
         return {}
 
 def load_dos_tracking():
-    """Load DOS tracking data (not cached for writes)"""
     return load_dos_tracking_raw()
 
 def save_dos_tracking(dos_tracking):
-    """Save DOS tracking data"""
     supabase = get_supabase()
     if supabase is None:
         return False
@@ -1041,12 +970,10 @@ def save_dos_tracking(dos_tracking):
         return False
 
 # ============================================================================
-# EXPERT PLAN RECORDS DATABASE FUNCTIONS
+# EXPERT PLAN RECORDS
 # ============================================================================
-
 @st.cache_data(ttl=300, show_spinner=False)
 def load_expert_plan_records(program=None, quarter=None, year=None):
-    """Load expert plan records from Supabase, optionally filtered by program, quarter, year"""
     supabase = get_supabase()
     if supabase is None:
         return []
@@ -1059,7 +986,6 @@ def load_expert_plan_records(program=None, quarter=None, year=None):
         if year:
             query = query.eq("year", year)
         response = query.order("created_at", desc=True).execute()
-
         if response.data:
             records = []
             for rec in response.data:
@@ -1084,12 +1010,10 @@ def load_expert_plan_records(program=None, quarter=None, year=None):
                 })
             return records
         return []
-    except Exception as e:
-        st.warning(f"Could not load expert plan records: {e}")
+    except Exception:
         return []
 
 def save_expert_plan_record(record):
-    """Save a single expert plan record to Supabase"""
     supabase = get_supabase()
     if supabase is None:
         return False
@@ -1113,19 +1037,15 @@ def save_expert_plan_record(record):
             'year': int(record.get('Year')) if record.get('Year') else None,
             'program': record.get('Program')
         }
-
         response = supabase.table("expert_plan_records") \
             .upsert(data, on_conflict="record_id") \
             .execute()
-
         load_expert_plan_records.clear()
         return True
-    except Exception as e:
-        st.error(f"Error saving expert plan record: {e}")
+    except Exception:
         return False
 
 def delete_expert_plan_record(record_id):
-    """Delete an expert plan record from Supabase"""
     supabase = get_supabase()
     if supabase is None:
         return False
@@ -1134,19 +1054,15 @@ def delete_expert_plan_record(record_id):
             .delete() \
             .eq("record_id", record_id) \
             .execute()
-
         load_expert_plan_records.clear()
         return True
-    except Exception as e:
-        st.error(f"Error deleting expert plan record: {e}")
+    except Exception:
         return False
 
 # ============================================================================
-# END OF DATABASE FUNCTIONS
+# CALCULATION FUNCTIONS
 # ============================================================================
-
 def calculate_dos(df):
-    current_date = datetime.now().date()
     dos_tracking = load_dos_tracking()
     updated = {}
     for idx, row in df.iterrows():
@@ -1177,30 +1093,6 @@ def calculate_dos(df):
                 }
     save_dos_tracking(updated)
     return {material: data['days'] for material, data in updated.items()}
-
-def format_number_with_commas(x):
-    try:
-        if pd.isna(x) or x is None:
-            return ""
-        x = float(x)
-        return f"{int(round(x)):,}"
-    except:
-        return str(x)
-
-def format_mos_with_decimals(x):
-    try:
-        if pd.isna(x) or x == "" or x is None:
-            return ""
-        if isinstance(x, str):
-            try:
-                x = float(x) if x else np.nan
-            except:
-                return x
-        if pd.isna(x):
-            return ""
-        return f"{x:.2f}"
-    except:
-        return str(x) if x else ""
 
 def categorize_stock(nmos):
     try:
@@ -1251,45 +1143,34 @@ def calculate_risk(row):
 
 def parse_multiple_expiry_batches(expiry_str, amc):
     try:
-        if pd.isna(expiry_str) or expiry_str == "" or expiry_str is None:
+        if pd.isna(expiry_str) or expiry_str == "":
             return [], amc if pd.notna(amc) else 0
-
         expiry_str = str(expiry_str)
         pattern = r'(\d[\d,]*)\s*\(([A-Za-z]+)-(\d{4})\)'
         matches = re.findall(pattern, expiry_str)
-
         if not matches:
             return [], amc if pd.notna(amc) else 0
-
         batches = []
         month_map = {'Jan':1, 'Feb':2, 'Mar':3, 'Apr':4, 'May':5, 'Jun':6,
                     'Jul':7, 'Aug':8, 'Sep':9, 'Oct':10, 'Nov':11, 'Dec':12}
-
         for quantity_str, month, year in matches:
             quantity = float(quantity_str.replace(',', ''))
             month_num = month_map.get(month[:3], 1)
             expiry_date = datetime(int(year), month_num, 1)
-
             if pd.notna(amc) and amc > 0:
                 remaining_mos = quantity / amc
             else:
                 remaining_mos = 0
-
             batches.append({
                 'quantity': quantity,
                 'expiry_date': expiry_date,
                 'remaining_mos': round(remaining_mos, 2)
             })
-
         batches.sort(key=lambda x: x['expiry_date'])
-
         if pd.isna(amc) or amc <= 0:
             return batches, 0
-
         cumulative_stock = 0
         has_risk = False
-        risk_details = []
-
         for batch in batches:
             months_until_expiry = max(0, (batch['expiry_date'].year - datetime.now().year) * 12 + 
                                       (batch['expiry_date'].month - datetime.now().month))
@@ -1300,8 +1181,6 @@ def parse_multiple_expiry_batches(expiry_str, amc):
                 batch_risk = min(batch['quantity'], excess)
                 if batch_risk > 0:
                     has_risk = True
-                    risk_details.append(f"{batch_risk:,.0f} units expiring {batch['expiry_date'].strftime('%b-%Y')}")
-
         return batches, has_risk
     except Exception:
         return [], amc if pd.notna(amc) else 0
@@ -1388,29 +1267,14 @@ def calculate_due_date_for_pipeline(tmos_value):
             target_date = current_date + timedelta(days=int(months_until_need * 30))
             return f"By {target_date.strftime('%d %b %Y')}"
 
-def has_pipeline(row):
-    return get_total_pipeline_mos(row) > 0
-
 PROGRAM_ORDER_LIST = [
-    "Malaria",
-    "HIV", 
-    "OI and Hepatitis",
-    "Hepatitis",
-    "STI",
-    "TB",
-    "Drug Susceptible -TB Medicine (DS-TB)",
-    "Drug Resisitance -TB Medicine (DR-TB)",
-    "Leprosy Medicines",
-    "Nutrition",
-    "Lab TB",
-    "TB diagnostics& Laboratory reagent",
-    "TB Lab Supplies",
-    "HIV Lab",
-    "HIV VL Reagents",
-    "CD4 ,AHD &HIV RTKs"
+    "Malaria", "HIV", "OI and Hepatitis", "Hepatitis", "STI", "TB",
+    "Drug Susceptible -TB Medicine (DS-TB)", "Drug Resisitance -TB Medicine (DR-TB)",
+    "Leprosy Medicines", "Nutrition", "Lab TB", "TB diagnostics& Laboratory reagent",
+    "TB Lab Supplies", "HIV Lab", "HIV VL Reagents", "CD4 ,AHD &HIV RTKs"
 ]
 
-@st.cache_data(ttl=CACHE_TTL)
+@st.cache_data(ttl=CACHE_TTL, show_spinner=False)
 def get_program_materials(sheet_name):
     sheet_id = "14VvZ7IyOmpM4SZrY5_ArHDgLkeFN4inW"
     google_sheets = load_google_sheets(sheet_id)
@@ -1433,20 +1297,16 @@ def get_program_materials(sheet_name):
     return tuple(ordered)
 
 def get_material_program(material_name, sheet_name):
-    """Get the program name for a material"""
     if sheet_name != "All":
         return sheet_name
-
     sheet_id = "14VvZ7IyOmpM4SZrY5_ArHDgLkeFN4inW"
     google_sheets = load_google_sheets(sheet_id)
-
     if google_sheets:
         for prog in PROGRAM_ORDER_LIST:
             if prog in google_sheets and 'Material Description' in google_sheets[prog].columns:
                 materials = google_sheets[prog]['Material Description'].dropna().tolist()
                 if material_name in materials:
                     return prog
-        # Check other sheets not in PROGRAM_ORDER_LIST
         for prog in google_sheets.keys():
             if prog not in PROGRAM_ORDER_LIST and 'Material Description' in google_sheets[prog].columns:
                 materials = google_sheets[prog]['Material Description'].dropna().tolist()
@@ -1464,7 +1324,7 @@ def order_df_by_program(df, ordered_materials_tuple, material_col='Material Desc
     df = df.drop(columns=['_order'])
     return df
 
-@st.cache_data(ttl=CACHE_TTL)
+@st.cache_data(ttl=CACHE_TTL, show_spinner=False)
 def compute_nsoh_pivot():
     df = load_ho_nsoh_snapshots()
     if df.empty:
@@ -1477,7 +1337,7 @@ def compute_nsoh_pivot():
     pivot = pivot.reset_index().rename(columns={'material_description': 'Material Description'})
     return pivot
 
-@st.cache_data(ttl=CACHE_TTL)
+@st.cache_data(ttl=CACHE_TTL, show_spinner=False)
 def compute_issue_pivot(program_materials_tuple):
     issue_data = load_issue_data()
     if issue_data.empty:
@@ -1497,7 +1357,7 @@ def compute_issue_pivot(program_materials_tuple):
                 return pivot
     return pd.DataFrame()
 
-@st.cache_data(ttl=CACHE_TTL)
+@st.cache_data(ttl=CACHE_TTL, show_spinner=False)
 def compute_new_deliveries_pivot(program_materials_tuple):
     deliveries = load_new_deliveries()
     if deliveries.empty:
@@ -1516,7 +1376,7 @@ def compute_new_deliveries_pivot(program_materials_tuple):
                 return pivot
     return pd.DataFrame()
 
-@st.cache_data(ttl=CACHE_TTL)
+@st.cache_data(ttl=CACHE_TTL, show_spinner=False)
 def compute_consumption_pivot(program_materials_tuple):
     nsoh_raw = load_ho_nsoh_snapshots()
     deliveries_raw = load_new_deliveries()
@@ -1546,7 +1406,7 @@ def compute_consumption_pivot(program_materials_tuple):
     pivot = pivot.reset_index().rename(columns={'index': 'Material Description'})
     return pivot
 
-@st.cache_data(ttl=CACHE_TTL)
+@st.cache_data(ttl=CACHE_TTL, show_spinner=False)
 def get_filtered_data(sheet_name, subcategory_filter):
     df_national = load_national_data()
     sheet_id_amc = "14VvZ7IyOmpM4SZrY5_ArHDgLkeFN4inW"
@@ -1645,7 +1505,6 @@ def get_filtered_data(sheet_name, subcategory_filter):
 
     if 'NMOS' in df.columns:
         df['Risk of Stock'] = df.apply(calculate_risk, axis=1)
-
         expiry_data = df.apply(lambda row: parse_multiple_expiry_batches(row.get('Expiry', ''), row.get('AMC', np.nan)), axis=1)
         df['Expiry Batches'] = expiry_data.apply(lambda x: x[0])
         df['Has Expiry Risk'] = expiry_data.apply(lambda x: x[1] if isinstance(x, tuple) and len(x) > 1 else False)
@@ -1749,7 +1608,7 @@ def get_filtered_data(sheet_name, subcategory_filter):
 
     return df
 
-@st.cache_data(ttl=CACHE_TTL)
+@st.cache_data(ttl=CACHE_TTL, show_spinner=False)
 def compute_supply_plan(df_filtered):
     supply_plan = []
     current_date = datetime.now()
@@ -1782,7 +1641,6 @@ def compute_supply_plan(df_filtered):
         amc = row.get('AMC', 0)
         nmos = row.get('NMOS', 0)
         material = row['Material Description']
-
         git_mos = row.get('GIT_MOS', 0)
         lc_mos = row.get('LC_MOS', 0)
         wb_mos = row.get('WB_MOS', 0)
@@ -1851,7 +1709,7 @@ def compute_supply_plan(df_filtered):
         supply_df = pd.DataFrame()
     return supply_df, supply_plan
 
-@st.cache_data(ttl=CACHE_TTL)
+@st.cache_data(ttl=CACHE_TTL, show_spinner=False)
 def compute_action_plan(df_filtered):
     def get_total_pipeline_mos(row):
         git_mos = row.get('GIT_MOS', 0)
@@ -1875,7 +1733,6 @@ def compute_action_plan(df_filtered):
         material = row['Material Description']
         if pd.isna(material):
             continue
-
         nmos = row.get('NMOS', 0)
         tmos = row.get('TMOS', 0)
         nsoh = row.get('NSOH', 0)
@@ -1883,8 +1740,6 @@ def compute_action_plan(df_filtered):
         risk_type = row.get('Risk Type', '')
         has_expiry_risk = row.get('Has Expiry Risk', False)
         risk_of_stock = row.get('Risk of Stock', '')
-        cv_category = row.get('CV Category', 'Unknown')
-
         try:
             nmos = float(nmos) if pd.notna(nmos) else 0
             tmos = float(tmos) if pd.notna(tmos) else 0
@@ -1892,14 +1747,11 @@ def compute_action_plan(df_filtered):
             amc = float(amc) if pd.notna(amc) else 0
         except:
             continue
-
         if amc == 0 and not has_expiry_risk:
             continue
-
         mos_needed_calc = 18 - tmos
         if mos_needed_calc < 0:
             mos_needed_calc = 0
-
         nsoh_formatted = f"{int(nsoh):,}" if nsoh > 0 else "0"
         amc_formatted = f"{int(amc):,}" if amc > 0 else "N/A"
         pmos = round(get_total_pipeline_mos(row), 2)
@@ -1951,7 +1803,8 @@ def compute_action_plan(df_filtered):
                 'Due Date': end_of_month.strftime('Before %d %b %Y')
             })
 
-        if has_expiry_risk or risk_type == 'Expiry Risk':
+        # ===== FIX: Only check expiry risk when there is actual stock (nmos > 0) =====
+        if nmos > 0 and (has_expiry_risk or risk_type == 'Expiry Risk'):
             action_point, responsible_body = get_expiry_risk_action(row)
             material_problems[material]['problems'].append({
                 'Identified Problem': '⚠️ Expiry Risk',
@@ -2042,15 +1895,15 @@ def get_month_columns(df):
     months = [col for col in df.columns if pattern.match(col)]
     return sort_months_chronologically(months)
 
-def render_unified_historical_table(df_filtered, issue_pivot, nsoh_pivot, consumption_pivot, deliveries_pivot, ordered_materials_tuple, sheet_name):
-    """Render a unified historical table with months as columns and data types as rows"""
-    # Removed the duplicate header - only keep the one inside the custom-card
+# ============================================================================
+# RENDER FUNCTIONS - COMPLETE IMPLEMENTATIONS
+# ============================================================================
 
+def render_unified_historical_table(df_filtered, issue_pivot, nsoh_pivot, consumption_pivot, deliveries_pivot, ordered_materials_tuple, sheet_name):
     if df_filtered.empty:
         st.info("No data available.")
         return
 
-    # Get all available months from NSOH pivot
     all_available_months = []
     if not nsoh_pivot.empty:
         all_available_months = get_month_columns(nsoh_pivot)
@@ -2059,7 +1912,6 @@ def render_unified_historical_table(df_filtered, issue_pivot, nsoh_pivot, consum
         st.info("No month data available.")
         return
 
-    # Time range filter with calendar-like dropdowns
     st.markdown("""
     <div class="time-range-selector">
         <label>📅 Select Time Range</label>
@@ -2068,21 +1920,10 @@ def render_unified_historical_table(df_filtered, issue_pivot, nsoh_pivot, consum
 
     col_start, col_end = st.columns(2)
     with col_start:
-        start_month = st.selectbox(
-            "Start Month",
-            all_available_months,
-            index=0,
-            key="hist_start_month"
-        )
+        start_month = st.selectbox("Start Month", all_available_months, index=0, key="hist_start_month")
     with col_end:
-        end_month = st.selectbox(
-            "End Month",
-            all_available_months,
-            index=len(all_available_months) - 1,
-            key="hist_end_month"
-        )
+        end_month = st.selectbox("End Month", all_available_months, index=len(all_available_months) - 1, key="hist_end_month")
 
-    # Filter months based on selection - maintain chronological order
     if start_month and end_month:
         start_idx = all_available_months.index(start_month)
         end_idx = all_available_months.index(end_month)
@@ -2094,14 +1935,20 @@ def render_unified_historical_table(df_filtered, issue_pivot, nsoh_pivot, consum
     else:
         selected_months = all_available_months
 
-    material_list = sorted(df_filtered['Material Description'].dropna().unique())
-
+    # Sort materials by program order from sidebar
+    material_list = df_filtered['Material Description'].dropna().unique().tolist()
     if not material_list:
         st.info("No materials found.")
         return
 
-    selected_material = st.selectbox("🔍 Select Material to view historical data", material_list, key="historical_material_select")
+    # Sort materials according to program order
+    if ordered_materials_tuple:
+        order_map = {mat: idx for idx, mat in enumerate(ordered_materials_tuple)}
+        material_list.sort(key=lambda x: order_map.get(x, len(ordered_materials_tuple) + 1))
+    else:
+        material_list.sort()
 
+    selected_material = st.selectbox("🔍 Select Material to view historical data", material_list, key="historical_material_select")
     if not selected_material:
         return
 
@@ -2125,14 +1972,11 @@ def render_unified_historical_table(df_filtered, issue_pivot, nsoh_pivot, consum
         if pd.isna(amc_value):
             amc_value = 0
 
-    # Use selected months
     all_months = selected_months
-
     if not all_months:
         st.info("No data available for the selected time range.")
         return
 
-    # Build the unified table with all data types
     data_rows = []
 
     # NSOH row
@@ -2148,14 +1992,14 @@ def render_unified_historical_table(df_filtered, issue_pivot, nsoh_pivot, consum
         **{month: nsoh_vals[i] for i, month in enumerate(all_months)}
     })
 
-    # AMC row (same value for all months)
+    # AMC row
     amc_display = f"{int(amc_value):,}" if amc_value > 0 else "0"
     data_rows.append({
         'Data Type': '📊 AMC',
         **{month: amc_display for month in all_months}
     })
 
-    # NMOS row (NSOH / AMC)
+    # NMOS row
     nmos_vals = []
     for i, month in enumerate(all_months):
         nsoh_val = float(nsoh_vals[i].replace(',', '')) if nsoh_vals[i] else 0
@@ -2169,7 +2013,7 @@ def render_unified_historical_table(df_filtered, issue_pivot, nsoh_pivot, consum
         **{month: nmos_vals[i] for i, month in enumerate(all_months)}
     })
 
-    # Consumption row - starts from the 2nd month (first month is NaN)
+    # Consumption row
     cons_vals = []
     for month in all_months:
         if cons_row is not None and month in cons_row.index:
@@ -2177,7 +2021,7 @@ def render_unified_historical_table(df_filtered, issue_pivot, nsoh_pivot, consum
             if pd.notna(val):
                 cons_vals.append(f"{int(val):,}" if val > 0 else "0")
             else:
-                cons_vals.append("")  # First month is empty (NaN)
+                cons_vals.append("")
         else:
             cons_vals.append("")
     data_rows.append({
@@ -2198,16 +2042,14 @@ def render_unified_historical_table(df_filtered, issue_pivot, nsoh_pivot, consum
         **{month: issue_vals[i] for i, month in enumerate(all_months)}
     })
 
-    # Calculate A_AMC as moving average of last 3 months for each month
+    # A_AMC row
     a_amc_vals = []
     for i, month in enumerate(all_months):
         month_dt = pd.to_datetime(month, format='%b-%Y')
         prev_1_dt = month_dt - pd.DateOffset(months=1)
         prev_2_dt = month_dt - pd.DateOffset(months=2)
-
         prev_1_month = prev_1_dt.strftime('%b-%Y')
         prev_2_month = prev_2_dt.strftime('%b-%Y')
-
         month_values = []
 
         if issue_row is not None and month in issue_row.index:
@@ -2236,7 +2078,7 @@ def render_unified_historical_table(df_filtered, issue_pivot, nsoh_pivot, consum
         **{month: a_amc_vals[i] for i, month in enumerate(all_months)}
     })
 
-    # AMOS row (NSOH / A_AMC)
+    # AMOS row
     amos_vals = []
     for i, month in enumerate(all_months):
         nsoh_val = float(nsoh_vals[i].replace(',', '')) if nsoh_vals[i] else 0
@@ -2251,7 +2093,7 @@ def render_unified_historical_table(df_filtered, issue_pivot, nsoh_pivot, consum
         **{month: amos_vals[i] for i, month in enumerate(all_months)}
     })
 
-    # Received Quantity row
+    # Received row
     deliv_vals = []
     for month in all_months:
         if deliv_row is not None and month in deliv_row.index:
@@ -2264,18 +2106,16 @@ def render_unified_historical_table(df_filtered, issue_pivot, nsoh_pivot, consum
         **{month: deliv_vals[i] for i, month in enumerate(all_months)}
     })
 
-    # Create DataFrame
     unified_df = pd.DataFrame(data_rows)
 
     st.markdown(f"""
     <div class="custom-card">
         <h4 style='font-size: 16px; font-weight: 600; margin-bottom: 10px;'>📋 Historical Data for: {selected_material}</h4>
-        <p style='font-size: 12px; color: #666;'>Showing {len(all_months)} months (Consumption starts from the 2nd month)</p>
+        <p style='font-size: 12px; color: #666;'>Showing {len(all_months)} months</p>
     </div>
     """, unsafe_allow_html=True)
     st.dataframe(unified_df, use_container_width=True, hide_index=True)
 
-    # Download as XLSX
     output = BytesIO()
     with pd.ExcelWriter(output, engine='openpyxl') as writer:
         unified_df.to_excel(writer, index=False, sheet_name='Historical Data')
@@ -2289,12 +2129,11 @@ def render_unified_historical_table(df_filtered, issue_pivot, nsoh_pivot, consum
         use_container_width=True
     )
 
-    # Graph 0: NMOS vs AMOS Trends with shadow gap
+    # NMOS vs AMOS Trends
     st.markdown("---")
     st.markdown("""
     <div class="custom-card">
         <h4 style='font-size: 16px; font-weight: 600; margin-bottom: 5px;'>📊 NMOS vs AMOS Trends</h4>
-        <p style='font-size: 13px; color: #666;'>Gap between NMOS and AMOS is filled with gray</p>
     </div>
     """, unsafe_allow_html=True)
 
@@ -2336,7 +2175,6 @@ def render_unified_historical_table(df_filtered, issue_pivot, nsoh_pivot, consum
     if plot_data_nmos_amos:
         fig_nmos_amos = go.Figure()
 
-        # Find NMOS and AMOS data for gap filling
         nmos_data = None
         amos_data = None
         for data in plot_data_nmos_amos:
@@ -2345,7 +2183,6 @@ def render_unified_historical_table(df_filtered, issue_pivot, nsoh_pivot, consum
             elif data['Data Type'] == '📈 AMOS':
                 amos_data = data
 
-        # Add gap fill between NMOS and AMOS
         if nmos_data is not None and amos_data is not None:
             nmos_vals = [v if v is not None else 0 for v in nmos_data['values']]
             amos_vals = [v if v is not None else 0 for v in amos_data['values']]
@@ -2378,13 +2215,6 @@ def render_unified_historical_table(df_filtered, issue_pivot, nsoh_pivot, consum
             '📈 AMOS': '#FF922B'
         }
 
-        # Get max value for text positioning
-        max_val_nmos_amos = 0
-        for data in plot_data_nmos_amos:
-            for v in data['values']:
-                if v and v > max_val_nmos_amos:
-                    max_val_nmos_amos = v
-
         for data in plot_data_nmos_amos:
             fig_nmos_amos.add_trace(go.Scatter(
                 x=data['months'],
@@ -2395,57 +2225,29 @@ def render_unified_historical_table(df_filtered, issue_pivot, nsoh_pivot, consum
                 marker=dict(size=10, color=colors_nmos_amos.get(data['Data Type'], '#666'), line=dict(width=2, color='white')),
                 text=data['text_values'],
                 textposition='top center',
-                textfont=dict(size=10, color='black', family='Times New Roman, Times, serif'),
+                textfont=dict(size=10, color='black'),
                 hovertemplate='<b>%{x}</b><br>%{fullData.name}: %{y:.2f}<extra></extra>'
             ))
 
         fig_nmos_amos.update_layout(
-            title=dict(
-                text=f"NMOS vs AMOS for {selected_material}",
-                font=dict(size=16, color='#333', family='Times New Roman, Times, serif')
-            ),
+            title=f"NMOS vs AMOS for {selected_material}",
             xaxis_title="Month",
             yaxis_title="Months of Stock",
             height=400,
-            legend=dict(
-                orientation='h', 
-                yanchor='bottom', 
-                y=1.02, 
-                xanchor='center', 
-                x=0.5,
-                font=dict(size=12, family='Times New Roman, Times, serif')
-            ),
+            legend=dict(orientation='h', yanchor='bottom', y=1.02, xanchor='center', x=0.5),
             hovermode='x unified',
-            xaxis=dict(
-                showgrid=False,
-                showline=True,
-                linecolor='#333',
-                linewidth=2,
-                tickangle=45,
-                tickfont=dict(size=11, family='Times New Roman, Times, serif'),
-                categoryorder='array',
-                categoryarray=all_months
-            ),
-            yaxis=dict(
-                showgrid=True,
-                gridcolor='#e0e0e0',
-                showline=True,
-                linecolor='#333',
-                linewidth=2,
-                tickfont=dict(size=11, family='Times New Roman, Times, serif')
-            ),
+            xaxis=dict(showgrid=False, showline=True, tickangle=45, categoryorder='array', categoryarray=all_months),
+            yaxis=dict(showgrid=True, gridcolor='#e0e0e0', showline=True),
             plot_bgcolor='white',
-            margin=dict(l=60, r=40, t=60, b=60),
-            font=dict(family='Times New Roman, Times, serif')
+            margin=dict(l=60, r=40, t=60, b=60)
         )
         st.plotly_chart(fig_nmos_amos, use_container_width=True, config={'displayModeBar': True})
 
-    # Graph 1: NSOH vs Consumption vs Issue with gap fill
+    # NSOH vs Consumption vs Issue
     st.markdown("---")
     st.markdown("""
     <div class="custom-card">
         <h4 style='font-size: 16px; font-weight: 600; margin-bottom: 5px;'>📊 NSOH vs Consumption vs Issue Trends</h4>
-        <p style='font-size: 13px; color: #666;'>Gap between NSOH and Issue is filled with gray</p>
     </div>
     """, unsafe_allow_html=True)
 
@@ -2487,24 +2289,18 @@ def render_unified_historical_table(df_filtered, issue_pivot, nsoh_pivot, consum
     if plot_data:
         fig = go.Figure()
 
-        # Find NSOH and Issue data for gap filling
         nsoh_data = None
         issue_data = None
-        cons_data = None
         for data in plot_data:
             if data['Data Type'] == '📦 NSOH':
                 nsoh_data = data
             elif data['Data Type'] == '📤 Issue':
                 issue_data = data
-            elif data['Data Type'] == '📊 Consumption':
-                cons_data = data
 
-        # Add gap fill between NSOH and Issue - use the chronological order from all_months
         if nsoh_data is not None and issue_data is not None:
             nsoh_vals = [v if v is not None else 0 for v in nsoh_data['values']]
             issue_vals = [v if v is not None else 0 for v in issue_data['values']]
 
-            # Fill gap only where both have values
             x_vals = []
             y_upper = []
             y_lower = []
@@ -2533,94 +2329,40 @@ def render_unified_historical_table(df_filtered, issue_pivot, nsoh_pivot, consum
             '📊 Consumption': '#51CF66',
             '📤 Issue': '#4DABF7'
         }
-        line_styles = {
-            '📦 NSOH': 'solid',
-            '📊 Consumption': 'solid',
-            '📤 Issue': 'solid'
-        }
-
-        # Get max value for text positioning
-        max_val = 0
-        for data in plot_data:
-            for v in data['values']:
-                if v and v > max_val:
-                    max_val = v
 
         for data in plot_data:
-            # Determine text position: above for Consumption, below for Issue, above for NSOH
-            text_pos = 'top center'
-            if data['Data Type'] == '📤 Issue':
-                text_pos = 'bottom center'
-            elif data['Data Type'] == '📊 Consumption':
-                text_pos = 'top center'
-
-            # Add offset to avoid overlap
-            text_offset = 0
-            if data['Data Type'] == '📤 Issue':
-                text_offset = -max_val * 0.05
-            elif data['Data Type'] == '📊 Consumption':
-                text_offset = max_val * 0.05
-
             fig.add_trace(go.Scatter(
                 x=data['months'],
                 y=data['values'],
                 name=data['Data Type'],
                 mode='lines+markers+text',
-                line=dict(color=colors.get(data['Data Type'], '#666'), width=3, dash=line_styles.get(data['Data Type'], 'solid')),
+                line=dict(color=colors.get(data['Data Type'], '#666'), width=3),
                 marker=dict(size=10, color=colors.get(data['Data Type'], '#666')),
                 text=data['text_values'],
-                textposition=text_pos,
-                textfont=dict(size=10, color='black', family='Times New Roman, Times, serif'),
+                textposition='top center' if data['Data Type'] != '📤 Issue' else 'bottom center',
+                textfont=dict(size=10, color='black'),
                 hovertemplate='<b>%{x}</b><br>%{fullData.name}: %{y:,.0f}<extra></extra>'
             ))
 
         fig.update_layout(
-            title=dict(
-                text=f"NSOH vs Consumption vs Issue for {selected_material}",
-                font=dict(size=16, color='#333', family='Times New Roman, Times, serif')
-            ),
+            title=f"NSOH vs Consumption vs Issue for {selected_material}",
             xaxis_title="Month",
             yaxis_title="Value",
             height=450,
-            legend=dict(
-                orientation='h', 
-                yanchor='bottom', 
-                y=1.02, 
-                xanchor='center', 
-                x=0.5,
-                font=dict(size=12, family='Times New Roman, Times, serif')
-            ),
+            legend=dict(orientation='h', yanchor='bottom', y=1.02, xanchor='center', x=0.5),
             hovermode='x unified',
-            xaxis=dict(
-                showgrid=False,
-                showline=True,
-                linecolor='#333',
-                linewidth=2,
-                tickangle=45,
-                tickfont=dict(size=11, family='Times New Roman, Times, serif'),
-                categoryorder='array',
-                categoryarray=all_months
-            ),
-            yaxis=dict(
-                showgrid=True,
-                gridcolor='#e0e0e0',
-                showline=True,
-                linecolor='#333',
-                linewidth=2,
-                tickfont=dict(size=11, family='Times New Roman, Times, serif')
-            ),
+            xaxis=dict(showgrid=False, showline=True, tickangle=45, categoryorder='array', categoryarray=all_months),
+            yaxis=dict(showgrid=True, gridcolor='#e0e0e0', showline=True),
             plot_bgcolor='white',
-            margin=dict(l=60, r=40, t=60, b=60),
-            font=dict(family='Times New Roman, Times, serif')
+            margin=dict(l=60, r=40, t=60, b=60)
         )
         st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': True})
 
-    # Graph 2: AMC vs Consumption vs Issue with gap fill
+    # AMC vs Consumption vs Issue
     st.markdown("---")
     st.markdown("""
     <div class="custom-card">
         <h4 style='font-size: 16px; font-weight: 600; margin-bottom: 5px;'>📊 AMC vs Consumption vs Issue Trends</h4>
-        <p style='font-size: 13px; color: #666;'>Gap between AMC and Issue is filled with gray</p>
     </div>
     """, unsafe_allow_html=True)
 
@@ -2662,19 +2404,14 @@ def render_unified_historical_table(df_filtered, issue_pivot, nsoh_pivot, consum
     if plot_data_amc:
         fig2 = go.Figure()
 
-        # Find AMC and Issue data for gap filling
         amc_data = None
         issue_data2 = None
-        cons_data2 = None
         for data in plot_data_amc:
             if data['Data Type'] == '📊 AMC':
                 amc_data = data
             elif data['Data Type'] == '📤 Issue':
                 issue_data2 = data
-            elif data['Data Type'] == '📊 Consumption':
-                cons_data2 = data
 
-        # Add gap fill between AMC and Issue
         if amc_data is not None and issue_data2 is not None:
             amc_vals = [v if v is not None else 0 for v in amc_data['values']]
             issue_vals2 = [v if v is not None else 0 for v in issue_data2['values']]
@@ -2708,20 +2445,7 @@ def render_unified_historical_table(df_filtered, issue_pivot, nsoh_pivot, consum
             '📤 Issue': '#4DABF7'
         }
 
-        # Get max value for text positioning
-        max_val2 = 0
         for data in plot_data_amc:
-            for v in data['values']:
-                if v and v > max_val2:
-                    max_val2 = v
-
-        for data in plot_data_amc:
-            text_pos = 'top center'
-            if data['Data Type'] == '📤 Issue':
-                text_pos = 'bottom center'
-            elif data['Data Type'] == '📊 Consumption':
-                text_pos = 'top center'
-
             fig2.add_trace(go.Scatter(
                 x=data['months'],
                 y=data['values'],
@@ -2730,49 +2454,22 @@ def render_unified_historical_table(df_filtered, issue_pivot, nsoh_pivot, consum
                 line=dict(color=colors_amc.get(data['Data Type'], '#666'), width=3),
                 marker=dict(size=10, color=colors_amc.get(data['Data Type'], '#666')),
                 text=data['text_values'],
-                textposition=text_pos,
-                textfont=dict(size=10, color='black', family='Times New Roman, Times, serif'),
+                textposition='top center' if data['Data Type'] != '📤 Issue' else 'bottom center',
+                textfont=dict(size=10, color='black'),
                 hovertemplate='<b>%{x}</b><br>%{fullData.name}: %{y:,.0f}<extra></extra>'
             ))
 
         fig2.update_layout(
-            title=dict(
-                text=f"AMC vs Consumption vs Issue for {selected_material}",
-                font=dict(size=16, color='#333', family='Times New Roman, Times, serif')
-            ),
+            title=f"AMC vs Consumption vs Issue for {selected_material}",
             xaxis_title="Month",
             yaxis_title="Value",
             height=450,
-            legend=dict(
-                orientation='h', 
-                yanchor='bottom', 
-                y=1.02, 
-                xanchor='center', 
-                x=0.5,
-                font=dict(size=12, family='Times New Roman, Times, serif')
-            ),
+            legend=dict(orientation='h', yanchor='bottom', y=1.02, xanchor='center', x=0.5),
             hovermode='x unified',
-            xaxis=dict(
-                showgrid=False,
-                showline=True,
-                linecolor='#333',
-                linewidth=2,
-                tickangle=45,
-                tickfont=dict(size=11, family='Times New Roman, Times, serif'),
-                categoryorder='array',
-                categoryarray=all_months
-            ),
-            yaxis=dict(
-                showgrid=True,
-                gridcolor='#e0e0e0',
-                showline=True,
-                linecolor='#333',
-                linewidth=2,
-                tickfont=dict(size=11, family='Times New Roman, Times, serif')
-            ),
+            xaxis=dict(showgrid=False, showline=True, tickangle=45, categoryorder='array', categoryarray=all_months),
+            yaxis=dict(showgrid=True, gridcolor='#e0e0e0', showline=True),
             plot_bgcolor='white',
-            margin=dict(l=60, r=40, t=60, b=60),
-            font=dict(family='Times New Roman, Times, serif')
+            margin=dict(l=60, r=40, t=60, b=60)
         )
         st.plotly_chart(fig2, use_container_width=True, config={'displayModeBar': True})
     else:
@@ -2789,17 +2486,16 @@ def render_supply_planning_exercise(df_filtered, supply_df, supply_plan, ordered
     with st.expander("📖 Parameters & Instructions", expanded=False):
         st.markdown("""
         **Supply Planning Parameters:**
-        - Lead Time = 6 months (time from order placement to delivery)
-        - Safety Stock = 2 months (buffer stock)
+        - Lead Time = 6 months
+        - Safety Stock = 2 months
         - Minimum Stock Level = 6 months
         - Maximum Stock Level = 18 months
-        - Reorder Point = Lead Time + Safety Stock = 8 months
+        - Reorder Point = 8 months
 
         **Order Quantity Formula:**
-        - Order Quantity = (18 - TMOS) × AMC (ONLY if 18 - TMOS is POSITIVE)
-        - MOS Needed = 18 - TMOS (months of stock required to reach maximum)
-
-        **TMOS = NMOS + Pipeline MOS** (GIT_MOS + LC_MOS + WB_MOS + TMD_MOS)
+        - Order Quantity = (18 - TMOS) × AMC
+        - MOS Needed = 18 - TMOS
+        **TMOS = NMOS + Pipeline MOS**
         """)
 
     if 'TMOS' not in df_filtered.columns or 'AMC' not in df_filtered.columns:
@@ -2852,7 +2548,6 @@ def render_supply_planning_exercise(df_filtered, supply_df, supply_plan, ordered
         hide_index=True
     )
 
-    # Download as XLSX
     output = BytesIO()
     with pd.ExcelWriter(output, engine='openpyxl') as writer:
         supply_df.to_excel(writer, index=False, sheet_name='Order Quantity Plan')
@@ -2866,16 +2561,13 @@ def render_supply_planning_exercise(df_filtered, supply_df, supply_plan, ordered
         use_container_width=True
     )
 
-    # Add pie charts for Identified Problem and Responsible Body - SINGLE COLUMN
     if action_df is not None and not action_df.empty:
         st.markdown("---")
         st.markdown("### 📊 Problem & Responsible Body Distribution")
 
-        # Chart 1: Identified Problem - Full width with legend on right
         problem_counts = action_df['Identified Problem'].value_counts().reset_index()
         problem_counts.columns = ['Problem', 'Count']
 
-        # Create custom text: "Count (Percentage%)"
         total_problems = problem_counts['Count'].sum()
         problem_counts['Text'] = problem_counts.apply(
             lambda row: f"{row['Count']} ({round(row['Count']/total_problems*100, 1)}%)", axis=1
@@ -2887,38 +2579,23 @@ def render_supply_planning_exercise(df_filtered, supply_df, supply_plan, ordered
             hole=0.3,
             text=problem_counts['Text'],
             textposition='inside',
-            textfont=dict(size=12, color='white', family='Times New Roman, Times, serif'),
+            textfont=dict(size=12, color='white'),
             marker=dict(colors=['#FF6B6B', '#FCC419', '#FF922B', '#4DABF7', '#CC5DE8']),
             hoverinfo='label+value+percent',
             showlegend=True
         )])
         fig_problem.update_layout(
-            title=dict(
-                text="Identified Problems",
-                font=dict(size=16, color='#333', family='Times New Roman, Times, serif')
-            ),
+            title="Identified Problems",
             height=450,
-            font=dict(family='Times New Roman, Times, serif'),
             plot_bgcolor='white',
             paper_bgcolor='white',
-            legend=dict(
-                orientation='v',
-                yanchor='middle',
-                y=0.5,
-                xanchor='left',
-                x=1.05,
-                font=dict(size=12, family='Times New Roman, Times, serif'),
-                bgcolor='rgba(255,255,255,0.9)',
-                bordercolor='rgba(0,0,0,0.1)',
-                borderwidth=1
-            ),
+            legend=dict(orientation='v', yanchor='middle', y=0.5, xanchor='left', x=1.05),
             margin=dict(l=40, r=200, t=60, b=40)
         )
         st.plotly_chart(fig_problem, use_container_width=True, config={'displayModeBar': True})
 
         st.markdown("---")
 
-        # Chart 2: Responsible Body - Full width with legend on right
         all_bodies = []
         for body_str in action_df['Responsible Body'].dropna():
             bodies = [b.strip() for b in body_str.split(',') if b.strip()]
@@ -2927,7 +2604,6 @@ def render_supply_planning_exercise(df_filtered, supply_df, supply_plan, ordered
         body_counts = pd.Series(all_bodies).value_counts().reset_index()
         body_counts.columns = ['Responsible Body', 'Count']
 
-        # Create custom text: "Count (Percentage%)"
         total_bodies = body_counts['Count'].sum()
         body_counts['Text'] = body_counts.apply(
             lambda row: f"{row['Count']} ({round(row['Count']/total_bodies*100, 1)}%)", axis=1
@@ -2939,37 +2615,22 @@ def render_supply_planning_exercise(df_filtered, supply_df, supply_plan, ordered
             hole=0.3,
             text=body_counts['Text'],
             textposition='inside',
-            textfont=dict(size=12, color='white', family='Times New Roman, Times, serif'),
+            textfont=dict(size=12, color='white'),
             marker=dict(colors=['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd', '#8c564b', '#e377c2']),
             hoverinfo='label+value+percent',
             showlegend=True
         )])
         fig_body.update_layout(
-            title=dict(
-                text="Responsible Bodies",
-                font=dict(size=16, color='#333', family='Times New Roman, Times, serif')
-            ),
+            title="Responsible Bodies",
             height=450,
-            font=dict(family='Times New Roman, Times, serif'),
             plot_bgcolor='white',
             paper_bgcolor='white',
-            legend=dict(
-                orientation='v',
-                yanchor='middle',
-                y=0.5,
-                xanchor='left',
-                x=1.05,
-                font=dict(size=12, family='Times New Roman, Times, serif'),
-                bgcolor='rgba(255,255,255,0.9)',
-                bordercolor='rgba(0,0,0,0.1)',
-                borderwidth=1
-            ),
+            legend=dict(orientation='v', yanchor='middle', y=0.5, xanchor='left', x=1.05),
             margin=dict(l=40, r=200, t=60, b=40)
         )
         st.plotly_chart(fig_body, use_container_width=True, config={'displayModeBar': True})
 
 def render_action_plan_graph(df_filtered, material_problems, action_df, nsoh_pivot, sheet_name):
-    """Render action plan graph as time-series with NMOS, AMOS, and horizontal threshold lines"""
     st.markdown(f"""
     <div class="custom-card">
         <h3 style='font-size: 24px; font-weight: bold; margin-bottom: 10px;'>📊 {sheet_name if sheet_name != 'All' else 'All Programs'} - Action Plan Graph</h3>
@@ -3000,7 +2661,6 @@ def render_action_plan_graph(df_filtered, material_problems, action_df, nsoh_piv
 
                     if months:
                         nmos_values = []
-                        amos_values = []
                         for month in months:
                             nsoh_val = nsoh_row[month] if month in nsoh_row.index else 0
                             if pd.notna(nsoh_val) and amc_value > 0 and nsoh_val > 0:
@@ -3009,12 +2669,8 @@ def render_action_plan_graph(df_filtered, material_problems, action_df, nsoh_piv
                             else:
                                 nmos_values.append(0)
 
-                            # Calculate AMOS (using A_AMC from the historical data if available)
-                            amos_values.append(0)
-
                         fig = go.Figure()
 
-                        # Add area fill (shadow) between x-axis and NMOS line
                         fig.add_trace(go.Scatter(
                             x=months + months[::-1],
                             y=nmos_values + [0]*len(nmos_values),
@@ -3025,7 +2681,6 @@ def render_action_plan_graph(df_filtered, material_problems, action_df, nsoh_piv
                             hoverinfo='skip'
                         ))
 
-                        # NMOS line with data labels
                         fig.add_trace(go.Scatter(
                             x=months,
                             y=nmos_values,
@@ -3035,26 +2690,10 @@ def render_action_plan_graph(df_filtered, material_problems, action_df, nsoh_piv
                             marker=dict(size=12, color='#4DABF7', line=dict(width=2, color='white')),
                             text=[f"{v:.2f}" for v in nmos_values],
                             textposition='top center',
-                            textfont=dict(size=10, color='#333', family='Times New Roman, Times, serif'),
+                            textfont=dict(size=10, color='#333'),
                             hovertemplate='<b>%{x}</b><br>NMOS: %{y:.2f} months<extra></extra>'
                         ))
 
-                        # AMOS line (if available)
-                        if any(v > 0 for v in amos_values):
-                            fig.add_trace(go.Scatter(
-                                x=months,
-                                y=amos_values,
-                                name='AMOS',
-                                mode='lines+markers+text',
-                                line=dict(color='#FF922B', width=2, dash='dot'),
-                                marker=dict(size=10, color='#FF922B', line=dict(width=2, color='white')),
-                                text=[f"{v:.2f}" for v in amos_values],
-                                textposition='bottom center',
-                                textfont=dict(size=9, color='#FF922B', family='Times New Roman, Times, serif'),
-                                hovertemplate='<b>%{x}</b><br>AMOS: %{y:.2f} months<extra></extra>'
-                            ))
-
-                        # Horizontal threshold lines - only Safety Stock, Min, Max, Reorder Point
                         thresholds = [
                             (2, 'Safety Stock (2m)', '#FF6B6B', 'dash'),
                             (6, 'Min Stock (6m)', '#FF922B', 'dash'),
@@ -3070,10 +2709,9 @@ def render_action_plan_graph(df_filtered, material_problems, action_df, nsoh_piv
                                 line_width=2,
                                 annotation_text=label,
                                 annotation_position='right',
-                                annotation_font=dict(size=11, color=color, family='Times New Roman, Times, serif')
+                                annotation_font=dict(size=11, color=color)
                             )
 
-                        # Add current NMOS as a marker
                         current_nmos = nmos_values[-1] if nmos_values else 0
                         fig.add_trace(go.Scatter(
                             x=[months[-1]],
@@ -3106,7 +2744,7 @@ def render_action_plan_graph(df_filtered, material_problems, action_df, nsoh_piv
                                 xref='paper', yref='paper',
                                 text=problem_text,
                                 showarrow=False,
-                                font=dict(size=11, family='Times New Roman, Times, serif'),
+                                font=dict(size=11),
                                 bgcolor='rgba(255, 255, 200, 0.9)',
                                 bordercolor='#333',
                                 borderwidth=1,
@@ -3120,7 +2758,7 @@ def render_action_plan_graph(df_filtered, material_problems, action_df, nsoh_piv
                                 xref='paper', yref='paper',
                                 text=f"AMC: {int(amc_value):,} units/month  |  {order_text}",
                                 showarrow=False,
-                                font=dict(size=11, family='Times New Roman, Times, serif'),
+                                font=dict(size=11),
                                 bgcolor='rgba(255, 255, 255, 0.9)',
                                 bordercolor='#333',
                                 borderwidth=1,
@@ -3129,41 +2767,16 @@ def render_action_plan_graph(df_filtered, material_problems, action_df, nsoh_piv
                             )
 
                         fig.update_layout(
-                            title=dict(
-                                text=f"NMOS Trend for {selected_material[:50]}" if len(selected_material) <= 50 else f"NMOS Trend for {selected_material[:47]}...",
-                                font=dict(size=16, color='#333', family='Times New Roman, Times, serif')
-                            ),
-                            xaxis_title=dict(text='Month-Year', font=dict(size=13, family='Times New Roman, Times, serif')),
-                            yaxis_title=dict(text='Months of Stock (NMOS)', font=dict(size=13, family='Times New Roman, Times, serif')),
+                            title=f"NMOS Trend for {selected_material[:50]}",
+                            xaxis_title='Month-Year',
+                            yaxis_title='Months of Stock (NMOS)',
                             height=500,
                             margin=dict(l=60, r=140, t=60, b=60),
-                            legend=dict(
-                                orientation='h',
-                                yanchor='bottom',
-                                y=1.02,
-                                xanchor='center',
-                                x=0.5,
-                                font=dict(size=12, family='Times New Roman, Times, serif')
-                            ),
+                            legend=dict(orientation='h', yanchor='bottom', y=1.02, xanchor='center', x=0.5),
                             hovermode='x unified',
-                            xaxis=dict(
-                                showgrid=False,
-                                showline=True,
-                                linecolor='#333',
-                                linewidth=2,
-                                tickangle=45,
-                                tickfont=dict(size=11, family='Times New Roman, Times, serif')
-                            ),
-                            yaxis=dict(
-                                showgrid=True,
-                                gridcolor='#e0e0e0',
-                                showline=True,
-                                linecolor='#333',
-                                linewidth=2,
-                                tickfont=dict(size=11, family='Times New Roman, Times, serif')
-                            ),
-                            plot_bgcolor='white',
-                            font=dict(family='Times New Roman, Times, serif')
+                            xaxis=dict(showgrid=False, showline=True, tickangle=45),
+                            yaxis=dict(showgrid=True, gridcolor='#e0e0e0', showline=True),
+                            plot_bgcolor='white'
                         )
                         st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': True})
                     else:
@@ -3300,7 +2913,6 @@ def render_system_generated_action_plan(action_df, material_problems, sheet_name
     display_df = filtered_df[['Material', 'NSOH', 'AMC', 'PMOS', 'NMOS', 'TMOS', 'MOS Needed', 'Identified Problem', 'Action Point', 'Responsible Body', 'Due Date']].copy()
     st.dataframe(display_df, use_container_width=True, hide_index=True)
 
-    # Download as XLSX
     output = BytesIO()
     with pd.ExcelWriter(output, engine='openpyxl') as writer:
         filtered_df.to_excel(writer, index=False, sheet_name='Action Plan')
@@ -3315,10 +2927,8 @@ def render_system_generated_action_plan(action_df, material_problems, sheet_name
     )
 
 def render_expert_action_plan_with_status(df_filtered, material_problems, action_df, sheet_name, nsoh_pivot, selected_quarter, selected_year):
-    # Get current quarter and year for defaults
     current_year = datetime.now().year
 
-    # Load records filtered by program, quarter, year
     if 'expert_plan_records' not in st.session_state:
         st.session_state.expert_plan_records = load_expert_plan_records(
             sheet_name if sheet_name != "All" else None,
@@ -3342,7 +2952,6 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
         return int(datetime.now().timestamp() * 1000) + random.randint(1, 1000)
 
     def get_material_base_info(material):
-        """Get base info for a material (NSOH, AMC, etc.)"""
         row = df_filtered[df_filtered['Material Description'] == material]
         if row.empty:
             return None
@@ -3354,6 +2963,7 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
         tmos = row.get('TMOS', 0)
         status = row.get('Status', '')
         expiry = row.get('Expiry', '')
+        expiry_batches = row.get('Expiry Batches', [])
 
         if material in material_problems:
             pmos = material_problems[material]['PMOS']
@@ -3364,6 +2974,24 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
                 pmos = tmos - nmos
             mos_needed = max(0, 18 - tmos)
 
+        # Format expiry with quantities
+        expiry_formatted = ""
+        exp_mos_formatted = ""
+        if expiry_batches and len(expiry_batches) > 0:
+            expiry_parts = []
+            exp_mos_parts = []
+            for batch in expiry_batches:
+                qty = int(batch['quantity'])
+                exp_date = batch['expiry_date'].strftime('%b-%Y') if batch.get('expiry_date') else ""
+                expiry_parts.append(f"{qty:,} ({exp_date})")
+                if amc and amc > 0:
+                    mos = qty / amc
+                    exp_mos_parts.append(f"{mos:.2f} ({exp_date})")
+                else:
+                    exp_mos_parts.append(f"N/A ({exp_date})")
+            expiry_formatted = "; ".join(expiry_parts)
+            exp_mos_formatted = "; ".join(exp_mos_parts)
+
         return {
             'nsoh': f"{int(nsoh):,}" if nsoh > 0 else "0",
             'amc': f"{int(amc):,}" if amc > 0 else "N/A",
@@ -3372,11 +3000,11 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
             'tmos': round(tmos, 2),
             'mos_needed': round(mos_needed, 2),
             'status': status if status else 'N/A',
-            'expiry': expiry if expiry else 'N/A'
+            'expiry': expiry_formatted if expiry_formatted else (expiry if expiry else 'N/A'),
+            'exp_mos': exp_mos_formatted if exp_mos_formatted else 'N/A'
         }
 
     def get_system_generated_problems(material):
-        """Get all system-generated problems for a material from action_df"""
         if action_df.empty:
             return []
 
@@ -3394,27 +3022,51 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
             })
         return problems
 
-    # Get selected material from dropdown
-    material_list = sorted(df_filtered['Material Description'].dropna().unique())
+    # ===== MATERIAL DROPDOWN SORTED BY PROGRAM ORDER =====
+    ordered_materials = get_program_materials(sheet_name)
+    material_list = df_filtered['Material Description'].dropna().unique().tolist()
+
+    if ordered_materials:
+        order_map = {mat: idx for idx, mat in enumerate(ordered_materials)}
+        material_list.sort(key=lambda x: order_map.get(x, len(ordered_materials) + 1))
+    else:
+        material_list.sort()
+
     selected_material = st.selectbox("🔍 Select Material", material_list, key="expert_material_select")
 
     if selected_material:
         st.session_state.selected_material_for_expert = selected_material
 
-    # =========================================================================
-    # NMOS TREND GRAPH WITH FUTURE PROJECTIONS (6 months) - INCREASED X-AXIS SPACING
-    # =========================================================================
+    # ===== NMOS TREND GRAPH WITH ACTION POINT PROPOSALS =====
     if selected_material and not nsoh_pivot.empty:
         st.markdown("---")
-        st.markdown("### 📊 NMOS Trend with Threshold Lines")
+        st.markdown("### 📊 NMOS Trend with Action Point Proposals")
 
-        # Get AMC value for the selected material
         mat_row = df_filtered[df_filtered['Material Description'] == selected_material]
         amc_value = 0
-        if not mat_row.empty:
-            amc_value = float(mat_row.iloc[0].get('AMC', 0)) if pd.notna(mat_row.iloc[0].get('AMC', 0)) else 0
+        git_mos = 0
+        lc_mos = 0
+        wb_mos = 0
+        tmd_mos = 0
+        git_po = ""
+        lc_po = ""
+        wb_po = ""
+        tmd_po = ""
+        nsoh_value = 0
 
-        # Get NSOH data for the selected material
+        if not mat_row.empty:
+            row_data = mat_row.iloc[0]
+            amc_value = float(row_data.get('AMC', 0)) if pd.notna(row_data.get('AMC', 0)) else 0
+            git_mos = float(row_data.get('GIT_MOS', 0)) if pd.notna(row_data.get('GIT_MOS', 0)) else 0
+            lc_mos = float(row_data.get('LC_MOS', 0)) if pd.notna(row_data.get('LC_MOS', 0)) else 0
+            wb_mos = float(row_data.get('WB_MOS', 0)) if pd.notna(row_data.get('WB_MOS', 0)) else 0
+            tmd_mos = float(row_data.get('TMD_MOS', 0)) if pd.notna(row_data.get('TMD_MOS', 0)) else 0
+            git_po = row_data.get('GIT_PO', '')
+            lc_po = row_data.get('LC_PO', '')
+            wb_po = row_data.get('WB_PO', '')
+            tmd_po = row_data.get('TMD_PO', '')
+            nsoh_value = float(row_data.get('NSOH', 0)) if pd.notna(row_data.get('NSOH', 0)) else 0
+
         nsoh_row = None
         if 'Material Description' in nsoh_pivot.columns:
             row = nsoh_pivot[nsoh_pivot['Material Description'] == selected_material]
@@ -3424,39 +3076,87 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
         if nsoh_row is not None:
             all_months = get_month_columns(nsoh_pivot)
             if all_months:
-                # Filter months from Jan-2026 onward
                 all_months = [m for m in all_months if pd.to_datetime(m, format='%b-%Y') >= pd.to_datetime('Jan-2026', format='%b-%Y')]
 
                 if all_months:
-                    # Calculate NMOS values for all months
                     nmos_values = []
+                    nsoh_values = []
+                    months_dt = []
                     for month in all_months:
+                        month_dt = pd.to_datetime(month, format='%b-%Y')
+                        months_dt.append(month_dt)
                         nsoh_val = nsoh_row[month] if month in nsoh_row.index else 0
+                        nsoh_values.append(nsoh_val if pd.notna(nsoh_val) else 0)
                         if pd.notna(nsoh_val) and amc_value > 0 and nsoh_val > 0:
                             nmos_val = nsoh_val / amc_value
                             nmos_values.append(nmos_val)
                         else:
                             nmos_values.append(0)
 
-                    # Get current NMOS (last month's value)
                     current_nmos = nmos_values[-1] if nmos_values else 0
+                    current_nsoh = nsoh_values[-1] if nsoh_values else 0
+                    last_month = months_dt[-1] if months_dt else pd.to_datetime(all_months[-1], format='%b-%Y')
 
-                    # Generate future months (6 months ahead)
-                    last_month = pd.to_datetime(all_months[-1], format='%b-%Y')
+                    # ===== HORIZONTAL SLIDER TO SCROLL GRAPH LEFT/RIGHT =====
+                    total_months = len(all_months)
+
+                    # Only show slider if there are months to display
+                    if total_months > 0:
+                        st.markdown("""
+                        <div style="margin: 10px 0;">
+                            <label style="font-weight: 600; color: #333; font-family: 'Times New Roman', Times, serif;">↔️ Scroll to view time range</label>
+                        </div>
+                        """, unsafe_allow_html=True)
+
+                        default_window = min(12, total_months)
+
+                        # Only create slider if max_value > min_value
+                        if total_months > default_window:
+                            slider_value = st.slider(
+                                "",
+                                min_value=0,
+                                max_value=total_months - default_window,
+                                value=0,
+                                key="nmos_scroll_slider",
+                                label_visibility="collapsed"
+                            )
+                            start_idx = slider_value
+                        else:
+                            start_idx = 0
+                    else:
+                        start_idx = 0
+                        default_window = 0
+
+                    end_idx = start_idx + default_window
+                    if end_idx > total_months:
+                        end_idx = total_months
+                        start_idx = max(0, total_months - default_window)
+
+                    selected_months = all_months[start_idx:end_idx]
+                    selected_months_dt = months_dt[start_idx:end_idx]
+                    selected_nmos = nmos_values[start_idx:end_idx]
+                    selected_nsoh = nsoh_values[start_idx:end_idx]
+
+                    # Calculate projected NMOS for 6 months from the end of selected range
+                    if selected_months_dt:
+                        last_selected_month = selected_months_dt[-1]
+                        last_selected_nsoh = selected_nsoh[-1] if selected_nsoh else current_nsoh
+                        last_selected_nmos = selected_nmos[-1] if selected_nmos else current_nmos
+                    else:
+                        last_selected_month = last_month
+                        last_selected_nsoh = current_nsoh
+                        last_selected_nmos = current_nmos
+
                     future_months = []
+                    future_months_dt = []
                     future_nmos = []
+                    projected_nsoh = last_selected_nsoh
 
-                    # Use current NMOS and AMC to project future
-                    current_nsoh = 0
-                    if nsoh_row is not None and all_months[-1] in nsoh_row.index:
-                        current_nsoh = nsoh_row[all_months[-1]] if pd.notna(nsoh_row[all_months[-1]]) else 0
-
-                    # Project NMOS for next 6 months based on consumption
-                    projected_nsoh = current_nsoh
                     for i in range(1, 7):
-                        next_month = last_month + pd.DateOffset(months=i)
+                        next_month = last_selected_month + pd.DateOffset(months=i)
                         future_month = next_month.strftime('%b-%Y')
                         future_months.append(future_month)
+                        future_months_dt.append(next_month)
 
                         projected_nsoh = max(0, projected_nsoh - amc_value)
                         if amc_value > 0:
@@ -3465,59 +3165,211 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
                             future_nmos_val = 0
                         future_nmos.append(future_nmos_val)
 
-                    # Combine historical and future months
-                    all_months_extended = all_months + future_months
-                    nmos_values_extended = nmos_values + future_nmos
+                    all_months_display = selected_months + future_months
+                    all_months_dt_display = selected_months_dt + future_months_dt
+                    nmos_values_display = selected_nmos + future_nmos
+                    current_display_nmos = last_selected_nmos
 
-                    # Determine stock out month based on projection
-                    stock_out_month = None
-                    overstock_month = None
-                    understock_month = None
-
-                    # Check future projections
-                    for i, (month, nmos_val) in enumerate(zip(future_months, future_nmos)):
-                        if nmos_val < 1 and stock_out_month is None:
-                            stock_out_month = month
-                        elif nmos_val > 18 and overstock_month is None:
-                            overstock_month = month
-                        elif 1 <= nmos_val < 6 and understock_month is None:
-                            understock_month = month
-
-                    # For current stock level predictions
-                    if current_nmos < 1:
-                        stock_out_month = "NOW (Current Stock Out)"
-                    elif current_nmos < 6:
-                        if amc_value > 0 and current_nsoh > 0:
-                            months_until_out = current_nsoh / amc_value
-                            if months_until_out <= 6:
-                                future_date = last_month + pd.DateOffset(months=int(months_until_out) + 1)
-                                stock_out_month = future_date.strftime('%b-%Y')
-                    elif current_nmos > 18:
-                        overstock_month = "NOW (Current Overstock)"
-                    elif current_nmos >= 6 and current_nmos <= 18:
-                        understock_month = None
-
-                    # Determine color for the NMOS line based on current NMOS
-                    if current_nmos < 1:
+                    # ===== ZONE DEFINITIONS =====
+                    if current_display_nmos < 1:
                         nmos_color = '#FF0000'
-                        status_text = "🔴 Stock Out"
-                    elif 1 <= current_nmos < 6:
-                        nmos_color = '#FF8C00'
-                        status_text = "🟡 Below Min"
-                    elif 6 <= current_nmos <= 18:
+                        status_text = "🔴 STOCK OUT"
+                    elif 1 <= current_display_nmos < 2:
+                        nmos_color = '#FF4500'
+                        status_text = "🟠 CRITICAL"
+                    elif 2 <= current_display_nmos < 6:
+                        nmos_color = '#FFD700'
+                        status_text = "🟡 WARNING"
+                    elif 6 <= current_display_nmos <= 18:
                         nmos_color = '#32CD32'
-                        status_text = "🟢 Normal"
+                        status_text = "🟢 NORMAL"
                     else:
                         nmos_color = '#87CEEB'
-                        status_text = "🔵 Overstock"
+                        status_text = "🔵 OVERSTOCK"
 
-                    # Create the graph - with increased x-axis spacing
+                    # ===== CHECK IF THERE IS PIPELINE STOCK =====
+                    has_pipeline_stock = (git_mos > 0) or (lc_mos > 0) or (wb_mos > 0) or (tmd_mos > 0)
+
+                    # ===== DETERMINE WHICH THRESHOLD TO USE FOR CROSSING =====
+                    if current_display_nmos < 1:
+                        target_threshold = None
+                        threshold_value = None
+                    elif 1 <= current_display_nmos < 2:
+                        target_threshold = 1
+                        threshold_value = 1
+                    elif 2 <= current_display_nmos < 6:
+                        target_threshold = 2
+                        threshold_value = 2
+                    elif 6 <= current_display_nmos < 8:
+                        target_threshold = 6
+                        threshold_value = 6
+                    elif 8 <= current_display_nmos <= 18:
+                        target_threshold = 8
+                        threshold_value = 8
+                    else:
+                        target_threshold = None
+                        threshold_value = None
+
+                    # ===== FIND CROSSING POINT IN FUTURE DATA =====
+                    crossing_point = None
+
+                    if target_threshold is not None and len(future_nmos) > 1:
+                        for i in range(1, len(future_nmos)):
+                            prev_val = future_nmos[i-1]
+                            curr_val = future_nmos[i]
+                            prev_month = future_months_dt[i-1]
+                            curr_month = future_months_dt[i]
+
+                            if (prev_val > target_threshold and curr_val <= target_threshold) or (prev_val < target_threshold and curr_val >= target_threshold):
+                                crossing_month = curr_month.strftime('%b-%Y')
+                                crossing_point = {
+                                    'month': crossing_month,
+                                    'value': target_threshold
+                                }
+                                break
+
+                    # ===== GENERATE ACTION PROPOSAL =====
+                    action_proposal = ""
+                    action_color = "#333"
+                    arrow_info = None
+
+                    if current_display_nmos < 1:
+                        # Stock Out - Immediate action
+                        action_proposal = "🔴 IMMEDIATE ACTION REQUIRED: Stock Out! Initiate emergency procurement immediately."
+                        action_color = "#FF0000"
+                        arrow_info = {
+                            'x': all_months_display[-1] if all_months_display else all_months[-1],
+                            'y': current_display_nmos,
+                            'hover_text': action_proposal
+                        }
+
+                    elif current_display_nmos < 8 and not has_pipeline_stock:
+                        # NMOS < 8 and no pipeline stock - arrow at current NMOS
+                        order_qty = int((18 - current_display_nmos) * amc_value) if amc_value > 0 else 0
+                        action_text = f"Mobilize and Initiate the quantity = (18-{current_display_nmos:.1f}) × AMC = {order_qty:,} units immediately"
+                        action_proposal = f"📦 {action_text}"
+                        action_color = "#FF8C00"
+                        arrow_info = {
+                            'x': all_months_display[-1] if all_months_display else all_months[-1],
+                            'y': current_display_nmos,
+                            'hover_text': action_text
+                        }
+
+                    elif 1 <= current_display_nmos < 2:
+                        # Critical zone - crosses Stock Out (1)
+                        if has_pipeline_stock:
+                            if git_mos > 0 and git_po and str(git_po) != 'nan' and str(git_po) != '':
+                                action_text = f"Expedite GIT shipment and customs clearance - PO: {git_po}"
+                            elif lc_mos > 0 and lc_po and str(lc_po) != 'nan' and str(lc_po) != '':
+                                action_text = f"Expedite L/C opening process and shipment - PO: {lc_po}"
+                            elif wb_mos > 0 and wb_po and str(wb_po) != 'nan' and str(wb_po) != '':
+                                action_text = f"Expedite budget transfer and L/C opening process - PO: {wb_po}"
+                            elif tmd_mos > 0 and tmd_po and str(tmd_po) != 'nan' and str(tmd_po) != '':
+                                action_text = f"Expedite tender process and budget transfer request - PO: {tmd_po}"
+                            else:
+                                order_qty = int((18 - current_display_nmos) * amc_value) if amc_value > 0 else 0
+                                action_text = f"Mobilize and Initiate quantity = (18-{current_display_nmos:.1f})×AMC = {order_qty:,} units"
+                        else:
+                            order_qty = int((18 - current_display_nmos) * amc_value) if amc_value > 0 else 0
+                            action_text = f"Mobilize and Initiate quantity = (18-{current_display_nmos:.1f})×AMC = {order_qty:,} units"
+
+                        action_proposal = f"🔽 {action_text}"
+                        action_color = "#FF4500"
+
+                        if crossing_point:
+                            arrow_info = {
+                                'x': crossing_point['month'],
+                                'y': crossing_point['value'],
+                                'hover_text': action_text
+                            }
+
+                    elif 2 <= current_display_nmos < 6:
+                        # Warning zone - crosses Safety Stock (2)
+                        if has_pipeline_stock:
+                            if git_mos > 0 and git_po and str(git_po) != 'nan' and str(git_po) != '':
+                                action_text = f"Expedite GIT shipment and customs clearance - PO: {git_po}"
+                            elif lc_mos > 0 and lc_po and str(lc_po) != 'nan' and str(lc_po) != '':
+                                action_text = f"Expedite L/C opening process and shipment - PO: {lc_po}"
+                            elif wb_mos > 0 and wb_po and str(wb_po) != 'nan' and str(wb_po) != '':
+                                action_text = f"Expedite budget transfer and L/C opening process - PO: {wb_po}"
+                            elif tmd_mos > 0 and tmd_po and str(tmd_po) != 'nan' and str(tmd_po) != '':
+                                action_text = f"Expedite tender process and budget transfer request - PO: {tmd_po}"
+                            else:
+                                order_qty = int((18 - current_display_nmos) * amc_value) if amc_value > 0 else 0
+                                action_text = f"Mobilize and Initiate quantity = (18-{current_display_nmos:.1f})×AMC = {order_qty:,} units"
+                        else:
+                            order_qty = int((18 - current_display_nmos) * amc_value) if amc_value > 0 else 0
+                            action_text = f"Mobilize and Initiate quantity = (18-{current_display_nmos:.1f})×AMC = {order_qty:,} units"
+
+                        action_proposal = f"🔽 {action_text}"
+                        action_color = "#FFD700"
+
+                        if crossing_point:
+                            arrow_info = {
+                                'x': crossing_point['month'],
+                                'y': crossing_point['value'],
+                                'hover_text': action_text
+                            }
+
+                    elif 6 <= current_display_nmos < 8:
+                        # Near minimum stock - crosses Minimum Stock (6)
+                        if has_pipeline_stock:
+                            if git_mos > 0 and git_po and str(git_po) != 'nan' and str(git_po) != '':
+                                action_text = f"Expedite GIT shipment and customs clearance - PO: {git_po}"
+                            elif lc_mos > 0 and lc_po and str(lc_po) != 'nan' and str(lc_po) != '':
+                                action_text = f"Expedite L/C opening process and shipment - PO: {lc_po}"
+                            elif wb_mos > 0 and wb_po and str(wb_po) != 'nan' and str(wb_po) != '':
+                                action_text = f"Expedite budget transfer and L/C opening process - PO: {wb_po}"
+                            elif tmd_mos > 0 and tmd_po and str(tmd_po) != 'nan' and str(tmd_po) != '':
+                                action_text = f"Expedite tender process and budget transfer request - PO: {tmd_po}"
+                            else:
+                                order_qty = int((18 - current_display_nmos) * amc_value) if amc_value > 0 else 0
+                                action_text = f"Mobilize and Initiate quantity = (18-{current_display_nmos:.1f})×AMC = {order_qty:,} units"
+                        else:
+                            order_qty = int((18 - current_display_nmos) * amc_value) if amc_value > 0 else 0
+                            action_text = f"Mobilize and Initiate quantity = (18-{current_display_nmos:.1f})×AMC = {order_qty:,} units"
+
+                        action_proposal = f"🔽 {action_text}"
+                        action_color = "#FFD700"
+
+                        if crossing_point:
+                            arrow_info = {
+                                'x': crossing_point['month'],
+                                'y': crossing_point['value'],
+                                'hover_text': action_text
+                            }
+
+                    elif 8 <= current_display_nmos <= 18:
+                        # Normal zone - crosses Reorder Point (8)
+                        order_qty = int((18 - 8) * amc_value) if amc_value > 0 else 0
+                        action_text = f"Mobilize and Initiate quantity = (18-8)×AMC = {order_qty:,} units when NMOS reaches 8"
+                        action_proposal = f"📦 {action_text}"
+                        action_color = "#32CD32"
+
+                        if crossing_point:
+                            arrow_info = {
+                                'x': crossing_point['month'],
+                                'y': crossing_point['value'],
+                                'hover_text': action_text
+                            }
+
+                    else:
+                        # Overstock - NMOS > 18
+                        action_proposal = "⚠️ Strict follow up on risk of expiry - Monitor expiry dates closely"
+                        action_color = "#87CEEB"
+                        arrow_info = {
+                            'x': all_months_display[-1] if all_months_display else all_months[-1],
+                            'y': current_display_nmos,
+                            'hover_text': action_proposal
+                        }
+
+                    # ===== CREATE THE GRAPH =====
                     fig = go.Figure()
 
-                    # Add area fill (shadow) between x-axis and NMOS line
+                    # Area fill under the curve
                     fig.add_trace(go.Scatter(
-                        x=all_months_extended + all_months_extended[::-1],
-                        y=nmos_values_extended + [0]*len(nmos_values_extended),
+                        x=all_months_display + all_months_display[::-1],
+                        y=nmos_values_display + [0]*len(nmos_values_display),
                         fill='toself',
                         fillcolor=f'rgba({int(nmos_color[1:3], 16)}, {int(nmos_color[3:5], 16)}, {int(nmos_color[5:7], 16)}, 0.15)',
                         line=dict(color='rgba(200, 200, 200, 0)'),
@@ -3525,55 +3377,85 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
                         hoverinfo='skip'
                     ))
 
-                    # Historical NMOS line (solid)
-                    fig.add_trace(go.Scatter(
-                        x=all_months,
-                        y=nmos_values,
-                        name=f'NMOS (Historical)',
-                        mode='lines+markers+text',
-                        line=dict(color=nmos_color, width=3),
-                        marker=dict(size=10, color=nmos_color, line=dict(width=2, color='white')),
-                        text=[f"{v:.2f}" for v in nmos_values],
-                        textposition='top center',
-                        textfont=dict(size=9, color='#333', family='Times New Roman, Times, serif'),
-                        hovertemplate='<b>%{x}</b><br>NMOS: %{y:.2f} months<extra></extra>'
-                    ))
+                    # Historical NMOS line
+                    if selected_months:
+                        fig.add_trace(go.Scatter(
+                            x=selected_months,
+                            y=selected_nmos,
+                            name='NMOS (Historical)',
+                            mode='lines+markers+text',
+                            line=dict(color=nmos_color, width=3),
+                            marker=dict(size=10, color=nmos_color, line=dict(width=2, color='white')),
+                            text=[f"{v:.2f}" for v in selected_nmos],
+                            textposition='top center',
+                            textfont=dict(size=9, color='#333'),
+                            hovertemplate='<b>%{x}</b><br>NMOS: %{y:.2f} months<extra></extra>'
+                        ))
 
-                    # Future NMOS line (dashed)
-                    fig.add_trace(go.Scatter(
-                        x=future_months,
-                        y=future_nmos,
-                        name='NMOS (Projected)',
-                        mode='lines+markers+text',
-                        line=dict(color='#FF6B6B', width=2, dash='dash'),
-                        marker=dict(size=8, color='#FF6B6B', line=dict(width=1, color='white'), symbol='diamond'),
-                        text=[f"{v:.2f}" for v in future_nmos],
-                        textposition='top center',
-                        textfont=dict(size=9, color='#666', family='Times New Roman, Times, serif'),
-                        hovertemplate='<b>%{x}</b><br>NMOS (Projected): %{y:.2f} months<extra></extra>'
-                    ))
+                    # Projected NMOS line (dashed)
+                    if future_months:
+                        fig.add_trace(go.Scatter(
+                            x=future_months,
+                            y=future_nmos,
+                            name='NMOS (Projected)',
+                            mode='lines+markers+text',
+                            line=dict(color='#FF6B6B', width=2, dash='dash'),
+                            marker=dict(size=8, color='#FF6B6B', line=dict(width=1, color='white'), symbol='diamond'),
+                            text=[f"{v:.2f}" for v in future_nmos],
+                            textposition='top center',
+                            textfont=dict(size=9, color='#666'),
+                            hovertemplate='<b>%{x}</b><br>NMOS (Projected): %{y:.2f} months<extra></extra>'
+                        ))
 
-                    # Add vertical line separating historical and future
-                    fig.add_vline(
-                        x=all_months[-1],
-                        line_dash='dot',
-                        line_color='#666',
-                        line_width=1.5
-                    )
+                    # Vertical line at current month
+                    if selected_months:
+                        fig.add_vline(
+                            x=selected_months[-1],
+                            line_dash='dot',
+                            line_color='#666',
+                            line_width=1.5
+                        )
 
-                    # Add annotation for the vertical line
-                    max_y = max(nmos_values_extended) if nmos_values_extended else 10
-                    fig.add_annotation(
-                        x=all_months[-1],
-                        y=max_y + 1,
-                        text='Current',
-                        showarrow=False,
-                        font=dict(size=10, color='#666', family='Times New Roman, Times, serif'),
-                        yshift=10
-                    )
+                        # Current NMOS marker (star)
+                        fig.add_trace(go.Scatter(
+                            x=[selected_months[-1]],
+                            y=[current_display_nmos],
+                            mode='markers',
+                            marker=dict(symbol='star', size=20, color='#FCC419', line=dict(width=2, color='white')),
+                            name=f'Current: {current_display_nmos:.2f}m',
+                            hovertemplate='<b>Current NMOS</b><br>%{y:.2f} months<extra></extra>'
+                        ))
 
-                    # Horizontal threshold lines - only Safety Stock, Min, Max, Reorder Point
+                    # ===== ADD DOWNWARD ARROW =====
+                    if arrow_info:
+                        fig.add_annotation(
+                            x=arrow_info['x'],
+                            y=arrow_info['y'],
+                            text="🔽",
+                            showarrow=True,
+                            arrowhead=2,
+                            arrowsize=2,
+                            arrowwidth=3,
+                            arrowcolor='#FF0000',
+                            font=dict(size=16, color='#FF0000'),
+                            bgcolor='rgba(255, 255, 255, 0.9)',
+                            bordercolor='#FF0000',
+                            borderwidth=2,
+                            borderpad=6,
+                            ay=-50,
+                            ax=0,
+                            hovertext=arrow_info['hover_text'],
+                            hoverlabel=dict(
+                                bgcolor="white",
+                                font_size=13,
+                                font_family="Times New Roman, Times, serif",
+                                bordercolor="#FF0000"
+                            )
+                        )
+
+                    # ===== THRESHOLD LINES WITH VISIBLE LABELS =====
                     thresholds = [
+                        (1, 'Stock Out (1m)', '#FF0000', 'dash'),
                         (2, 'Safety Stock (2m)', '#FF6B6B', 'dash'),
                         (6, 'Min Stock (6m)', '#FF922B', 'dash'),
                         (8, 'Reorder Point (8m)', '#CC5DE8', 'dash'),
@@ -3591,103 +3473,54 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
                             annotation_font=dict(size=11, color=color, family='Times New Roman, Times, serif')
                         )
 
-                    # Add current NMOS as a reference star
-                    fig.add_trace(go.Scatter(
-                        x=[all_months[-1]],
-                        y=[current_nmos],
-                        mode='markers',
-                        marker=dict(symbol='star', size=18, color='#FCC419', line=dict(width=2, color='white')),
-                        name=f'Current: {current_nmos:.2f}m',
-                        hovertemplate='<b>Current NMOS</b><br>%{y:.2f} months<extra></extra>'
-                    ))
+                    # Add shaded zones
+                    fig.add_hrect(
+                        y0=0, y1=1,
+                        fillcolor="rgba(255, 0, 0, 0.05)",
+                        line_width=0
+                    )
+                    fig.add_hrect(
+                        y0=1, y1=2,
+                        fillcolor="rgba(255, 69, 0, 0.05)",
+                        line_width=0
+                    )
+                    fig.add_hrect(
+                        y0=2, y1=6,
+                        fillcolor="rgba(255, 215, 0, 0.05)",
+                        line_width=0
+                    )
+                    fig.add_hrect(
+                        y0=6, y1=18,
+                        fillcolor="rgba(50, 205, 50, 0.05)",
+                        line_width=0
+                    )
 
-                    # Add prediction annotations for risks
-                    if stock_out_month:
-                        fig.add_annotation(
-                            x=stock_out_month if stock_out_month != "NOW (Current Stock Out)" else all_months[-1],
-                            y=0.5,
-                            text=f"⚠️ Stock Out Risk: {stock_out_month}",
-                            showarrow=True,
-                            arrowhead=2,
-                            arrowsize=1.5,
-                            arrowwidth=2,
-                            arrowcolor='#FF0000',
-                            font=dict(size=12, color='#FF0000', family='Times New Roman, Times, serif'),
-                            bgcolor='rgba(255, 255, 200, 0.9)',
-                            bordercolor='#FF0000',
-                            borderwidth=1,
-                            borderpad=4
-                        )
-                    elif overstock_month:
-                        fig.add_annotation(
-                            x=overstock_month if overstock_month != "NOW (Current Overstock)" else all_months[-1],
-                            y=19,
-                            text=f"📈 Overstock Risk: {overstock_month}",
-                            showarrow=True,
-                            arrowhead=2,
-                            arrowsize=1.5,
-                            arrowwidth=2,
-                            arrowcolor='#87CEEB',
-                            font=dict(size=12, color='#0066CC', family='Times New Roman, Times, serif'),
-                            bgcolor='rgba(200, 230, 255, 0.9)',
-                            bordercolor='#87CEEB',
-                            borderwidth=1,
-                            borderpad=4
-                        )
-                    elif understock_month:
-                        fig.add_annotation(
-                            x=understock_month,
-                            y=3,
-                            text=f"⚠️ Understock Risk: {understock_month}",
-                            showarrow=True,
-                            arrowhead=2,
-                            arrowsize=1.5,
-                            arrowwidth=2,
-                            arrowcolor='#FF8C00',
-                            font=dict(size=12, color='#FF8C00', family='Times New Roman, Times, serif'),
-                            bgcolor='rgba(255, 200, 150, 0.9)',
-                            bordercolor='#FF8C00',
-                            borderwidth=1,
-                            borderpad=4
-                        )
+                    y_max = max(22, max(nmos_values_display) + 3) if nmos_values_display else 22
 
                     fig.update_layout(
-                        title=dict(
-                            text=f"NMOS Trend (with 6-month projection) for {selected_material[:50]}" if len(selected_material) <= 50 else f"NMOS Trend (with 6-month projection) for {selected_material[:47]}...",
-                            font=dict(size=16, color='#333', family='Times New Roman, Times, serif')
-                        ),
-                        xaxis_title=dict(text='Month-Year', font=dict(size=13, family='Times New Roman, Times, serif')),
-                        yaxis_title=dict(text='Months of Stock (NMOS)', font=dict(size=13, family='Times New Roman, Times, serif')),
-                        height=550,
-                        margin=dict(l=60, r=180, t=60, b=80),  # Increased bottom margin for more spacing
-                        legend=dict(
-                            orientation='h',
-                            yanchor='bottom',
-                            y=1.02,
-                            xanchor='center',
-                            x=0.5,
-                            font=dict(size=11, family='Times New Roman, Times, serif')
-                        ),
+                        title=f"NMOS Trend with Action Proposals for {selected_material[:50]}",
+                        xaxis_title='Month-Year',
+                        yaxis_title='Months of Stock (NMOS)',
+                        height=650,
+                        width=1200,
+                        margin=dict(l=80, r=40, t=60, b=100),
+                        legend=dict(orientation='h', yanchor='bottom', y=1.02, xanchor='center', x=0.5),
                         hovermode='x unified',
                         xaxis=dict(
-                            showgrid=False,
-                            showline=True,
-                            linecolor='#333',
-                            linewidth=2,
-                            tickangle=45,
-                            tickfont=dict(size=11, family='Times New Roman, Times, serif'),
-                            categoryorder='array',
-                            categoryarray=all_months_extended,
-                            dtick=1  # Show every month with increased spacing
+                            showgrid=False, 
+                            showline=True, 
+                            tickangle=45, 
+                            categoryorder='array', 
+                            categoryarray=all_months_display,
+                            tickfont=dict(size=12),
+                            dtick=1
                         ),
                         yaxis=dict(
-                            showgrid=True,
-                            gridcolor='#e0e0e0',
-                            showline=True,
-                            linecolor='#333',
-                            linewidth=2,
-                            tickfont=dict(size=11, family='Times New Roman, Times, serif'),
-                            range=[0, max(22, max(nmos_values_extended) + 3)] if nmos_values_extended else [0, 22]
+                            showgrid=True, 
+                            gridcolor='#e0e0e0', 
+                            showline=True, 
+                            range=[0, y_max],
+                            tickfont=dict(size=12)
                         ),
                         plot_bgcolor='white',
                         font=dict(family='Times New Roman, Times, serif')
@@ -3702,36 +3535,24 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
         else:
             st.info(f"No NSOH historical data found for {selected_material}.")
 
-    # =========================================================================
-    # END OF NMOS TREND GRAPH WITH FUTURE PROJECTIONS
-    # =========================================================================
-
-    # Display material info card when toggled - ADDED EXPIRY
+    # Display material info card
     if st.session_state.show_material_info and selected_material:
         base_info = get_material_base_info(selected_material)
         system_problems = get_system_generated_problems(selected_material)
 
         if base_info:
-            nsoh_str = base_info['nsoh']
-            amc_str = base_info['amc']
-            pmos_str = f"{base_info['pmos']:.2f}" if base_info['pmos'] else "0.00"
-            nmos_str = f"{base_info['nmos']:.2f}" if base_info['nmos'] else "0.00"
-            tmos_str = f"{base_info['tmos']:.2f}" if base_info['tmos'] else "0.00"
-            status_str = base_info['status']
-            expiry_str = base_info['expiry']
-
-            # Build card HTML
             html = '<div style="background: #87CEEB; padding: 3px; border-radius: 12px; margin: 10px 0;">'
             html += '<div style="background: #f0f0f0; padding: 20px; border-radius: 10px;">'
             html += f'<h4 style="color: #333; font-size: 18px; font-weight: 700; margin-bottom: 15px;">📦 {selected_material}</h4>'
 
-            html += f'<div style="background: white; padding: 8px 12px; border-radius: 6px; margin-bottom: 5px;"><strong>NSOH:</strong> {nsoh_str}</div>'
-            html += f'<div style="background: white; padding: 8px 12px; border-radius: 6px; margin-bottom: 5px;"><strong>AMC:</strong> {amc_str}</div>'
-            html += f'<div style="background: white; padding: 8px 12px; border-radius: 6px; margin-bottom: 5px;"><strong>PMOS:</strong> {pmos_str}</div>'
-            html += f'<div style="background: white; padding: 8px 12px; border-radius: 6px; margin-bottom: 5px;"><strong>NMOS:</strong> {nmos_str}</div>'
-            html += f'<div style="background: white; padding: 8px 12px; border-radius: 6px; margin-bottom: 5px;"><strong>TMOS:</strong> {tmos_str}</div>'
-            html += f'<div style="background: white; padding: 8px 12px; border-radius: 6px; margin-bottom: 5px;"><strong>Status:</strong> {status_str}</div>'
-            html += f'<div style="background: white; padding: 8px 12px; border-radius: 6px; margin-bottom: 5px;"><strong>Expiry:</strong> {expiry_str}</div>'
+            html += f'<div style="background: white; padding: 8px 12px; border-radius: 6px; margin-bottom: 5px;"><strong>NSOH:</strong> {base_info["nsoh"]}</div>'
+            html += f'<div style="background: white; padding: 8px 12px; border-radius: 6px; margin-bottom: 5px;"><strong>AMC:</strong> {base_info["amc"]}</div>'
+            html += f'<div style="background: white; padding: 8px 12px; border-radius: 6px; margin-bottom: 5px;"><strong>PMOS:</strong> {base_info["pmos"]:.2f}</div>'
+            html += f'<div style="background: white; padding: 8px 12px; border-radius: 6px; margin-bottom: 5px;"><strong>NMOS:</strong> {base_info["nmos"]:.2f}</div>'
+            html += f'<div style="background: white; padding: 8px 12px; border-radius: 6px; margin-bottom: 5px;"><strong>TMOS:</strong> {base_info["tmos"]:.2f}</div>'
+            html += f'<div style="background: white; padding: 8px 12px; border-radius: 6px; margin-bottom: 5px;"><strong>Status:</strong> {base_info["status"]}</div>'
+            html += f'<div style="background: white; padding: 8px 12px; border-radius: 6px; margin-bottom: 5px;"><strong>Expiry:</strong> {base_info["expiry"]}</div>'
+            html += f'<div style="background: white; padding: 8px 12px; border-radius: 6px; margin-bottom: 5px;"><strong>Exp_MOS:</strong> {base_info["exp_mos"]}</div>'
 
             if system_problems:
                 html += '<div style="margin-top: 10px;"><strong>System Generated Action Items:</strong><br>'
@@ -3756,9 +3577,7 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
 
         st.markdown("---")
 
-    # =========================================================================
-    # ACTION BUTTONS: Stock Info, Add New Action, Change
-    # =========================================================================
+    # Action buttons
     if selected_material:
         material_records = [r for r in st.session_state.expert_plan_records if r['Material'] == selected_material]
         has_records = len(material_records) > 0
@@ -3790,9 +3609,7 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
 
     st.markdown("---")
 
-    # =========================================================================
-    # DISPLAY CHANGE LIST (when show_change_list is True)
-    # =========================================================================
+    # Display change list
     if selected_material and st.session_state.show_change_list:
         material_records = [r for r in st.session_state.expert_plan_records if r['Material'] == selected_material]
 
@@ -3844,9 +3661,7 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
             st.info(f"No action points for {selected_material}.")
             st.session_state.show_change_list = False
 
-    # =========================================================================
-    # ADD/EDIT ACTION POINT FORM - RESPONSIBLE BODY BEFORE DUE DATE
-    # =========================================================================
+    # Add/Edit form
     is_editing = st.session_state.edit_record_id is not None
     is_adding = st.session_state.adding_action_point
 
@@ -3899,22 +3714,23 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
                 order_quantity = st.text_input("Order Quantity", value=order_quantity_val, key="ap_order_quantity")
                 action_point = st.text_area("Action Point", value=action_val, key="ap_action", height=60)
 
-            # Responsible Body as a multiselect - BEFORE Due Date
-            st.markdown("**Responsible Body**")
-            default_responsible = []
-            if is_editing and edit_record and resp_val:
-                default_responsible = [b.strip() for b in resp_val.split(',') if b.strip()]
-            additional_responsible = st.multiselect(
-                "Select responsible bodies",
-                RESPONSIBLE_BODIES,
-                default=default_responsible,
-                key="ap_additional_responsible"
-            )
-            final_responsible = ", ".join(additional_responsible) if additional_responsible else ""
-
-            # Due Date after Responsible Body
-            due_date = st.text_input("Due Date", value=due_val, key="ap_due_date")
-            status = st.selectbox("Status", ["Initiated", "Ongoing", "Pending", "Completed"], index=["Initiated", "Ongoing", "Pending", "Completed"].index(status_val) if status_val in ["Initiated", "Ongoing", "Pending", "Completed"] else 0, key="ap_status")
+            # Responsible Body, Due Date, Status on same row
+            col_r1, col_r2, col_r3 = st.columns(3)
+            with col_r1:
+                default_responsible = []
+                if is_editing and edit_record and resp_val:
+                    default_responsible = [b.strip() for b in resp_val.split(',') if b.strip()]
+                additional_responsible = st.multiselect(
+                    "Responsible Body",
+                    RESPONSIBLE_BODIES,
+                    default=default_responsible,
+                    key="ap_additional_responsible"
+                )
+                final_responsible = ", ".join(additional_responsible) if additional_responsible else ""
+            with col_r2:
+                due_date = st.text_input("Due Date", value=due_val, key="ap_due_date")
+            with col_r3:
+                status = st.selectbox("Status", ["Initiated", "Ongoing", "Pending", "Completed"], index=["Initiated", "Ongoing", "Pending", "Completed"].index(status_val) if status_val in ["Initiated", "Ongoing", "Pending", "Completed"] else 0, key="ap_status")
 
             col_btn1, col_btn2 = st.columns(2)
             with col_btn1:
@@ -3985,13 +3801,10 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
 
     st.markdown("---")
 
-    # =========================================================================
-    # DISPLAY ALL RECORDS TABLE - RESPONSIBLE BODY BEFORE DUE DATE
-    # =========================================================================
+    # Display expert plan records
     if st.session_state.expert_plan_records:
         records_df = pd.DataFrame(st.session_state.expert_plan_records)
 
-        # Apply filters
         if sheet_name != "All":
             records_df = records_df[records_df['Program'] == sheet_name]
 
@@ -4002,23 +3815,19 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
             records_df = records_df[records_df['Year'] == int(selected_year)]
 
         if not records_df.empty:
-            # Sort materials alphabetically
+            if 'Quarter' in records_df.columns and 'Year' in records_df.columns:
+                quarter_order = {'Q1': 1, 'Q2': 2, 'Q3': 3, 'Q4': 4}
+                records_df['Quarter_Sort'] = records_df['Year'].astype(str) + records_df['Quarter'].map(quarter_order).astype(str)
+                records_df = records_df.sort_values('Quarter_Sort', ascending=False)
+                records_df = records_df.drop(columns=['Quarter_Sort'])
+
             records_df = records_df.sort_values('Material')
 
-            # Get unique programs for filter
             all_programs = sorted(records_df['Program'].unique().tolist()) if 'Program' in records_df.columns else []
             default_programs = ['Malaria'] if 'Malaria' in all_programs else all_programs[:1] if all_programs else []
-
-            # Get unique problems for filter
             all_problems = sorted(records_df['Identified Problem'].unique().tolist()) if 'Identified Problem' in records_df.columns else []
-
-            # Get unique responsible bodies for filter
-            all_responsible = sorted(records_df['Responsible Body'].unique().tolist()) if 'Responsible Body' in records_df.columns else []
-
-            # Get unique statuses for filter
             all_statuses = sorted(records_df['Status'].unique().tolist()) if 'Status' in records_df.columns else []
 
-            # Multi-select filters - Updated to include NMOS dropdown and Status dropdown
             col_filter1, col_filter2, col_filter3, col_filter4 = st.columns(4)
 
             with col_filter1:
@@ -4026,15 +3835,14 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
                     "Program",
                     options=all_programs,
                     default=default_programs,
-                    key="filter_program"
+                    key="filter_program_expert"
                 )
 
             with col_filter2:
-                # NMOS filter - dropdown with various options
                 nmos_filter_type = st.selectbox(
                     "NMOS Filter",
                     ["All", "< 1", "1-4", "1-6", "< 6", "6-18", "> 18", "< 12"],
-                    key="nmos_filter_type"
+                    key="nmos_filter_type_expert"
                 )
 
             with col_filter3:
@@ -4042,7 +3850,7 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
                     "Identified Problem",
                     options=all_problems,
                     default=[],
-                    key="filter_problem"
+                    key="filter_problem_expert"
                 )
 
             with col_filter4:
@@ -4050,16 +3858,14 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
                     "Status",
                     options=all_statuses,
                     default=[],
-                    key="filter_status"
+                    key="filter_status_expert"
                 )
 
-            # Apply filters
             filtered_df = records_df.copy()
 
             if selected_programs:
                 filtered_df = filtered_df[filtered_df['Program'].isin(selected_programs)]
 
-            # Apply NMOS filter
             if nmos_filter_type != "All" and 'NMOS' in filtered_df.columns:
                 filtered_df['NMOS'] = pd.to_numeric(filtered_df['NMOS'], errors='coerce')
                 if nmos_filter_type == "< 1":
@@ -4083,25 +3889,31 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
             if selected_statuses:
                 filtered_df = filtered_df[filtered_df['Status'].isin(selected_statuses)]
 
-            # Group by Quarter and display separately
-            if 'Quarter' in filtered_df.columns:
-                quarters = sorted(filtered_df['Quarter'].unique())
+            if not filtered_df.empty:
+                if 'Quarter' in filtered_df.columns and 'Year' in filtered_df.columns:
+                    quarters = filtered_df['Quarter'].unique()
+                    quarter_order_display = {'Q4': 0, 'Q3': 1, 'Q2': 2, 'Q1': 3}
+                    quarters = sorted(quarters, key=lambda x: quarter_order_display.get(x, 4))
 
-                for quarter in quarters:
-                    quarter_df = filtered_df[filtered_df['Quarter'] == quarter]
-
-                    if not quarter_df.empty:
-                        # Get year for this quarter
+                    for quarter in quarters:
+                        quarter_df = filtered_df[filtered_df['Quarter'] == quarter]
                         years = quarter_df['Year'].unique()
-                        year_str = ", ".join([str(y) for y in sorted(years)])
 
-                        # Get programs for this quarter
-                        programs = quarter_df['Program'].unique()
-                        program_str = ", ".join(sorted(programs))
+                        if sheet_name != "All":
+                            program_display = sheet_name
+                        else:
+                            if 'Program' in filtered_df.columns and not filtered_df.empty:
+                                unique_programs = filtered_df['Program'].unique().tolist()
+                                if len(unique_programs) == 1:
+                                    program_display = unique_programs[0]
+                                else:
+                                    program_display = "All Programs"
+                            else:
+                                program_display = "All Programs"
 
-                        st.markdown(f"### 📋 {quarter}, {year_str} - {program_str}")
+                        year_display = years[0] if len(years) == 1 else ", ".join([str(y) for y in sorted(years)])
+                        st.markdown(f"### 📋 {quarter}, {year_display} Supply Planning {program_display} Action Plan")
 
-                        # Select columns to display - Responsible Body BEFORE Due Date
                         cols = ['Material', 'NSOH', 'AMC', 'PMOS', 'NMOS', 'TMOS', 
                                 'Purchase Order', 'Order Quantity', 'Identified Problem', 
                                 'Action Point', 'Responsible Body', 'Due Date', 'Status']
@@ -4110,17 +3922,16 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
 
                         st.dataframe(display_df, use_container_width=True, hide_index=True)
                         st.markdown("---")
+                else:
+                    cols = ['Material', 'NSOH', 'AMC', 'PMOS', 'NMOS', 'TMOS', 
+                            'Purchase Order', 'Order Quantity', 'Identified Problem', 
+                            'Action Point', 'Responsible Body', 'Due Date', 'Status']
+                    cols = [c for c in cols if c in filtered_df.columns]
+                    display_df = filtered_df[cols]
+                    st.dataframe(display_df, use_container_width=True, hide_index=True)
             else:
-                # If no Quarter column, display all together
-                st.markdown(f"### 📋 All Action Points")
-                cols = ['Material', 'NSOH', 'AMC', 'PMOS', 'NMOS', 'TMOS', 
-                        'Purchase Order', 'Order Quantity', 'Identified Problem', 
-                        'Action Point', 'Responsible Body', 'Due Date', 'Status']
-                cols = [c for c in cols if c in filtered_df.columns]
-                display_df = filtered_df[cols]
-                st.dataframe(display_df, use_container_width=True, hide_index=True)
+                st.info("No records match the selected filters.")
 
-            # Download button for all filtered data as XLSX
             output = BytesIO()
             with pd.ExcelWriter(output, engine='openpyxl') as writer:
                 filtered_df.to_excel(writer, index=False, sheet_name='Action Points')
@@ -4141,7 +3952,6 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
         else:
             st.info("No expert action plans saved yet.")
 
-    # Reload records
     st.session_state.expert_plan_records = load_expert_plan_records(
         sheet_name if sheet_name != "All" else None,
         selected_quarter if selected_quarter != "All" else None,
@@ -4904,6 +4714,9 @@ def render_ap_progress_follow_up(sheet_name, selected_quarter, selected_year, se
 
     st.markdown("---")
 
+# ============================================================================
+# MAIN FUNCTION
+# ============================================================================
 def main():
     st.set_page_config(
         page_title="Supply Planning – EPSS",
@@ -4911,7 +4724,7 @@ def main():
         initial_sidebar_state="expanded"
     )
 
-    # Initialize ALL session state variables at the start
+    # Initialize ALL session state variables
     if 'action_plan_tab' not in st.session_state:
         st.session_state.action_plan_tab = "📋 All Issues"
     if 'expert_plan_records' not in st.session_state:
@@ -4940,25 +4753,54 @@ def main():
         st.session_state.selected_year = "All"
     if 'selected_status' not in st.session_state:
         st.session_state.selected_status = "All"
+    if 'is_authenticated' not in st.session_state:
+        st.session_state.is_authenticated = False
+    if 'user' not in st.session_state:
+        st.session_state.user = None
+    if 'show_admin_page' not in st.session_state:
+        st.session_state.show_admin_page = False
+    if 'data_loaded' not in st.session_state:
+        st.session_state.data_loaded = False
 
-    # Inject custom CSS and JavaScript
     inject_custom_css()
     inject_javascript()
 
-    # App Header - Jade color
+    if not require_auth():
+        return
+
+    if st.session_state.get('show_admin_page', False) and is_admin():
+        render_admin_page()
+        st.stop()
+
     st.markdown("""
     <div class="app-header fade-in">
         <h1>📦 Supply Planning Dashboard</h1>
     </div>
     """, unsafe_allow_html=True)
 
-    # Sidebar: Program selection and Quarter/Year filters
+    # =========================================================================
+    # SIDEBAR - User info at TOP, filters in MIDDLE, Admin/Logout at BOTTOM
+    # =========================================================================
     with st.sidebar:
+        # ===== TOP: User Info =====
+        user = get_current_user()
+        if user:
+            st.markdown(f"""
+            <div style="background: #f0f0f0; padding: 12px; border-radius: 10px; margin-bottom: 15px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;">
+                <div style="font-size: 14px; font-weight: 600; color: #333;">👤 {user.get('full_name', 'User')}</div>
+                <div style="font-size: 11px; color: #666;">{user.get('email', '')}</div>
+                <div style="font-size: 11px; color: #888; margin-top: 2px;">Role: {user.get('role', 'viewer').title()}</div>
+                <div style="font-size: 10px; color: #999; margin-top: 2px;">Status: {'✅ Approved' if user.get('is_approved') else '⏳ Pending'}</div>
+            </div>
+            """, unsafe_allow_html=True)
+
+        st.markdown("---")
+
+        # ===== MIDDLE: Program Filters =====
         st.markdown("## 🎯 Program Selection")
         sheet_id_amc = "14VvZ7IyOmpM4SZrY5_ArHDgLkeFN4inW"
         google_sheets = load_google_sheets(sheet_id_amc)
 
-        # Check if google_sheets has data
         has_data = False
         if google_sheets:
             for key, df in google_sheets.items():
@@ -4967,10 +4809,15 @@ def main():
                     break
 
         if not has_data:
-            st.warning("⚠️ Could not load program data from Google Sheets. Using fallback programs.")
+            st.warning("⚠️ Could not load program data. Using fallback.")
             program_list = ["All", "Malaria", "HIV", "TB", "OI and Hepatitis", "Nutrition", "Lab TB", "HIV Lab"]
         else:
             program_list = ["All"] + list(google_sheets.keys()) if google_sheets else ["All"]
+
+        if not is_admin():
+            user_programs = get_user_program_access()
+            if user_programs and "All" not in user_programs:
+                program_list = [p for p in program_list if p in user_programs or p == "All"]
 
         sheet_name = st.selectbox("Select Program", program_list, index=program_list.index(st.session_state.selected_program) if st.session_state.selected_program in program_list else 0)
         st.session_state.selected_program = sheet_name
@@ -4993,7 +4840,6 @@ def main():
         st.markdown("---")
         st.markdown("## 📅 Quarter & Year Filters")
 
-        # Quarter dropdown
         quarter_options = ["All", "Q1", "Q2", "Q3", "Q4"]
         selected_quarter = st.selectbox(
             "Select Quarter",
@@ -5002,7 +4848,6 @@ def main():
         )
         st.session_state.selected_quarter = selected_quarter
 
-        # Year dropdown
         current_year = datetime.now().year
         year_options = ["All"] + list(range(current_year - 5, current_year + 2))
         selected_year = st.selectbox(
@@ -5014,24 +4859,48 @@ def main():
 
         st.markdown("---")
 
-    # Load data based on filters
+        # ===== BOTTOM: Admin Panel & Logout =====
+        if is_admin():
+            if st.button("🔐 Admin Panel", use_container_width=True, type="primary"):
+                st.session_state.show_admin_page = True
+                st.rerun()
+
+            if st.session_state.get('show_admin_page', False):
+                st.info("📋 Admin Panel is open")
+                if st.button("← Back to Dashboard", use_container_width=True):
+                    st.session_state.show_admin_page = False
+                    st.rerun()
+
+            st.markdown("---")
+
+        if st.button("🚪 Logout", use_container_width=True):
+            logout()
+
+    # =========================================================================
+    # LOAD DATA - Silent, no spinner
+    # =========================================================================
+    if not st.session_state.data_loaded:
+        with st.spinner(""):
+            load_all_data_cached()
+            st.session_state.data_loaded = True
+
+    # =========================================================================
+    # MAIN CONTENT
+    # =========================================================================
     df_filtered = get_filtered_data(sheet_name, subcategory_filter)
     if df_filtered.empty:
-        st.error("No data available for the selected filters. Please check your data sources or select a different program.")
+        st.error("No data available for the selected filters.")
         st.stop()
 
-    # Load records for progress summary
     records = load_expert_plan_records(
         sheet_name if sheet_name != "All" else None,
         selected_quarter if selected_quarter != "All" else None,
         selected_year if selected_year != "All" else None
     )
 
-    # Display Progress Status Summary - Latest quarter only with program-specific name
     if records:
         df_records = pd.DataFrame(records)
         if 'Status' in df_records.columns and 'Quarter' in df_records.columns and 'Year' in df_records.columns:
-            # Filter to latest quarter only
             quarter_order = {'Q1': 1, 'Q2': 2, 'Q3': 3, 'Q4': 4}
             df_records['Quarter_Sort'] = df_records['Year'].astype(str) + df_records['Quarter'].map(quarter_order).astype(str)
             latest_quarter_val = df_records.loc[df_records['Quarter_Sort'].idxmax()]['Quarter']
@@ -5045,7 +4914,6 @@ def main():
             pending = len(df_records[df_records['Status'] == 'Pending'])
             initiated = len(df_records[df_records['Status'] == 'Initiated'])
 
-            # Program-specific title
             program_display = sheet_name if sheet_name != "All" else "All Programs"
             st.markdown(f"""
             <div class="progress-summary-container">
@@ -5080,7 +4948,6 @@ def main():
 
     ordered_materials_tuple = get_program_materials(sheet_name)
 
-    # Compute all required pivots and plans
     issue_pivot = compute_issue_pivot(ordered_materials_tuple)
     nsoh_pivot = compute_nsoh_pivot()
     consumption_pivot = compute_consumption_pivot(ordered_materials_tuple)
@@ -5105,14 +4972,12 @@ def main():
     supply_df, supply_plan = compute_supply_plan(df_filtered)
     material_problems, action_df = compute_action_plan(df_filtered)
 
-    # Load expert records for the selected program with quarter/year filters
     st.session_state.expert_plan_records = load_expert_plan_records(
         sheet_name if sheet_name != "All" else None,
         selected_quarter if selected_quarter != "All" else None,
         selected_year if selected_year != "All" else None
     )
 
-    # Render tabs with order: Historical Data, Expert Action Plan, Action Plan Follow Up, System Generated Action Plan
     tab_hist, tab_expert, tab_ap, tab_supply = st.tabs([
         "📊 Historical Data",
         "📋 Expert Action Plan",
@@ -5129,11 +4994,9 @@ def main():
         render_expert_action_plan_with_status(df_filtered, material_problems, action_df, sheet_name, nsoh_pivot, selected_quarter, selected_year)
 
     with tab_ap:
-        # Removed the header title from here since it's now inside render_ap_progress_follow_up
         render_ap_progress_follow_up(sheet_name, selected_quarter, selected_year, st.session_state.selected_status)
 
     with tab_supply:
-        # Removed the header title from here since it's now inside render_supply_planning_exercise
         render_supply_planning_exercise(df_filtered, supply_df, supply_plan, ordered_materials_tuple, sheet_name, action_df)
         st.markdown("---")
         render_system_generated_action_plan(action_df, material_problems, sheet_name)
