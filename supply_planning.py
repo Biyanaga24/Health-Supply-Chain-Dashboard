@@ -4167,7 +4167,9 @@ def render_ap_progress_follow_up(sheet_name, selected_quarter, selected_year, se
 
     output = BytesIO()
     with pd.ExcelWriter(output, engine='openpyxl') as writer:
-        display_df[['Material', 'NMOS', 'Identified Problem', 'Action Point', 'Responsible Body', 'Due Date', 'Status']].to_excel(writer, index=False, sheet_name='Action Plan')
+        df_to_export = display_df[['Material', 'NMOS', 'Identified Problem', 'Action Point', 'Responsible Body', 'Due Date', 'Status']].copy()
+        df_to_export_clean = clean_dataframe_for_excel(df_to_export)
+        df_to_export_clean.to_excel(writer, index=False, sheet_name='Action Plan')
     excel_data = output.getvalue()
 
     st.download_button(
