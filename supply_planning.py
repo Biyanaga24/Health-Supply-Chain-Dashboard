@@ -23,13 +23,15 @@ from sup_auth import (
 )
 
 # ============================================================================
-# CUSTOM CSS - Only expanders and sidebar use system fonts, main uses Times New Roman
+# CUSTOM CSS - Updated with Navy Blue color scheme to match sup_auth.py
 # ============================================================================
 def inject_custom_css():
     st.markdown("""
     <style>
         .main { padding: 0rem 1rem; }
-        .stApp { background-color: #f8f9fa; }
+        .stApp { 
+            background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+        }
 
         /* Times New Roman for main content only */
         .main * { font-family: 'Times New Roman', Times, serif !important; }
@@ -56,7 +58,7 @@ def inject_custom_css():
             padding: 20px;
             box-shadow: 0 2px 10px rgba(0,0,0,0.08);
             margin: 10px 0;
-            border-left: 4px solid #667eea;
+            border-left: 4px solid #2e86c1;
             transition: transform 0.2s;
         }
         .custom-card:hover {
@@ -65,12 +67,13 @@ def inject_custom_css():
         }
 
         .metric-card {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            background: linear-gradient(135deg, #1a5276 0%, #2e86c1 100%);
             border-radius: 12px;
             padding: 15px 20px;
             color: white;
             text-align: center;
             margin: 5px 0;
+            box-shadow: 0 4px 15px rgba(26, 82, 118, 0.3);
         }
         .metric-card .metric-value { font-size: 28px; font-weight: 700; margin: 5px 0; }
         .metric-card .metric-label { font-size: 14px; opacity: 0.9; }
@@ -86,12 +89,12 @@ def inject_custom_css():
         }
         .status-badge:hover { transform: scale(1.05); box-shadow: 0 2px 8px rgba(0,0,0,0.2); }
         .status-badge.completed { background: #28a745; color: white; }
-        .status-badge.ongoing { background: #007bff; color: white; }
+        .status-badge.ongoing { background: #2e86c1; color: white; }
         .status-badge.pending { background: #ffc107; color: #333; }
         .status-badge.initiated { background: #6f42c1; color: white; }
 
         .clickable-row { cursor: pointer; transition: background-color 0.2s; }
-        .clickable-row:hover { background-color: #f0f0f0; }
+        .clickable-row:hover { background-color: #eaf2f8; }
 
         .stTabs [data-baseweb="tab-list"] {
             gap: 8px;
@@ -116,36 +119,53 @@ def inject_custom_css():
         }
         .stTabs [data-baseweb="tab"]:hover {
             background-color: #f5f5f5 !important;
-            color: #333 !important;
+            color: #1a5276 !important;
         }
         .stTabs [aria-selected="true"] {
             background-color: transparent !important;
-            color: #9b111e !important;
+            color: #1a5276 !important;
             font-weight: 700 !important;
             font-size: 20px !important;
-            border-bottom: 4px solid #9b111e;
+            border-bottom: 4px solid #2e86c1;
             box-shadow: none;
         }
 
         .app-header {
-            background: linear-gradient(135deg, #00A86B 0%, #00C78C 50%, #00A86B 100%);
+            background: linear-gradient(135deg, #1a5276 0%, #2e86c1 50%, #1a5276 100%);
             padding: 20px 30px;
             border-radius: 12px;
             margin-bottom: 20px;
             color: white;
             animation: slideIn 1s ease-out;
-            box-shadow: 0 4px 20px rgba(0, 168, 107, 0.3);
+            box-shadow: 0 4px 20px rgba(26, 82, 118, 0.3);
+            border: 2px solid rgba(255,255,255,0.1);
         }
+
         @keyframes slideIn {
             0% { transform: translateX(-100%); opacity: 0; }
             100% { transform: translateX(0); opacity: 1; }
         }
-        @keyframes slowMove {
-            0% { transform: translateX(0); }
-            50% { transform: translateX(10px); }
-            100% { transform: translateX(0); }
+
+        @keyframes pulse {
+            0% { transform: scale(1); }
+            50% { transform: scale(1.02); }
+            100% { transform: scale(1); }
         }
-        .app-header h1 { margin: 0; font-weight: 700; animation: slowMove 3s ease-in-out infinite; }
+
+        @keyframes glow {
+            0% { text-shadow: 0 0 10px rgba(255,215,0,0.3); }
+            50% { text-shadow: 0 0 20px rgba(255,215,0,0.6), 0 0 30px rgba(255,215,0,0.3); }
+            100% { text-shadow: 0 0 10px rgba(255,215,0,0.3); }
+        }
+
+        .app-header h1 { 
+            margin: 0; 
+            font-weight: 700; 
+            color: #ffd700;
+            animation: pulse 3s ease-in-out infinite, glow 2s ease-in-out infinite;
+            font-family: 'Times New Roman', Times, serif !important;
+            font-size: 2.2rem !important;
+        }
 
         .dataframe-container {
             background: white;
@@ -155,7 +175,7 @@ def inject_custom_css():
             overflow-x: auto;
         }
         .dataframe-container th {
-            background-color: #667eea;
+            background: linear-gradient(135deg, #1a5276 0%, #2e86c1 100%);
             color: white;
             padding: 12px;
             font-size: 14px;
@@ -166,29 +186,38 @@ def inject_custom_css():
         }
 
         .stButton > button {
+            background: linear-gradient(135deg, #1a5276 0%, #2e86c1 100%);
+            color: white;
+            border: none;
             border-radius: 8px;
             font-weight: 500;
             transition: all 0.3s;
+            font-family: 'Times New Roman', Times, serif !important;
         }
         .stButton > button:hover {
             transform: translateY(-2px);
-            box-shadow: 0 4px 15px rgba(102, 126, 234, 0.4);
+            box-shadow: 0 4px 15px rgba(26, 82, 118, 0.4);
+        }
+        .stButton > button:disabled {
+            background: #b0b0b0;
+            cursor: not-allowed;
         }
 
         .streamlit-expanderHeader {
             background-color: white;
             border-radius: 8px;
             font-weight: 500;
+            border-left: 4px solid #2e86c1;
         }
 
         .stSelectbox > div > div {
-            background-color: #e8e8e8 !important;
+            background-color: white !important;
             color: #000000 !important;
             border-radius: 6px;
             border: 1px solid #ccc;
         }
         .stSelectbox > div > div > div { color: #000000 !important; }
-        .stSelectbox label { color: #333 !important; }
+        .stSelectbox label { color: #1a5276 !important; font-weight: 600 !important; }
 
         .stTextInput > div > div > input {
             background-color: white !important;
@@ -201,12 +230,15 @@ def inject_custom_css():
             border-radius: 6px;
         }
 
-        h1, h2, h3, h4, h5, h6 { font-family: 'Times New Roman', Times, serif !important; }
+        h1, h2, h3, h4, h5, h6 { 
+            font-family: 'Times New Roman', Times, serif !important;
+            color: #1a5276 !important;
+        }
 
         ::-webkit-scrollbar { width: 8px; height: 8px; }
         ::-webkit-scrollbar-track { background: #f1f1f1; border-radius: 10px; }
-        ::-webkit-scrollbar-thumb { background: #667eea; border-radius: 10px; }
-        ::-webkit-scrollbar-thumb:hover { background: #764ba2; }
+        ::-webkit-scrollbar-thumb { background: #2e86c1; border-radius: 10px; }
+        ::-webkit-scrollbar-thumb:hover { background: #1a5276; }
 
         .progress-status-card {
             border-radius: 12px;
@@ -223,8 +255,8 @@ def inject_custom_css():
             box-shadow: 0 4px 20px rgba(0,0,0,0.15);
         }
         .progress-status-card.active {
-            border-color: #333;
-            box-shadow: 0 4px 20px rgba(0,0,0,0.2);
+            border-color: #ffd700;
+            box-shadow: 0 4px 20px rgba(255,215,0,0.3);
         }
         .progress-status-card .status-number {
             font-size: 24px;
@@ -238,9 +270,9 @@ def inject_custom_css():
         }
         .progress-status-card .status-icon { font-size: 18px; }
 
-        .progress-status-card.card-total { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); }
+        .progress-status-card.card-total { background: linear-gradient(135deg, #1a5276 0%, #2e86c1 100%); }
         .progress-status-card.card-completed { background: linear-gradient(135deg, #28a745 0%, #20c997 100%); }
-        .progress-status-card.card-ongoing { background: linear-gradient(135deg, #007bff 0%, #4dabf7 100%); }
+        .progress-status-card.card-ongoing { background: linear-gradient(135deg, #2e86c1 0%, #4dabf7 100%); }
         .progress-status-card.card-pending { background: linear-gradient(135deg, #fcc419 0%, #ff922b 100%); }
         .progress-status-card.card-initiated { background: linear-gradient(135deg, #6f42c1 0%, #cc5de8 100%); }
 
@@ -262,6 +294,7 @@ def inject_custom_css():
             padding: 15px;
             border-radius: 12px;
             box-shadow: 0 2px 10px rgba(0,0,0,0.05);
+            border-left: 4px solid #2e86c1;
         }
         @media (max-width: 768px) { .filter-row { grid-template-columns: 1fr; } }
 
@@ -271,11 +304,11 @@ def inject_custom_css():
             border-radius: 12px;
             box-shadow: 0 2px 10px rgba(0,0,0,0.05);
             margin: 10px 0;
-            border-left: 4px solid #667eea;
+            border-left: 4px solid #2e86c1;
         }
         .time-range-selector label {
             font-weight: 600;
-            color: #333;
+            color: #1a5276;
         }
 
         .progress-summary-container { margin-bottom: 10px; }
@@ -284,8 +317,9 @@ def inject_custom_css():
         .progress-summary-title {
             font-size: 18px;
             font-weight: 700;
-            color: #333;
+            color: #1a5276;
             margin: 5px 0 5px 0;
+            font-family: 'Times New Roman', Times, serif !important;
         }
 
         .js-plotly-plot .plotly .main-svg { overflow: visible !important; }
@@ -311,6 +345,27 @@ def inject_custom_css():
         .sidebar-section * {
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif !important;
         }
+
+        /* Metric cards in admin panel */
+        .admin-metric {
+            background: linear-gradient(135deg, #1a5276 0%, #2e86c1 100%);
+            border-radius: 12px;
+            padding: 15px;
+            color: white;
+            text-align: center;
+            box-shadow: 0 4px 15px rgba(26, 82, 118, 0.3);
+        }
+        .admin-metric .value { font-size: 28px; font-weight: 700; }
+        .admin-metric .label { font-size: 14px; opacity: 0.9; }
+
+        /* Info boxes with new color scheme */
+        .info-box {
+            background: #eaf2f8;
+            border-radius: 10px;
+            padding: 15px;
+            border-left: 4px solid #2e86c1;
+        }
+        .info-box strong { color: #1a5276; }
     </style>
     """, unsafe_allow_html=True)
 
@@ -1803,7 +1858,6 @@ def compute_action_plan(df_filtered):
                 'Due Date': end_of_month.strftime('Before %d %b %Y')
             })
 
-        # ===== FIX: Only check expiry risk when there is actual stock (nmos > 0) =====
         if nmos > 0 and (has_expiry_risk or risk_type == 'Expiry Risk'):
             action_point, responsible_body = get_expiry_risk_action(row)
             material_problems[material]['problems'].append({
@@ -1935,13 +1989,11 @@ def render_unified_historical_table(df_filtered, issue_pivot, nsoh_pivot, consum
     else:
         selected_months = all_available_months
 
-    # Sort materials by program order from sidebar
     material_list = df_filtered['Material Description'].dropna().unique().tolist()
     if not material_list:
         st.info("No materials found.")
         return
 
-    # Sort materials according to program order
     if ordered_materials_tuple:
         order_map = {mat: idx for idx, mat in enumerate(ordered_materials_tuple)}
         material_list.sort(key=lambda x: order_map.get(x, len(ordered_materials_tuple) + 1))
@@ -1979,7 +2031,6 @@ def render_unified_historical_table(df_filtered, issue_pivot, nsoh_pivot, consum
 
     data_rows = []
 
-    # NSOH row
     nsoh_vals = []
     for month in all_months:
         if nsoh_row is not None and month in nsoh_row.index:
@@ -1992,14 +2043,12 @@ def render_unified_historical_table(df_filtered, issue_pivot, nsoh_pivot, consum
         **{month: nsoh_vals[i] for i, month in enumerate(all_months)}
     })
 
-    # AMC row
     amc_display = f"{int(amc_value):,}" if amc_value > 0 else "0"
     data_rows.append({
         'Data Type': '📊 AMC',
         **{month: amc_display for month in all_months}
     })
 
-    # NMOS row
     nmos_vals = []
     for i, month in enumerate(all_months):
         nsoh_val = float(nsoh_vals[i].replace(',', '')) if nsoh_vals[i] else 0
@@ -2013,7 +2062,6 @@ def render_unified_historical_table(df_filtered, issue_pivot, nsoh_pivot, consum
         **{month: nmos_vals[i] for i, month in enumerate(all_months)}
     })
 
-    # Consumption row
     cons_vals = []
     for month in all_months:
         if cons_row is not None and month in cons_row.index:
@@ -2029,7 +2077,6 @@ def render_unified_historical_table(df_filtered, issue_pivot, nsoh_pivot, consum
         **{month: cons_vals[i] for i, month in enumerate(all_months)}
     })
 
-    # Issue row
     issue_vals = []
     for month in all_months:
         if issue_row is not None and month in issue_row.index:
@@ -2042,7 +2089,6 @@ def render_unified_historical_table(df_filtered, issue_pivot, nsoh_pivot, consum
         **{month: issue_vals[i] for i, month in enumerate(all_months)}
     })
 
-    # A_AMC row
     a_amc_vals = []
     for i, month in enumerate(all_months):
         month_dt = pd.to_datetime(month, format='%b-%Y')
@@ -2078,7 +2124,6 @@ def render_unified_historical_table(df_filtered, issue_pivot, nsoh_pivot, consum
         **{month: a_amc_vals[i] for i, month in enumerate(all_months)}
     })
 
-    # AMOS row
     amos_vals = []
     for i, month in enumerate(all_months):
         nsoh_val = float(nsoh_vals[i].replace(',', '')) if nsoh_vals[i] else 0
@@ -2093,7 +2138,6 @@ def render_unified_historical_table(df_filtered, issue_pivot, nsoh_pivot, consum
         **{month: amos_vals[i] for i, month in enumerate(all_months)}
     })
 
-    # Received row
     deliv_vals = []
     for month in all_months:
         if deliv_row is not None and month in deliv_row.index:
@@ -2129,7 +2173,6 @@ def render_unified_historical_table(df_filtered, issue_pivot, nsoh_pivot, consum
         use_container_width=True
     )
 
-    # NMOS vs AMOS Trends
     st.markdown("---")
     st.markdown("""
     <div class="custom-card">
@@ -2243,7 +2286,6 @@ def render_unified_historical_table(df_filtered, issue_pivot, nsoh_pivot, consum
         )
         st.plotly_chart(fig_nmos_amos, use_container_width=True, config={'displayModeBar': True})
 
-    # NSOH vs Consumption vs Issue
     st.markdown("---")
     st.markdown("""
     <div class="custom-card">
@@ -2358,7 +2400,6 @@ def render_unified_historical_table(df_filtered, issue_pivot, nsoh_pivot, consum
         )
         st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': True})
 
-    # AMC vs Consumption vs Issue
     st.markdown("---")
     st.markdown("""
     <div class="custom-card">
@@ -2525,7 +2566,7 @@ def render_supply_planning_exercise(df_filtered, supply_df, supply_plan, ordered
     with col2:
         critical = len([s for s in supply_plan if s['Urgency'] == '🔴 CRITICAL'])
         st.markdown(f"""
-        <div class="metric-card" style="background: linear-gradient(135deg, #ff6b6b 0%, #c92a2a 100%);">
+        <div class="metric-card" style="background: linear-gradient(135deg, #dc3545 0%, #c82333 100%);">
             <div class="metric-label">🔴 Critical</div>
             <div class="metric-value">{critical}</div>
             <div style="font-size: 12px; opacity: 0.8;">Order Now</div>
@@ -2849,14 +2890,14 @@ def render_system_generated_action_plan(action_df, material_problems, sheet_name
     col1, col2, col3, col4, col5, col6 = st.columns(6)
     with col1:
         st.markdown(f"""
-        <div class="metric-card" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);">
+        <div class="metric-card">
             <div class="metric-label">📋 Materials with Issues</div>
             <div class="metric-value">{len(material_problems.keys())}</div>
         </div>
         """, unsafe_allow_html=True)
     with col2:
         st.markdown(f"""
-        <div class="metric-card" style="background: linear-gradient(135deg, #ff6b6b 0%, #c92a2a 100%);">
+        <div class="metric-card" style="background: linear-gradient(135deg, #dc3545 0%, #c82333 100%);">
             <div class="metric-label">🔴 Stock Out</div>
             <div class="metric-value">{problem_counts['🔴 Stock Out']}</div>
         </div>
@@ -2974,7 +3015,6 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
                 pmos = tmos - nmos
             mos_needed = max(0, 18 - tmos)
 
-        # Format expiry with quantities
         expiry_formatted = ""
         exp_mos_formatted = ""
         if expiry_batches and len(expiry_batches) > 0:
@@ -3022,7 +3062,6 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
             })
         return problems
 
-    # ===== MATERIAL DROPDOWN SORTED BY PROGRAM ORDER =====
     ordered_materials = get_program_materials(sheet_name)
     material_list = df_filtered['Material Description'].dropna().unique().tolist()
 
@@ -3037,7 +3076,6 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
     if selected_material:
         st.session_state.selected_material_for_expert = selected_material
 
-    # ===== NMOS TREND GRAPH WITH ACTION POINT PROPOSALS =====
     if selected_material and not nsoh_pivot.empty:
         st.markdown("---")
         st.markdown("### 📊 NMOS Trend with Action Point Proposals")
@@ -3097,20 +3135,17 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
                     current_nsoh = nsoh_values[-1] if nsoh_values else 0
                     last_month = months_dt[-1] if months_dt else pd.to_datetime(all_months[-1], format='%b-%Y')
 
-                    # ===== HORIZONTAL SLIDER TO SCROLL GRAPH LEFT/RIGHT =====
                     total_months = len(all_months)
 
-                    # Only show slider if there are months to display
                     if total_months > 0:
                         st.markdown("""
                         <div style="margin: 10px 0;">
-                            <label style="font-weight: 600; color: #333; font-family: 'Times New Roman', Times, serif;">↔️ Scroll to view time range</label>
+                            <label style="font-weight: 600; color: #1a5276; font-family: 'Times New Roman', Times, serif;">↔️ Scroll to view time range</label>
                         </div>
                         """, unsafe_allow_html=True)
 
                         default_window = min(12, total_months)
 
-                        # Only create slider if max_value > min_value
                         if total_months > default_window:
                             slider_value = st.slider(
                                 "",
@@ -3137,7 +3172,6 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
                     selected_nmos = nmos_values[start_idx:end_idx]
                     selected_nsoh = nsoh_values[start_idx:end_idx]
 
-                    # Calculate projected NMOS for 6 months from the end of selected range
                     if selected_months_dt:
                         last_selected_month = selected_months_dt[-1]
                         last_selected_nsoh = selected_nsoh[-1] if selected_nsoh else current_nsoh
@@ -3170,7 +3204,6 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
                     nmos_values_display = selected_nmos + future_nmos
                     current_display_nmos = last_selected_nmos
 
-                    # ===== ZONE DEFINITIONS =====
                     if current_display_nmos < 1:
                         nmos_color = '#FF0000'
                         status_text = "🔴 STOCK OUT"
@@ -3187,10 +3220,8 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
                         nmos_color = '#87CEEB'
                         status_text = "🔵 OVERSTOCK"
 
-                    # ===== CHECK IF THERE IS PIPELINE STOCK =====
                     has_pipeline_stock = (git_mos > 0) or (lc_mos > 0) or (wb_mos > 0) or (tmd_mos > 0)
 
-                    # ===== DETERMINE WHICH THRESHOLD TO USE FOR CROSSING =====
                     if current_display_nmos < 1:
                         target_threshold = None
                         threshold_value = None
@@ -3210,7 +3241,6 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
                         target_threshold = None
                         threshold_value = None
 
-                    # ===== FIND CROSSING POINT IN FUTURE DATA =====
                     crossing_point = None
 
                     if target_threshold is not None and len(future_nmos) > 1:
@@ -3228,13 +3258,11 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
                                 }
                                 break
 
-                    # ===== GENERATE ACTION PROPOSAL =====
                     action_proposal = ""
                     action_color = "#333"
                     arrow_info = None
 
                     if current_display_nmos < 1:
-                        # Stock Out - Immediate action
                         action_proposal = "🔴 IMMEDIATE ACTION REQUIRED: Stock Out! Initiate emergency procurement immediately."
                         action_color = "#FF0000"
                         arrow_info = {
@@ -3244,7 +3272,6 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
                         }
 
                     elif current_display_nmos < 8 and not has_pipeline_stock:
-                        # NMOS < 8 and no pipeline stock - arrow at current NMOS
                         order_qty = int((18 - current_display_nmos) * amc_value) if amc_value > 0 else 0
                         action_text = f"Mobilize and Initiate the quantity = (18-{current_display_nmos:.1f}) × AMC = {order_qty:,} units immediately"
                         action_proposal = f"📦 {action_text}"
@@ -3256,7 +3283,6 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
                         }
 
                     elif 1 <= current_display_nmos < 2:
-                        # Critical zone - crosses Stock Out (1)
                         if has_pipeline_stock:
                             if git_mos > 0 and git_po and str(git_po) != 'nan' and str(git_po) != '':
                                 action_text = f"Expedite GIT shipment and customs clearance - PO: {git_po}"
@@ -3284,7 +3310,6 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
                             }
 
                     elif 2 <= current_display_nmos < 6:
-                        # Warning zone - crosses Safety Stock (2)
                         if has_pipeline_stock:
                             if git_mos > 0 and git_po and str(git_po) != 'nan' and str(git_po) != '':
                                 action_text = f"Expedite GIT shipment and customs clearance - PO: {git_po}"
@@ -3312,7 +3337,6 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
                             }
 
                     elif 6 <= current_display_nmos < 8:
-                        # Near minimum stock - crosses Minimum Stock (6)
                         if has_pipeline_stock:
                             if git_mos > 0 and git_po and str(git_po) != 'nan' and str(git_po) != '':
                                 action_text = f"Expedite GIT shipment and customs clearance - PO: {git_po}"
@@ -3340,7 +3364,6 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
                             }
 
                     elif 8 <= current_display_nmos <= 18:
-                        # Normal zone - crosses Reorder Point (8)
                         order_qty = int((18 - 8) * amc_value) if amc_value > 0 else 0
                         action_text = f"Mobilize and Initiate quantity = (18-8)×AMC = {order_qty:,} units when NMOS reaches 8"
                         action_proposal = f"📦 {action_text}"
@@ -3354,7 +3377,6 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
                             }
 
                     else:
-                        # Overstock - NMOS > 18
                         action_proposal = "⚠️ Strict follow up on risk of expiry - Monitor expiry dates closely"
                         action_color = "#87CEEB"
                         arrow_info = {
@@ -3363,10 +3385,8 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
                             'hover_text': action_proposal
                         }
 
-                    # ===== CREATE THE GRAPH =====
                     fig = go.Figure()
 
-                    # Area fill under the curve
                     fig.add_trace(go.Scatter(
                         x=all_months_display + all_months_display[::-1],
                         y=nmos_values_display + [0]*len(nmos_values_display),
@@ -3377,7 +3397,6 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
                         hoverinfo='skip'
                     ))
 
-                    # Historical NMOS line
                     if selected_months:
                         fig.add_trace(go.Scatter(
                             x=selected_months,
@@ -3392,7 +3411,6 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
                             hovertemplate='<b>%{x}</b><br>NMOS: %{y:.2f} months<extra></extra>'
                         ))
 
-                    # Projected NMOS line (dashed)
                     if future_months:
                         fig.add_trace(go.Scatter(
                             x=future_months,
@@ -3407,7 +3425,6 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
                             hovertemplate='<b>%{x}</b><br>NMOS (Projected): %{y:.2f} months<extra></extra>'
                         ))
 
-                    # Vertical line at current month
                     if selected_months:
                         fig.add_vline(
                             x=selected_months[-1],
@@ -3416,7 +3433,6 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
                             line_width=1.5
                         )
 
-                        # Current NMOS marker (star)
                         fig.add_trace(go.Scatter(
                             x=[selected_months[-1]],
                             y=[current_display_nmos],
@@ -3426,7 +3442,6 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
                             hovertemplate='<b>Current NMOS</b><br>%{y:.2f} months<extra></extra>'
                         ))
 
-                    # ===== ADD DOWNWARD ARROW =====
                     if arrow_info:
                         fig.add_annotation(
                             x=arrow_info['x'],
@@ -3453,7 +3468,6 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
                             )
                         )
 
-                    # ===== THRESHOLD LINES WITH VISIBLE LABELS =====
                     thresholds = [
                         (1, 'Stock Out (1m)', '#FF0000', 'dash'),
                         (2, 'Safety Stock (2m)', '#FF6B6B', 'dash'),
@@ -3473,7 +3487,6 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
                             annotation_font=dict(size=11, color=color, family='Times New Roman, Times, serif')
                         )
 
-                    # Add shaded zones
                     fig.add_hrect(
                         y0=0, y1=1,
                         fillcolor="rgba(255, 0, 0, 0.05)",
@@ -3535,15 +3548,14 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
         else:
             st.info(f"No NSOH historical data found for {selected_material}.")
 
-    # Display material info card
     if st.session_state.show_material_info and selected_material:
         base_info = get_material_base_info(selected_material)
         system_problems = get_system_generated_problems(selected_material)
 
         if base_info:
-            html = '<div style="background: #87CEEB; padding: 3px; border-radius: 12px; margin: 10px 0;">'
+            html = '<div style="background: #2e86c1; padding: 3px; border-radius: 12px; margin: 10px 0;">'
             html += '<div style="background: #f0f0f0; padding: 20px; border-radius: 10px;">'
-            html += f'<h4 style="color: #333; font-size: 18px; font-weight: 700; margin-bottom: 15px;">📦 {selected_material}</h4>'
+            html += f'<h4 style="color: #1a5276; font-size: 18px; font-weight: 700; margin-bottom: 15px;">📦 {selected_material}</h4>'
 
             html += f'<div style="background: white; padding: 8px 12px; border-radius: 6px; margin-bottom: 5px;"><strong>NSOH:</strong> {base_info["nsoh"]}</div>'
             html += f'<div style="background: white; padding: 8px 12px; border-radius: 6px; margin-bottom: 5px;"><strong>AMC:</strong> {base_info["amc"]}</div>'
@@ -3558,7 +3570,7 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
                 html += '<div style="margin-top: 10px;"><strong>System Generated Action Items:</strong><br>'
                 for idx, prob in enumerate(system_problems, 1):
                     html += f'<div style="background: rgba(200, 200, 200, 0.3); padding: 8px 12px; border-radius: 6px; margin: 5px 0;">'
-                    html += f'<div><span style="display: inline-block; width: 12px; height: 12px; border-radius: 50%; background: #87CEEB; margin-right: 8px;"></span>'
+                    html += f'<div><span style="display: inline-block; width: 12px; height: 12px; border-radius: 50%; background: #2e86c1; margin-right: 8px;"></span>'
                     html += f'<strong>{idx}. Identified Problem:</strong> {prob["problem"]}</div>'
                     html += f'<div style="padding-left: 24px;"><strong>Action Point:</strong> {prob["action"]}</div>'
                     html += f'<div style="padding-left: 24px; font-size: 12px; opacity: 0.8;"><strong>Responsible:</strong> {prob["responsible"]} | <strong>Due:</strong> {prob["due_date"]}</div>'
@@ -3577,7 +3589,6 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
 
         st.markdown("---")
 
-    # Action buttons
     if selected_material:
         material_records = [r for r in st.session_state.expert_plan_records if r['Material'] == selected_material]
         has_records = len(material_records) > 0
@@ -3609,7 +3620,6 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
 
     st.markdown("---")
 
-    # Display change list
     if selected_material and st.session_state.show_change_list:
         material_records = [r for r in st.session_state.expert_plan_records if r['Material'] == selected_material]
 
@@ -3622,7 +3632,7 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
 
                     with col1:
                         st.markdown(f"""
-                        <div style="background: #f8f9fa; padding: 12px 15px; border-radius: 8px; margin-bottom: 5px; border-left: 4px solid #667eea;">
+                        <div style="background: #f8f9fa; padding: 12px 15px; border-radius: 8px; margin-bottom: 5px; border-left: 4px solid #2e86c1;">
                             <div><strong>Action #{idx + 1}</strong></div>
                             <div><strong>Problem:</strong> {record.get('Identified Problem', '')}</div>
                             <div><strong>Action:</strong> {record.get('Action Point', '')}</div>
@@ -3661,7 +3671,6 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
             st.info(f"No action points for {selected_material}.")
             st.session_state.show_change_list = False
 
-    # Add/Edit form
     is_editing = st.session_state.edit_record_id is not None
     is_adding = st.session_state.adding_action_point
 
@@ -3714,7 +3723,6 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
                 order_quantity = st.text_input("Order Quantity", value=order_quantity_val, key="ap_order_quantity")
                 action_point = st.text_area("Action Point", value=action_val, key="ap_action", height=60)
 
-            # Responsible Body, Due Date, Status on same row
             col_r1, col_r2, col_r3 = st.columns(3)
             with col_r1:
                 default_responsible = []
@@ -3801,7 +3809,6 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
 
     st.markdown("---")
 
-    # Display expert plan records
     if st.session_state.expert_plan_records:
         records_df = pd.DataFrame(st.session_state.expert_plan_records)
 
@@ -3959,7 +3966,6 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
     )
 
 def render_ap_progress_follow_up(sheet_name, selected_quarter, selected_year, selected_status):
-    # Load records with filters
     records = load_expert_plan_records(
         sheet_name if sheet_name != "All" else None,
         selected_quarter if selected_quarter != "All" else None,
@@ -3975,10 +3981,6 @@ def render_ap_progress_follow_up(sheet_name, selected_quarter, selected_year, se
     if 'Status' not in df.columns:
         df['Status'] = "Pending"
 
-    # =========================================================================
-    # FILTERS
-    # =========================================================================
-    # Determine the latest quarter
     latest_quarter = None
     latest_year = None
     if 'Quarter' in df.columns and 'Year' in df.columns:
@@ -3989,7 +3991,6 @@ def render_ap_progress_follow_up(sheet_name, selected_quarter, selected_year, se
             latest_quarter = latest_row['Quarter']
             latest_year = latest_row['Year']
 
-    # Display title with latest quarter, year, and program (only once)
     program_name = sheet_name if sheet_name != "All" else "All Programs"
     if latest_quarter and latest_year:
         st.markdown(f"### 📋 {latest_quarter}, {latest_year} - {program_name} Action Plan Summary Table")
@@ -4016,13 +4017,11 @@ def render_ap_progress_follow_up(sheet_name, selected_quarter, selected_year, se
         problem_filter = st.selectbox("Problem Type", problem_options, key="problem_filter_dropdown")
 
     with col_filter2:
-        # Get all unique responsible bodies (split by comma and combine)
         all_responsible_bodies = []
         for body_str in df['Responsible Body'].dropna():
             bodies = [b.strip() for b in body_str.split(',') if b.strip()]
             all_responsible_bodies.extend(bodies)
 
-        # Group responsible bodies by organization
         def get_organization(body):
             epss_bodies = ['EPSS_CMD', 'EPSS_DMD', 'EPSS_PMD', 'EPSS_Finance']
             moh_bodies = ['MOH_PMED', 'MOH_Program']
@@ -4037,7 +4036,6 @@ def render_ap_progress_follow_up(sheet_name, selected_quarter, selected_year, se
             else:
                 return 'Other'
 
-        # Group by organization
         organization_groups = {}
         for body in set(all_responsible_bodies):
             org = get_organization(body)
@@ -4045,7 +4043,6 @@ def render_ap_progress_follow_up(sheet_name, selected_quarter, selected_year, se
                 organization_groups[org] = []
             organization_groups[org].append(body)
 
-        # Create options for dropdown: EPSS, MOH, MSH_SCS, Other (if they exist)
         body_options = ["All"]
         for org in ['EPSS', 'MOH', 'MSH_SCS', 'Other']:
             if org in organization_groups and organization_groups[org]:
@@ -4059,7 +4056,6 @@ def render_ap_progress_follow_up(sheet_name, selected_quarter, selected_year, se
 
     st.markdown('</div>', unsafe_allow_html=True)
 
-    # Apply filters
     filtered_df = df.copy()
 
     if program_filter:
@@ -4068,9 +4064,7 @@ def render_ap_progress_follow_up(sheet_name, selected_quarter, selected_year, se
     if problem_filter != "All" and 'Identified Problem' in filtered_df.columns:
         filtered_df = filtered_df[filtered_df['Identified Problem'] == problem_filter]
 
-    # Apply responsible body filter - filter by organization
     if body_filter != "All" and 'Responsible Body' in filtered_df.columns:
-        # Define which bodies belong to the selected organization
         epss_bodies = ['EPSS_CMD', 'EPSS_DMD', 'EPSS_PMD', 'EPSS_Finance']
         moh_bodies = ['MOH_PMED', 'MOH_Program']
         msh_bodies = ['MSH_SCS']
@@ -4082,7 +4076,6 @@ def render_ap_progress_follow_up(sheet_name, selected_quarter, selected_year, se
         elif body_filter == 'MSH_SCS':
             filtered_df = filtered_df[filtered_df['Responsible Body'].str.contains('|'.join(msh_bodies), na=False)]
         elif body_filter == 'Other':
-            # Filter out EPSS, MOH, MSH_SCS bodies
             all_org_bodies = epss_bodies + moh_bodies + msh_bodies
             filtered_df = filtered_df[~filtered_df['Responsible Body'].str.contains('|'.join(all_org_bodies), na=False)]
 
@@ -4096,9 +4089,6 @@ def render_ap_progress_follow_up(sheet_name, selected_quarter, selected_year, se
         st.info("No records match the selected filters.")
         return
 
-    # =========================================================================
-    # FILTER TO LATEST QUARTER ONLY
-    # =========================================================================
     if 'Quarter' in filtered_df.columns and 'Year' in filtered_df.columns:
         quarter_order = {'Q1': 1, 'Q2': 2, 'Q3': 3, 'Q4': 4}
         filtered_df['Quarter_Sort'] = filtered_df['Year'].astype(str) + filtered_df['Quarter'].map(quarter_order).astype(str)
@@ -4112,12 +4102,8 @@ def render_ap_progress_follow_up(sheet_name, selected_quarter, selected_year, se
                 st.info(f"No records found for the latest quarter ({latest_quarter_val}, {latest_year_val}).")
                 return
 
-    # Sort materials alphabetically
     filtered_df = filtered_df.sort_values('Material')
 
-    # =========================================================================
-    # CALCULATE STATUS COUNTS
-    # =========================================================================
     total = len(filtered_df)
     completed = len(filtered_df[filtered_df['Status'] == 'Completed'])
     ongoing = len(filtered_df[filtered_df['Status'] == 'Ongoing'])
@@ -4126,13 +4112,10 @@ def render_ap_progress_follow_up(sheet_name, selected_quarter, selected_year, se
 
     not_completed = initiated + ongoing
 
-    # =========================================================================
-    # CREATE STATUS BADGES
-    # =========================================================================
     def status_badge_html(status, material):
         colors = {
             'Completed': '#28a745',
-            'Ongoing': '#007bff',
+            'Ongoing': '#2e86c1',
             'Pending': '#ffc107',
             'Initiated': '#6f42c1'
         }
@@ -4142,7 +4125,6 @@ def render_ap_progress_follow_up(sheet_name, selected_quarter, selected_year, se
     display_df = filtered_df.copy()
     display_df['Status Display'] = display_df.apply(lambda row: status_badge_html(row.get('Status', 'Pending'), row.get('Material', '')), axis=1)
 
-    # Show table - increased width for Identified Problem and Action Point
     cols_to_display = ['Material', 'NMOS', 'Identified Problem', 'Action Point', 'Responsible Body', 'Due Date', 'Status Display']
     cols_to_display = [c for c in cols_to_display if c in display_df.columns or c == 'Status Display']
 
@@ -4175,7 +4157,6 @@ def render_ap_progress_follow_up(sheet_name, selected_quarter, selected_year, se
 
     st.markdown(html_table, unsafe_allow_html=True)
 
-    # Download as XLSX
     output = BytesIO()
     with pd.ExcelWriter(output, engine='openpyxl') as writer:
         display_df[['Material', 'NMOS', 'Identified Problem', 'Action Point', 'Responsible Body', 'Due Date', 'Status']].to_excel(writer, index=False, sheet_name='Action Plan')
@@ -4191,9 +4172,6 @@ def render_ap_progress_follow_up(sheet_name, selected_quarter, selected_year, se
 
     st.markdown("---")
 
-    # =========================================================================
-    # PIE CHART - Dynamic Title based on selected program
-    # =========================================================================
     selected_program_names = program_filter if program_filter else ["All Programs"]
     program_title = ", ".join(selected_program_names)
 
@@ -4201,7 +4179,7 @@ def render_ap_progress_follow_up(sheet_name, selected_quarter, selected_year, se
 
     status_labels = ['Completed', 'Not Completed', 'Pending']
     status_values = [completed, not_completed, pending]
-    status_colors_pie = ['#28a745', '#007bff', '#ffc107']
+    status_colors_pie = ['#28a745', '#2e86c1', '#ffc107']
 
     fig_pie = go.Figure(data=[go.Pie(
         labels=status_labels,
@@ -4216,7 +4194,7 @@ def render_ap_progress_follow_up(sheet_name, selected_quarter, selected_year, se
     fig_pie.update_layout(
         title=dict(
             text=f"Total Action Points: {total}",
-            font=dict(size=14, color='#333', family='Times New Roman, Times, serif')
+            font=dict(size=14, color='#1a5276', family='Times New Roman, Times, serif')
         ),
         height=400,
         font=dict(family='Times New Roman, Times, serif'),
@@ -4235,26 +4213,20 @@ def render_ap_progress_follow_up(sheet_name, selected_quarter, selected_year, se
 
     st.markdown("---")
 
-    # =========================================================================
-    # BAR CHARTS - Side by side: Program Action Points Breakdown and Responsible Body
-    # CHARTS KEPT, TITLES REMOVED
-    # =========================================================================
     col_bar1, col_bar2 = st.columns(2)
 
     with col_bar1:
-        # Get program breakdown
         if 'Program' in filtered_df.columns:
             program_breakdown = filtered_df['Program'].value_counts().reset_index()
             program_breakdown.columns = ['Program', 'Count']
             program_breakdown['Percentage'] = (program_breakdown['Count'] / total * 100).round(1)
 
             if not program_breakdown.empty:
-                # Sort by count descending
                 program_breakdown = program_breakdown.sort_values('Count', ascending=False)
 
                 fig_prog_bar = go.Figure()
 
-                colors = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd', '#8c564b', '#e377c2', '#7f7f7f', '#bcbd22', '#17becf']
+                colors = ['#1a5276', '#2e86c1', '#4dabf7', '#1f77b4', '#9467bd', '#8c564b', '#e377c2', '#7f7f7f', '#bcbd22', '#17becf']
 
                 fig_prog_bar.add_trace(go.Bar(
                     x=program_breakdown['Program'],
@@ -4271,7 +4243,7 @@ def render_ap_progress_follow_up(sheet_name, selected_quarter, selected_year, se
                 fig_prog_bar.update_layout(
                     title=dict(
                         text="Action Points by Program",
-                        font=dict(size=14, color='#333', family='Times New Roman, Times, serif')
+                        font=dict(size=14, color='#1a5276', family='Times New Roman, Times, serif')
                     ),
                     xaxis_title=dict(text="Program", font=dict(size=12, family='Times New Roman, Times, serif')),
                     yaxis_title=dict(text="Percentage of Total (%)", font=dict(size=12, family='Times New Roman, Times, serif')),
@@ -4318,14 +4290,12 @@ def render_ap_progress_follow_up(sheet_name, selected_quarter, selected_year, se
             st.info("No program data available.")
 
     with col_bar2:
-        # Split responsible bodies by comma and explode
         all_bodies = []
         for body_str in filtered_df['Responsible Body'].dropna():
             bodies = [b.strip() for b in body_str.split(',') if b.strip()]
             all_bodies.extend(bodies)
 
         if all_bodies:
-            # Group by organization for the chart
             def get_organization(body):
                 epss_bodies = ['EPSS_CMD', 'EPSS_DMD', 'EPSS_PMD', 'EPSS_Finance']
                 moh_bodies = ['MOH_PMED', 'MOH_Program']
@@ -4340,20 +4310,18 @@ def render_ap_progress_follow_up(sheet_name, selected_quarter, selected_year, se
                 else:
                     return 'Other'
 
-            # Group by organization
             org_counts = {}
             for body in all_bodies:
                 org = get_organization(body)
                 org_counts[org] = org_counts.get(org, 0) + 1
 
-            # Convert to DataFrame for chart
             org_df = pd.DataFrame(list(org_counts.items()), columns=['Organization', 'Count'])
             org_df['Percentage'] = (org_df['Count'] / total * 100).round(1)
             org_df = org_df.sort_values('Count', ascending=False)
 
             fig_org_bar = go.Figure()
 
-            colors = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd']
+            colors = ['#1a5276', '#2e86c1', '#4dabf7', '#d62728']
 
             fig_org_bar.add_trace(go.Bar(
                 x=org_df['Organization'],
@@ -4370,7 +4338,7 @@ def render_ap_progress_follow_up(sheet_name, selected_quarter, selected_year, se
             fig_org_bar.update_layout(
                 title=dict(
                     text="Action Points by Organization",
-                    font=dict(size=14, color='#333', family='Times New Roman, Times, serif')
+                    font=dict(size=14, color='#1a5276', family='Times New Roman, Times, serif')
                 ),
                 xaxis_title=dict(text="Organization", font=dict(size=12, family='Times New Roman, Times, serif')),
                 yaxis_title=dict(text="Percentage of Total (%)", font=dict(size=12, family='Times New Roman, Times, serif')),
@@ -4416,11 +4384,6 @@ def render_ap_progress_follow_up(sheet_name, selected_quarter, selected_year, se
 
     st.markdown("---")
 
-    # =========================================================================
-    # DETAILED BAR CHART - EPSS Breakdown (EPSS_CMD, EPSS_PMD, EPSS_DMD, EPSS_Finance)
-    # This shows detailed breakdown by individual EPSS body
-    # =========================================================================
-    # Check if EPSS has data - use the exploded body list
     all_bodies = []
     for body_str in filtered_df['Responsible Body'].dropna():
         bodies = [b.strip() for b in body_str.split(',') if b.strip()]
@@ -4438,7 +4401,6 @@ def render_ap_progress_follow_up(sheet_name, selected_quarter, selected_year, se
         for body in epss_bodies:
             body_count = len([b for b in all_bodies if b == body])
             if body_count > 0:
-                # Get status breakdown for this body
                 body_status_counts = {}
                 for _, row in filtered_df.iterrows():
                     responsible = row.get('Responsible Body', '')
@@ -4469,7 +4431,7 @@ def render_ap_progress_follow_up(sheet_name, selected_quarter, selected_year, se
             statuses = ['Completed', 'Not Completed', 'Pending']
             status_colors_bar = {
                 'Completed': '#28a745',
-                'Not Completed': '#007bff',
+                'Not Completed': '#2e86c1',
                 'Pending': '#ffc107'
             }
 
@@ -4489,7 +4451,7 @@ def render_ap_progress_follow_up(sheet_name, selected_quarter, selected_year, se
             fig_epss.update_layout(
                 title=dict(
                     text="EPSS Detailed Breakdown by Body",
-                    font=dict(size=16, color='#333', family='Times New Roman, Times, serif')
+                    font=dict(size=16, color='#1a5276', family='Times New Roman, Times, serif')
                 ),
                 xaxis_title=dict(text="EPSS Body", font=dict(size=13, family='Times New Roman, Times, serif')),
                 yaxis_title=dict(text="Percentage (%)", font=dict(size=13, family='Times New Roman, Times, serif')),
@@ -4532,7 +4494,7 @@ def render_ap_progress_follow_up(sheet_name, selected_quarter, selected_year, se
                     y=102,
                     text=f"n={row['Total']}",
                     showarrow=False,
-                    font=dict(size=11, color='#333', family='Times New Roman, Times, serif', weight='bold'),
+                    font=dict(size=11, color='#1a5276', family='Times New Roman, Times, serif', weight='bold'),
                     bgcolor='rgba(255,255,255,0.9)',
                     bordercolor='#ccc',
                     borderwidth=1,
@@ -4541,7 +4503,6 @@ def render_ap_progress_follow_up(sheet_name, selected_quarter, selected_year, se
 
             st.plotly_chart(fig_epss, use_container_width=True, config={'displayModeBar': True})
 
-            # Show EPSS summary table
             st.markdown("#### EPSS Summary Table")
             epss_display = epss_detail_df.copy()
             epss_display['Completed %'] = epss_display['Completed %'].round(1)
@@ -4553,20 +4514,13 @@ def render_ap_progress_follow_up(sheet_name, selected_quarter, selected_year, se
 
             st.markdown("---")
 
-    # =========================================================================
-    # ORGANIZATION BREAKDOWN SUMMARY TABLE - EPSS, MOH, MSH_SCS (ALL IN ONE TABLE)
-    # EPSS is COMBINED as a single row (not broken down by individual bodies)
-    # =========================================================================
     if all_bodies:
-        # Define organization groups
         epss_bodies = ['EPSS_CMD', 'EPSS_DMD', 'EPSS_PMD', 'EPSS_Finance']
         moh_bodies = ['MOH_PMED', 'MOH_Program']
         msh_bodies = ['MSH_SCS']
 
-        # Collect all data for a single combined table
         combined_data = []
 
-        # EPSS - COMBINED as single row (sum of all EPSS bodies)
         epss_total_count = 0
         epss_completed = 0
         epss_not_completed = 0
@@ -4599,7 +4553,6 @@ def render_ap_progress_follow_up(sheet_name, selected_quarter, selected_year, se
                 'Pending %': round(epss_pending / epss_total_count * 100, 1) if epss_total_count > 0 else 0
             })
 
-        # MOH - COMBINED as single row (sum of all MOH bodies)
         moh_total_count = 0
         moh_completed = 0
         moh_not_completed = 0
@@ -4632,7 +4585,6 @@ def render_ap_progress_follow_up(sheet_name, selected_quarter, selected_year, se
                 'Pending %': round(moh_pending / moh_total_count * 100, 1) if moh_total_count > 0 else 0
             })
 
-        # MSH_SCS - COMBINED as single row
         msh_total_count = 0
         msh_completed = 0
         msh_not_completed = 0
@@ -4665,7 +4617,6 @@ def render_ap_progress_follow_up(sheet_name, selected_quarter, selected_year, se
                 'Pending %': round(msh_pending / msh_total_count * 100, 1) if msh_total_count > 0 else 0
             })
 
-        # Other bodies (combined)
         other_bodies = []
         for body in set(all_bodies):
             if body not in epss_bodies and body not in moh_bodies and body not in msh_bodies:
@@ -4706,7 +4657,6 @@ def render_ap_progress_follow_up(sheet_name, selected_quarter, selected_year, se
         if combined_data:
             st.markdown("### 📊 Organization Breakdown Summary Table")
             combined_df = pd.DataFrame(combined_data)
-            # Sort by Organization
             combined_df = combined_df.sort_values('Organization')
             st.dataframe(combined_df, use_container_width=True, hide_index=True)
     else:
@@ -4719,12 +4669,11 @@ def render_ap_progress_follow_up(sheet_name, selected_quarter, selected_year, se
 # ============================================================================
 def main():
     st.set_page_config(
-        page_title="Supply Planning – EPSS",
+        page_title="Supply Planning – HPC",
         layout="wide",
         initial_sidebar_state="expanded"
     )
 
-    # Initialize ALL session state variables
     if 'action_plan_tab' not in st.session_state:
         st.session_state.action_plan_tab = "📋 All Issues"
     if 'expert_plan_records' not in st.session_state:
@@ -4778,16 +4727,12 @@ def main():
     </div>
     """, unsafe_allow_html=True)
 
-    # =========================================================================
-    # SIDEBAR - User info at TOP, filters in MIDDLE, Admin/Logout at BOTTOM
-    # =========================================================================
     with st.sidebar:
-        # ===== TOP: User Info =====
         user = get_current_user()
         if user:
             st.markdown(f"""
             <div style="background: #f0f0f0; padding: 12px; border-radius: 10px; margin-bottom: 15px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;">
-                <div style="font-size: 14px; font-weight: 600; color: #333;">👤 {user.get('full_name', 'User')}</div>
+                <div style="font-size: 14px; font-weight: 600; color: #1a5276;">👤 {user.get('full_name', 'User')}</div>
                 <div style="font-size: 11px; color: #666;">{user.get('email', '')}</div>
                 <div style="font-size: 11px; color: #888; margin-top: 2px;">Role: {user.get('role', 'viewer').title()}</div>
                 <div style="font-size: 10px; color: #999; margin-top: 2px;">Status: {'✅ Approved' if user.get('is_approved') else '⏳ Pending'}</div>
@@ -4796,7 +4741,6 @@ def main():
 
         st.markdown("---")
 
-        # ===== MIDDLE: Program Filters =====
         st.markdown("## 🎯 Program Selection")
         sheet_id_amc = "14VvZ7IyOmpM4SZrY5_ArHDgLkeFN4inW"
         google_sheets = load_google_sheets(sheet_id_amc)
@@ -4859,7 +4803,6 @@ def main():
 
         st.markdown("---")
 
-        # ===== BOTTOM: Admin Panel & Logout =====
         if is_admin():
             if st.button("🔐 Admin Panel", use_container_width=True, type="primary"):
                 st.session_state.show_admin_page = True
@@ -4876,17 +4819,11 @@ def main():
         if st.button("🚪 Logout", use_container_width=True):
             logout()
 
-    # =========================================================================
-    # LOAD DATA - Silent, no spinner
-    # =========================================================================
     if not st.session_state.data_loaded:
         with st.spinner(""):
             load_all_data_cached()
             st.session_state.data_loaded = True
 
-    # =========================================================================
-    # MAIN CONTENT
-    # =========================================================================
     df_filtered = get_filtered_data(sheet_name, subcategory_filter)
     if df_filtered.empty:
         st.error("No data available for the selected filters.")
