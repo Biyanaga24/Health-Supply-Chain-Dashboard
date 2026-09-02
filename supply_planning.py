@@ -386,6 +386,13 @@ def sort_months_chronologically(month_list):
             except:
                 return datetime(1900, 1, 1)
     return sorted(month_list, key=parse_month)
+def clean_dataframe_for_excel(df):
+    """Clean all string columns for Excel export."""
+    df_clean = df.copy()
+    for col in df_clean.select_dtypes(include=['object']).columns:
+        df_clean[col] = df_clean[col].astype(str).str.replace(r'[\x00-\x08\x0B\x0C\x0E-\x1F]', '', regex=True)
+        df_clean[col] = df_clean[col].str.replace('\x00', '')
+    return df_clean
 
 def inject_javascript():
     st.markdown("""
@@ -3941,7 +3948,8 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
 
             output = BytesIO()
             with pd.ExcelWriter(output, engine='openpyxl') as writer:
-                filtered_df.to_excel(writer, index=False, sheet_name='Action Points')
+                filtered_df_clean = clean_dataframe_for_excel(filtered_df)
+                filtered_df_clean.to_excel(writer, index=False, sheet_name='Action Points')
             excel_data = output.getvalue()
 
             st.download_button(
