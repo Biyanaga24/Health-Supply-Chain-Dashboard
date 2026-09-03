@@ -2995,6 +2995,8 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
         st.session_state.show_change_list = False
     if 'adding_action_point' not in st.session_state:
         st.session_state.adding_action_point = False
+    if 'show_custom_responsible' not in st.session_state:
+        st.session_state.show_custom_responsible = False
 
     def generate_record_id():
         return int(datetime.now().timestamp() * 1000) + random.randint(1, 1000)
@@ -3612,6 +3614,7 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
                 st.session_state.adding_action_point = True
                 st.session_state.edit_record_id = None
                 st.session_state.show_change_list = False
+                st.session_state.show_custom_responsible = False
                 st.rerun()
 
         with col_actions[2]:
@@ -3656,6 +3659,7 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
                             st.session_state.edit_record_id = record['record_id']
                             st.session_state.adding_action_point = False
                             st.session_state.show_change_list = False
+                            st.session_state.show_custom_responsible = False
                             st.rerun()
 
                     with col3:
@@ -3710,51 +3714,174 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
                 action_val = ""
                 resp_val = ""
                 due_val = ""
-                status_val = "Pending"
-                quarter_val = selected_quarter if selected_quarter != "All" else "Q1"
-                year_val = selected_year if selected_year != "All" else current_year
+                status_val = "Select Status"
+                quarter_val = "Select Quarter"
+                year_val = "Select Year"
                 purchase_order_val = ""
                 order_quantity_val = ""
 
             col_q, col_y = st.columns(2)
             with col_q:
-                quarter = st.selectbox("Quarter", ["Q1", "Q2", "Q3", "Q4"], index=["Q1", "Q2", "Q3", "Q4"].index(quarter_val) if quarter_val in ["Q1", "Q2", "Q3", "Q4"] else 0, key="ap_quarter")
+                st.markdown('<p style="font-weight: bold; color: black; font-size: 15px; margin-bottom: 5px;">Quarter</p>', unsafe_allow_html=True)
+                quarter_options = ["Select Quarter", "Q1", "Q2", "Q3", "Q4"]
+                quarter_index = 0
+                if quarter_val in quarter_options:
+                    quarter_index = quarter_options.index(quarter_val)
+                quarter = st.selectbox(
+                    "",
+                    quarter_options,
+                    index=quarter_index,
+                    key="ap_quarter",
+                    label_visibility="collapsed"
+                )
             with col_y:
-                year = st.selectbox("Year", list(range(2020, 2031)), index=list(range(2020, 2031)).index(int(year_val)) if year_val in list(range(2020, 2031)) else 0, key="ap_year")
+                st.markdown('<p style="font-weight: bold; color: black; font-size: 15px; margin-bottom: 5px;">Year</p>', unsafe_allow_html=True)
+                year_options = ["Select Year"] + list(range(2020, 2031))
+                year_index = 0
+                if year_val in year_options:
+                    year_index = year_options.index(year_val)
+                year = st.selectbox(
+                    "",
+                    year_options,
+                    index=year_index,
+                    key="ap_year",
+                    label_visibility="collapsed"
+                )
 
             col1, col2 = st.columns(2)
             with col1:
-                purchase_order = st.text_input("Purchase Order", value=purchase_order_val, key="ap_purchase_order")
-                identified_problem = st.text_area("Identified Problem", value=problem_val, key="ap_problem", height=60)
-            with col2:
-                order_quantity = st.text_input("Order Quantity", value=order_quantity_val, key="ap_order_quantity")
-                action_point = st.text_area("Action Point", value=action_val, key="ap_action", height=60)
-
-            col_r1, col_r2, col_r3 = st.columns(3)
-            with col_r1:
-                default_responsible = []
-                if is_editing and edit_record and resp_val:
-                    default_responsible = [b.strip() for b in resp_val.split(',') if b.strip()]
-                additional_responsible = st.multiselect(
-                    "Responsible Body",
-                    RESPONSIBLE_BODIES,
-                    default=default_responsible,
-                    key="ap_additional_responsible"
+                st.markdown('<p style="font-weight: bold; color: black; font-size: 15px; margin-bottom: 5px;">Purchase Order</p>', unsafe_allow_html=True)
+                purchase_order = st.text_input(
+                    "",
+                    value=purchase_order_val,
+                    key="ap_purchase_order",
+                    label_visibility="collapsed"
                 )
-                final_responsible = ", ".join(additional_responsible) if additional_responsible else ""
-            with col_r2:
-                due_date = st.text_input("Due Date", value=due_val, key="ap_due_date")
-            with col_r3:
-                status = st.selectbox("Status", ["Initiated", "Ongoing", "Pending", "Completed"], index=["Initiated", "Ongoing", "Pending", "Completed"].index(status_val) if status_val in ["Initiated", "Ongoing", "Pending", "Completed"] else 0, key="ap_status")
+                st.markdown('<p style="font-weight: bold; color: black; font-size: 15px; margin-bottom: 5px; margin-top: 10px;">Identified Problem</p>', unsafe_allow_html=True)
+                identified_problem = st.text_area(
+                    "",
+                    value=problem_val,
+                    key="ap_problem",
+                    height=60,
+                    label_visibility="collapsed"
+                )
+            with col2:
+                st.markdown('<p style="font-weight: bold; color: black; font-size: 15px; margin-bottom: 5px;">Order Quantity</p>', unsafe_allow_html=True)
+                order_quantity = st.text_input(
+                    "",
+                    value=order_quantity_val,
+                    key="ap_order_quantity",
+                    label_visibility="collapsed"
+                )
+                st.markdown('<p style="font-weight: bold; color: black; font-size: 15px; margin-bottom: 5px; margin-top: 10px;">Action Point</p>', unsafe_allow_html=True)
+                action_point = st.text_area(
+                    "",
+                    value=action_val,
+                    key="ap_action",
+                    height=60,
+                    label_visibility="collapsed"
+                )
 
+            # Responsible Body row - dropdown and custom text with "or write custom" in the middle
+            st.markdown('<p style="font-weight: bold; color: black; font-size: 15px; margin-bottom: 5px;">Responsible Body</p>', unsafe_allow_html=True)
+            col_r1a, col_r1b, col_r1c = st.columns([2, 1, 2])
+            with col_r1a:
+                # Get current responsible body value
+                current_responsible = ""
+                if is_editing and edit_record and resp_val:
+                    current_responsible = resp_val
+
+                # Check if current value is custom (not in predefined list)
+                is_custom = current_responsible not in RESPONSIBLE_BODIES and current_responsible != ""
+
+                # Remove "Other" from RESPONSIBLE_BODIES
+                responsible_list = [b for b in RESPONSIBLE_BODIES if b != "Other"]
+                responsible_options = ["Select Responsible Body"] + responsible_list
+                if is_custom:
+                    responsible_options.append(current_responsible)
+
+                default_index = 0
+                if current_responsible and current_responsible in responsible_options:
+                    default_index = responsible_options.index(current_responsible)
+
+                selected_responsible = st.selectbox(
+                    "",
+                    responsible_options,
+                    index=default_index,
+                    key="ap_responsible_select",
+                    label_visibility="collapsed"
+                )
+            with col_r1b:
+                st.markdown('<p style="font-weight: bold; color: black; text-align: center; margin-top: 8px; font-size: 14px;">or write custom</p>', unsafe_allow_html=True)
+            with col_r1c:
+                custom_responsible = st.text_input(
+                    "",
+                    value=current_responsible if is_custom else "",
+                    key="ap_custom_responsible",
+                    placeholder="Type custom responsible body",
+                    label_visibility="collapsed"
+                )
+
+                # Use custom text if provided, otherwise use dropdown selection
+                if custom_responsible and custom_responsible.strip():
+                    final_responsible = custom_responsible.strip()
+                elif selected_responsible and selected_responsible != "Select Responsible Body":
+                    final_responsible = selected_responsible
+                else:
+                    final_responsible = ""
+
+            # Due Date and Status on the same row with separate labels
+            col_r2a, col_r2b = st.columns([1, 1])
+            with col_r2a:
+                st.markdown('<p style="font-weight: bold; color: black; font-size: 15px; margin-bottom: 5px;">Due Date</p>', unsafe_allow_html=True)
+                due_date = st.text_input(
+                    "",
+                    value=due_val,
+                    key="ap_due_date",
+                    label_visibility="collapsed"
+                )
+            with col_r2b:
+                st.markdown('<p style="font-weight: bold; color: black; font-size: 15px; margin-bottom: 5px;">Status</p>', unsafe_allow_html=True)
+                status_options = ["Select Status", "Initiated", "Ongoing", "Pending", "Completed"]
+                status_index = 0
+                if status_val in status_options:
+                    status_index = status_options.index(status_val)
+                status = st.selectbox(
+                    "",
+                    status_options,
+                    index=status_index,
+                    key="ap_status",
+                    label_visibility="collapsed"
+                )
+
+            # Colorful Save and Cancel buttons
             col_btn1, col_btn2 = st.columns(2)
             with col_btn1:
                 submit_label = "💾 Update" if is_editing else "💾 Save"
-                submit_clicked = st.form_submit_button(submit_label, use_container_width=True)
+                submit_clicked = st.form_submit_button(
+                    submit_label, 
+                    use_container_width=True,
+                    type="primary"
+                )
             with col_btn2:
-                cancel_clicked = st.form_submit_button("❌ Cancel", use_container_width=True)
+                cancel_clicked = st.form_submit_button(
+                    "❌ Cancel", 
+                    use_container_width=True,
+                    type="secondary"
+                )
 
             if submit_clicked:
+                # Validate quarter and year
+                if quarter == "Select Quarter":
+                    st.warning("Please select a Quarter.")
+                    return
+                if year == "Select Year":
+                    st.warning("Please select a Year.")
+                    return
+                if status == "Select Status":
+                    st.warning("Please select a Status.")
+                    return
+
                 if selected_material and identified_problem and action_point and due_date:
                     if is_editing and edit_record:
                         updated_record = {
@@ -3780,6 +3907,7 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
                             st.session_state.expert_plan_records = load_expert_plan_records(sheet_name if sheet_name != "All" else None, quarter if quarter != "All" else None, year if year != "All" else None)
                             st.session_state.edit_record_id = None
                             st.session_state.adding_action_point = False
+                            st.session_state.show_custom_responsible = False
                             st.rerun()
                     else:
                         new_record = {
@@ -3804,6 +3932,7 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
                         if save_expert_plan_record(new_record):
                             st.session_state.expert_plan_records = load_expert_plan_records(sheet_name if sheet_name != "All" else None, quarter if quarter != "All" else None, year if year != "All" else None)
                             st.session_state.adding_action_point = False
+                            st.session_state.show_custom_responsible = False
                             st.rerun()
                 else:
                     st.warning("Please fill all required fields (Identified Problem, Action Point, Due Date).")
@@ -3812,6 +3941,7 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
                 st.session_state.edit_record_id = None
                 st.session_state.adding_action_point = False
                 st.session_state.show_change_list = False
+                st.session_state.show_custom_responsible = False
                 st.rerun()
 
     st.markdown("---")
@@ -4133,17 +4263,83 @@ def render_ap_progress_follow_up(sheet_name, selected_quarter, selected_year, se
     display_df = filtered_df.copy()
     display_df['Status Display'] = display_df.apply(lambda row: status_badge_html(row.get('Status', 'Pending'), row.get('Material', '')), axis=1)
 
-    cols_to_display = ['Material', 'NMOS', 'Identified Problem', 'Action Point', 'Responsible Body', 'Due Date', 'Status Display']
+    # Get Current NMOS, Current TMOS from df_filtered
+    sheet_name_param = sheet_name if sheet_name != "All" else "All"
+    subcategory_filter = st.session_state.get('selected_subcategory', 'All')
+    df_filtered_current = get_filtered_data(sheet_name_param, subcategory_filter)
+
+    # Create a lookup dictionary for current NMOS and TMOS from df_filtered
+    current_lookup = {}
+    if not df_filtered_current.empty:
+        for _, row in df_filtered_current.iterrows():
+            material = row.get('Material Description', '')
+            if material:
+                current_lookup[material] = {
+                    'Current NMOS': row.get('NMOS', 'N/A'),
+                    'Current TMOS': row.get('TMOS', 'N/A')
+                }
+
+    def get_current_value(material, key):
+        if material in current_lookup:
+            val = current_lookup[material].get(key, 'N/A')
+            if pd.notna(val) and val != 'N/A':
+                try:
+                    return f"{float(val):.2f}"
+                except:
+                    return str(val)
+            return 'N/A'
+        return 'N/A'
+
+    display_df['Current NMOS'] = display_df['Material'].apply(lambda x: get_current_value(x, 'Current NMOS'))
+    display_df['Current TMOS'] = display_df['Material'].apply(lambda x: get_current_value(x, 'Current TMOS'))
+
+    # Calculate Current PMOS = Current TMOS - Current NMOS
+    def calculate_current_pmos(row):
+        tmos = row.get('Current TMOS', 'N/A')
+        nmos = row.get('Current NMOS', 'N/A')
+
+        if tmos == 'N/A' or nmos == 'N/A':
+            return 'N/A'
+        try:
+            tmos_val = float(tmos)
+            nmos_val = float(nmos)
+            pmos_val = tmos_val - nmos_val
+            return f"{pmos_val:.2f}"
+        except:
+            return 'N/A'
+
+    display_df['Current PMOS'] = display_df.apply(calculate_current_pmos, axis=1)
+
+    # Format NMOS from records to 2 decimal places
+    if 'NMOS' in display_df.columns:
+        display_df['NMOS'] = display_df['NMOS'].apply(
+            lambda x: f"{float(x):.2f}" if pd.notna(x) and x != '' else "N/A"
+        )
+    else:
+        display_df['NMOS'] = "N/A"
+
+    # Column order: Material, NMOS, Identified Problem, Action Point, Responsible Body, Due Date, Status, Current NMOS, Current PMOS, Current TMOS
+    cols_to_display = ['Material', 'NMOS', 'Identified Problem', 'Action Point', 'Responsible Body', 'Due Date', 'Status Display', 'Current NMOS', 'Current PMOS', 'Current TMOS']
     cols_to_display = [c for c in cols_to_display if c in display_df.columns or c == 'Status Display']
 
     html_table = '<div class="dataframe-container"><table class="styled-table" style="font-family: Times New Roman, Times, serif !important; font-size: 14px; width: 100%;"><thead><tr>'
     for col in cols_to_display:
         if col == 'Status Display':
-            html_table += '<th style="font-family: Times New Roman, Times, serif !important; font-size: 15px; width: 10%;">Status</th>'
+            html_table += '<th style="font-family: Times New Roman, Times, serif !important; font-size: 15px; width: 9%;">Status</th>'
+        elif col == 'Material':
+            html_table += '<th style="font-family: Times New Roman, Times, serif !important; font-size: 15px; width: 12%;">Material</th>'
+        elif col == 'NMOS':
+            html_table += '<th style="font-family: Times New Roman, Times, serif !important; font-size: 14px; width: 7%; text-align: center;">NMOS</th>'
         elif col == 'Identified Problem':
-            html_table += '<th style="font-family: Times New Roman, Times, serif !important; font-size: 15px; width: 25%;">Identified Problem</th>'
+            html_table += '<th style="font-family: Times New Roman, Times, serif !important; font-size: 15px; width: 20%;">Identified Problem</th>'
         elif col == 'Action Point':
-            html_table += '<th style="font-family: Times New Roman, Times, serif !important; font-size: 15px; width: 25%;">Action Point</th>'
+            html_table += '<th style="font-family: Times New Roman, Times, serif !important; font-size: 15px; width: 20%;">Action Point</th>'
+        elif col == 'Responsible Body':
+            html_table += '<th style="font-family: Times New Roman, Times, serif !important; font-size: 15px; width: 12%;">Responsible Body</th>'
+        elif col == 'Due Date':
+            html_table += '<th style="font-family: Times New Roman, Times, serif !important; font-size: 15px; width: 8%;">Due Date</th>'
+        elif col in ['Current NMOS', 'Current PMOS', 'Current TMOS']:
+            html_table += f'<th style="font-family: Times New Roman, Times, serif !important; font-size: 13px; width: 7%; text-align: center;">{col}</th>'
         else:
             html_table += f'<th style="font-family: Times New Roman, Times, serif !important; font-size: 15px;">{col}</th>'
     html_table += '</tr></thead><tbody>'
@@ -4152,11 +4348,19 @@ def render_ap_progress_follow_up(sheet_name, selected_quarter, selected_year, se
         html_table += '<tr class="clickable-row" data-material="' + str(row.get('Material', '')) + '">'
         for col in cols_to_display:
             if col == 'Status Display':
-                html_table += f'<td style="font-family: Times New Roman, Times, serif !important; font-size: 14px;">{row[col]}</td>'
+                html_table += f'<td style="font-family: Times New Roman, Times, serif !important; font-size: 14px; text-align: center;">{row[col]}</td>'
+            elif col == 'Material':
+                html_table += f'<td style="font-family: Times New Roman, Times, serif !important; font-size: 14px; font-weight: 500;">{row.get(col, "")}</td>'
+            elif col == 'NMOS':
+                html_table += f'<td style="font-family: Times New Roman, Times, serif !important; font-size: 14px; text-align: center;">{row.get(col, "N/A")}</td>'
+            elif col in ['Current NMOS', 'Current PMOS', 'Current TMOS']:
+                html_table += f'<td style="font-family: Times New Roman, Times, serif !important; font-size: 14px; text-align: center;">{row.get(col, "N/A")}</td>'
             elif col == 'Identified Problem':
                 html_table += f'<td style="font-family: Times New Roman, Times, serif !important; font-size: 14px; min-width: 200px;">{row.get(col, "")}</td>'
             elif col == 'Action Point':
                 html_table += f'<td style="font-family: Times New Roman, Times, serif !important; font-size: 14px; min-width: 200px;">{row.get(col, "")}</td>'
+            elif col == 'Due Date':
+                html_table += f'<td style="font-family: Times New Roman, Times, serif !important; font-size: 14px; text-align: center;">{row.get(col, "")}</td>'
             else:
                 html_table += f'<td style="font-family: Times New Roman, Times, serif !important; font-size: 14px;">{row.get(col, "")}</td>'
         html_table += '</tr>'
@@ -4167,7 +4371,7 @@ def render_ap_progress_follow_up(sheet_name, selected_quarter, selected_year, se
 
     output = BytesIO()
     with pd.ExcelWriter(output, engine='openpyxl') as writer:
-        df_to_export = display_df[['Material', 'NMOS', 'Identified Problem', 'Action Point', 'Responsible Body', 'Due Date', 'Status']].copy()
+        df_to_export = display_df[['Material', 'NMOS', 'Identified Problem', 'Action Point', 'Responsible Body', 'Due Date', 'Status', 'Current NMOS', 'Current PMOS', 'Current TMOS']].copy()
         df_to_export_clean = clean_dataframe_for_excel(df_to_export)
         df_to_export_clean.to_excel(writer, index=False, sheet_name='Action Plan')
     excel_data = output.getvalue()
