@@ -2539,24 +2539,22 @@ elif page == "Issue Data":
     with st.spinner("Loading program materials from Google Sheets..."):
         if show_all_programs or len(selected_programs_list) == 0:
             all_program_materials = []
-            # Follow program order
             for prog_name in PROGRAM_ORDER_LIST:
                 if prog_name in google_sheets and 'Material Description' in google_sheets[prog_name].columns:
                     materials = google_sheets[prog_name]['Material Description'].dropna().tolist()
                     all_program_materials.extend(materials)
-            # Add any remaining programs not in the list
             for prog_name in google_sheets.keys():
                 if prog_name not in PROGRAM_ORDER_LIST and 'Material Description' in google_sheets[prog_name].columns:
                     materials = google_sheets[prog_name]['Material Description'].dropna().tolist()
                     all_program_materials.extend(materials)
-            program_materials = list(dict.fromkeys(all_program_materials))  # Preserve order, remove duplicates
+            program_materials = list(dict.fromkeys(all_program_materials))
         else:
             program_materials = []
             for prog_name in selected_programs_list:
                 if prog_name in google_sheets and 'Material Description' in google_sheets[prog_name].columns:
                     materials = google_sheets[prog_name]['Material Description'].dropna().tolist()
                     program_materials.extend(materials)
-            program_materials = list(dict.fromkeys(program_materials))  # Remove duplicates
+            program_materials = list(dict.fromkeys(program_materials))
 
         if not program_materials:
             st.error(f"No material data found for selected programs.")
@@ -2647,7 +2645,8 @@ elif page == "Issue Data":
 
     # ========== CALCULATE A_AMC (Overall and by Plant) ==========
     a_amc_overall = pd.DataFrame()
-    plant_a_amc = pd.DataFrame()  # For the separate A_AMC section
+    plant_a_amc = pd.DataFrame()
+    plant_amos_pivot = pd.DataFrame()
 
     if 'Delivery Date' in display_issue_df.columns and display_issue_df['Delivery Date'].notna().any():
         latest_date = display_issue_df['Delivery Date'].max()
@@ -2655,30 +2654,117 @@ elif page == "Issue Data":
         last_3_months = display_issue_df[display_issue_df['Delivery Date'] >= three_months_before]
 
         if not last_3_months.empty:
-            # Overall A_AMC (for Material vs Time table)
+            # Overall A_AMC
             last_3_months['YearMonth'] = last_3_months['Delivery Date'].dt.strftime('%Y-%m')
             monthly_totals = last_3_months.groupby(['Material Description', 'YearMonth'])['Quantity'].sum().reset_index()
             a_amc_calc = monthly_totals.groupby('Material Description')['Quantity'].mean().round(2)
             a_amc_overall = pd.DataFrame({
                 'Material Description': a_amc_calc.index,
-                'A_AMC': a_amc_calc.values
+                'A_AMC': a_amc_calc.values.round(2)
             })
 
-            # Calculate Plant A_AMC = Total quantity last 3 months / 3
+            # Calculate Plant A_AMC
             plant_last_3_months = last_3_months.groupby(['Material Description', 'Plant'])['Quantity'].sum().reset_index()
             plant_last_3_months['A_AMC'] = (plant_last_3_months['Quantity'] / 3).round(2)
             plant_a_amc = plant_last_3_months[['Material Description', 'Plant', 'A_AMC']]
 
+            # ========== CALCULATE PLANT AMOS USING HSOH FROM HEALTH_DATA ==========
+            if not plant_a_amc.empty and not df.empty:
+                # Plant name mapping (issue_data -> health_data)
+                issue_plants = plant_a_amc['Plant'].unique().tolist()
+                health_branch_columns = [col for col in df.columns if 'Branch' in col and col != 'Material Description']
+
+                plant_to_branch_mapping = {}
+
+                for issue_plant in issue_plants:
+                    matched_branch = None
+                    plant_name_clean = issue_plant.split(' (')[0] if ' (' in issue_plant else issue_plant
+
+                    if plant_name_clean in health_branch_columns:
+                        matched_branch = plant_name_clean
+                    else:
+                        plant_name_lower = plant_name_clean.lower()
+                        for branch_col in health_branch_columns:
+                            if branch_col.lower() == plant_name_lower:
+                                matched_branch = branch_col
+                                break
+
+                        if not matched_branch:
+                            for branch_col in health_branch_columns:
+                                branch_lower = branch_col.lower()
+                                if plant_name_lower in branch_lower or branch_lower in plant_name_lower:
+                                    matched_branch = branch_col
+                                    break
+
+                        if not matched_branch and ' (' in issue_plant and ')' in issue_plant:
+                            code = issue_plant.split(' (')[1].replace(')', '')
+                            code_lower = code.lower()
+                            for branch_col in health_branch_columns:
+                                if code_lower in branch_col.lower():
+                                    matched_branch = branch_col
+                                    break
+
+                    if matched_branch:
+                        plant_to_branch_mapping[issue_plant] = matched_branch
+
+                # Build HSOH data
+                hsoh_records = []
+
+                for material in program_materials:
+                    material_row = df[df['Material Description'] == material]
+                    if material_row.empty:
+                        continue
+
+                    for issue_plant, branch_col in plant_to_branch_mapping.items():
+                        if branch_col in material_row.columns:
+                            hsoh_value = material_row[branch_col].iloc[0]
+                            try:
+                                hsoh_value = float(hsoh_value) if pd.notna(hsoh_value) else 0
+                            except:
+                                hsoh_value = 0
+
+                            if hsoh_value > 0:
+                                hsoh_records.append({
+                                    'Material Description': material,
+                                    'Plant': issue_plant,
+                                    'HSOH': hsoh_value
+                                })
+
+                if hsoh_records:
+                    hsoh_df = pd.DataFrame(hsoh_records)
+                    plant_amos_df = hsoh_df.merge(
+                        plant_a_amc,
+                        on=['Material Description', 'Plant'],
+                        how='inner'
+                    )
+
+                    if not plant_amos_df.empty:
+                        plant_amos_df['AMOS'] = np.where(
+                            plant_amos_df['A_AMC'] > 0,
+                            plant_amos_df['HSOH'] / plant_amos_df['A_AMC'],
+                            0
+                        ).round(2)
+
+                        plant_amos_pivot = plant_amos_df.pivot_table(
+                            index='Material Description',
+                            columns='Plant',
+                            values='AMOS',
+                            fill_value=0
+                        ).round(2)
+
+                        plant_amos_pivot = plant_amos_pivot.reindex([m for m in program_materials if m in plant_amos_pivot.index])
+
     # Create ordered material list based on program order
     ordered_materials = [m for m in program_materials if m in display_issue_df['Material Description'].values]
 
-    # ========== DETAILED ISSUE DATA TABLES ==========
+    # ========== DETAILED ISSUE DATA TABLES - 5 TABS ==========
     st.markdown("<h3 style='font-size: 24px; font-weight: bold;'>📋 Detailed Issue Data Tables</h3>", unsafe_allow_html=True)
 
-    detail_tab1, detail_tab2, detail_tab3, detail_tab4 = st.tabs([
+    detail_tab1, detail_tab2, detail_tab3, detail_tab4, detail_tab5 = st.tabs([
         "📋 Issue Data by Time", 
         "🏭 Issue Data by Plant", 
-        "📊 Plant A_AMC (Last 3 Months / 3)",
+        "📊 Plant A_AMC",
+        "📈 Plant AMOS",
         "🗺️ Issue Data by Region"
     ])
 
@@ -2691,19 +2777,14 @@ elif page == "Issue Data":
             monthly_pivot = monthly_detail.groupby(['Material Description', 'Month'])['Quantity'].sum().reset_index()
             monthly_table = monthly_pivot.pivot_table(index='Material Description', columns='Month', values='Quantity', fill_value=0)
 
-            # Sort columns chronologically
             month_order = sorted(monthly_table.columns, key=lambda x: pd.to_datetime(x, format='%b-%Y'))
             monthly_table = monthly_table[month_order]
-
-            # Reorder materials according to program order
             monthly_table = monthly_table.reindex([m for m in ordered_materials if m in monthly_table.index])
 
-            # Add Overall A_AMC column
             monthly_table = monthly_table.reset_index()
             if not a_amc_overall.empty:
                 monthly_table = monthly_table.merge(a_amc_overall, on='Material Description', how='left')
                 monthly_table['A_AMC'] = monthly_table['A_AMC'].fillna(0).round(2)
-                # Reorder columns to put A_AMC after Material Description
                 cols = ['Material Description', 'A_AMC'] + [c for c in monthly_table.columns if c not in ['Material Description', 'A_AMC']]
                 monthly_table = monthly_table[cols]
 
@@ -2720,11 +2801,8 @@ elif page == "Issue Data":
     with detail_tab2:
         st.markdown("#### Material vs Plant (Actual Issue Quantities)")
 
-        # Create Material vs Plant pivot table
         plant_table = display_issue_df.groupby(['Material Description', 'Plant'])['Quantity'].sum().reset_index()
         plant_pivot_table = plant_table.pivot_table(index='Material Description', columns='Plant', values='Quantity', fill_value=0)
-
-        # Reorder materials according to program order
         plant_pivot_table = plant_pivot_table.reindex([m for m in ordered_materials if m in plant_pivot_table.index])
 
         st.dataframe(plant_pivot_table, use_container_width=True, height=500)
@@ -2741,15 +2819,12 @@ elif page == "Issue Data":
         st.caption("A_AMC by Plant = Total issue quantity from the last 3 months of data divided by 3 months")
 
         if not plant_a_amc.empty:
-            # Create A_AMC pivot table
             a_amc_pivot = plant_a_amc.pivot_table(
                 index='Material Description', 
                 columns='Plant', 
                 values='A_AMC',
                 fill_value=0
             ).round(2)
-
-            # Reorder materials according to program order
             a_amc_pivot = a_amc_pivot.reindex([m for m in ordered_materials if m in a_amc_pivot.index])
 
             st.dataframe(a_amc_pivot, use_container_width=True, height=500)
@@ -2764,12 +2839,27 @@ elif page == "Issue Data":
             st.info("No data available for A_AMC calculation. Need at least 3 months of delivery data.")
 
     with detail_tab4:
+        st.markdown("#### Plant AMOS (Actual Month of Stock)")
+        st.caption("AMOS = HSOH (from health_data) ÷ Plant A_AMC (from issue_data)")
+
+        if not plant_amos_pivot.empty:
+            # Clean white table with 2 decimal places
+            st.dataframe(plant_amos_pivot, use_container_width=True, height=500)
+
+            st.download_button(
+                label="📥 Download Plant AMOS Data",
+                data=plant_amos_pivot.reset_index().to_csv(index=False),
+                file_name=f"plant_amos_{datetime.now().strftime('%Y%m%d')}.csv",
+                mime="text/csv"
+            )
+        else:
+            st.info("No AMOS data available. Need both HSOH (from health_data) and Plant A_AMC (from issue_data).")
+
+    with detail_tab5:
         st.markdown("#### Material vs Region")
 
         region_table = display_issue_df.groupby(['Material Description', 'Region'])['Quantity'].sum().reset_index()
         region_pivot_table = region_table.pivot_table(index='Material Description', columns='Region', values='Quantity', fill_value=0)
-
-        # Reorder materials according to program order
         region_pivot_table = region_pivot_table.reindex([m for m in ordered_materials if m in region_pivot_table.index])
 
         st.dataframe(region_pivot_table, use_container_width=True, height=500)
@@ -2792,7 +2882,6 @@ elif page == "Issue Data":
         time_df['Month'] = time_df['Delivery Date'].dt.strftime('%b-%Y')
         time_df['Quarter'] = time_df['Delivery Date'].dt.to_period('Q').astype(str)
 
-        # Monthly trend
         monthly_trend = time_df.groupby('Month')['Quantity'].sum().reset_index()
         monthly_trend['Sort_Date'] = pd.to_datetime(monthly_trend['Month'], format='%b-%Y')
         monthly_trend = monthly_trend.sort_values('Sort_Date')
@@ -2878,17 +2967,15 @@ elif page == "Issue Data":
             fig_plant_pie.update_layout(height=450)
             st.plotly_chart(fig_plant_pie, use_container_width=True)
 
-        # Plant vs Material heatmap with pagination (10 materials per page)
+        # Plant vs Material heatmap with pagination
         st.markdown("#### 🔥 Plant vs Material - Issue Quantity Heatmap")
 
         plant_pivot = display_issue_df.groupby(['Plant', 'Material Description'])['Quantity'].sum().reset_index()
         plant_pivot = plant_pivot.pivot_table(index='Plant', columns='Material Description', values='Quantity', fill_value=0)
 
-        # Get all materials sorted by program order
         all_materials = [m for m in ordered_materials if m in plant_pivot.columns]
         total_materials = len(all_materials)
 
-        # Pagination state
         if 'plant_heatmap_page' not in st.session_state:
             st.session_state.plant_heatmap_page = 1
 
@@ -2932,6 +3019,97 @@ elif page == "Issue Data":
         )
         st.plotly_chart(fig_plant_heatmap, use_container_width=True)
 
+        # ============================================================
+        # 🔥 PLANT VS MATERIAL - ACTUAL MONTH OF STOCK (AMOS) HEATMAP
+        # ============================================================
+        st.markdown("#### 🔥 Plant vs Material - Actual Month of Stock (AMOS)")
+        st.caption("AMOS = HSOH (from health_data) ÷ Plant A_AMC (from issue_data)")
+
+        if not plant_amos_pivot.empty:
+            # Transpose: Materials become columns, Plants become rows
+            amos_pivot_transposed = plant_amos_pivot.T
+
+            if 'page_materials' in dir() and page_materials:
+                available_materials = [m for m in page_materials if m in amos_pivot_transposed.columns]
+                if available_materials:
+                    amos_pivot_page = amos_pivot_transposed[available_materials]
+                else:
+                    amos_pivot_page = amos_pivot_transposed.iloc[:, :min(10, len(amos_pivot_transposed.columns))]
+            else:
+                amos_pivot_page = amos_pivot_transposed.iloc[:, :min(10, len(amos_pivot_transposed.columns))]
+
+            # ============================================================
+            # CORRECTED COLOR SCALE FOR AMOS HEATMAP
+            # <0.5 red, 0.5-1 orange, 1-2 yellow, 2-4 green, 4-6 blue, >6 skyblue
+            # ============================================================
+            max_amos = amos_pivot_page.max().max() if not amos_pivot_page.empty else 12
+            z_max = max(6, max_amos) if max_amos > 0 else 6
+
+            # Calculate positions based on z_max
+            pos_0_5 = 0.5 / z_max
+            pos_1 = 1.0 / z_max
+            pos_2 = 2.0 / z_max
+            pos_4 = 4.0 / z_max
+            pos_6 = 6.0 / z_max
+
+            amos_colorscale = [
+                [0.0, '#ff0000'],           # Red - 0
+                [pos_0_5, '#ff0000'],       # Red - <0.5
+                [pos_0_5 + 0.001, '#ff6600'], # Orange - 0.5
+                [pos_1, '#ff6600'],         # Orange - 0.5-1
+                [pos_1 + 0.001, '#ffff00'], # Yellow - 1
+                [pos_2, '#ffff00'],         # Yellow - 1-2
+                [pos_2 + 0.001, '#33cc33'], # Green - 2
+                [pos_4, '#33cc33'],         # Green - 2-4
+                [pos_4 + 0.001, '#3366ff'], # Blue - 4
+                [pos_6, '#3366ff'],         # Blue - 4-6
+                [pos_6 + 0.001, '#66ccff'], # Skyblue - 6
+                [1.0, '#66ccff']            # Skyblue - >6
+            ]
+
+            fig_amos_heatmap = go.Figure(data=go.Heatmap(
+                z=amos_pivot_page.values,
+                y=amos_pivot_page.index,
+                x=amos_pivot_page.columns,
+                colorscale=amos_colorscale,
+                zmin=0,
+                zmax=z_max,
+                text=amos_pivot_page.values.round(2),
+                texttemplate='%{text}',
+                textfont={"size": 10},
+                colorbar=dict(
+                    title="AMOS (Months)",
+                    tickvals=[0, 0.5, 1, 2, 4, 6],
+                    ticktext=['0', '0.5', '1', '2', '4', '6']
+                ),
+                hovertemplate='<b>Material:</b> %{x}<br><b>Plant:</b> %{y}<br><b>AMOS:</b> %{z:.2f} months<br><extra></extra>'
+            ))
+            fig_amos_heatmap.update_layout(
+                xaxis_tickangle=-45,
+                xaxis={'title': 'Material Description', 'tickfont': {'size': 10}},
+                yaxis={'title': 'Plant'},
+                height=max(400, 35 * len(amos_pivot_page) + 100),
+                margin=dict(l=150, r=50, t=50, b=250)
+            )
+            st.plotly_chart(fig_amos_heatmap, use_container_width=True)
+
+            # AMOS Legend
+            st.markdown("""
+            <div style='background: #f8f9fa; padding: 10px; border-radius: 5px; margin-top: 10px;'>
+                <p style='margin: 0; font-weight: bold;'>📊 AMOS Legend:</p>
+                <div style='display: flex; gap: 15px; flex-wrap: wrap; margin-top: 5px;'>
+                    <span><span style='background-color: #ff0000; padding: 2px 10px; border-radius: 3px; color: white;'>&lt;0.5</span> Stock Out</span>
+                    <span><span style='background-color: #ff6600; padding: 2px 10px; border-radius: 3px; color: white;'>0.5-1</span> Understock</span>
+                    <span><span style='background-color: #ffff00; padding: 2px 10px; border-radius: 3px; color: black;'>1-2</span> Low Normal</span>
+                    <span><span style='background-color: #33cc33; padding: 2px 10px; border-radius: 3px; color: white;'>2-4</span> Normal</span>
+                    <span><span style='background-color: #3366ff; padding: 2px 10px; border-radius: 3px; color: white;'>4-6</span> High</span>
+                    <span><span style='background-color: #66ccff; padding: 2px 10px; border-radius: 3px; color: black;'>&gt;6</span> Very High</span>
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
+        else:
+            st.info("No AMOS data available for heatmap. Need both HSOH (from health_data) and Plant A_AMC (from issue_data).")
+
     st.markdown("---")
 
     # ========== ANALYSIS 3: BY REGION (with pagination) ==========
@@ -2971,14 +3149,16 @@ elif page == "Issue Data":
             fig_region_pie.update_layout(height=450)
             st.plotly_chart(fig_region_pie, use_container_width=True)
 
-        # Region vs Material heatmap with pagination (10 materials per page)
+        # Region vs Material heatmap
         st.markdown("#### 🔥 Region vs Material - Issue Quantity Heatmap")
 
         region_pivot = display_issue_df.groupby(['Region', 'Material Description'])['Quantity'].sum().reset_index()
         region_pivot = region_pivot.pivot_table(index='Region', columns='Material Description', values='Quantity', fill_value=0)
 
-        # Use same material order
-        region_pivot_page = region_pivot[page_materials] if 'page_materials' in dir() and page_materials else region_pivot.iloc[:, :10]
+        if 'page_materials' in dir() and page_materials:
+            region_pivot_page = region_pivot[page_materials]
+        else:
+            region_pivot_page = region_pivot.iloc[:, :10]
 
         fig_region_heatmap = go.Figure(data=go.Heatmap(
             z=region_pivot_page.values,
@@ -3533,7 +3713,7 @@ elif page == "Advanced Analytics":
         else:
             st.info("Google Sheets data not available for program comparison")
 
-       # ========== TAB 6: Regional Map ==========
+    # ========== TAB 6: Regional Map ==========
     with aa_tab6:
         st.markdown("<h3 style='font-size: 24px; font-weight: bold;'>Regional Stock Distribution Map</h3>", unsafe_allow_html=True)
         st.caption("🔴 Red = HMOS < 2 (Understock) | 🟢 Green = HMOS 2-4 (Normal) | 🔵 Skyblue = HMOS > 4 (Overstock)")
@@ -3583,66 +3763,13 @@ elif page == "Advanced Analytics":
 
             if map_data:
                 map_df = pd.DataFrame(map_data)
-
-                # ========== UNIVERSAL FIX - Works with any Plotly version ==========
-                try:
-                    # Try using plotly express scatter_geo first
-                    fig = px.scatter_geo(
-                        map_df,
-                        lat='Latitude',
-                        lon='Longitude',
-                        size='Average HMOS',
-                        size_max=30,
-                        color='Status',
-                        hover_name='Branch',
-                        hover_data=['Average HMOS'],
-                        color_discrete_map={'Understock': 'red', 'Normal': 'green', 'Overstock': 'skyblue'},
-                        title='Branch Stock Distribution Map (Average HMOS)'
-                    )
-                    fig.update_geos(
-                        projection_type="equirectangular",
-                        showcountries=True,
-                        countrycolor="Black",
-                        coastlinecolor="Black",
-                        landcolor="white",
-                        oceancolor="lightblue",
-                        showocean=True,
-                        showframe=True,
-                        framecolor="Black"
-                    )
-                    fig.update_layout(
-                        height=600,
-                        margin=dict(l=0, r=0, t=40, b=0),
-                        geo=dict(
-                            scope='africa',
-                            center=dict(lat=9.0, lon=38.0),
-                            projection_scale=4
-                        )
-                    )
-                    st.plotly_chart(fig, use_container_width=True)
-
-                except Exception as e:
-                    # Fallback: Use a simple bar chart if map fails
-                    st.warning(f"Map visualization not available. Showing bar chart instead.")
-
-                    fig = px.bar(
-                        map_df,
-                        x='Branch',
-                        y='Average HMOS',
-                        color='Status',
-                        title='Branch Average HMOS Distribution',
-                        color_discrete_map={'Understock': 'red', 'Normal': 'green', 'Overstock': 'skyblue'},
-                        text='Average HMOS'
-                    )
-                    fig.update_traces(textposition='outside')
-                    fig.update_layout(
-                        height=500,
-                        xaxis_tickangle=-45,
-                        yaxis_title='Average HMOS (Months)'
-                    )
-                    st.plotly_chart(fig, use_container_width=True)
-
-                # Show the data table
+                fig = px.scatter_mapbox(map_df, lat='Latitude', lon='Longitude', size='Average HMOS', size_max=30,
+                                       color='Status', hover_name='Branch', hover_data=['Average HMOS'],
+                                       color_discrete_map={'Understock': 'red', 'Normal': 'green', 'Overstock': 'skyblue'},
+                                       zoom=5, height=600, title='Branch Stock Distribution Map (Average HMOS)')
+                fig.update_layout(mapbox_style='open-street-map')
+                fig.update_layout(margin=dict(l=0, r=0, t=30, b=0))
+                st.plotly_chart(fig, use_container_width=True)
                 st.dataframe(map_df[['Branch', 'Average HMOS', 'Status']], use_container_width=True, hide_index=True)
             else:
                 st.info("Map data not available.")
