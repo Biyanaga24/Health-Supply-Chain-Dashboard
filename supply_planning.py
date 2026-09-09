@@ -13,28 +13,17 @@ import random
 CACHE_TTL = 3600
 
 # ============================================================================
-# AUTHENTICATION IMPORTS - UPDATED WITH TAB MANAGEMENT
+# AUTHENTICATION IMPORTS
 # ============================================================================
 from sup_auth import (
     require_auth, get_current_user, get_user_role, 
     is_admin, logout, get_user_program_access,
     get_all_users, get_pending_users, approve_user, reject_user,
-    update_user_role, toggle_user_active, update_user_program_access,
-    update_user_tab_access, get_user_tab_access
+    update_user_role, toggle_user_active, update_user_program_access
 )
 
 # ============================================================================
-# TAB CONSTANTS
-# ============================================================================
-TAB_OPTIONS = [
-    "Historical Data",
-    "Expert Action Plan", 
-    "Action Plan Follow Up",
-    "System Generated Action Plan"
-]
-
-# ============================================================================
-# CUSTOM CSS - UPDATED WITH ALL FIXES
+# CUSTOM CSS - Updated with Navy Blue color scheme to match sup_auth.py
 # ============================================================================
 def inject_custom_css():
     st.markdown("""
@@ -214,27 +203,12 @@ def inject_custom_css():
             cursor: not-allowed;
         }
 
-        /* FIXED EXPANDER - NO OVERLAP (Requirement 11) */
         .streamlit-expanderHeader {
-    background-color: white;
-    border-radius: 8px;
-    font-weight: 500;
-    border-left: 4px solid #2e86c1;
-    padding: 10px 15px !important;
-    margin-bottom: 5px !important;
-    position: relative !important;
-    z-index: 1 !important;
-}
-.streamlit-expanderContent {
-    background-color: white;
-    border-radius: 8px;
-    padding: 15px !important;
-    border: 1px solid #e0e0e0;
-    border-top: none;
-    margin-top: 0 !important;
-    position: relative !important;
-    z-index: 0 !important;
-}
+            background-color: white;
+            border-radius: 8px;
+            font-weight: 500;
+            border-left: 4px solid #2e86c1;
+        }
 
         .stSelectbox > div > div {
             background-color: white !important;
@@ -392,111 +366,6 @@ def inject_custom_css():
             border-left: 4px solid #2e86c1;
         }
         .info-box strong { color: #1a5276; }
-
-        /* CARD VIEW - Requirement 10 */
-        .card-view-container {
-            display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
-            gap: 16px;
-            margin: 10px 0;
-        }
-
-        .data-card {
-            background: white;
-            border-radius: 12px;
-            padding: 16px;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.08);
-            border: 1px solid #e8e8e8;
-            transition: all 0.3s ease;
-        }
-        .data-card:hover {
-            transform: translateY(-3px);
-            box-shadow: 0 6px 25px rgba(0,0,0,0.12);
-            border-color: #2e86c1;
-        }
-
-        .data-card .card-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            border-bottom: 2px solid #2e86c1;
-            padding-bottom: 8px;
-            margin-bottom: 10px;
-        }
-        .data-card .card-title {
-            font-size: 15px;
-            font-weight: 700;
-            color: #1a5276;
-            font-family: 'Times New Roman', Times, serif !important;
-        }
-        .data-card .card-body {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 4px 12px;
-            font-size: 13px;
-        }
-        .data-card .card-body .label {
-            color: #666;
-            font-weight: 500;
-        }
-        .data-card .card-body .value {
-            color: #1a5276;
-            font-weight: 600;
-            text-align: right;
-        }
-        .data-card .card-body .full-width {
-            grid-column: 1 / -1;
-        }
-        .data-card .card-body .problem {
-            grid-column: 1 / -1;
-            background: #fff3cd;
-            padding: 6px 10px;
-            border-radius: 6px;
-            border-left: 3px solid #ffc107;
-            font-size: 12px;
-        }
-        .data-card .card-body .action {
-            grid-column: 1 / -1;
-            background: #d1ecf1;
-            padding: 6px 10px;
-            border-radius: 6px;
-            border-left: 3px solid #17a2b8;
-            font-size: 12px;
-        }
-        .data-card .card-body .responsible {
-            grid-column: 1 / -1;
-            background: #f8f9fa;
-            padding: 4px 10px;
-            border-radius: 6px;
-            font-size: 12px;
-            display: flex;
-            justify-content: space-between;
-        }
-
-        /* ADMIN 3-COLUMN LAYOUT - Requirement 6 */
-        .admin-management-row {
-            display: grid;
-            grid-template-columns: 1fr 1fr 1fr;
-            gap: 15px;
-            margin: 10px 0;
-        }
-        @media (max-width: 768px) {
-            .admin-management-row {
-                grid-template-columns: 1fr;
-            }
-        }
-        .admin-management-card {
-            background: #f8f9fa;
-            border-radius: 10px;
-            padding: 15px;
-            border: 1px solid #e0e0e0;
-        }
-        .admin-management-card h4 {
-            color: #1a5276;
-            margin-bottom: 10px;
-            font-size: 14px;
-            font-weight: 600;
-        }
     </style>
     """, unsafe_allow_html=True)
 
@@ -517,7 +386,6 @@ def sort_months_chronologically(month_list):
             except:
                 return datetime(1900, 1, 1)
     return sorted(month_list, key=parse_month)
-
 def clean_dataframe_for_excel(df):
     """Clean all string columns for Excel export."""
     df_clean = df.copy()
@@ -567,25 +435,7 @@ def inject_javascript():
     """, unsafe_allow_html=True)
 
 # ============================================================================
-# VIEW TOGGLE HELPER - Requirement 10
-# ============================================================================
-def render_view_toggle(view_key, default_view="Table"):
-    """Render view toggle buttons and return selected view"""
-    col1, col2, col3 = st.columns([1, 1, 4])
-    with col1:
-        if st.button("📋 Table", key=f"table_{view_key}", use_container_width=True,
-                     type="primary" if st.session_state.get(view_key, default_view) == "Table" else "secondary"):
-            st.session_state[view_key] = "Table"
-            st.rerun()
-    with col2:
-        if st.button("📇 Cards", key=f"cards_{view_key}", use_container_width=True,
-                     type="primary" if st.session_state.get(view_key, default_view) == "Cards" else "secondary"):
-            st.session_state[view_key] = "Cards"
-            st.rerun()
-    return st.session_state.get(view_key, default_view)
-
-# ============================================================================
-# CACHED DATA LOADING
+# CACHED DATA LOADING - ALL DATA LOADED ONCE WITH NO SPINNER
 # ============================================================================
 @st.cache_data(ttl=3600, show_spinner=False)
 def load_all_data_cached():
@@ -610,7 +460,7 @@ def load_all_data_cached():
     }
 
 # ============================================================================
-# ADMIN PAGE - UPDATED WITH TAB MANAGEMENT (Requirements 6, 7, 8, 9)
+# ADMIN PAGE
 # ============================================================================
 def render_admin_page():
     col1, col2 = st.columns([1, 4])
@@ -664,12 +514,12 @@ def render_admin_page():
                     col1, col2, col3, col4 = st.columns([1, 1, 1, 1])
                     with col1:
                         if st.button(f"✅ Approve", key=f"approve_{user['id']}", use_container_width=True):
-                            if approve_user(str(user['id'])):
+                            if approve_user(user['id']):
                                 st.success("User approved!")
                                 st.rerun()
                     with col2:
                         if st.button(f"❌ Reject", key=f"reject_{user['id']}", use_container_width=True):
-                            if reject_user(str(user['id'])):
+                            if reject_user(user['id']):
                                 st.success("User rejected!")
                                 st.rerun()
                     with col3:
@@ -682,7 +532,7 @@ def render_admin_page():
                         )
                     with col4:
                         if st.button(f"Assign", key=f"assign_role_{user['id']}", use_container_width=True):
-                            if update_user_role(str(user['id']), new_role):
+                            if update_user_role(user['id'], new_role):
                                 st.success(f"Role set to {new_role}!")
                                 st.rerun()
                     st.divider()
@@ -694,20 +544,6 @@ def render_admin_page():
         if all_users:
             user_data = []
             for user in all_users:
-                # Get tab access - Requirement 8
-                tab_access = user.get('tab_access', '')
-                if isinstance(tab_access, list):
-                    tab_access = ', '.join(tab_access) if tab_access else 'All'
-                elif tab_access == '' or tab_access is None:
-                    tab_access = 'All'
-
-                # Get active date - Requirement 9 (Active Date before Registered)
-                active_date = user.get('updated_at', user.get('created_at', ''))
-                if active_date:
-                    active_date = active_date[:10] if len(active_date) >= 10 else active_date
-                else:
-                    active_date = ''
-
                 user_data.append({
                     "Name": user.get('full_name', ''),
                     "Email": user.get('email', ''),
@@ -715,16 +551,12 @@ def render_admin_page():
                     "Approved": "✅" if user.get('is_approved', False) else "❌",
                     "Active": "✅" if user.get('is_active', True) else "❌",
                     "Program Access": user.get('program_access', ''),
-                    "Tab Access": tab_access,
-                    "Active Date": active_date,
                     "Registered": user.get('created_at', '')[:10] if user.get('created_at') else '',
                     "ID": user.get('id', '')
                 })
             df_users = pd.DataFrame(user_data)
-            # Reordered columns: Active Date before Registered - Requirement 9
-            cols = ['Name', 'Email', 'Role', 'Approved', 'Active', 'Program Access', 'Tab Access', 'Active Date', 'Registered']
-            cols = [c for c in cols if c in df_users.columns]
-            st.dataframe(df_users[cols], use_container_width=True, hide_index=True)
+            st.dataframe(df_users[['Name', 'Email', 'Role', 'Approved', 'Active', 'Program Access', 'Registered']], 
+                        use_container_width=True, hide_index=True)
 
             st.markdown("---")
             st.markdown("### Edit User")
@@ -734,14 +566,9 @@ def render_admin_page():
                                                 format_func=lambda x: user_options[x])
                 if selected_user_idx is not None:
                     selected_user = all_users[selected_user_idx]
-
-                    st.markdown("### User Management")
-
-                    # 3 Columns in one row: Role, Program, Tab
-                    col_role, col_program, col_tab = st.columns(3)
-
-                    with col_role:
-                        st.markdown("#### 🔑 Role Management")
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        st.markdown("#### Role Management")
                         current_role = selected_user.get('role', 'viewer')
                         new_role = st.selectbox(
                             "Select Role",
@@ -749,16 +576,12 @@ def render_admin_page():
                             index=['viewer', 'editor', 'admin'].index(current_role) if current_role in ['viewer', 'editor', 'admin'] else 0,
                             key=f"edit_role_{selected_user['id']}"
                         )
-                        if st.button("🔄 Update Role", key=f"update_role_{selected_user['id']}", use_container_width=True):
-                            # Ensure ID is a string
-                            if update_user_role(str(selected_user['id']), new_role):
+                        if st.button("🔄 Update Role", use_container_width=True):
+                            if update_user_role(selected_user['id'], new_role):
                                 st.success(f"Role updated to {new_role}!")
                                 st.rerun()
-                            else:
-                                st.error("Failed to update role.")
-
-                    with col_program:
-                        st.markdown("#### 📋 Program Access")
+                    with col2:
+                        st.markdown("#### Program Access")
                         current_programs = selected_user.get('program_access', '').split(',')
                         current_programs = [p.strip() for p in current_programs if p.strip()]
                         program_options = ["All", "Malaria", "HIV", "TB", "OI and Hepatitis", "Nutrition", "Lab TB", "HIV Lab"]
@@ -768,53 +591,22 @@ def render_admin_page():
                             default=current_programs if current_programs else ['All'],
                             key=f"edit_programs_{selected_user['id']}"
                         )
-                        if st.button("📋 Update Programs", key=f"update_programs_{selected_user['id']}", use_container_width=True):
-                            # Ensure ID is a string
-                            if update_user_program_access(str(selected_user['id']), new_programs):
+                        if st.button("📋 Update Program Access", use_container_width=True):
+                            if update_user_program_access(selected_user['id'], new_programs):
                                 st.success("Program access updated!")
                                 st.rerun()
-                            else:
-                                st.error("Failed to update programs.")
-
-                    with col_tab:
-                        st.markdown("#### 📑 Tab Access")
-                        current_tabs = selected_user.get('tab_access', '')
-                        if isinstance(current_tabs, str) and current_tabs:
-                            current_tabs = [t.strip() for t in current_tabs.split(',') if t.strip()]
-                        elif isinstance(current_tabs, list):
-                            current_tabs = current_tabs
-                        else:
-                            current_tabs = []
-
-                        if not current_tabs:
-                            current_tabs = ['All']
-
-                        new_tabs = st.multiselect(
-                            "Select Tabs",
-                            TAB_OPTIONS + ["All"],
-                            default=current_tabs,
-                            key=f"edit_tabs_{selected_user['id']}"
-                        )
-                        if st.button("📑 Update Tabs", key=f"update_tabs_{selected_user['id']}", use_container_width=True):
-                            # Ensure ID is a string
-                            if update_user_tab_access(str(selected_user['id']), new_tabs):
-                                st.success("Tab access updated!")
-                                st.rerun()
-                            else:
-                                st.error("Failed to update tab access.")
-
-                    # Account Status
+                    st.markdown("---")
                     st.markdown("#### Account Status")
                     col3, col4 = st.columns(2)
                     with col3:
                         is_active = selected_user.get('is_active', True)
                         if st.button("🔴 Deactivate" if is_active else "🟢 Activate", use_container_width=True):
-                            if toggle_user_active(str(selected_user['id']), not is_active):
+                            if toggle_user_active(selected_user['id'], not is_active):
                                 st.success(f"User {'deactivated' if is_active else 'activated'}!")
                                 st.rerun()
                     with col4:
                         if st.button("🗑️ Delete User", use_container_width=True, type="secondary"):
-                            if reject_user(str(selected_user['id'])):
+                            if reject_user(selected_user['id']):
                                 st.success("User deleted!")
                                 st.rerun()
         else:
@@ -881,7 +673,7 @@ RESPONSIBLE_BODIES = [
 ]
 
 # ============================================================================
-# DATA LOADING FUNCTIONS
+# DATA LOADING FUNCTIONS - ALL WITH show_spinner=False
 # ============================================================================
 @st.cache_data(ttl=CACHE_TTL, show_spinner=False)
 def load_national_data_raw():
@@ -1007,33 +799,6 @@ def load_issue_data():
     if df_raw.empty:
         return pd.DataFrame()
     return process_issue_data(df_raw)
-
-# ============================================================================
-# CACHED ISSUE PIVOT - Requirement 3 (Performance)
-# ============================================================================
-@st.cache_data(ttl=CACHE_TTL, show_spinner=False)
-def compute_issue_pivot_cached(program_materials_tuple):
-    if not program_materials_tuple:
-        return pd.DataFrame()
-    issue_data = load_issue_data()
-    if issue_data.empty:
-        return pd.DataFrame()
-    filtered = issue_data[issue_data['Material Description'].isin(program_materials_tuple)]
-    filtered = filtered[~filtered['Plant'].str.contains('Head Office|HO01', case=False, na=False)]
-    if 'Delivery Date' in filtered.columns and not filtered.empty:
-        monthly = filtered.copy()
-        monthly['Month'] = monthly['Delivery Date'].dt.strftime('%b-%Y')
-        pivot = monthly.groupby(['Material Description', 'Month'])['Quantity'].sum().reset_index()
-        pivot = pivot.pivot_table(index='Material Description', columns='Month', values='Quantity', fill_value=0)
-        if not pivot.empty:
-            month_order = sort_months_chronologically(list(pivot.columns))
-            pivot = pivot[month_order]
-            pivot = pivot.reset_index()
-            return pivot
-    return pd.DataFrame()
-
-def compute_issue_pivot(program_materials_tuple):
-    return compute_issue_pivot_cached(program_materials_tuple)
 
 @st.cache_data(ttl=CACHE_TTL, show_spinner=False)
 def load_new_deliveries_raw():
@@ -1635,6 +1400,26 @@ def compute_nsoh_pivot():
     return pivot
 
 @st.cache_data(ttl=CACHE_TTL, show_spinner=False)
+def compute_issue_pivot(program_materials_tuple):
+    issue_data = load_issue_data()
+    if issue_data.empty:
+        return pd.DataFrame()
+    if program_materials_tuple:
+        filtered = issue_data[issue_data['Material Description'].isin(program_materials_tuple)]
+        filtered = filtered[~filtered['Plant'].str.contains('Head Office|HO01', case=False, na=False)]
+        if 'Delivery Date' in filtered.columns and not filtered.empty:
+            monthly = filtered.copy()
+            monthly['Month'] = monthly['Delivery Date'].dt.strftime('%b-%Y')
+            pivot = monthly.groupby(['Material Description', 'Month'])['Quantity'].sum().reset_index()
+            pivot = pivot.pivot_table(index='Material Description', columns='Month', values='Quantity', fill_value=0)
+            if not pivot.empty:
+                month_order = sort_months_chronologically(list(pivot.columns))
+                pivot = pivot[month_order]
+                pivot = pivot.reset_index()
+                return pivot
+    return pd.DataFrame()
+
+@st.cache_data(ttl=CACHE_TTL, show_spinner=False)
 def compute_new_deliveries_pivot(program_materials_tuple):
     deliveries = load_new_deliveries()
     if deliveries.empty:
@@ -1683,9 +1468,6 @@ def compute_consumption_pivot(program_materials_tuple):
     pivot = pivot.reset_index().rename(columns={'index': 'Material Description'})
     return pivot
 
-# ============================================================================
-# GET FILTERED DATA - UPDATED WITH PROGRAM ACCESS (Requirement 2)
-# ============================================================================
 @st.cache_data(ttl=CACHE_TTL, show_spinner=False)
 def get_filtered_data(sheet_name, subcategory_filter):
     df_national = load_national_data()
@@ -1693,55 +1475,27 @@ def get_filtered_data(sheet_name, subcategory_filter):
     google_sheets = load_google_sheets(sheet_id_amc)
     branch_amc_data = load_branch_amc("12Z5xqX32QIzjoN6tNvGbjutMheXx5US1")
 
-    # Get user program access for filtering
-    user_programs = get_user_program_access()
-
-    # If user has limited program access, only use those programs
-    if user_programs and "All" not in user_programs:
-        # When "All" is selected, combine all accessible programs
-        if sheet_name == "All":
-            all_dfs = []
-            for prog in user_programs:
-                if prog in google_sheets and not google_sheets[prog].empty:
-                    df_copy = google_sheets[prog].copy()
-                    df_copy.columns = df_copy.columns.astype(str)
-                    if df_copy.columns.duplicated().any():
-                        df_copy = df_copy.loc[:, ~df_copy.columns.duplicated()]
-                    all_dfs.append(df_copy)
-            if all_dfs:
-                df_google = pd.concat(all_dfs, ignore_index=True, sort=False)
-            else:
-                df_google = pd.DataFrame()
+    if sheet_name == "All" and google_sheets:
+        all_dfs = []
+        for name, df_prog in google_sheets.items():
+            if df_prog.empty:
+                continue
+            df_copy = df_prog.copy()
+            df_copy.columns = df_copy.columns.astype(str)
+            if df_copy.columns.duplicated().any():
+                df_copy = df_copy.loc[:, ~df_copy.columns.duplicated()]
+            all_dfs.append(df_copy)
+        if all_dfs:
+            df_google = pd.concat(all_dfs, ignore_index=True, sort=False)
         else:
-            # User selected a specific program, check if they have access
-            if sheet_name not in user_programs:
-                st.warning(f"You don't have access to the {sheet_name} program.")
-                return pd.DataFrame()
-            df_google = google_sheets[sheet_name].copy()
-            df_google.columns = df_google.columns.astype(str)
-            if df_google.columns.duplicated().any():
-                df_google = df_google.loc[:, ~df_google.columns.duplicated()]
+            df_google = pd.DataFrame()
+    elif google_sheets and sheet_name in google_sheets:
+        df_google = google_sheets[sheet_name].copy()
+        df_google.columns = df_google.columns.astype(str)
+        if df_google.columns.duplicated().any():
+            df_google = df_google.loc[:, ~df_google.columns.duplicated()]
     else:
-        # User has access to all programs or is admin
-        if sheet_name == "All":
-            all_dfs = []
-            for name, df_prog in google_sheets.items():
-                if df_prog.empty:
-                    continue
-                df_copy = df_prog.copy()
-                df_copy.columns = df_copy.columns.astype(str)
-                if df_copy.columns.duplicated().any():
-                    df_copy = df_copy.loc[:, ~df_copy.columns.duplicated()]
-                all_dfs.append(df_copy)
-            if all_dfs:
-                df_google = pd.concat(all_dfs, ignore_index=True, sort=False)
-            else:
-                df_google = pd.DataFrame()
-        else:
-            df_google = google_sheets[sheet_name].copy()
-            df_google.columns = df_google.columns.astype(str)
-            if df_google.columns.duplicated().any():
-                df_google = df_google.loc[:, ~df_google.columns.duplicated()]
+        df_google = pd.DataFrame()
 
     if not df_google.empty and not df_national.empty:
         required_cols = ['Material Description', 'AMC', 'GIT_PO', 'GIT_Qty', 'GIT_MOS',
@@ -1758,17 +1512,6 @@ def get_filtered_data(sheet_name, subcategory_filter):
 
     if df.empty:
         return pd.DataFrame()
-
-    # Filter by user's program access - Force filtering
-    if user_programs and "All" not in user_programs:
-        program_materials = []
-        for prog in user_programs:
-            if prog in google_sheets and 'Material Description' in google_sheets[prog].columns:
-                program_materials.extend(google_sheets[prog]['Material Description'].dropna().tolist())
-        if program_materials:
-            df = df[df['Material Description'].isin(program_materials)]
-        else:
-            return pd.DataFrame()
 
     if 'S/N' in df.columns:
         df = df.drop(columns=['S/N'])
@@ -2214,7 +1957,7 @@ def get_month_columns(df):
     return sort_months_chronologically(months)
 
 # ============================================================================
-# RENDER FUNCTIONS
+# RENDER FUNCTIONS - COMPLETE IMPLEMENTATIONS
 # ============================================================================
 
 def render_unified_historical_table(df_filtered, issue_pivot, nsoh_pivot, consumption_pivot, deliveries_pivot, ordered_materials_tuple, sheet_name):
@@ -3096,9 +2839,6 @@ def render_action_plan_graph(df_filtered, material_problems, action_df, nsoh_piv
         return selected_material
     return None
 
-# ============================================================================
-# RENDER SYSTEM GENERATED ACTION PLAN - WITH VIEW TOGGLE (Requirement 10)
-# ============================================================================
 def render_system_generated_action_plan(action_df, material_problems, sheet_name):
     st.markdown(f"""
     <div class="custom-card">
@@ -3218,87 +2958,8 @@ def render_system_generated_action_plan(action_df, material_problems, sheet_name
     else:
         st.info(f"📌 Showing {len(filtered_df)} problem records with {selected_tab_action}")
 
-    # VIEW TOGGLE - Requirement 10
-    view_mode = render_view_toggle("view_system_action", "Table")
-
-    if view_mode == "Table":
-        # TABLE VIEW
-        st.markdown(f"""
-        <div class="dataframe-container">
-            <table style="font-family: Times New Roman, Times, serif !important; font-size: 14px; width: 100%;">
-                <thead>
-                    <tr>
-                        <th>Material</th>
-                        <th>NSOH</th>
-                        <th>AMC</th>
-                        <th>PMOS</th>
-                        <th>NMOS</th>
-                        <th>TMOS</th>
-                        <th>MOS Needed</th>
-                        <th>Identified Problem</th>
-                        <th>Action Point</th>
-                        <th>Responsible Body</th>
-                        <th>Due Date</th>
-                    </tr>
-                </thead>
-                <tbody>
-        """, unsafe_allow_html=True)
-
-        for _, row in filtered_df.iterrows():
-            st.markdown(f"""
-                <tr>
-                    <td><strong>{row.get('Material', '')}</strong></td>
-                    <td>{row.get('NSOH', '')}</td>
-                    <td>{row.get('AMC', '')}</td>
-                    <td>{row.get('PMOS', '')}</td>
-                    <td>{row.get('NMOS', '')}</td>
-                    <td>{row.get('TMOS', '')}</td>
-                    <td>{row.get('MOS Needed', '')}</td>
-                    <td>{row.get('Identified Problem', '')}</td>
-                    <td>{row.get('Action Point', '')}</td>
-                    <td>{row.get('Responsible Body', '')}</td>
-                    <td>{row.get('Due Date', '')}</td>
-                </tr>
-            """, unsafe_allow_html=True)
-
-        st.markdown("""
-                </tbody>
-            </table>
-        </div>
-        """, unsafe_allow_html=True)
-
-    else:
-        # CARD VIEW
-        st.markdown('<div class="card-view-container">', unsafe_allow_html=True)
-        for _, row in filtered_df.iterrows():
-            st.markdown(f"""
-            <div class="data-card">
-                <div class="card-header">
-                    <span class="card-title">{row.get('Material', '')}</span>
-                </div>
-                <div class="card-body">
-                    <span class="label">NSOH</span>
-                    <span class="value">{row.get('NSOH', '')}</span>
-                    <span class="label">AMC</span>
-                    <span class="value">{row.get('AMC', '')}</span>
-                    <span class="label">PMOS</span>
-                    <span class="value">{row.get('PMOS', '')}</span>
-                    <span class="label">NMOS</span>
-                    <span class="value">{row.get('NMOS', '')}</span>
-                    <span class="label">TMOS</span>
-                    <span class="value">{row.get('TMOS', '')}</span>
-                    <span class="label">MOS Needed</span>
-                    <span class="value">{row.get('MOS Needed', '')}</span>
-                    <div class="problem full-width"><strong>⚠️ Problem:</strong> {row.get('Identified Problem', '')}</div>
-                    <div class="action full-width"><strong>📌 Action:</strong> {row.get('Action Point', '')}</div>
-                    <div class="responsible full-width">
-                        <span><strong>👤 Responsible:</strong> {row.get('Responsible Body', '')}</span>
-                        <span><strong>📅 Due:</strong> {row.get('Due Date', '')}</span>
-                    </div>
-                </div>
-            </div>
-            """, unsafe_allow_html=True)
-        st.markdown('</div>', unsafe_allow_html=True)
+    display_df = filtered_df[['Material', 'NSOH', 'AMC', 'PMOS', 'NMOS', 'TMOS', 'MOS Needed', 'Identified Problem', 'Action Point', 'Responsible Body', 'Due Date']].copy()
+    st.dataframe(display_df, use_container_width=True, hide_index=True)
 
     output = BytesIO()
     with pd.ExcelWriter(output, engine='openpyxl') as writer:
@@ -3313,9 +2974,6 @@ def render_system_generated_action_plan(action_df, material_problems, sheet_name
         use_container_width=True
     )
 
-# ============================================================================
-# RENDER EXPERT ACTION PLAN - WITH QUARTER ORDERING FIX (Requirement 4)
-# ============================================================================
 def render_expert_action_plan_with_status(df_filtered, material_problems, action_df, sheet_name, nsoh_pivot, selected_quarter, selected_year):
     current_year = datetime.now().year
 
@@ -4124,15 +3782,19 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
                     label_visibility="collapsed"
                 )
 
+            # Responsible Body row - dropdown and custom text with "or write custom" in the middle
             st.markdown('<p style="font-weight: bold; color: black; font-size: 15px; margin-bottom: 5px;">Responsible Body</p>', unsafe_allow_html=True)
             col_r1a, col_r1b, col_r1c = st.columns([2, 1, 2])
             with col_r1a:
+                # Get current responsible body value
                 current_responsible = ""
                 if is_editing and edit_record and resp_val:
                     current_responsible = resp_val
 
+                # Check if current value is custom (not in predefined list)
                 is_custom = current_responsible not in RESPONSIBLE_BODIES and current_responsible != ""
 
+                # Remove "Other" from RESPONSIBLE_BODIES
                 responsible_list = [b for b in RESPONSIBLE_BODIES if b != "Other"]
                 responsible_options = ["Select Responsible Body"] + responsible_list
                 if is_custom:
@@ -4160,6 +3822,7 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
                     label_visibility="collapsed"
                 )
 
+                # Use custom text if provided, otherwise use dropdown selection
                 if custom_responsible and custom_responsible.strip():
                     final_responsible = custom_responsible.strip()
                 elif selected_responsible and selected_responsible != "Select Responsible Body":
@@ -4167,6 +3830,7 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
                 else:
                     final_responsible = ""
 
+            # Due Date and Status on the same row with separate labels
             col_r2a, col_r2b = st.columns([1, 1])
             with col_r2a:
                 st.markdown('<p style="font-weight: bold; color: black; font-size: 15px; margin-bottom: 5px;">Due Date</p>', unsafe_allow_html=True)
@@ -4190,6 +3854,7 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
                     label_visibility="collapsed"
                 )
 
+            # Colorful Save and Cancel buttons
             col_btn1, col_btn2 = st.columns(2)
             with col_btn1:
                 submit_label = "💾 Update" if is_editing else "💾 Save"
@@ -4206,6 +3871,7 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
                 )
 
             if submit_clicked:
+                # Validate quarter and year
                 if quarter == "Select Quarter":
                     st.warning("Please select a Quarter.")
                     return
@@ -4296,7 +3962,6 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
             if 'Quarter' in records_df.columns and 'Year' in records_df.columns:
                 quarter_order = {'Q1': 1, 'Q2': 2, 'Q3': 3, 'Q4': 4}
                 records_df['Quarter_Sort'] = records_df['Year'].astype(str) + records_df['Quarter'].map(quarter_order).astype(str)
-                # Sort descending to show recent quarters first
                 records_df = records_df.sort_values('Quarter_Sort', ascending=False)
                 records_df = records_df.drop(columns=['Quarter_Sort'])
 
@@ -4369,21 +4034,14 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
                 filtered_df = filtered_df[filtered_df['Status'].isin(selected_statuses)]
 
             if not filtered_df.empty:
-                # Get view mode from sidebar dropdown
-                view_mode = st.session_state.get("sidebar_view_mode", "Table")
-
                 if 'Quarter' in filtered_df.columns and 'Year' in filtered_df.columns:
-                    # ============================================================
-                    # FIXED: Get all unique year-quarter combinations and sort them
-                    # ============================================================
-                    quarters_years = filtered_df[['Quarter', 'Year']].drop_duplicates().values.tolist()
+                    quarters = filtered_df['Quarter'].unique()
+                    quarter_order_display = {'Q4': 0, 'Q3': 1, 'Q2': 2, 'Q1': 3}
+                    quarters = sorted(quarters, key=lambda x: quarter_order_display.get(x, 4))
 
-                    # Sort by Year descending, then Quarter in reverse order (Q4, Q3, Q2, Q1)
-                    quarter_order = {'Q4': 0, 'Q3': 1, 'Q2': 2, 'Q1': 3}
-                    quarters_years_sorted = sorted(quarters_years, key=lambda x: (-x[1], quarter_order.get(x[0], 4)))
-
-                    for quarter, year in quarters_years_sorted:
-                        quarter_df = filtered_df[(filtered_df['Quarter'] == quarter) & (filtered_df['Year'] == year)]
+                    for quarter in quarters:
+                        quarter_df = filtered_df[filtered_df['Quarter'] == quarter]
+                        years = quarter_df['Year'].unique()
 
                         if sheet_name != "All":
                             program_display = sheet_name
@@ -4397,85 +4055,24 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
                             else:
                                 program_display = "All Programs"
 
-                        if view_mode == "Table":
-                            # TABLE VIEW
-                            st.markdown(f"### 📋 {quarter}, {year} Supply Planning {program_display} Action Plan")
-                            cols = ['Material', 'NSOH', 'AMC', 'PMOS', 'NMOS', 'TMOS', 
-                                    'Purchase Order', 'Order Quantity', 'Identified Problem', 
-                                    'Action Point', 'Responsible Body', 'Due Date', 'Status']
-                            cols = [c for c in cols if c in quarter_df.columns]
-                            st.dataframe(quarter_df[cols], use_container_width=True, hide_index=True)
-                            st.markdown("---")
-                        else:
-                            # CARD VIEW
-                            st.markdown(f"### 📋 {quarter}, {year} Supply Planning {program_display} Action Plan")
-                            st.markdown('<div class="card-view-container">', unsafe_allow_html=True)
-                            for _, row in quarter_df.iterrows():
-                                status = row.get('Status', 'Pending')
-                                status_class = status.lower() if status else 'pending'
-                                st.markdown(f"""
-                                <div class="data-card">
-                                    <div class="card-header">
-                                        <span class="card-title">{row.get('Material', '')}</span>
-                                        <span class="status-badge {status_class}">{status}</span>
-                                    </div>
-                                    <div class="card-body">
-                                        <span class="label">NSOH</span><span class="value">{row.get('NSOH', '')}</span>
-                                        <span class="label">AMC</span><span class="value">{row.get('AMC', '')}</span>
-                                        <span class="label">PMOS</span><span class="value">{row.get('PMOS', '')}</span>
-                                        <span class="label">NMOS</span><span class="value">{row.get('NMOS', '')}</span>
-                                        <span class="label">TMOS</span><span class="value">{row.get('TMOS', '')}</span>
-                                        <span class="label">PO</span><span class="value">{row.get('Purchase Order', '')}</span>
-                                        <span class="label">Order Qty</span><span class="value">{row.get('Order Quantity', '')}</span>
-                                        <div class="problem full-width"><strong>⚠️ Problem:</strong> {row.get('Identified Problem', '')}</div>
-                                        <div class="action full-width"><strong>📌 Action:</strong> {row.get('Action Point', '')}</div>
-                                        <div class="responsible full-width">
-                                            <span><strong>👤 Responsible:</strong> {row.get('Responsible Body', '')}</span>
-                                            <span><strong>📅 Due:</strong> {row.get('Due Date', '')}</span>
-                                        </div>
-                                    </div>
-                                </div>
-                                """, unsafe_allow_html=True)
-                            st.markdown('</div>', unsafe_allow_html=True)
-                            st.markdown("---")
-                else:
-                    if view_mode == "Table":
-                        # TABLE VIEW
+                        year_display = years[0] if len(years) == 1 else ", ".join([str(y) for y in sorted(years)])
+                        st.markdown(f"### 📋 {quarter}, {year_display} Supply Planning {program_display} Action Plan")
+
                         cols = ['Material', 'NSOH', 'AMC', 'PMOS', 'NMOS', 'TMOS', 
                                 'Purchase Order', 'Order Quantity', 'Identified Problem', 
                                 'Action Point', 'Responsible Body', 'Due Date', 'Status']
-                        cols = [c for c in cols if c in filtered_df.columns]
-                        st.dataframe(filtered_df[cols], use_container_width=True, hide_index=True)
-                    else:
-                        # CARD VIEW
-                        st.markdown('<div class="card-view-container">', unsafe_allow_html=True)
-                        for _, row in filtered_df.iterrows():
-                            status = row.get('Status', 'Pending')
-                            status_class = status.lower() if status else 'pending'
-                            st.markdown(f"""
-                            <div class="data-card">
-                                <div class="card-header">
-                                    <span class="card-title">{row.get('Material', '')}</span>
-                                    <span class="status-badge {status_class}">{status}</span>
-                                </div>
-                                <div class="card-body">
-                                    <span class="label">NSOH</span><span class="value">{row.get('NSOH', '')}</span>
-                                    <span class="label">AMC</span><span class="value">{row.get('AMC', '')}</span>
-                                    <span class="label">PMOS</span><span class="value">{row.get('PMOS', '')}</span>
-                                    <span class="label">NMOS</span><span class="value">{row.get('NMOS', '')}</span>
-                                    <span class="label">TMOS</span><span class="value">{row.get('TMOS', '')}</span>
-                                    <span class="label">PO</span><span class="value">{row.get('Purchase Order', '')}</span>
-                                    <span class="label">Order Qty</span><span class="value">{row.get('Order Quantity', '')}</span>
-                                    <div class="problem full-width"><strong>⚠️ Problem:</strong> {row.get('Identified Problem', '')}</div>
-                                    <div class="action full-width"><strong>📌 Action:</strong> {row.get('Action Point', '')}</div>
-                                    <div class="responsible full-width">
-                                        <span><strong>👤 Responsible:</strong> {row.get('Responsible Body', '')}</span>
-                                        <span><strong>📅 Due:</strong> {row.get('Due Date', '')}</span>
-                                    </div>
-                                </div>
-                            </div>
-                            """, unsafe_allow_html=True)
-                        st.markdown('</div>', unsafe_allow_html=True)
+                        cols = [c for c in cols if c in quarter_df.columns]
+                        display_df = quarter_df[cols]
+
+                        st.dataframe(display_df, use_container_width=True, hide_index=True)
+                        st.markdown("---")
+                else:
+                    cols = ['Material', 'NSOH', 'AMC', 'PMOS', 'NMOS', 'TMOS', 
+                            'Purchase Order', 'Order Quantity', 'Identified Problem', 
+                            'Action Point', 'Responsible Body', 'Due Date', 'Status']
+                    cols = [c for c in cols if c in filtered_df.columns]
+                    display_df = filtered_df[cols]
+                    st.dataframe(display_df, use_container_width=True, hide_index=True)
             else:
                 st.info("No records match the selected filters.")
 
@@ -4666,10 +4263,12 @@ def render_ap_progress_follow_up(sheet_name, selected_quarter, selected_year, se
     display_df = filtered_df.copy()
     display_df['Status Display'] = display_df.apply(lambda row: status_badge_html(row.get('Status', 'Pending'), row.get('Material', '')), axis=1)
 
+    # Get Current NMOS, Current TMOS from df_filtered
     sheet_name_param = sheet_name if sheet_name != "All" else "All"
     subcategory_filter = st.session_state.get('selected_subcategory', 'All')
     df_filtered_current = get_filtered_data(sheet_name_param, subcategory_filter)
 
+    # Create a lookup dictionary for current NMOS and TMOS from df_filtered
     current_lookup = {}
     if not df_filtered_current.empty:
         for _, row in df_filtered_current.iterrows():
@@ -4694,6 +4293,7 @@ def render_ap_progress_follow_up(sheet_name, selected_quarter, selected_year, se
     display_df['Current NMOS'] = display_df['Material'].apply(lambda x: get_current_value(x, 'Current NMOS'))
     display_df['Current TMOS'] = display_df['Material'].apply(lambda x: get_current_value(x, 'Current TMOS'))
 
+    # Calculate Current PMOS = Current TMOS - Current NMOS
     def calculate_current_pmos(row):
         tmos = row.get('Current TMOS', 'N/A')
         nmos = row.get('Current NMOS', 'N/A')
@@ -4710,6 +4310,7 @@ def render_ap_progress_follow_up(sheet_name, selected_quarter, selected_year, se
 
     display_df['Current PMOS'] = display_df.apply(calculate_current_pmos, axis=1)
 
+    # Format NMOS from records to 2 decimal places
     if 'NMOS' in display_df.columns:
         display_df['NMOS'] = display_df['NMOS'].apply(
             lambda x: f"{float(x):.2f}" if pd.notna(x) and x != '' else "N/A"
@@ -4717,87 +4318,56 @@ def render_ap_progress_follow_up(sheet_name, selected_quarter, selected_year, se
     else:
         display_df['NMOS'] = "N/A"
 
+    # Column order: Material, NMOS, Identified Problem, Action Point, Responsible Body, Due Date, Status, Current NMOS, Current PMOS, Current TMOS
     cols_to_display = ['Material', 'NMOS', 'Identified Problem', 'Action Point', 'Responsible Body', 'Due Date', 'Status Display', 'Current NMOS', 'Current PMOS', 'Current TMOS']
     cols_to_display = [c for c in cols_to_display if c in display_df.columns or c == 'Status Display']
 
-    # Get view mode from sidebar dropdown
-    view_mode = st.session_state.get("sidebar_view_mode", "Table")
+    html_table = '<div class="dataframe-container"><table class="styled-table" style="font-family: Times New Roman, Times, serif !important; font-size: 14px; width: 100%;"><thead><tr>'
+    for col in cols_to_display:
+        if col == 'Status Display':
+            html_table += '<th style="font-family: Times New Roman, Times, serif !important; font-size: 15px; width: 9%;">Status</th>'
+        elif col == 'Material':
+            html_table += '<th style="font-family: Times New Roman, Times, serif !important; font-size: 15px; width: 12%;">Material</th>'
+        elif col == 'NMOS':
+            html_table += '<th style="font-family: Times New Roman, Times, serif !important; font-size: 14px; width: 7%; text-align: center;">NMOS</th>'
+        elif col == 'Identified Problem':
+            html_table += '<th style="font-family: Times New Roman, Times, serif !important; font-size: 15px; width: 20%;">Identified Problem</th>'
+        elif col == 'Action Point':
+            html_table += '<th style="font-family: Times New Roman, Times, serif !important; font-size: 15px; width: 20%;">Action Point</th>'
+        elif col == 'Responsible Body':
+            html_table += '<th style="font-family: Times New Roman, Times, serif !important; font-size: 15px; width: 12%;">Responsible Body</th>'
+        elif col == 'Due Date':
+            html_table += '<th style="font-family: Times New Roman, Times, serif !important; font-size: 15px; width: 8%;">Due Date</th>'
+        elif col in ['Current NMOS', 'Current PMOS', 'Current TMOS']:
+            html_table += f'<th style="font-family: Times New Roman, Times, serif !important; font-size: 13px; width: 7%; text-align: center;">{col}</th>'
+        else:
+            html_table += f'<th style="font-family: Times New Roman, Times, serif !important; font-size: 15px;">{col}</th>'
+    html_table += '</tr></thead><tbody>'
 
-    if view_mode == "Table":
-        # TABLE VIEW
-        html_table = '<div class="dataframe-container"><table class="styled-table" style="font-family: Times New Roman, Times, serif !important; font-size: 14px; width: 100%;"><thead><tr>'
+    for _, row in display_df.iterrows():
+        html_table += '<tr class="clickable-row" data-material="' + str(row.get('Material', '')) + '">'
         for col in cols_to_display:
             if col == 'Status Display':
-                html_table += '<th style="font-family: Times New Roman, Times, serif !important; font-size: 15px; width: 9%;">Status</th>'
+                html_table += f'<td style="font-family: Times New Roman, Times, serif !important; font-size: 14px; text-align: center;">{row[col]}</td>'
             elif col == 'Material':
-                html_table += '<th style="font-family: Times New Roman, Times, serif !important; font-size: 15px; width: 12%;">Material</th>'
+                html_table += f'<td style="font-family: Times New Roman, Times, serif !important; font-size: 14px; font-weight: 500;">{row.get(col, "")}</td>'
             elif col == 'NMOS':
-                html_table += '<th style="font-family: Times New Roman, Times, serif !important; font-size: 14px; width: 7%; text-align: center;">NMOS</th>'
-            elif col == 'Identified Problem':
-                html_table += '<th style="font-family: Times New Roman, Times, serif !important; font-size: 15px; width: 20%;">Identified Problem</th>'
-            elif col == 'Action Point':
-                html_table += '<th style="font-family: Times New Roman, Times, serif !important; font-size: 15px; width: 20%;">Action Point</th>'
-            elif col == 'Responsible Body':
-                html_table += '<th style="font-family: Times New Roman, Times, serif !important; font-size: 15px; width: 12%;">Responsible Body</th>'
-            elif col == 'Due Date':
-                html_table += '<th style="font-family: Times New Roman, Times, serif !important; font-size: 15px; width: 8%;">Due Date</th>'
+                html_table += f'<td style="font-family: Times New Roman, Times, serif !important; font-size: 14px; text-align: center;">{row.get(col, "N/A")}</td>'
             elif col in ['Current NMOS', 'Current PMOS', 'Current TMOS']:
-                html_table += f'<th style="font-family: Times New Roman, Times, serif !important; font-size: 13px; width: 7%; text-align: center;">{col}</th>'
+                html_table += f'<td style="font-family: Times New Roman, Times, serif !important; font-size: 14px; text-align: center;">{row.get(col, "N/A")}</td>'
+            elif col == 'Identified Problem':
+                html_table += f'<td style="font-family: Times New Roman, Times, serif !important; font-size: 14px; min-width: 200px;">{row.get(col, "")}</td>'
+            elif col == 'Action Point':
+                html_table += f'<td style="font-family: Times New Roman, Times, serif !important; font-size: 14px; min-width: 200px;">{row.get(col, "")}</td>'
+            elif col == 'Due Date':
+                html_table += f'<td style="font-family: Times New Roman, Times, serif !important; font-size: 14px; text-align: center;">{row.get(col, "")}</td>'
             else:
-                html_table += f'<th style="font-family: Times New Roman, Times, serif !important; font-size: 15px;">{col}</th>'
-        html_table += '</tr></thead><tbody>'
+                html_table += f'<td style="font-family: Times New Roman, Times, serif !important; font-size: 14px;">{row.get(col, "")}</td>'
+        html_table += '</tr>'
 
-        for _, row in display_df.iterrows():
-            html_table += '<tr class="clickable-row" data-material="' + str(row.get('Material', '')) + '">'
-            for col in cols_to_display:
-                if col == 'Status Display':
-                    html_table += f'<td style="font-family: Times New Roman, Times, serif !important; font-size: 14px; text-align: center;">{row[col]}</td>'
-                elif col == 'Material':
-                    html_table += f'<td style="font-family: Times New Roman, Times, serif !important; font-size: 14px; font-weight: 500;">{row.get(col, "")}</td>'
-                elif col == 'NMOS':
-                    html_table += f'<td style="font-family: Times New Roman, Times, serif !important; font-size: 14px; text-align: center;">{row.get(col, "N/A")}</td>'
-                elif col in ['Current NMOS', 'Current PMOS', 'Current TMOS']:
-                    html_table += f'<td style="font-family: Times New Roman, Times, serif !important; font-size: 14px; text-align: center;">{row.get(col, "N/A")}</td>'
-                elif col == 'Identified Problem':
-                    html_table += f'<td style="font-family: Times New Roman, Times, serif !important; font-size: 14px; min-width: 200px;">{row.get(col, "")}</td>'
-                elif col == 'Action Point':
-                    html_table += f'<td style="font-family: Times New Roman, Times, serif !important; font-size: 14px; min-width: 200px;">{row.get(col, "")}</td>'
-                elif col == 'Due Date':
-                    html_table += f'<td style="font-family: Times New Roman, Times, serif !important; font-size: 14px; text-align: center;">{row.get(col, "")}</td>'
-                else:
-                    html_table += f'<td style="font-family: Times New Roman, Times, serif !important; font-size: 14px;">{row.get(col, "")}</td>'
-            html_table += '</tr>'
+    html_table += '</tbody></table></div>'
 
-        html_table += '</tbody></table></div>'
-        st.markdown(html_table, unsafe_allow_html=True)
-
-    else:
-        # CARD VIEW
-        st.markdown('<div class="card-view-container">', unsafe_allow_html=True)
-        for _, row in display_df.iterrows():
-            status = row.get('Status', 'Pending')
-            status_class = status.lower() if status else 'pending'
-            st.markdown(f"""
-            <div class="data-card">
-                <div class="card-header">
-                    <span class="card-title">{row.get('Material', '')}</span>
-                    <span class="status-badge {status_class}">{status}</span>
-                </div>
-                <div class="card-body">
-                    <span class="label">NMOS</span><span class="value">{row.get('NMOS', 'N/A')}</span>
-                    <span class="label">Current NMOS</span><span class="value">{row.get('Current NMOS', 'N/A')}</span>
-                    <span class="label">Current PMOS</span><span class="value">{row.get('Current PMOS', 'N/A')}</span>
-                    <span class="label">Current TMOS</span><span class="value">{row.get('Current TMOS', 'N/A')}</span>
-                    <div class="problem full-width"><strong>⚠️ Problem:</strong> {row.get('Identified Problem', '')}</div>
-                    <div class="action full-width"><strong>📌 Action:</strong> {row.get('Action Point', '')}</div>
-                    <div class="responsible full-width">
-                        <span><strong>👤 Responsible:</strong> {row.get('Responsible Body', '')}</span>
-                        <span><strong>📅 Due:</strong> {row.get('Due Date', '')}</span>
-                    </div>
-                </div>
-            </div>
-            """, unsafe_allow_html=True)
-        st.markdown('</div>', unsafe_allow_html=True)
+    st.markdown(html_table, unsafe_allow_html=True)
 
     output = BytesIO()
     with pd.ExcelWriter(output, engine='openpyxl') as writer:
@@ -5309,7 +4879,7 @@ def render_ap_progress_follow_up(sheet_name, selected_quarter, selected_year, se
     st.markdown("---")
 
 # ============================================================================
-# MAIN FUNCTION - WITH REFRESH BUTTON (Requirement 5)
+# MAIN FUNCTION
 # ============================================================================
 def main():
     st.set_page_config(
@@ -5354,8 +4924,6 @@ def main():
         st.session_state.show_admin_page = False
     if 'data_loaded' not in st.session_state:
         st.session_state.data_loaded = False
-    if 'view_system_action' not in st.session_state:
-        st.session_state.view_system_action = "Table"
 
     inject_custom_css()
     inject_javascript()
@@ -5374,24 +4942,16 @@ def main():
     """, unsafe_allow_html=True)
 
     with st.sidebar:
-        # ============================================================
-        # VIEW TOGGLE - SIDEBAR DROPDOWN
-        # ============================================================
-        st.markdown("## 📊 View Mode")
-
-        view_options = ["Table", "Cards"]
-        current_view = st.session_state.get("sidebar_view_mode", "Table")
-        selected_view = st.selectbox(
-            "Select View",
-            view_options,
-            index=view_options.index(current_view) if current_view in view_options else 0,
-            key="sidebar_view_selector"
-        )
-
-        if selected_view != current_view:
-            st.session_state.sidebar_view_mode = selected_view
-            st.session_state.view_system_action = selected_view
-            st.rerun()
+        user = get_current_user()
+        if user:
+            st.markdown(f"""
+            <div style="background: #f0f0f0; padding: 12px; border-radius: 10px; margin-bottom: 15px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;">
+                <div style="font-size: 14px; font-weight: 600; color: #1a5276;">👤 {user.get('full_name', 'User')}</div>
+                <div style="font-size: 11px; color: #666;">{user.get('email', '')}</div>
+                <div style="font-size: 11px; color: #888; margin-top: 2px;">Role: {user.get('role', 'viewer').title()}</div>
+                <div style="font-size: 10px; color: #999; margin-top: 2px;">Status: {'✅ Approved' if user.get('is_approved') else '⏳ Pending'}</div>
+            </div>
+            """, unsafe_allow_html=True)
 
         st.markdown("---")
 
@@ -5412,14 +4972,10 @@ def main():
         else:
             program_list = ["All"] + list(google_sheets.keys()) if google_sheets else ["All"]
 
-        # Requirement 2: User program access filtering
         if not is_admin():
             user_programs = get_user_program_access()
             if user_programs and "All" not in user_programs:
-                program_list = [p for p in program_list if p in user_programs]
-                if not program_list:
-                    st.warning("You don't have access to any programs.")
-                    st.stop()
+                program_list = [p for p in program_list if p in user_programs or p == "All"]
 
         sheet_name = st.selectbox("Select Program", program_list, index=program_list.index(st.session_state.selected_program) if st.session_state.selected_program in program_list else 0)
         st.session_state.selected_program = sheet_name
@@ -5473,16 +5029,6 @@ def main():
                     st.rerun()
 
             st.markdown("---")
-
-        # ============================================================
-        # REFRESH BUTTON - Requirement 5
-        # ============================================================
-        if st.button("🔄 Refresh Data", use_container_width=True, type="primary"):
-            st.cache_data.clear()
-            st.session_state.data_loaded = False
-            st.rerun()
-
-        st.markdown("---")
 
         if st.button("🚪 Logout", use_container_width=True):
             logout()
@@ -5583,45 +5129,28 @@ def main():
         selected_year if selected_year != "All" else None
     )
 
-    # Get user's tab access - Requirement 7
-    user_tabs = get_user_tab_access()
+    tab_hist, tab_expert, tab_ap, tab_supply = st.tabs([
+        "📊 Historical Data",
+        "📋 Expert Action Plan",
+        "📈 Action Plan Follow Up",
+        "📦 System Generated Action Plan"
+    ])
 
-    # Define all available tabs
-    all_tabs = [
-        ("📊 Historical Data", "Historical Data"),
-        ("📋 Expert Action Plan", "Expert Action Plan"),
-        ("📈 Action Plan Follow Up", "Action Plan Follow Up"),
-        ("📦 System Generated Action Plan", "System Generated Action Plan")
-    ]
+    with tab_hist:
+        st.markdown(f"## 📊 {sheet_name if sheet_name != 'All' else 'All Programs'} Historical Data")
+        render_unified_historical_table(df_filtered, issue_pivot, nsoh_pivot, consumption_pivot, deliveries_pivot, ordered_materials_tuple, sheet_name)
 
-    # Filter tabs based on user access
-    if user_tabs and "All" not in user_tabs:
-        available_tabs = [(label, key) for label, key in all_tabs if key in user_tabs]
-    else:
-        available_tabs = all_tabs
+    with tab_expert:
+        st.markdown(f"## 📋 {sheet_name if sheet_name != 'All' else 'All Programs'} Expert Action Plan")
+        render_expert_action_plan_with_status(df_filtered, material_problems, action_df, sheet_name, nsoh_pivot, selected_quarter, selected_year)
 
-    # Create tabs with filtered list
-    if available_tabs:
-        tab_labels = [t[0] for t in available_tabs]
-        tab_keys = [t[1] for t in available_tabs]
-        tabs = st.tabs(tab_labels)
+    with tab_ap:
+        render_ap_progress_follow_up(sheet_name, selected_quarter, selected_year, st.session_state.selected_status)
 
-        for i, (tab, tab_key) in enumerate(zip(tabs, tab_keys)):
-            with tab:
-                if tab_key == "Historical Data":
-                    st.markdown(f"## 📊 {sheet_name if sheet_name != 'All' else 'All Programs'} Historical Data")
-                    render_unified_historical_table(df_filtered, issue_pivot, nsoh_pivot, consumption_pivot, deliveries_pivot, ordered_materials_tuple, sheet_name)
-                elif tab_key == "Expert Action Plan":
-                    st.markdown(f"## 📋 {sheet_name if sheet_name != 'All' else 'All Programs'} Expert Action Plan")
-                    render_expert_action_plan_with_status(df_filtered, material_problems, action_df, sheet_name, nsoh_pivot, selected_quarter, selected_year)
-                elif tab_key == "Action Plan Follow Up":
-                    render_ap_progress_follow_up(sheet_name, selected_quarter, selected_year, st.session_state.selected_status)
-                elif tab_key == "System Generated Action Plan":
-                    render_supply_planning_exercise(df_filtered, supply_df, supply_plan, ordered_materials_tuple, sheet_name, action_df)
-                    st.markdown("---")
-                    render_system_generated_action_plan(action_df, material_problems, sheet_name)
-    else:
-        st.warning("You don't have access to any tabs. Please contact your administrator.")
+    with tab_supply:
+        render_supply_planning_exercise(df_filtered, supply_df, supply_plan, ordered_materials_tuple, sheet_name, action_df)
+        st.markdown("---")
+        render_system_generated_action_plan(action_df, material_problems, sheet_name)
 
 if __name__ == "__main__":
     main()
