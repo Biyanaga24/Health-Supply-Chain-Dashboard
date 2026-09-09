@@ -3,7 +3,6 @@ Supabase Authentication Module for Supply Planning Dashboard
 Provides authentication, user management, and access control functions
 Uses the 'supply_users' table in Supabase
 """
-
 import streamlit as st
 import hashlib
 import pandas as pd
@@ -89,7 +88,6 @@ def authenticate_user(email, password):
 
     try:
         # Query user by email and hashed password from supply_users table
-        # NOTE: Using 'password_hash' column as per schema
         response = supabase.table("supply_users") \
             .select("*") \
             .eq("email", email) \
@@ -115,8 +113,10 @@ def authenticate_user(email, password):
                 'is_approved': user.get('is_approved', False),
                 'is_active': user.get('is_active', True),
                 'program_access': user.get('program_access', ''),
+                'tab_access': user.get('tab_access', 'All'),  # NEW: Added tab_access
                 'created_at': user.get('created_at'),
-                'last_login': user.get('last_login')
+                'last_login': user.get('last_login'),
+                'updated_at': user.get('updated_at')
             }
         else:
             return None
@@ -144,12 +144,13 @@ def create_user(email, password, full_name):
         # Insert new user with password_hash column
         supabase.table("supply_users").insert({
             "email": email,
-            "password_hash": hashed,  # Using password_hash column
+            "password_hash": hashed,
             "full_name": full_name,
             "role": "viewer",
             "is_approved": False,  # Pending approval
             "is_active": True,
             "program_access": "",
+            "tab_access": "All",  # NEW: Default tab access
             "created_at": current_time,
             "last_login": current_time,
             "updated_at": current_time
@@ -329,6 +330,88 @@ def update_user_program_access(user_id, programs):
         return True
     except Exception as e:
         return False
+
+# ============================================================
+# NEW FUNCTIONS FOR TAB ACCESS MANAGEMENT
+# ============================================================
+
+def update_user_tab_access(user_id, tabs):
+    """
+    Update a user's tab access in supply_users table.
+    Returns:
+        bool: True if successful, False otherwise
+    """
+    supabase = get_supabase()
+    if supabase is None:
+        return False
+
+    try:
+        # 1. Safely convert tabs to a string
+        if isinstance(tabs, str):
+            if "All" in tabs or not tabs.strip():
+                tab_str = "All"
+            else:
+                tab_str = tabs.strip()
+        elif isinstance(tabs, list):
+            if not tabs or 'All' in tabs:
+                tab_str = "All"
+            else:
+                cleaned_tabs = [str(t).strip() for t in tabs if t and str(t).strip()]
+                tab_str = ", ".join(cleaned_tabs) if cleaned_tabs else "All"
+        else:
+            tab_str = "All"
+
+        current_time = get_current_time().isoformat()
+
+        # 2. CRITICAL FIX: Convert user_id to integer because it's bigserial
+        try:
+            query_user_id = int(user_id)
+        except (ValueError, TypeError):
+            query_user_id = user_id  # Fallback to string if conversion fails
+
+        # 3. Execute the update
+        response = supabase.table("supply_users") \
+            .update({
+                "tab_access": tab_str,
+                "updated_at": current_time
+            }) \
+            .eq("id", query_user_id) \
+            .execute()
+
+        # 4. Check if the response returned data
+        if response.data:
+            print(f"SUCCESS: Tab access updated for user ID {query_user_id}")
+            return True
+        else:
+            print(f"ERROR: No rows updated for user ID {query_user_id}. Check if 'tab_access' column exists.")
+            return False
+
+    except Exception as e:
+        print(f"CRITICAL ERROR updating tab access: {e}")
+        return False
+
+    except Exception as e:
+        print(f"Error updating tab access: {e}")
+        return False
+
+def get_user_tab_access():
+    """
+    Get the tab access for the current user
+
+    Returns:
+        list: List of tab names the user has access to, or ['All'] for full access
+    """
+    user = get_current_user()
+    if user:
+        access = user.get('tab_access', 'All')
+        if access == 'All' or not access:
+            return ['All']
+        return [t.strip() for t in access.split(',') if t.strip()]
+    return ['All']
+
+# ============================================================
+# EXISTING FUNCTIONS - Keeping them for compatibility
+# ============================================================
 
 def delete_user(user_id):
     """Delete a user from supply_users table"""
@@ -522,7 +605,7 @@ def init_session_state():
         st.session_state['selected_material_for_expert'] = None
 
 # ============================================================
-# LOGIN PAGE UI - UPDATED WITH REQUESTED CHANGES
+# LOGIN PAGE UI
 # ============================================================
 
 def show_login_page():
@@ -767,7 +850,7 @@ def show_login_page():
     </div>
     """, unsafe_allow_html=True)
 
-    # Hero Section - UPDATED: Removed subtitle line, reduced font size, Times Roman, animated
+    # Hero Section
     st.markdown("""
     <div class="hero-section">
         <div class="hero-title">📦 HPC Supply Planning Dashboard</div>
@@ -786,7 +869,7 @@ def show_login_page():
         </div>
         """, unsafe_allow_html=True)
 
-        # Features - REMOVED Pipeline Tracking, updated with supply planning focus
+        # Features
         st.markdown("### 🚀 Key Features")
 
         features = [
@@ -810,7 +893,6 @@ def show_login_page():
             </div>
             """, unsafe_allow_html=True)
 
-        # Add a distinguishing note about HPC
         st.markdown("""
         <div style="background: #eaf2f8; border-radius: 10px; padding: 15px; margin-top: 15px; border-left: 4px solid #1a5276;">
             <p style="font-family: 'Times New Roman', Times, serif; color: #1a5276; margin: 0; font-size: 0.9rem;">
@@ -946,12 +1028,13 @@ def create_admin_user(email, password, full_name):
 
         supabase.table("supply_users").insert({
             "email": email,
-            "password_hash": hashed,  # Using password_hash column
+            "password_hash": hashed,
             "full_name": full_name,
             "role": "admin",
             "is_approved": True,  # Auto-approved
             "is_active": True,
             "program_access": "All",
+            "tab_access": "All",  # NEW: Tab access
             "created_at": current_time,
             "last_login": current_time,
             "updated_at": current_time
