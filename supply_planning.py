@@ -16,11 +16,16 @@ CACHE_TTL = 3600
 # AUTHENTICATION IMPORTS - UPDATED WITH TAB MANAGEMENT
 # ============================================================================
 from sup_auth import (
-    require_auth, get_current_user, get_user_role, 
+    require_auth, get_current_user, get_user_role,
     is_admin, logout, get_user_program_access,
     get_all_users, get_pending_users, approve_user, reject_user,
     update_user_role, toggle_user_active, update_user_program_access,
-    update_user_tab_access, get_user_tab_access
+    update_user_tab_access, get_user_tab_access,
+    # NEW
+    change_password, update_user_profile, refresh_current_user,
+    get_password_reset_requests, approve_password_reset,
+    reject_password_reset, has_approved_password_reset,
+    complete_password_reset
 )
 
 # ============================================================================
@@ -610,7 +615,7 @@ def load_all_data_cached():
     }
 
 # ============================================================================
-# ADMIN PAGE - UPDATED WITH TAB MANAGEMENT (Requirements 6, 7, 8, 9)
+# ADMIN PAGE - UPDATED WITH TAB MANAGEMENT + PASSWORD RESET REQUESTS
 # ============================================================================
 def render_admin_page():
     col1, col2 = st.columns([1, 4])
@@ -627,8 +632,15 @@ def render_admin_page():
 
     all_users = get_all_users()
     pending_users = get_pending_users()
+    reset_requests = get_password_reset_requests()
 
-    col1, col2, col3, col4 = st.columns(4)
+    # Count pending (not yet approved) reset requests for the badge
+    pending_reset_count = len([
+        r for r in reset_requests
+        if not r.get('password_reset_approved', False)
+    ])
+
+    col1, col2, col3, col4, col5 = st.columns(5)
     with col1:
         st.metric("👥 Total Users", len(all_users))
     with col2:
@@ -639,11 +651,21 @@ def render_admin_page():
     with col4:
         active = len([u for u in all_users if u.get('is_active', True)])
         st.metric("🟢 Active", active)
+    with col5:
+        st.metric("🔑 Reset Requests", pending_reset_count)
 
     st.markdown("---")
 
-    tab1, tab2, tab3 = st.tabs(["📋 Pending Approvals", "👥 All Users", "📊 User Statistics"])
+    tab1, tab2, tab3, tab4 = st.tabs([
+        "📋 Pending Approvals",
+        "👥 All Users",
+        "📊 User Statistics",
+        f"🔑 Password Reset Requests ({pending_reset_count})"
+    ])
 
+    # ================================================================
+    # TAB 1 - PENDING APPROVALS
+    # ================================================================
     with tab1:
         st.markdown("### Pending Approvals")
         if pending_users:
@@ -689,19 +711,20 @@ def render_admin_page():
         else:
             st.info("✅ No pending approvals.")
 
+    # ================================================================
+    # TAB 2 - ALL USERS
+    # ================================================================
     with tab2:
         st.markdown("### All Users")
         if all_users:
             user_data = []
             for user in all_users:
-                # Get tab access - Requirement 8
                 tab_access = user.get('tab_access', '')
                 if isinstance(tab_access, list):
                     tab_access = ', '.join(tab_access) if tab_access else 'All'
                 elif tab_access == '' or tab_access is None:
                     tab_access = 'All'
 
-                # Get active date - Requirement 9 (Active Date before Registered)
                 active_date = user.get('updated_at', user.get('created_at', ''))
                 if active_date:
                     active_date = active_date[:10] if len(active_date) >= 10 else active_date
@@ -721,7 +744,6 @@ def render_admin_page():
                     "ID": user.get('id', '')
                 })
             df_users = pd.DataFrame(user_data)
-            # Reordered columns: Active Date before Registered - Requirement 9
             cols = ['Name', 'Email', 'Role', 'Approved', 'Active', 'Program Access', 'Tab Access', 'Active Date', 'Registered']
             cols = [c for c in cols if c in df_users.columns]
             st.dataframe(df_users[cols], use_container_width=True, hide_index=True)
@@ -730,14 +752,16 @@ def render_admin_page():
             st.markdown("### Edit User")
             user_options = [f"{u.get('full_name', '')} ({u.get('email', '')})" for u in all_users]
             if user_options:
-                selected_user_idx = st.selectbox("Select User to Edit", range(len(user_options)), 
-                                                format_func=lambda x: user_options[x])
+                selected_user_idx = st.selectbox(
+                    "Select User to Edit",
+                    range(len(user_options)),
+                    format_func=lambda x: user_options[x]
+                )
                 if selected_user_idx is not None:
                     selected_user = all_users[selected_user_idx]
 
                     st.markdown("### User Management")
 
-                    # 3 Columns in one row: Role, Program, Tab
                     col_role, col_program, col_tab = st.columns(3)
 
                     with col_role:
@@ -750,7 +774,6 @@ def render_admin_page():
                             key=f"edit_role_{selected_user['id']}"
                         )
                         if st.button("🔄 Update Role", key=f"update_role_{selected_user['id']}", use_container_width=True):
-                            # Ensure ID is a string
                             if update_user_role(str(selected_user['id']), new_role):
                                 st.success(f"Role updated to {new_role}!")
                                 st.rerun()
@@ -769,7 +792,6 @@ def render_admin_page():
                             key=f"edit_programs_{selected_user['id']}"
                         )
                         if st.button("📋 Update Programs", key=f"update_programs_{selected_user['id']}", use_container_width=True):
-                            # Ensure ID is a string
                             if update_user_program_access(str(selected_user['id']), new_programs):
                                 st.success("Program access updated!")
                                 st.rerun()
@@ -796,14 +818,12 @@ def render_admin_page():
                             key=f"edit_tabs_{selected_user['id']}"
                         )
                         if st.button("📑 Update Tabs", key=f"update_tabs_{selected_user['id']}", use_container_width=True):
-                            # Ensure ID is a string
                             if update_user_tab_access(str(selected_user['id']), new_tabs):
                                 st.success("Tab access updated!")
                                 st.rerun()
                             else:
                                 st.error("Failed to update tab access.")
 
-                    # Account Status
                     st.markdown("#### Account Status")
                     col3, col4 = st.columns(2)
                     with col3:
@@ -820,6 +840,9 @@ def render_admin_page():
         else:
             st.info("No users found.")
 
+    # ================================================================
+    # TAB 3 - USER STATISTICS
+    # ================================================================
     with tab3:
         st.markdown("### User Statistics")
         if all_users:
@@ -850,6 +873,552 @@ def render_admin_page():
                 )])
                 fig_status.update_layout(title="Approval Status", height=350)
                 st.plotly_chart(fig_status, use_container_width=True)
+
+    # ================================================================
+    # TAB 4 - PASSWORD RESET REQUESTS
+    # ================================================================
+    with tab4:
+        st.markdown("### 🔑 Password Reset Requests")
+        st.caption(
+            "Users who forgot their password submit a request here. "
+            "Approve to let them log in and set a new password. "
+            "Reject to clear the request."
+        )
+
+        if not reset_requests:
+            st.success("✅ No password reset requests at this time.")
+        else:
+            pending = [r for r in reset_requests if not r.get('password_reset_approved', False)]
+            approved = [r for r in reset_requests if r.get('password_reset_approved', False)]
+
+            # ---------------- Pending ----------------
+            if pending:
+                st.markdown(f"#### ⏳ Pending Approval ({len(pending)})")
+                for req in pending:
+                    requested_at = req.get('password_reset_requested_at', '')
+                    requested_display = requested_at[:19].replace('T', ' ') if requested_at else 'Unknown'
+
+                    st.markdown(f"""
+                    <div style="background: #fff8e1; padding: 15px; border-radius: 10px;
+                                margin-bottom: 10px; border-left: 4px solid #ffc107;">
+                        <div style="display:flex; justify-content:space-between; align-items:center;">
+                            <div>
+                                <strong style="font-size: 15px;">{req.get('full_name', 'Unknown')}</strong><br>
+                                <span style="color: #666;">📧 {req.get('email', '')}</span><br>
+                                <span style="font-size: 12px; color: #999;">Requested: {requested_display}</span>
+                            </div>
+                            <div style="font-size: 28px;">⏳</div>
+                        </div>
+                    </div>
+                    """, unsafe_allow_html=True)
+
+                    c1, c2, c3 = st.columns([1, 1, 3])
+                    with c1:
+                        if st.button("✅ Approve", key=f"appr_reset_{req['id']}", use_container_width=True, type="primary"):
+                            if approve_password_reset(str(req['id'])):
+                                st.success(f"Approved reset for {req.get('email', '')}.")
+                                st.rerun()
+                    with c2:
+                        if st.button("❌ Reject", key=f"rej_reset_{req['id']}", use_container_width=True):
+                            if reject_password_reset(str(req['id'])):
+                                st.success(f"Rejected reset for {req.get('email', '')}.")
+                                st.rerun()
+                    st.divider()
+
+            # ---------------- Approved ----------------
+            if approved:
+                st.markdown(f"#### ✅ Approved — Awaiting User Reset ({len(approved)})")
+                st.caption(
+                    "These users can now log in with their old password. "
+                    "On next login they will be prompted to set a new password."
+                )
+                for req in approved:
+                    approved_at = req.get('password_reset_approved_at', '')
+                    approved_display = approved_at[:19].replace('T', ' ') if approved_at else 'Unknown'
+
+                    st.markdown(f"""
+                    <div style="background: #e8f5e9; padding: 15px; border-radius: 10px;
+                                margin-bottom: 10px; border-left: 4px solid #28a745;">
+                        <div style="display:flex; justify-content:space-between; align-items:center;">
+                            <div>
+                                <strong style="font-size: 15px;">{req.get('full_name', 'Unknown')}</strong><br>
+                                <span style="color: #666;">📧 {req.get('email', '')}</span><br>
+                                <span style="font-size: 12px; color: #999;">Approved: {approved_display}</span>
+                            </div>
+                            <div style="font-size: 28px;">✅</div>
+                        </div>
+                    </div>
+                    """, unsafe_allow_html=True)
+
+                    if st.button(
+                        "↩️ Revoke Approval",
+                        key=f"revoke_reset_{req['id']}",
+                        use_container_width=True
+                    ):
+                        if reject_password_reset(str(req['id'])):
+                            st.success(f"Approval revoked for {req.get('email', '')}.")
+                            st.rerun()
+                    st.divider()
+# ============================================================================
+# PROFILE PAGE (NEW) - full page, opened from sidebar button
+# ============================================================================
+def render_profile_page():
+    """Full-page user profile. Shows role/program/tab (read-only) and lets the
+    user edit their full name and change their password."""
+
+    user = get_current_user()
+    if not user:
+        st.error("No user session found.")
+        return
+
+    # ---------- Back button ----------
+    col_back, _ = st.columns([1, 4])
+    with col_back:
+        if st.button("← Back to Dashboard", use_container_width=True, type="primary"):
+            st.session_state.show_profile_page = False
+            st.rerun()
+
+    # ---------- Header ----------
+    st.markdown("""
+    <div class="app-header fade-in">
+        <h1>👤 My Profile</h1>
+    </div>
+    """, unsafe_allow_html=True)
+
+    # ---------- Profile summary card ----------
+    role_icon = {"admin": "🛡️", "editor": "✏️", "viewer": "👁️"}.get(user.get('role', 'viewer'), "👤")
+    status_icon = "🟢" if user.get('is_active', True) else "🔴"
+    approved_icon = "✅" if user.get('is_approved', False) else "⏳"
+
+    prog_display = user.get('program_access', '') or "None"
+    tab_display = user.get('tab_access', 'All') or "All"
+
+    st.markdown(f"""
+    <div class="custom-card" style="padding: 25px; border-left: 6px solid #2e86c1;">
+        <div style="display: flex; align-items: center; gap: 20px;">
+            <div style="font-size: 4rem; line-height: 1;">{role_icon}</div>
+            <div style="flex: 1;">
+                <div style="font-size: 1.6rem; font-weight: 700; color: #1a5276; font-family: 'Times New Roman', Times, serif;">
+                    {user.get('full_name', 'Unnamed User')}
+                </div>
+                <div style="color: #666; font-size: 1rem; margin-top: 4px;">
+                    📧 {user.get('email', '')}
+                </div>
+            </div>
+            <div style="text-align: right;">
+                <div style="font-size: 0.9rem; color: #555;">
+                    {status_icon} Active &nbsp; | &nbsp; {approved_icon} Approved
+                </div>
+            </div>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+
+    # ---------- 3 info cards ----------
+    col1, col2, col3 = st.columns(3)
+
+    with col1:
+        st.markdown(f"""
+        <div class="metric-card" style="background: linear-gradient(135deg, #1a5276 0%, #2e86c1 100%);">
+            <div class="metric-label">🔑 Role</div>
+            <div class="metric-value" style="font-size: 1.4rem;">{user.get('role', 'viewer').title()}</div>
+        </div>
+        """, unsafe_allow_html=True)
+
+    with col2:
+        st.markdown(f"""
+        <div class="metric-card" style="background: linear-gradient(135deg, #1e8449 0%, #27ae60 100%);">
+            <div class="metric-label">📋 Program Access</div>
+            <div class="metric-value" style="font-size: 1.1rem; word-wrap: break-word;">{prog_display}</div>
+        </div>
+        """, unsafe_allow_html=True)
+
+    with col3:
+        st.markdown(f"""
+        <div class="metric-card" style="background: linear-gradient(135deg, #6f42c1 0%, #a569bd 100%);">
+            <div class="metric-label">📑 Tab Access</div>
+            <div class="metric-value" style="font-size: 1.1rem; word-wrap: break-word;">{tab_display}</div>
+        </div>
+        """, unsafe_allow_html=True)
+
+    st.markdown("---")
+
+    # ---------- Two column layout: Edit Name | Change Password ----------
+    col_left, col_right = st.columns(2, gap="large")
+
+    # -------- LEFT: Edit Profile --------
+    with col_left:
+        st.markdown("### ✏️ Edit Profile")
+        st.caption("You can update your display name. Email, role, program, and tab access are managed by the admin.")
+
+        with st.form("edit_profile_form"):
+            new_name = st.text_input(
+                "Full Name",
+                value=user.get('full_name', ''),
+                key="profile_name_input"
+            )
+            st.text_input(
+                "Email (read-only)",
+                value=user.get('email', ''),
+                disabled=True,
+                key="profile_email_readonly"
+            )
+            st.text_input(
+                "Role (read-only)",
+                value=user.get('role', 'viewer'),
+                disabled=True,
+                key="profile_role_readonly"
+            )
+
+            save_profile = st.form_submit_button("💾 Save Profile", use_container_width=True, type="primary")
+
+            if save_profile:
+                if not new_name or not new_name.strip():
+                    st.warning("Full name cannot be empty.")
+                else:
+                    ok, msg = update_user_profile(user['id'], full_name=new_name.strip())
+                    if ok:
+                        refresh_current_user()
+                        st.success(msg)
+                        time.sleep(1)
+                        st.rerun()
+                    else:
+                        st.error(msg)
+
+    # -------- RIGHT: Change Password --------
+    with col_right:
+        st.markdown("### 🔑 Change Password")
+        st.caption("You must enter your current password to set a new one.")
+
+        with st.form("change_password_form", clear_on_submit=True):
+            old_pw = st.text_input("Current Password", type="password", key="cp_old")
+            new_pw = st.text_input("New Password", type="password", key="cp_new")
+            confirm_pw = st.text_input("Confirm New Password", type="password", key="cp_confirm")
+
+            change_btn = st.form_submit_button("🔒 Change Password", use_container_width=True, type="primary")
+
+            if change_btn:
+                if not old_pw or not new_pw or not confirm_pw:
+                    st.warning("Please fill all password fields.")
+                elif new_pw != confirm_pw:
+                    st.error("New passwords do not match.")
+                elif len(new_pw) < 6:
+                    st.error("Password must be at least 6 characters.")
+                elif old_pw == new_pw:
+                    st.error("New password must be different from current password.")
+                else:
+                    ok, msg = change_password(user['id'], old_pw, new_pw)
+                    if ok:
+                        st.success(msg)
+                        time.sleep(1.2)
+                        logout()
+                    else:
+                        st.error(msg)
+
+    st.markdown("---")
+
+    # ---------- Account info footer ----------
+    st.markdown("### 📋 Account Information")
+    info_col1, info_col2 = st.columns(2)
+    with info_col1:
+        st.markdown(f"**Account Created:** {user.get('created_at', 'Unknown')[:19] if user.get('created_at') else 'Unknown'}")
+        st.markdown(f"**Last Login:** {user.get('last_login', 'Unknown')[:19] if user.get('last_login') else 'Unknown'}")
+    with info_col2:
+        st.markdown(f"**User ID:** `{user.get('id', 'N/A')}`")
+        st.markdown(f"**Last Updated:** {user.get('updated_at', 'Unknown')[:19] if user.get('updated_at') else 'Unknown'}")
+
+    st.markdown("---")
+
+    # ---------- Logout button at bottom ----------
+    col_a, col_b, col_c = st.columns([2, 1, 2])
+    with col_b:
+        if st.button("🚪 Logout", use_container_width=True):
+            logout()
+
+
+# ============================================================================
+# FORCED PASSWORD RESET (NEW) - after admin approves
+# ============================================================================
+def render_forced_password_reset():
+    """Block the app until the user sets a new password (admin-approved reset)."""
+    user = get_current_user()
+    if not user:
+        return False
+
+    if not has_approved_password_reset(user['id']):
+        st.session_state['force_password_reset'] = False# ============================================================================
+# PROFILE PAGE (NEW) - full page, opened from sidebar button
+# ============================================================================
+def render_profile_page():
+    """Full-page user profile. Shows role/program/tab (read-only) and lets the
+    user edit their full name and change their password."""
+
+    user = get_current_user()
+    if not user:
+        st.error("No user session found.")
+        return
+
+    # ---------- Back button ----------
+    col_back, _ = st.columns([1, 4])
+    with col_back:
+        if st.button("← Back to Dashboard", use_container_width=True, type="primary"):
+            st.session_state.show_profile_page = False
+            st.rerun()
+
+    # ---------- Header ----------
+    st.markdown("""
+    <div class="app-header fade-in">
+        <h1>👤 My Profile</h1>
+    </div>
+    """, unsafe_allow_html=True)
+
+    # ---------- Profile summary card ----------
+    role_icon = {"admin": "🛡️", "editor": "✏️", "viewer": "👁️"}.get(user.get('role', 'viewer'), "👤")
+    status_icon = "🟢" if user.get('is_active', True) else "🔴"
+    approved_icon = "✅" if user.get('is_approved', False) else "⏳"
+
+    prog_display = user.get('program_access', '') or "None"
+    tab_display = user.get('tab_access', 'All') or "All"
+
+    st.markdown(f"""
+    <div class="custom-card" style="padding: 25px; border-left: 6px solid #2e86c1;">
+        <div style="display: flex; align-items: center; gap: 20px;">
+            <div style="font-size: 4rem; line-height: 1;">{role_icon}</div>
+            <div style="flex: 1;">
+                <div style="font-size: 1.6rem; font-weight: 700; color: #1a5276; font-family: 'Times New Roman', Times, serif;">
+                    {user.get('full_name', 'Unnamed User')}
+                </div>
+                <div style="color: #666; font-size: 1rem; margin-top: 4px;">
+                    📧 {user.get('email', '')}
+                </div>
+            </div>
+            <div style="text-align: right;">
+                <div style="font-size: 0.9rem; color: #555;">
+                    {status_icon} Active &nbsp; | &nbsp; {approved_icon} Approved
+                </div>
+            </div>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+
+    # ---------- 3 info cards ----------
+    col1, col2, col3 = st.columns(3)
+
+    with col1:
+        st.markdown(f"""
+        <div class="metric-card" style="background: linear-gradient(135deg, #1a5276 0%, #2e86c1 100%);">
+            <div class="metric-label">🔑 Role</div>
+            <div class="metric-value" style="font-size: 1.4rem;">{user.get('role', 'viewer').title()}</div>
+        </div>
+        """, unsafe_allow_html=True)
+
+    with col2:
+        st.markdown(f"""
+        <div class="metric-card" style="background: linear-gradient(135deg, #1e8449 0%, #27ae60 100%);">
+            <div class="metric-label">📋 Program Access</div>
+            <div class="metric-value" style="font-size: 1.1rem; word-wrap: break-word;">{prog_display}</div>
+        </div>
+        """, unsafe_allow_html=True)
+
+    with col3:
+        st.markdown(f"""
+        <div class="metric-card" style="background: linear-gradient(135deg, #6f42c1 0%, #a569bd 100%);">
+            <div class="metric-label">📑 Tab Access</div>
+            <div class="metric-value" style="font-size: 1.1rem; word-wrap: break-word;">{tab_display}</div>
+        </div>
+        """, unsafe_allow_html=True)
+
+    st.markdown("---")
+
+    # ---------- Two column layout: Edit Name | Change Password ----------
+    col_left, col_right = st.columns(2, gap="large")
+
+    # -------- LEFT: Edit Profile --------
+    with col_left:
+        st.markdown("### ✏️ Edit Profile")
+        st.caption("You can update your display name. Email, role, program, and tab access are managed by the admin.")
+
+        with st.form("edit_profile_form"):
+            new_name = st.text_input(
+                "Full Name",
+                value=user.get('full_name', ''),
+                key="profile_name_input"
+            )
+            st.text_input(
+                "Email (read-only)",
+                value=user.get('email', ''),
+                disabled=True,
+                key="profile_email_readonly"
+            )
+            st.text_input(
+                "Role (read-only)",
+                value=user.get('role', 'viewer'),
+                disabled=True,
+                key="profile_role_readonly"
+            )
+
+            save_profile = st.form_submit_button("💾 Save Profile", use_container_width=True, type="primary")
+
+            if save_profile:
+                if not new_name or not new_name.strip():
+                    st.warning("Full name cannot be empty.")
+                else:
+                    ok, msg = update_user_profile(user['id'], full_name=new_name.strip())
+                    if ok:
+                        refresh_current_user()
+                        st.success(msg)
+                        time.sleep(1)
+                        st.rerun()
+                    else:
+                        st.error(msg)
+
+    # -------- RIGHT: Change Password --------
+    with col_right:
+        st.markdown("### 🔑 Change Password")
+        st.caption("You must enter your current password to set a new one.")
+
+        with st.form("change_password_form", clear_on_submit=True):
+            old_pw = st.text_input("Current Password", type="password", key="cp_old")
+            new_pw = st.text_input("New Password", type="password", key="cp_new")
+            confirm_pw = st.text_input("Confirm New Password", type="password", key="cp_confirm")
+
+            change_btn = st.form_submit_button("🔒 Change Password", use_container_width=True, type="primary")
+
+            if change_btn:
+                if not old_pw or not new_pw or not confirm_pw:
+                    st.warning("Please fill all password fields.")
+                elif new_pw != confirm_pw:
+                    st.error("New passwords do not match.")
+                elif len(new_pw) < 6:
+                    st.error("Password must be at least 6 characters.")
+                elif old_pw == new_pw:
+                    st.error("New password must be different from current password.")
+                else:
+                    ok, msg = change_password(user['id'], old_pw, new_pw)
+                    if ok:
+                        st.success(msg)
+                        time.sleep(1.2)
+                        logout()
+                    else:
+                        st.error(msg)
+
+    st.markdown("---")
+
+    # ---------- Account info footer ----------
+    st.markdown("### 📋 Account Information")
+    info_col1, info_col2 = st.columns(2)
+    with info_col1:
+        st.markdown(f"**Account Created:** {user.get('created_at', 'Unknown')[:19] if user.get('created_at') else 'Unknown'}")
+        st.markdown(f"**Last Login:** {user.get('last_login', 'Unknown')[:19] if user.get('last_login') else 'Unknown'}")
+    with info_col2:
+        st.markdown(f"**User ID:** `{user.get('id', 'N/A')}`")
+        st.markdown(f"**Last Updated:** {user.get('updated_at', 'Unknown')[:19] if user.get('updated_at') else 'Unknown'}")
+
+    st.markdown("---")
+
+    # ---------- Logout button at bottom ----------
+    col_a, col_b, col_c = st.columns([2, 1, 2])
+    with col_b:
+        if st.button("🚪 Logout", use_container_width=True):
+            logout()
+        return False
+
+    st.markdown("""
+    <div style="max-width: 600px; margin: 40px auto; background: white; border-radius: 16px;
+                padding: 30px; box-shadow: 0 8px 30px rgba(0,0,0,0.15); border-top: 5px solid #2e86c1;">
+        <h2 style="color: #1a5276; text-align: center;">🔑 Set Your New Password</h2>
+        <p style="color: #555; text-align: center;">
+            Your password reset request has been approved. Please set a new password to continue.
+        </p>
+    </div>
+    """, unsafe_allow_html=True)
+
+    col1, col2, col3 = st.columns([1, 2, 1])
+    with col2:
+        with st.form("forced_reset_form", clear_on_submit=True):
+            new_pw = st.text_input("New Password", type="password", key="fr_new")
+            confirm_pw = st.text_input("Confirm New Password", type="password", key="fr_confirm")
+            submitted = st.form_submit_button("✅ Set New Password", type="primary", use_container_width=True)
+
+            if submitted:
+                if not new_pw or not confirm_pw:
+                    st.warning("Please fill both fields.")
+                elif new_pw != confirm_pw:
+                    st.error("Passwords do not match.")
+                elif len(new_pw) < 6:
+                    st.error("Password must be at least 6 characters.")
+                else:
+                    ok, msg = complete_password_reset(user['id'], new_pw)
+                    if ok:
+                        st.success(msg)
+                        time.sleep(1.2)
+                        logout()
+                    else:
+                        st.error(msg)
+
+        if st.button("🚪 Cancel & Logout", use_container_width=True):
+            logout()
+    return True
+
+
+# ============================================================================
+# ADMIN PASSWORD RESET REQUESTS TAB
+# ============================================================================
+def render_admin_password_resets_tab():
+    st.markdown("### 🔑 Password Reset Requests")
+    requests_list = get_password_reset_requests()
+
+    if not requests_list:
+        st.info("✅ No pending password reset requests.")
+        return
+
+    pending = [r for r in requests_list if not r.get('password_reset_approved', False)]
+    approved = [r for r in requests_list if r.get('password_reset_approved', False)]
+
+    if pending:
+        st.markdown(f"#### ⏳ Pending Approval ({len(pending)})")
+        for req in pending:
+            st.markdown(f"""
+            <div style="background: #fff8e1; padding: 15px; border-radius: 10px;
+                        margin-bottom: 10px; border-left: 4px solid #ffc107;">
+                <strong>{req.get('full_name', 'Unknown')}</strong><br>
+                <span style="color: #666;">📧 {req.get('email', '')}</span><br>
+                <span style="font-size: 12px; color: #999;">
+                    Requested: {req.get('password_reset_requested_at', '')[:19]}
+                </span>
+            </div>
+            """, unsafe_allow_html=True)
+            c1, c2, c3 = st.columns([1, 1, 3])
+            with c1:
+                if st.button("✅ Approve", key=f"appr_reset_{req['id']}", use_container_width=True):
+                    if approve_password_reset(str(req['id'])):
+                        st.success("Approved.")
+                        st.rerun()
+            with c2:
+                if st.button("❌ Reject", key=f"rej_reset_{req['id']}", use_container_width=True):
+                    if reject_password_reset(str(req['id'])):
+                        st.success("Rejected.")
+                        st.rerun()
+            st.divider()
+
+    if approved:
+        st.markdown(f"#### ✅ Approved (Awaiting User Reset) ({len(approved)})")
+        for req in approved:
+            st.markdown(f"""
+            <div style="background: #e8f5e9; padding: 15px; border-radius: 10px;
+                        margin-bottom: 10px; border-left: 4px solid #28a745;">
+                <strong>{req.get('full_name', 'Unknown')}</strong><br>
+                <span style="color: #666;">📧 {req.get('email', '')}</span><br>
+                <span style="font-size: 12px; color: #999;">
+                    Approved: {req.get('password_reset_approved_at', '')[:19]}
+                </span>
+            </div>
+            """, unsafe_allow_html=True)
+            if st.button("↩️ Revoke Approval", key=f"revoke_reset_{req['id']}", use_container_width=True):
+                if reject_password_reset(str(req['id'])):
+                    st.success("Revoked.")
+                    st.rerun()
+            st.divider()
 
 # ============================================================================
 # SUPABASE FUNCTIONS
@@ -5318,6 +5887,9 @@ def main():
         initial_sidebar_state="expanded"
     )
 
+    # ============================================================
+    # SESSION STATE INITIALIZATION
+    # ============================================================
     if 'action_plan_tab' not in st.session_state:
         st.session_state.action_plan_tab = "📋 All Issues"
     if 'expert_plan_records' not in st.session_state:
@@ -5352,33 +5924,66 @@ def main():
         st.session_state.user = None
     if 'show_admin_page' not in st.session_state:
         st.session_state.show_admin_page = False
+    if 'show_profile_page' not in st.session_state:
+        st.session_state.show_profile_page = False
     if 'data_loaded' not in st.session_state:
         st.session_state.data_loaded = False
     if 'view_system_action' not in st.session_state:
         st.session_state.view_system_action = "Table"
+    if 'force_password_reset' not in st.session_state:
+        st.session_state.force_password_reset = False
 
     inject_custom_css()
     inject_javascript()
 
+    # ============================================================
+    # AUTHENTICATION GATE
+    # ============================================================
     if not require_auth():
         return
 
+    # ============================================================
+    # FORCED PASSWORD RESET GATE
+    # ============================================================
+    current_user = st.session_state.get('user') or {}
+    needs_forced_reset = (
+        st.session_state.get('force_password_reset', False)
+        or has_approved_password_reset(current_user.get('id'))
+    )
+
+    if needs_forced_reset:
+        if render_forced_password_reset():
+            st.stop()
+
+    # ============================================================
+    # PROFILE PAGE GATE (runs before admin gate)
+    # ============================================================
+    if st.session_state.get('show_profile_page', False):
+        render_profile_page()
+        st.stop()
+
+    # ============================================================
+    # ADMIN PANEL GATE
+    # ============================================================
     if st.session_state.get('show_admin_page', False) and is_admin():
         render_admin_page()
         st.stop()
 
+    # ============================================================
+    # MAIN HEADER
+    # ============================================================
     st.markdown("""
     <div class="app-header fade-in">
         <h1>📦 Supply Planning Dashboard</h1>
     </div>
     """, unsafe_allow_html=True)
 
+    # ============================================================
+    # SIDEBAR
+    # ============================================================
     with st.sidebar:
-        # ============================================================
-        # VIEW TOGGLE - SIDEBAR DROPDOWN
-        # ============================================================
+        # ---------- VIEW TOGGLE ----------
         st.markdown("## 📊 View Mode")
-
         view_options = ["Table", "Cards"]
         current_view = st.session_state.get("sidebar_view_mode", "Table")
         selected_view = st.selectbox(
@@ -5387,7 +5992,6 @@ def main():
             index=view_options.index(current_view) if current_view in view_options else 0,
             key="sidebar_view_selector"
         )
-
         if selected_view != current_view:
             st.session_state.sidebar_view_mode = selected_view
             st.session_state.view_system_action = selected_view
@@ -5395,6 +5999,7 @@ def main():
 
         st.markdown("---")
 
+        # ---------- PROGRAM SELECTION ----------
         st.markdown("## 🎯 Program Selection")
         sheet_id_amc = "14VvZ7IyOmpM4SZrY5_ArHDgLkeFN4inW"
         google_sheets = load_google_sheets(sheet_id_amc)
@@ -5412,7 +6017,6 @@ def main():
         else:
             program_list = ["All"] + list(google_sheets.keys()) if google_sheets else ["All"]
 
-        # Requirement 2: User program access filtering
         if not is_admin():
             user_programs = get_user_program_access()
             if user_programs and "All" not in user_programs:
@@ -5421,7 +6025,12 @@ def main():
                     st.warning("You don't have access to any programs.")
                     st.stop()
 
-        sheet_name = st.selectbox("Select Program", program_list, index=program_list.index(st.session_state.selected_program) if st.session_state.selected_program in program_list else 0)
+        sheet_name = st.selectbox(
+            "Select Program",
+            program_list,
+            index=program_list.index(st.session_state.selected_program)
+                  if st.session_state.selected_program in program_list else 0
+        )
         st.session_state.selected_program = sheet_name
 
         PROGRAM_HIERARCHY = {
@@ -5433,20 +6042,27 @@ def main():
         subcategory_options = ["All"]
         if sheet_name in PROGRAM_HIERARCHY and PROGRAM_HIERARCHY[sheet_name]["is_parent"]:
             subcategory_options = ["All"] + PROGRAM_HIERARCHY[sheet_name]["subcategories"]
-            subcategory_filter = st.selectbox("Subcategory", subcategory_options, index=subcategory_options.index(st.session_state.selected_subcategory) if st.session_state.selected_subcategory in subcategory_options else 0)
+            subcategory_filter = st.selectbox(
+                "Subcategory",
+                subcategory_options,
+                index=subcategory_options.index(st.session_state.selected_subcategory)
+                      if st.session_state.selected_subcategory in subcategory_options else 0
+            )
             st.session_state.selected_subcategory = subcategory_filter
         else:
             subcategory_filter = "All"
             st.session_state.selected_subcategory = "All"
 
         st.markdown("---")
-        st.markdown("## 📅 Quarter & Year Filters")
 
+        # ---------- QUARTER & YEAR FILTERS ----------
+        st.markdown("## 📅 Quarter & Year Filters")
         quarter_options = ["All", "Q1", "Q2", "Q3", "Q4"]
         selected_quarter = st.selectbox(
             "Select Quarter",
             quarter_options,
-            index=quarter_options.index(st.session_state.selected_quarter) if st.session_state.selected_quarter in quarter_options else 0
+            index=quarter_options.index(st.session_state.selected_quarter)
+                  if st.session_state.selected_quarter in quarter_options else 0
         )
         st.session_state.selected_quarter = selected_quarter
 
@@ -5455,15 +6071,18 @@ def main():
         selected_year = st.selectbox(
             "Select Year",
             year_options,
-            index=year_options.index(st.session_state.selected_year) if st.session_state.selected_year in year_options else 0
+            index=year_options.index(st.session_state.selected_year)
+                  if st.session_state.selected_year in year_options else 0
         )
         st.session_state.selected_year = selected_year
 
         st.markdown("---")
 
+        # ---------- ADMIN PANEL BUTTON ----------
         if is_admin():
             if st.button("🔐 Admin Panel", use_container_width=True, type="primary"):
                 st.session_state.show_admin_page = True
+                st.session_state.show_profile_page = False
                 st.rerun()
 
             if st.session_state.get('show_admin_page', False):
@@ -5474,9 +6093,7 @@ def main():
 
             st.markdown("---")
 
-        # ============================================================
-        # REFRESH BUTTON - Requirement 5
-        # ============================================================
+        # ---------- REFRESH BUTTON ----------
         if st.button("🔄 Refresh Data", use_container_width=True, type="primary"):
             st.cache_data.clear()
             st.session_state.data_loaded = False
@@ -5484,9 +6101,21 @@ def main():
 
         st.markdown("---")
 
+        # ---------- PROFILE BUTTON (above Logout) ----------
+        if st.button("👤 Profile", use_container_width=True, type="primary"):
+            st.session_state.show_profile_page = True
+            st.session_state.show_admin_page = False
+            st.rerun()
+
+        st.markdown("---")
+
+        # ---------- LOGOUT ----------
         if st.button("🚪 Logout", use_container_width=True):
             logout()
 
+    # ============================================================
+    # DATA LOADING
+    # ============================================================
     if not st.session_state.data_loaded:
         with st.spinner(""):
             load_all_data_cached()
@@ -5497,6 +6126,9 @@ def main():
         st.error("No data available for the selected filters.")
         st.stop()
 
+    # ============================================================
+    # PROGRESS SUMMARY
+    # ============================================================
     records = load_expert_plan_records(
         sheet_name if sheet_name != "All" else None,
         selected_quarter if selected_quarter != "All" else None,
@@ -5551,6 +6183,9 @@ def main():
 
             st.markdown("---")
 
+    # ============================================================
+    # DATA COMPUTATION
+    # ============================================================
     ordered_materials_tuple = get_program_materials(sheet_name)
 
     issue_pivot = compute_issue_pivot(ordered_materials_tuple)
@@ -5583,10 +6218,11 @@ def main():
         selected_year if selected_year != "All" else None
     )
 
-    # Get user's tab access - Requirement 7
+    # ============================================================
+    # TAB ACCESS FILTERING
+    # ============================================================
     user_tabs = get_user_tab_access()
 
-    # Define all available tabs
     all_tabs = [
         ("📊 Historical Data", "Historical Data"),
         ("📋 Expert Action Plan", "Expert Action Plan"),
@@ -5594,13 +6230,14 @@ def main():
         ("📦 System Generated Action Plan", "System Generated Action Plan")
     ]
 
-    # Filter tabs based on user access
     if user_tabs and "All" not in user_tabs:
         available_tabs = [(label, key) for label, key in all_tabs if key in user_tabs]
     else:
         available_tabs = all_tabs
 
-    # Create tabs with filtered list
+    # ============================================================
+    # RENDER TABS
+    # ============================================================
     if available_tabs:
         tab_labels = [t[0] for t in available_tabs]
         tab_keys = [t[1] for t in available_tabs]
@@ -5622,6 +6259,7 @@ def main():
                     render_system_generated_action_plan(action_df, material_problems, sheet_name)
     else:
         st.warning("You don't have access to any tabs. Please contact your administrator.")
+
 
 if __name__ == "__main__":
     main()
