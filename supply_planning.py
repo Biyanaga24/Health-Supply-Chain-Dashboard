@@ -3791,23 +3791,73 @@ def render_system_generated_action_plan(action_df, material_problems, sheet_name
     view_mode = render_view_toggle("view_system_action", "Table")
 
     # ------------------------------------------------------------------
-    # Inject table CSS once (with wider Problem / Action columns)
+    # Inject table CSS once — natural column widths + horizontal scroll
     # ------------------------------------------------------------------
     st.markdown(
         "<style>"
-        ".sys-action-table-wrap{overflow-x:auto;width:100%;margin-top:10px;border-radius:8px;box-shadow:0 1px 4px rgba(0,0,0,0.08);}"
-        "table.sys-action-table{font-family:'Times New Roman',Times,serif;font-size:14px;width:100%;border-collapse:collapse;table-layout:fixed;background:#ffffff;}"
-        "table.sys-action-table thead th{background:#f2f4f7;padding:10px 8px;border:1px solid #ddd;text-align:left;font-weight:700;white-space:nowrap;position:sticky;top:0;z-index:1;}"
-        "table.sys-action-table tbody td{padding:8px;border:1px solid #e6e6e6;vertical-align:top;word-wrap:break-word;white-space:normal;}"
+        # Wrapper enables horizontal scrolling when table is wider than viewport
+        ".sys-action-table-wrap{"
+        "overflow-x:auto;"
+        "overflow-y:visible;"
+        "width:100%;"
+        "margin-top:10px;"
+        "border-radius:8px;"
+        "box-shadow:0 1px 4px rgba(0,0,0,0.08);"
+        "-webkit-overflow-scrolling:touch;"
+        "}"
+        # Table uses auto layout so columns take the width they need
+        "table.sys-action-table{"
+        "font-family:'Times New Roman',Times,serif;"
+        "font-size:14px;"
+        "border-collapse:collapse;"
+        "table-layout:auto;"
+        "width:max-content;"       # allow table to grow beyond container
+        "min-width:100%;"          # but at least fill the container
+        "background:#ffffff;"
+        "}"
+        "table.sys-action-table thead th{"
+        "background:#f2f4f7;"
+        "padding:10px 8px;"
+        "border:1px solid #ddd;"
+        "text-align:left;"
+        "font-weight:700;"
+        "white-space:nowrap;"
+        "position:sticky;"
+        "top:0;"
+        "z-index:1;"
+        "}"
+        "table.sys-action-table tbody td{"
+        "padding:8px;"
+        "border:1px solid #e6e6e6;"
+        "vertical-align:top;"
+        "word-wrap:break-word;"
+        "white-space:normal;"
+        "}"
         "table.sys-action-table tbody tr:nth-child(even){background:#fafbfc;}"
         "table.sys-action-table tbody tr:hover{background:#eef4ff;}"
-        # Column width definitions
-        "table.sys-action-table th.col-material, table.sys-action-table td.col-material{width:14%;min-width:140px;white-space:normal;}"
-        "table.sys-action-table th.col-num, table.sys-action-table td.col-num{width:4.5%;min-width:52px;text-align:right;white-space:nowrap;}"
-        "table.sys-action-table th.col-problem, table.sys-action-table td.col-problem{width:15%;min-width:180px;}"
-        "table.sys-action-table th.col-action, table.sys-action-table td.col-action{width:22%;min-width:260px;}"
-        "table.sys-action-table th.col-responsible, table.sys-action-table td.col-responsible{width:8%;min-width:100px;}"
-        "table.sys-action-table th.col-date, table.sys-action-table td.col-date{width:6%;min-width:80px;white-space:nowrap;}"
+        # Numeric / date columns: keep compact
+        "table.sys-action-table td.col-num{white-space:nowrap;text-align:right;}"
+        "table.sys-action-table td.col-date{white-space:nowrap;}"
+        # Material: don't wrap too aggressively, give it room
+        "table.sys-action-table td.col-material{white-space:normal;min-width:180px;}"
+        # Problem & Action: give them generous room so text is readable
+        "table.sys-action-table th.col-problem, table.sys-action-table td.col-problem{"
+        "min-width:260px;"
+        "max-width:420px;"
+        "}"
+        "table.sys-action-table th.col-action, table.sys-action-table td.col-action{"
+        "min-width:340px;"
+        "max-width:560px;"
+        "}"
+        "table.sys-action-table th.col-responsible, table.sys-action-table td.col-responsible{"
+        "min-width:110px;"
+        "white-space:normal;"
+        "}"
+        # Custom scrollbar styling
+        ".sys-action-table-wrap::-webkit-scrollbar{height:10px;}"
+        ".sys-action-table-wrap::-webkit-scrollbar-track{background:#f1f1f1;border-radius:8px;}"
+        ".sys-action-table-wrap::-webkit-scrollbar-thumb{background:#b0b7c3;border-radius:8px;}"
+        ".sys-action-table-wrap::-webkit-scrollbar-thumb:hover{background:#8a94a6;}"
         "</style>",
         unsafe_allow_html=True
     )
