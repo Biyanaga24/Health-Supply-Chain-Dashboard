@@ -3791,117 +3791,84 @@ def render_system_generated_action_plan(action_df, material_problems, sheet_name
     view_mode = render_view_toggle("view_system_action", "Table")
 
     # ------------------------------------------------------------------
-    # Inject table CSS once (safe to call repeatedly)
+    # Inject table CSS once
     # ------------------------------------------------------------------
-    st.markdown("""
-    <style>
-    .sys-action-table-wrap {
-        overflow-x: auto;
-        width: 100%;
-        margin-top: 10px;
-        border-radius: 8px;
-        box-shadow: 0 1px 4px rgba(0,0,0,0.08);
-    }
-    table.sys-action-table {
-        font-family: 'Times New Roman', Times, serif;
-        font-size: 14px;
-        width: 100%;
-        border-collapse: collapse;
-        table-layout: auto;
-        background: #ffffff;
-    }
-    table.sys-action-table thead th {
-        background: #f2f4f7;
-        padding: 10px 8px;
-        border: 1px solid #ddd;
-        text-align: left;
-        font-weight: 700;
-        white-space: nowrap;
-        position: sticky;
-        top: 0;
-        z-index: 1;
-    }
-    table.sys-action-table tbody td {
-        padding: 8px;
-        border: 1px solid #e6e6e6;
-        vertical-align: top;
-        word-wrap: break-word;
-        max-width: 260px;
-    }
-    table.sys-action-table tbody tr:nth-child(even) {
-        background: #fafbfc;
-    }
-    table.sys-action-table tbody tr:hover {
-        background: #eef4ff;
-    }
-    table.sys-action-table td.col-material { white-space: nowrap; }
-    table.sys-action-table td.col-num      { white-space: nowrap; text-align: right; }
-    table.sys-action-table td.col-date     { white-space: nowrap; }
-    </style>
-    """, unsafe_allow_html=True)
+    st.markdown(
+        "<style>"
+        ".sys-action-table-wrap{overflow-x:auto;width:100%;margin-top:10px;border-radius:8px;box-shadow:0 1px 4px rgba(0,0,0,0.08);}"
+        "table.sys-action-table{font-family:'Times New Roman',Times,serif;font-size:14px;width:100%;border-collapse:collapse;table-layout:auto;background:#ffffff;}"
+        "table.sys-action-table thead th{background:#f2f4f7;padding:10px 8px;border:1px solid #ddd;text-align:left;font-weight:700;white-space:nowrap;position:sticky;top:0;z-index:1;}"
+        "table.sys-action-table tbody td{padding:8px;border:1px solid #e6e6e6;vertical-align:top;word-wrap:break-word;max-width:260px;}"
+        "table.sys-action-table tbody tr:nth-child(even){background:#fafbfc;}"
+        "table.sys-action-table tbody tr:hover{background:#eef4ff;}"
+        "table.sys-action-table td.col-material{white-space:nowrap;}"
+        "table.sys-action-table td.col-num{white-space:nowrap;text-align:right;}"
+        "table.sys-action-table td.col-date{white-space:nowrap;}"
+        "</style>",
+        unsafe_allow_html=True
+    )
 
     if view_mode == "Table":
         # --------------------------------------------------------------
-        # TABLE VIEW - build the ENTIRE table as a single HTML string
+        # TABLE VIEW - every row is one single line (no newlines/indent)
         # --------------------------------------------------------------
         rows_html_parts = []
         for _, row in filtered_df.iterrows():
-            material = row.get('Material', '') or ''
-            nsoh = row.get('NSOH', '') or ''
-            amc = row.get('AMC', '') or ''
-            pmos = row.get('PMOS', '') or ''
-            nmos = row.get('NMOS', '') or ''
-            tmos = row.get('TMOS', '') or ''
-            mos_needed = row.get('MOS Needed', '') or ''
-            problem = row.get('Identified Problem', '') or ''
-            action = row.get('Action Point', '') or ''
+            material    = row.get('Material', '') or ''
+            nsoh        = row.get('NSOH', '') or ''
+            amc         = row.get('AMC', '') or ''
+            pmos        = row.get('PMOS', '') or ''
+            nmos        = row.get('NMOS', '') or ''
+            tmos        = row.get('TMOS', '') or ''
+            mos_needed  = row.get('MOS Needed', '') or ''
+            problem     = row.get('Identified Problem', '') or ''
+            action      = row.get('Action Point', '') or ''
             responsible = row.get('Responsible Body', '') or ''
-            due_date = row.get('Due Date', '') or ''
+            due_date    = row.get('Due Date', '') or ''
 
-            rows_html_parts.append(f"""
-                <tr>
-                    <td class="col-material"><strong>{material}</strong></td>
-                    <td class="col-num">{nsoh}</td>
-                    <td class="col-num">{amc}</td>
-                    <td class="col-num">{pmos}</td>
-                    <td class="col-num">{nmos}</td>
-                    <td class="col-num">{tmos}</td>
-                    <td class="col-num">{mos_needed}</td>
-                    <td>{problem}</td>
-                    <td>{action}</td>
-                    <td>{responsible}</td>
-                    <td class="col-date">{due_date}</td>
-                </tr>
-            """)
+            rows_html_parts.append(
+                f'<tr>'
+                f'<td class="col-material"><strong>{material}</strong></td>'
+                f'<td class="col-num">{nsoh}</td>'
+                f'<td class="col-num">{amc}</td>'
+                f'<td class="col-num">{pmos}</td>'
+                f'<td class="col-num">{nmos}</td>'
+                f'<td class="col-num">{tmos}</td>'
+                f'<td class="col-num">{mos_needed}</td>'
+                f'<td>{problem}</td>'
+                f'<td>{action}</td>'
+                f'<td>{responsible}</td>'
+                f'<td class="col-date">{due_date}</td>'
+                f'</tr>'
+            )
 
         rows_html = "".join(rows_html_parts)
 
-        table_html = f"""
-        <div class="sys-action-table-wrap">
-            <table class="sys-action-table">
-                <thead>
-                    <tr>
-                        <th>Material</th>
-                        <th>NSOH</th>
-                        <th>AMC</th>
-                        <th>PMOS</th>
-                        <th>NMOS</th>
-                        <th>TMOS</th>
-                        <th>MOS Needed</th>
-                        <th>Identified Problem</th>
-                        <th>Action Point</th>
-                        <th>Responsible Body</th>
-                        <th>Due Date</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {rows_html}
-                </tbody>
-            </table>
-        </div>
-        """
+        table_html = (
+            '<div class="sys-action-table-wrap">'
+            '<table class="sys-action-table">'
+            '<thead>'
+            '<tr>'
+            '<th>Material</th>'
+            '<th>NSOH</th>'
+            '<th>AMC</th>'
+            '<th>PMOS</th>'
+            '<th>NMOS</th>'
+            '<th>TMOS</th>'
+            '<th>MOS Needed</th>'
+            '<th>Identified Problem</th>'
+            '<th>Action Point</th>'
+            '<th>Responsible Body</th>'
+            '<th>Due Date</th>'
+            '</tr>'
+            '</thead>'
+            '<tbody>'
+            + rows_html +
+            '</tbody>'
+            '</table>'
+            '</div>'
+        )
 
-        # Render the whole table in ONE call so Streamlit doesn't split it
         st.markdown(table_html, unsafe_allow_html=True)
 
     else:
