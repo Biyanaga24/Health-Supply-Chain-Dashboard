@@ -5351,7 +5351,7 @@ with tab3:
             st.markdown("### ✏️ Sales and Operational Planning")
             st.info("💡 Recommendations are auto-generated based on pipeline status (with PO numbers) and distribution patterns. You can edit them as needed.")
 
-            # Inject beautiful table CSS (fixed layout with controlled widths)
+            # Inject beautiful table CSS (auto layout, capped columns)
             st.markdown(
                 "<style>"
                 ".sop-table-wrap{"
@@ -5363,28 +5363,31 @@ with tab3:
                 "table.sop-table{"
                 "font-family:'Times New Roman',Times,serif;font-size:14px;"
                 "border-collapse:collapse;"
-                "table-layout:fixed;"
-                "width:100%;"
+                "table-layout:auto;"
+                "width:max-content;min-width:100%;"
                 "background:#ffffff;"
                 "}"
                 "table.sop-table thead th{"
                 "background:#f2f4f7;padding:10px 8px;border:1px solid #ddd;"
                 "text-align:left;font-weight:700;"
-                "white-space:normal;word-wrap:break-word;"
+                "white-space:nowrap;"
                 "position:sticky;top:0;z-index:1;"
                 "}"
                 "table.sop-table tbody td{"
                 "padding:8px;border:1px solid #e6e6e6;"
                 "vertical-align:top;"
-                "word-wrap:break-word;white-space:normal;"
+                "word-wrap:break-word;"
                 "overflow-wrap:anywhere;"
+                "white-space:normal;"
                 "}"
                 "table.sop-table tbody tr:nth-child(even){background:#fafbfc;}"
                 "table.sop-table tbody tr:hover{background:#eef4ff;}"
-                "table.sop-table td.col-num{text-align:right;}"
-                "table.sop-table td.col-status, table.sop-table th.col-status{white-space:nowrap;}"
-                "table.sop-table td.col-problem, table.sop-table th.col-problem{white-space:normal;word-wrap:break-word;}"
-                "table.sop-table td.col-recommendation, table.sop-table th.col-recommendation{white-space:normal;word-wrap:break-word;}"
+                "table.sop-table td.col-num{white-space:nowrap;text-align:right;min-width:60px;}"
+                "table.sop-table td.col-material{min-width:180px;max-width:240px;white-space:normal;}"
+                "table.sop-table td.col-expiry{min-width:150px;max-width:220px;white-space:normal;}"
+                "table.sop-table td.col-status{white-space:nowrap;min-width:100px;}"
+                "table.sop-table td.col-problem{min-width:160px;max-width:220px;white-space:normal;}"
+                "table.sop-table td.col-recommendation{min-width:350px;max-width:520px;white-space:normal;}"
                 ".sop-table-wrap::-webkit-scrollbar{height:10px;}"
                 ".sop-table-wrap::-webkit-scrollbar-track{background:#f1f1f1;border-radius:8px;}"
                 ".sop-table-wrap::-webkit-scrollbar-thumb{background:#b0b7c3;border-radius:8px;}"
@@ -5438,7 +5441,7 @@ with tab3:
             st.markdown("---")
 
             # ----------------------------------------------------------
-            # BEAUTIFUL TABLE VIEW (single, controlled widths)
+            # BEAUTIFUL TABLE VIEW (auto layout, capped columns)
             # ----------------------------------------------------------
             st.markdown("### 📋 Sales and Operational Planning Overview")
 
@@ -5496,16 +5499,6 @@ with tab3:
             table_html = (
                 '<div class="sop-table-wrap">'
                 '<table class="sop-table">'
-                '<colgroup>'
-                '<col style="width:220px;">'
-                '<col style="width:90px;">'
-                '<col style="width:180px;">'
-                '<col style="width:90px;">'
-                '<col style="width:80px;">'
-                '<col style="width:110px;">'
-                '<col style="width:180px;">'
-                '<col style="width:420px;">'
-                '</colgroup>'
                 '<thead>'
                 '<tr>'
                 '<th class="col-material">Material</th>'
