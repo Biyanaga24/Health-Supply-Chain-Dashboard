@@ -5354,7 +5354,53 @@ with tab3:
             st.markdown("### ✏️ Sales and Operational Planning")
             st.info("💡 Recommendations are auto-generated based on pipeline status (with PO numbers) and distribution patterns. You can edit them as needed.")
 
-            display_columns = ['Material Description', 'NSOH', 'Expiry', 'AMC', 'NMOS', 'Status', 'CV Category', 'Identified Problems', 'Recommendation']
+            # Inject beautiful table CSS once
+            st.markdown(
+                "<style>"
+                ".sop-table-wrap{"
+                "overflow-x:auto;overflow-y:visible;width:100%;"
+                "margin-top:10px;border-radius:8px;"
+                "box-shadow:0 1px 4px rgba(0,0,0,0.08);"
+                "-webkit-overflow-scrolling:touch;"
+                "}"
+                "table.sop-table{"
+                "font-family:'Times New Roman',Times,serif;font-size:14px;"
+                "border-collapse:collapse;table-layout:auto;"
+                "width:max-content;min-width:100%;background:#ffffff;"
+                "}"
+                "table.sop-table thead th{"
+                "background:#f2f4f7;padding:10px 8px;border:1px solid #ddd;"
+                "text-align:left;font-weight:700;white-space:nowrap;"
+                "position:sticky;top:0;z-index:1;"
+                "}"
+                "table.sop-table tbody td{"
+                "padding:8px;border:1px solid #e6e6e6;"
+                "vertical-align:top;word-wrap:break-word;white-space:normal;"
+                "}"
+                "table.sop-table tbody tr:nth-child(even){background:#fafbfc;}"
+                "table.sop-table tbody tr:hover{background:#eef4ff;}"
+                "table.sop-table td.col-num{white-space:nowrap;text-align:right;}"
+                "table.sop-table td.col-material{white-space:normal;min-width:220px;}"
+                "table.sop-table td.col-expiry{white-space:normal;min-width:160px;}"
+                "table.sop-table td.col-status{white-space:nowrap;}"
+                "table.sop-table th.col-problem, table.sop-table td.col-problem{"
+                "min-width:180px;max-width:280px;"
+                "}"
+                "table.sop-table th.col-recommendation, table.sop-table td.col-recommendation{"
+                "min-width:400px;max-width:650px;"
+                "}"
+                ".sop-table-wrap::-webkit-scrollbar{height:10px;}"
+                ".sop-table-wrap::-webkit-scrollbar-track{background:#f1f1f1;border-radius:8px;}"
+                ".sop-table-wrap::-webkit-scrollbar-thumb{background:#b0b7c3;border-radius:8px;}"
+                ".sop-table-wrap::-webkit-scrollbar-thumb:hover{background:#8a94a6;}"
+                "</style>",
+                unsafe_allow_html=True
+            )
+
+            # Show the recommendation editor (compact, for editing only)
+            st.markdown("#### ✏️ Edit Recommendations")
+
+            display_columns = ['Material Description', 'NSOH', 'Expiry', 'AMC', 'NMOS', 'Status', 'Identified Problems', 'Recommendation']
             available_display_columns = [col for col in display_columns if col in decision_df_filtered.columns]
 
             column_config = {
@@ -5364,7 +5410,6 @@ with tab3:
                 "AMC": st.column_config.TextColumn("AMC", width=100, disabled=True),
                 "NMOS": st.column_config.TextColumn("NMOS", width=80, disabled=True),
                 "Status": st.column_config.TextColumn("Status", width=100, disabled=True),
-                "CV Category": st.column_config.TextColumn("CV Category", width=120, disabled=True),
                 "Identified Problems": st.column_config.TextColumn("Problem", width=120, disabled=True),
                 "Recommendation": st.column_config.TextColumn("Recommendation", width=450, disabled=False)
             }
@@ -5372,10 +5417,11 @@ with tab3:
             edited_result = st.data_editor(
                 decision_df_filtered[available_display_columns],
                 column_config=column_config,
-                use_container_width=True, 
-                hide_index=True, 
-                height=min(600, (len(decision_df_filtered) + 1) * 45), 
-                num_rows="fixed"
+                use_container_width=True,
+                hide_index=True,
+                height=min(600, (len(decision_df_filtered) + 1) * 45),
+                num_rows="fixed",
+                key="sop_recommendation_editor"
             )
 
             for idx, row in edited_result.iterrows():
@@ -5383,20 +5429,112 @@ with tab3:
                     'recommendation': row['Recommendation']
                 }
 
+            # Apply saved recommendations back to the filtered df for the beautiful table
+            decision_df_filtered = decision_df_filtered.copy()
+            decision_df_filtered['Recommendation'] = decision_df_filtered.apply(
+                lambda r: st.session_state.saved_recommendations.get(
+                    r['Material Description'], {}
+                ).get('recommendation', r.get('Recommendation', '')),
+                axis=1
+            )
+
+            st.markdown("---")
+
+            # ----------------------------------------------------------
+            # BEAUTIFUL TABLE VIEW
+            # ----------------------------------------------------------
+            st.markdown("### 📋 Sales and Operational Planning Overview")
+
+            def _safe(val):
+                if val is None:
+                    return ''
+                try:
+                    if pd.isna(val):
+                        return ''
+                except Exception:
+                    pass
+                return str(val)
+
+            def _color_for_problem(problem):
+                if problem == "Critical Risk":
+                    return "#9b59b6"
+                elif problem == "Stock Out":
+                    return "#ff4444"
+                elif problem in ["Risk of Stock out", "Expiry Risk"]:
+                    return "#ffa500"
+                return "#ffa500"
+
+            rows_html_parts = []
+            for _, row in decision_df_filtered.iterrows():
+                material    = _safe(row.get('Material Description', ''))
+                nsoh        = _safe(row.get('NSOH', ''))
+                expiry      = _safe(row.get('Expiry', ''))
+                amc         = _safe(row.get('AMC', ''))
+                nmos        = _safe(row.get('NMOS', ''))
+                status      = _safe(row.get('Status', ''))
+                problem     = _safe(row.get('Identified Problems', ''))
+                recommendation = _safe(row.get('Recommendation', ''))
+
+                # Expiry with risk details appended
+                expiry_details = _safe(row.get('Expiry Risk Details', ''))
+                if expiry_details:
+                    expiry = f"{expiry} ⚠️ {expiry_details}"
+
+                problem_color = _color_for_problem(problem)
+
+                rows_html_parts.append(
+                    f'<tr>'
+                    f'<td class="col-material"><strong>{material}</strong></td>'
+                    f'<td class="col-num">{nsoh}</td>'
+                    f'<td class="col-expiry">{expiry}</td>'
+                    f'<td class="col-num">{amc}</td>'
+                    f'<td class="col-num">{nmos}</td>'
+                    f'<td class="col-status">{status}</td>'
+                    f'<td class="col-problem"><span style="color:{problem_color};font-weight:600;">{problem}</span></td>'
+                    f'<td class="col-recommendation">{recommendation}</td>'
+                    f'</tr>'
+                )
+
+            rows_html = "".join(rows_html_parts)
+
+            table_html = (
+                '<div class="sop-table-wrap">'
+                '<table class="sop-table">'
+                '<thead>'
+                '<tr>'
+                '<th class="col-material">Material</th>'
+                '<th class="col-num">NSOH</th>'
+                '<th class="col-expiry">Expiry</th>'
+                '<th class="col-num">AMC</th>'
+                '<th class="col-num">NMOS</th>'
+                '<th class="col-status">Status</th>'
+                '<th class="col-problem">Identified Problem</th>'
+                '<th class="col-recommendation">Recommendation</th>'
+                '</tr>'
+                '</thead>'
+                '<tbody>'
+                + rows_html +
+                '</tbody>'
+                '</table>'
+                '</div>'
+            )
+
+            st.markdown(table_html, unsafe_allow_html=True)
+
             col_download1, col_download2 = st.columns(2)
             with col_download1:
                 st.download_button(
-                    label="📥 Download Current View (CSV)", 
-                    data=edited_result.to_csv(index=False), 
-                    file_name=f"{program_display.replace(' ', '_')}_decision_briefs_{datetime.now().strftime('%Y%m%d')}.csv".replace(" ", "_"), 
+                    label="📥 Download Current View (CSV)",
+                    data=edited_result.to_csv(index=False),
+                    file_name=f"{program_display.replace(' ', '_')}_decision_briefs_{datetime.now().strftime('%Y%m%d')}.csv".replace(" ", "_"),
                     mime="text/csv",
                     use_container_width=True
                 )
             with col_download2:
                 st.download_button(
-                    label="📊 Download Full Data (CSV)", 
-                    data=decision_df.to_csv(index=False), 
-                    file_name=f"{program_display.replace(' ', '_')}_decision_briefs_full_{datetime.now().strftime('%Y%m%d')}.csv".replace(" ", "_"), 
+                    label="📊 Download Full Data (CSV)",
+                    data=decision_df.to_csv(index=False),
+                    file_name=f"{program_display.replace(' ', '_')}_decision_briefs_full_{datetime.now().strftime('%Y%m%d')}.csv".replace(" ", "_"),
                     mime="text/csv",
                     use_container_width=True
                 )
@@ -5423,7 +5561,6 @@ with tab3:
                         status_color = "#ffa500"
 
                     recommendation_text = row.get('Recommendation', '')
-                    cv_category = row.get('CV Category', 'N/A')
 
                     material_desc = row.get('Material Description', 'N/A')
                     if pd.isna(material_desc) or material_desc is None:
@@ -5445,7 +5582,6 @@ with tab3:
                         <p><strong>⏰ NMOS:</strong> <span style='color: {status_color}; font-weight: bold;'>{row.get('NMOS', 'N/A')}</span></p>
                         <p><strong>📊 Status:</strong> {row.get('Status', 'N/A')}</p>
                         <p><strong>⚠️ Identified Problem:</strong> <span style='color: {status_color}; font-weight: bold;'>{identified_problem}</span></p>
-                        <p><strong>📊 CV Category:</strong> {cv_category}</p>
                         <p><strong>💡 Recommendation:</strong> <span style='background-color: #f0f2f6; padding: 5px; border-radius: 5px; display: inline-block;'>{recommendation_text}</span></p>
                     </div>
                     """, unsafe_allow_html=True)
