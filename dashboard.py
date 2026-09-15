@@ -5351,7 +5351,7 @@ with tab3:
             st.markdown("### ✏️ Sales and Operational Planning")
             st.info("💡 Recommendations are auto-generated based on pipeline status (with PO numbers) and distribution patterns. You can edit them as needed.")
 
-            # Inject beautiful table CSS (auto layout, capped columns)
+            # Inject beautiful table CSS (auto layout, capped Status + Recommendation)
             st.markdown(
                 "<style>"
                 ".sop-table-wrap{"
@@ -5382,12 +5382,12 @@ with tab3:
                 "}"
                 "table.sop-table tbody tr:nth-child(even){background:#fafbfc;}"
                 "table.sop-table tbody tr:hover{background:#eef4ff;}"
-                "table.sop-table td.col-num{white-space:nowrap;text-align:right;min-width:60px;}"
-                "table.sop-table td.col-material{min-width:180px;max-width:240px;white-space:normal;}"
-                "table.sop-table td.col-expiry{min-width:150px;max-width:220px;white-space:normal;}"
-                "table.sop-table td.col-status{white-space:nowrap;min-width:100px;}"
-                "table.sop-table td.col-problem{min-width:160px;max-width:220px;white-space:normal;}"
-                "table.sop-table td.col-recommendation{min-width:350px;max-width:520px;white-space:normal;}"
+                "table.sop-table td.col-num{white-space:nowrap;text-align:right;min-width:55px;max-width:80px;}"
+                "table.sop-table td.col-material{min-width:170px;max-width:220px;white-space:normal;}"
+                "table.sop-table td.col-expiry{min-width:140px;max-width:200px;white-space:normal;}"
+                "table.sop-table td.col-status{white-space:normal;min-width:90px;max-width:120px;}"
+                "table.sop-table td.col-problem{min-width:150px;max-width:200px;white-space:normal;}"
+                "table.sop-table td.col-recommendation{min-width:280px;max-width:380px;white-space:normal;}"
                 ".sop-table-wrap::-webkit-scrollbar{height:10px;}"
                 ".sop-table-wrap::-webkit-scrollbar-track{background:#f1f1f1;border-radius:8px;}"
                 ".sop-table-wrap::-webkit-scrollbar-thumb{background:#b0b7c3;border-radius:8px;}"
@@ -5441,7 +5441,7 @@ with tab3:
             st.markdown("---")
 
             # ----------------------------------------------------------
-            # BEAUTIFUL TABLE VIEW (auto layout, capped columns)
+            # BEAUTIFUL TABLE VIEW (auto layout, capped Status + Recommendation)
             # ----------------------------------------------------------
             st.markdown("### 📋 Sales and Operational Planning Overview")
 
