@@ -4953,7 +4953,6 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
             if 'Quarter' in records_df.columns and 'Year' in records_df.columns:
                 quarter_order = {'Q1': 1, 'Q2': 2, 'Q3': 3, 'Q4': 4}
                 records_df['Quarter_Sort'] = records_df['Year'].astype(str) + records_df['Quarter'].map(quarter_order).astype(str)
-                # Sort descending to show recent quarters first
                 records_df = records_df.sort_values('Quarter_Sort', ascending=False)
                 records_df = records_df.drop(columns=['Quarter_Sort'])
 
@@ -5026,16 +5025,116 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
                 filtered_df = filtered_df[filtered_df['Status'].isin(selected_statuses)]
 
             if not filtered_df.empty:
-                # Get view mode from sidebar dropdown
                 view_mode = st.session_state.get("sidebar_view_mode", "Table")
 
-                if 'Quarter' in filtered_df.columns and 'Year' in filtered_df.columns:
-                    # ============================================================
-                    # FIXED: Get all unique year-quarter combinations and sort them
-                    # ============================================================
-                    quarters_years = filtered_df[['Quarter', 'Year']].drop_duplicates().values.tolist()
+                # ----------------------------------------------------------
+                # Inject beautiful table CSS once
+                # ----------------------------------------------------------
+                st.markdown(
+                    "<style>"
+                    ".expert-action-table-wrap{"
+                    "overflow-x:auto;overflow-y:visible;width:100%;"
+                    "margin-top:10px;border-radius:8px;"
+                    "box-shadow:0 1px 4px rgba(0,0,0,0.08);"
+                    "-webkit-overflow-scrolling:touch;"
+                    "}"
+                    "table.expert-action-table{"
+                    "font-family:'Times New Roman',Times,serif;font-size:14px;"
+                    "border-collapse:collapse;table-layout:auto;"
+                    "width:max-content;min-width:100%;background:#ffffff;"
+                    "}"
+                    "table.expert-action-table thead th{"
+                    "background:#f2f4f7;padding:10px 8px;border:1px solid #ddd;"
+                    "text-align:left;font-weight:700;white-space:nowrap;"
+                    "position:sticky;top:0;z-index:1;"
+                    "}"
+                    "table.expert-action-table tbody td{"
+                    "padding:8px;border:1px solid #e6e6e6;"
+                    "vertical-align:top;word-wrap:break-word;white-space:normal;"
+                    "}"
+                    "table.expert-action-table tbody tr:nth-child(even){background:#fafbfc;}"
+                    "table.expert-action-table tbody tr:hover{background:#eef4ff;}"
+                    "table.expert-action-table td.col-num{white-space:nowrap;text-align:right;}"
+                    "table.expert-action-table td.col-date{white-space:nowrap;}"
+                    "table.expert-action-table td.col-material{white-space:normal;min-width:180px;}"
+                    "table.expert-action-table th.col-problem, table.expert-action-table td.col-problem{"
+                    "min-width:260px;max-width:420px;"
+                    "}"
+                    "table.expert-action-table th.col-action, table.expert-action-table td.col-action{"
+                    "min-width:340px;max-width:560px;"
+                    "}"
+                    "table.expert-action-table th.col-responsible, table.expert-action-table td.col-responsible{"
+                    "min-width:130px;white-space:normal;"
+                    "}"
+                    "table.expert-action-table th.col-status, table.expert-action-table td.col-status{"
+                    "min-width:100px;white-space:nowrap;"
+                    "}"
+                    ".expert-action-table-wrap::-webkit-scrollbar{height:10px;}"
+                    ".expert-action-table-wrap::-webkit-scrollbar-track{background:#f1f1f1;border-radius:8px;}"
+                    ".expert-action-table-wrap::-webkit-scrollbar-thumb{background:#b0b7c3;border-radius:8px;}"
+                    ".expert-action-table-wrap::-webkit-scrollbar-thumb:hover{background:#8a94a6;}"
+                    "</style>",
+                    unsafe_allow_html=True
+                )
 
-                    # Sort by Year descending, then Quarter in reverse order (Q4, Q3, Q2, Q1)
+                # Helper: build beautiful HTML table from a dataframe
+                def build_expert_html_table(df_in, cols):
+                    rows_html_parts = []
+                    for _, r in df_in.iterrows():
+                        material    = r.get('Material', '') or ''
+                        nsoh        = r.get('NSOH', '') or ''
+                        amc         = r.get('AMC', '') or ''
+                        pmos        = r.get('PMOS', '') or ''
+                        nmos        = r.get('NMOS', '') or ''
+                        tmos        = r.get('TMOS', '') or ''
+                        po          = r.get('Purchase Order', '') or ''
+                        oq          = r.get('Order Quantity', '') or ''
+                        problem     = r.get('Identified Problem', '') or ''
+                        action      = r.get('Action Point', '') or ''
+                        resp        = r.get('Responsible Body', '') or ''
+                        due         = r.get('Due Date', '') or ''
+                        status      = r.get('Status', '') or ''
+
+                        # Build cells only for columns present
+                        cell_map = {
+                            'Material':           f'<td class="col-material"><strong>{material}</strong></td>',
+                            'NSOH':               f'<td class="col-num">{nsoh}</td>',
+                            'AMC':                f'<td class="col-num">{amc}</td>',
+                            'PMOS':               f'<td class="col-num">{pmos}</td>',
+                            'NMOS':               f'<td class="col-num">{nmos}</td>',
+                            'TMOS':               f'<td class="col-num">{tmos}</td>',
+                            'Purchase Order':     f'<td class="col-num">{po}</td>',
+                            'Order Quantity':     f'<td class="col-num">{oq}</td>',
+                            'Identified Problem': f'<td class="col-problem">{problem}</td>',
+                            'Action Point':       f'<td class="col-action">{action}</td>',
+                            'Responsible Body':   f'<td class="col-responsible">{resp}</td>',
+                            'Due Date':           f'<td class="col-date">{due}</td>',
+                            'Status':             f'<td class="col-status">{status}</td>',
+                        }
+
+                        row_cells = "".join(cell_map[c] for c in cols if c in cell_map)
+                        rows_html_parts.append(f'<tr>{row_cells}</tr>')
+
+                    header_cells = "".join(
+                        f'<th class="col-{"material" if c=="Material" else "num" if c in ["NSOH","AMC","PMOS","NMOS","TMOS","Purchase Order","Order Quantity"] else "problem" if c=="Identified Problem" else "action" if c=="Action Point" else "responsible" if c=="Responsible Body" else "date" if c=="Due Date" else "status"}">{c}</th>'
+                        for c in cols
+                    )
+
+                    return (
+                        '<div class="expert-action-table-wrap">'
+                        '<table class="expert-action-table">'
+                        '<thead>'
+                        f'<tr>{header_cells}</tr>'
+                        '</thead>'
+                        '<tbody>'
+                        + "".join(rows_html_parts) +
+                        '</tbody>'
+                        '</table>'
+                        '</div>'
+                    )
+
+                if 'Quarter' in filtered_df.columns and 'Year' in filtered_df.columns:
+                    quarters_years = filtered_df[['Quarter', 'Year']].drop_duplicates().values.tolist()
                     quarter_order = {'Q4': 0, 'Q3': 1, 'Q2': 2, 'Q1': 3}
                     quarters_years_sorted = sorted(quarters_years, key=lambda x: (-x[1], quarter_order.get(x[0], 4)))
 
@@ -5055,16 +5154,15 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
                                 program_display = "All Programs"
 
                         if view_mode == "Table":
-                            # TABLE VIEW
                             st.markdown(f"### 📋 {quarter}, {year} Supply Planning {program_display} Action Plan")
-                            cols = ['Material', 'NSOH', 'AMC', 'PMOS', 'NMOS', 'TMOS', 
-                                    'Purchase Order', 'Order Quantity', 'Identified Problem', 
+                            cols = ['Material', 'NSOH', 'AMC', 'PMOS', 'NMOS', 'TMOS',
+                                    'Purchase Order', 'Order Quantity', 'Identified Problem',
                                     'Action Point', 'Responsible Body', 'Due Date', 'Status']
                             cols = [c for c in cols if c in quarter_df.columns]
-                            st.dataframe(quarter_df[cols], use_container_width=True, hide_index=True)
+                            table_html = build_expert_html_table(quarter_df, cols)
+                            st.markdown(table_html, unsafe_allow_html=True)
                             st.markdown("---")
                         else:
-                            # CARD VIEW
                             st.markdown(f"### 📋 {quarter}, {year} Supply Planning {program_display} Action Plan")
                             st.markdown('<div class="card-view-container">', unsafe_allow_html=True)
                             for _, row in quarter_df.iterrows():
@@ -5097,14 +5195,13 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
                             st.markdown("---")
                 else:
                     if view_mode == "Table":
-                        # TABLE VIEW
-                        cols = ['Material', 'NSOH', 'AMC', 'PMOS', 'NMOS', 'TMOS', 
-                                'Purchase Order', 'Order Quantity', 'Identified Problem', 
+                        cols = ['Material', 'NSOH', 'AMC', 'PMOS', 'NMOS', 'TMOS',
+                                'Purchase Order', 'Order Quantity', 'Identified Problem',
                                 'Action Point', 'Responsible Body', 'Due Date', 'Status']
                         cols = [c for c in cols if c in filtered_df.columns]
-                        st.dataframe(filtered_df[cols], use_container_width=True, hide_index=True)
+                        table_html = build_expert_html_table(filtered_df, cols)
+                        st.markdown(table_html, unsafe_allow_html=True)
                     else:
-                        # CARD VIEW
                         st.markdown('<div class="card-view-container">', unsafe_allow_html=True)
                         for _, row in filtered_df.iterrows():
                             status = row.get('Status', 'Pending')
