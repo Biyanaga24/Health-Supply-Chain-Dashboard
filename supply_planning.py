@@ -3791,19 +3791,23 @@ def render_system_generated_action_plan(action_df, material_problems, sheet_name
     view_mode = render_view_toggle("view_system_action", "Table")
 
     # ------------------------------------------------------------------
-    # Inject table CSS once
+    # Inject table CSS once (with wider Problem / Action columns)
     # ------------------------------------------------------------------
     st.markdown(
         "<style>"
         ".sys-action-table-wrap{overflow-x:auto;width:100%;margin-top:10px;border-radius:8px;box-shadow:0 1px 4px rgba(0,0,0,0.08);}"
-        "table.sys-action-table{font-family:'Times New Roman',Times,serif;font-size:14px;width:100%;border-collapse:collapse;table-layout:auto;background:#ffffff;}"
+        "table.sys-action-table{font-family:'Times New Roman',Times,serif;font-size:14px;width:100%;border-collapse:collapse;table-layout:fixed;background:#ffffff;}"
         "table.sys-action-table thead th{background:#f2f4f7;padding:10px 8px;border:1px solid #ddd;text-align:left;font-weight:700;white-space:nowrap;position:sticky;top:0;z-index:1;}"
-        "table.sys-action-table tbody td{padding:8px;border:1px solid #e6e6e6;vertical-align:top;word-wrap:break-word;max-width:260px;}"
+        "table.sys-action-table tbody td{padding:8px;border:1px solid #e6e6e6;vertical-align:top;word-wrap:break-word;white-space:normal;}"
         "table.sys-action-table tbody tr:nth-child(even){background:#fafbfc;}"
         "table.sys-action-table tbody tr:hover{background:#eef4ff;}"
-        "table.sys-action-table td.col-material{white-space:nowrap;}"
-        "table.sys-action-table td.col-num{white-space:nowrap;text-align:right;}"
-        "table.sys-action-table td.col-date{white-space:nowrap;}"
+        # Column width definitions
+        "table.sys-action-table th.col-material, table.sys-action-table td.col-material{width:14%;min-width:140px;white-space:normal;}"
+        "table.sys-action-table th.col-num, table.sys-action-table td.col-num{width:4.5%;min-width:52px;text-align:right;white-space:nowrap;}"
+        "table.sys-action-table th.col-problem, table.sys-action-table td.col-problem{width:15%;min-width:180px;}"
+        "table.sys-action-table th.col-action, table.sys-action-table td.col-action{width:22%;min-width:260px;}"
+        "table.sys-action-table th.col-responsible, table.sys-action-table td.col-responsible{width:8%;min-width:100px;}"
+        "table.sys-action-table th.col-date, table.sys-action-table td.col-date{width:6%;min-width:80px;white-space:nowrap;}"
         "</style>",
         unsafe_allow_html=True
     )
@@ -3835,9 +3839,9 @@ def render_system_generated_action_plan(action_df, material_problems, sheet_name
                 f'<td class="col-num">{nmos}</td>'
                 f'<td class="col-num">{tmos}</td>'
                 f'<td class="col-num">{mos_needed}</td>'
-                f'<td>{problem}</td>'
-                f'<td>{action}</td>'
-                f'<td>{responsible}</td>'
+                f'<td class="col-problem">{problem}</td>'
+                f'<td class="col-action">{action}</td>'
+                f'<td class="col-responsible">{responsible}</td>'
                 f'<td class="col-date">{due_date}</td>'
                 f'</tr>'
             )
@@ -3849,17 +3853,17 @@ def render_system_generated_action_plan(action_df, material_problems, sheet_name
             '<table class="sys-action-table">'
             '<thead>'
             '<tr>'
-            '<th>Material</th>'
-            '<th>NSOH</th>'
-            '<th>AMC</th>'
-            '<th>PMOS</th>'
-            '<th>NMOS</th>'
-            '<th>TMOS</th>'
-            '<th>MOS Needed</th>'
-            '<th>Identified Problem</th>'
-            '<th>Action Point</th>'
-            '<th>Responsible Body</th>'
-            '<th>Due Date</th>'
+            '<th class="col-material">Material</th>'
+            '<th class="col-num">NSOH</th>'
+            '<th class="col-num">AMC</th>'
+            '<th class="col-num">PMOS</th>'
+            '<th class="col-num">NMOS</th>'
+            '<th class="col-num">TMOS</th>'
+            '<th class="col-num">MOS Needed</th>'
+            '<th class="col-problem">Identified Problem</th>'
+            '<th class="col-action">Action Point</th>'
+            '<th class="col-responsible">Responsible Body</th>'
+            '<th class="col-date">Due Date</th>'
             '</tr>'
             '</thead>'
             '<tbody>'
