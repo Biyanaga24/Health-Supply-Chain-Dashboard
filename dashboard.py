@@ -5212,7 +5212,7 @@ with tab1:
         else:
             st.info("No data available for KPI calculations.")
 
-    # ---------------------------------------------------
+   # ---------------------------------------------------
 # TAB 3 - Decision Briefs (UPDATED)
 # ---------------------------------------------------
 with tab3:
@@ -5222,7 +5222,7 @@ with tab3:
         st.markdown(f"<h3 style='font-size: 28px; font-weight: bold; font-family: Times New Roman;'>{program_display} Medicines Needing Immediate Action</h3>", unsafe_allow_html=True)
 
     if not df_filtered.empty and 'Material Description' in df_filtered.columns:
-        decision_df = df_filtered[['Material Description', 'NSOH', 'Expiry', 'AMC', 'NMOS', 'Status', 'Risk Type', 'Stock Status', 'Expiry Risk Details', 
+        decision_df = df_filtered[['Material Description', 'NSOH', 'Expiry', 'AMC', 'NMOS', 'Status', 'Risk Type', 'Stock Status', 'Expiry Risk Details',
                                    'GIT_MOS', 'LC_MOS', 'WB_MOS', 'TMD_MOS', 'GIT_PO', 'LC_PO', 'WB_PO', 'TMD_PO', 'Hubs%', 'Head Office%', 'CV Category']].copy()
 
         def get_identified_problems(row):
@@ -5305,16 +5305,14 @@ with tab3:
             st.markdown("---")
 
             # ============================================
-            # PROBLEM CHECKBOX FILTERS (NO INFO TEXT, NO SELECT/CLEAR BUTTONS)
+            # PROBLEM CHECKBOX FILTERS
             # ============================================
             st.markdown("### 🔍 Filter by Problem Type")
 
             problem_types = sorted(decision_df['Identified Problems'].unique())
             problem_filters = {}
 
-            # Create 2 columns for checkboxes
             col_left, col_right = st.columns(2)
-
             mid_point = (len(problem_types) + 1) // 2
 
             for idx, problem in enumerate(problem_types):
@@ -5341,7 +5339,6 @@ with tab3:
                         )
                         problem_filters[problem] = st.session_state[checkbox_key]
 
-            # Apply filters
             selected_problems = [problem for problem, is_checked in problem_filters.items() if is_checked]
 
             if selected_problems:
@@ -5354,7 +5351,7 @@ with tab3:
             st.markdown("### ✏️ Sales and Operational Planning")
             st.info("💡 Recommendations are auto-generated based on pipeline status (with PO numbers) and distribution patterns. You can edit them as needed.")
 
-            # Inject beautiful table CSS once
+            # Inject beautiful table CSS (fixed layout with controlled widths)
             st.markdown(
                 "<style>"
                 ".sop-table-wrap{"
@@ -5365,30 +5362,29 @@ with tab3:
                 "}"
                 "table.sop-table{"
                 "font-family:'Times New Roman',Times,serif;font-size:14px;"
-                "border-collapse:collapse;table-layout:auto;"
-                "width:max-content;min-width:100%;background:#ffffff;"
+                "border-collapse:collapse;"
+                "table-layout:fixed;"
+                "width:100%;"
+                "background:#ffffff;"
                 "}"
                 "table.sop-table thead th{"
                 "background:#f2f4f7;padding:10px 8px;border:1px solid #ddd;"
-                "text-align:left;font-weight:700;white-space:nowrap;"
+                "text-align:left;font-weight:700;"
+                "white-space:normal;word-wrap:break-word;"
                 "position:sticky;top:0;z-index:1;"
                 "}"
                 "table.sop-table tbody td{"
                 "padding:8px;border:1px solid #e6e6e6;"
-                "vertical-align:top;word-wrap:break-word;white-space:normal;"
+                "vertical-align:top;"
+                "word-wrap:break-word;white-space:normal;"
+                "overflow-wrap:anywhere;"
                 "}"
                 "table.sop-table tbody tr:nth-child(even){background:#fafbfc;}"
                 "table.sop-table tbody tr:hover{background:#eef4ff;}"
-                "table.sop-table td.col-num{white-space:nowrap;text-align:right;}"
-                "table.sop-table td.col-material{white-space:normal;min-width:220px;}"
-                "table.sop-table td.col-expiry{white-space:normal;min-width:160px;}"
-                "table.sop-table td.col-status{white-space:nowrap;}"
-                "table.sop-table th.col-problem, table.sop-table td.col-problem{"
-                "min-width:180px;max-width:280px;"
-                "}"
-                "table.sop-table th.col-recommendation, table.sop-table td.col-recommendation{"
-                "min-width:400px;max-width:650px;"
-                "}"
+                "table.sop-table td.col-num{text-align:right;}"
+                "table.sop-table td.col-status, table.sop-table th.col-status{white-space:nowrap;}"
+                "table.sop-table td.col-problem, table.sop-table th.col-problem{white-space:normal;word-wrap:break-word;}"
+                "table.sop-table td.col-recommendation, table.sop-table th.col-recommendation{white-space:normal;word-wrap:break-word;}"
                 ".sop-table-wrap::-webkit-scrollbar{height:10px;}"
                 ".sop-table-wrap::-webkit-scrollbar-track{background:#f1f1f1;border-radius:8px;}"
                 ".sop-table-wrap::-webkit-scrollbar-thumb{background:#b0b7c3;border-radius:8px;}"
@@ -5397,37 +5393,38 @@ with tab3:
                 unsafe_allow_html=True
             )
 
-            # Show the recommendation editor (compact, for editing only)
-            st.markdown("#### ✏️ Edit Recommendations")
+            # ----------------------------------------------------------
+            # EDIT RECOMMENDATIONS (collapsed by default — no doubling)
+            # ----------------------------------------------------------
+            with st.expander("✏️ Edit Recommendations", expanded=False):
+                display_columns = ['Material Description', 'NSOH', 'Expiry', 'AMC', 'NMOS', 'Status', 'Identified Problems', 'Recommendation']
+                available_display_columns = [col for col in display_columns if col in decision_df_filtered.columns]
 
-            display_columns = ['Material Description', 'NSOH', 'Expiry', 'AMC', 'NMOS', 'Status', 'Identified Problems', 'Recommendation']
-            available_display_columns = [col for col in display_columns if col in decision_df_filtered.columns]
-
-            column_config = {
-                "Material Description": st.column_config.TextColumn("Material", width=250, disabled=True, pinned=True),
-                "NSOH": st.column_config.TextColumn("NSOH", width=100, disabled=True),
-                "Expiry": st.column_config.TextColumn("Expiry", width=120, disabled=True),
-                "AMC": st.column_config.TextColumn("AMC", width=100, disabled=True),
-                "NMOS": st.column_config.TextColumn("NMOS", width=80, disabled=True),
-                "Status": st.column_config.TextColumn("Status", width=100, disabled=True),
-                "Identified Problems": st.column_config.TextColumn("Problem", width=120, disabled=True),
-                "Recommendation": st.column_config.TextColumn("Recommendation", width=450, disabled=False)
-            }
-
-            edited_result = st.data_editor(
-                decision_df_filtered[available_display_columns],
-                column_config=column_config,
-                use_container_width=True,
-                hide_index=True,
-                height=min(600, (len(decision_df_filtered) + 1) * 45),
-                num_rows="fixed",
-                key="sop_recommendation_editor"
-            )
-
-            for idx, row in edited_result.iterrows():
-                st.session_state.saved_recommendations[row['Material Description']] = {
-                    'recommendation': row['Recommendation']
+                column_config = {
+                    "Material Description": st.column_config.TextColumn("Material", width=250, disabled=True, pinned=True),
+                    "NSOH": st.column_config.TextColumn("NSOH", width=100, disabled=True),
+                    "Expiry": st.column_config.TextColumn("Expiry", width=120, disabled=True),
+                    "AMC": st.column_config.TextColumn("AMC", width=100, disabled=True),
+                    "NMOS": st.column_config.TextColumn("NMOS", width=80, disabled=True),
+                    "Status": st.column_config.TextColumn("Status", width=100, disabled=True),
+                    "Identified Problems": st.column_config.TextColumn("Problem", width=120, disabled=True),
+                    "Recommendation": st.column_config.TextColumn("Recommendation", width=450, disabled=False)
                 }
+
+                edited_result = st.data_editor(
+                    decision_df_filtered[available_display_columns],
+                    column_config=column_config,
+                    use_container_width=True,
+                    hide_index=True,
+                    height=min(600, (len(decision_df_filtered) + 1) * 45),
+                    num_rows="fixed",
+                    key="sop_recommendation_editor"
+                )
+
+                for idx, row in edited_result.iterrows():
+                    st.session_state.saved_recommendations[row['Material Description']] = {
+                        'recommendation': row['Recommendation']
+                    }
 
             # Apply saved recommendations back to the filtered df for the beautiful table
             decision_df_filtered = decision_df_filtered.copy()
@@ -5441,7 +5438,7 @@ with tab3:
             st.markdown("---")
 
             # ----------------------------------------------------------
-            # BEAUTIFUL TABLE VIEW
+            # BEAUTIFUL TABLE VIEW (single, controlled widths)
             # ----------------------------------------------------------
             st.markdown("### 📋 Sales and Operational Planning Overview")
 
@@ -5475,7 +5472,6 @@ with tab3:
                 problem     = _safe(row.get('Identified Problems', ''))
                 recommendation = _safe(row.get('Recommendation', ''))
 
-                # Expiry with risk details appended
                 expiry_details = _safe(row.get('Expiry Risk Details', ''))
                 if expiry_details:
                     expiry = f"{expiry} ⚠️ {expiry_details}"
@@ -5500,6 +5496,16 @@ with tab3:
             table_html = (
                 '<div class="sop-table-wrap">'
                 '<table class="sop-table">'
+                '<colgroup>'
+                '<col style="width:220px;">'
+                '<col style="width:90px;">'
+                '<col style="width:180px;">'
+                '<col style="width:90px;">'
+                '<col style="width:80px;">'
+                '<col style="width:110px;">'
+                '<col style="width:180px;">'
+                '<col style="width:420px;">'
+                '</colgroup>'
                 '<thead>'
                 '<tr>'
                 '<th class="col-material">Material</th>'
