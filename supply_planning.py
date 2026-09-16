@@ -42,15 +42,63 @@ TAB_OPTIONS = [
 # CUSTOM CSS - UPDATED WITH ALL FIXES
 # ============================================================================
 def inject_custom_css():
+    # Load the Material Icons font via <link> (more reliable than @import inside <style>)
+    st.markdown(
+        '<link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">',
+        unsafe_allow_html=True
+    )
     st.markdown("""
     <style>
+        /* --- Material Icons safety net -------------------------------------
+           Streamlit's sidebar collapse/expand button, expander chevrons, and
+           several internal widgets render their icon as a ligature inside a
+           <span>. If any global font rule overrides that span's font-family,
+           the browser shows the ligature NAME as text (e.g.
+           "keyboard_double_arrow_right"). These rules force icon elements
+           back onto the Material Icons font. ------------------------------- */
+        .material-icons,
+        .material-icons-outlined,
+        .material-icons-round,
+        .material-icons-sharp,
+        .material-icons-two-tone,
+        [class*="material-icons"],
+        [data-testid="stIconMaterial"],
+        [data-testid*="Icon"],
+        [data-testid*="icon"],
+        [data-testid="stSidebarCollapseButton"] span,
+        [data-testid="stSidebarCollapsedControl"] span,
+        button[kind] span {
+            font-family: 'Material Icons', 'Material Icons Outlined', 'Material Icons Round' !important;
+            font-weight: normal !important;
+            font-style: normal !important;
+            line-height: 1 !important;
+            letter-spacing: normal !important;
+            text-transform: none !important;
+            white-space: nowrap !important;
+            word-wrap: normal !important;
+            direction: ltr !important;
+            -webkit-font-feature-settings: 'liga' !important;
+            -webkit-font-smoothing: antialiased !important;
+            font-feature-settings: 'liga' !important;
+        }
+
         .main { padding: 0rem 1rem; }
         .stApp { 
             background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
         }
 
-        /* Times New Roman for main content only */
-        .main * { font-family: 'Times New Roman', Times, serif !important; }
+        /* Times New Roman for main content only — but never for icon fonts */
+        .main p,
+        .main span:not([class*="material-icons"]):not([data-testid*="Icon"]):not([data-testid*="icon"]),
+        .main div,
+        .main label,
+        .main td,
+        .main th,
+        .main li {
+            font-family: 'Times New Roman', Times, serif;
+        }
+
+        /* (rest of your CSS unchanged from here on) */
 
         /* Sidebar - system fonts ONLY */
         .css-1d391kg, .sidebar-content, .stSidebar, .stSidebar * { 
@@ -1146,181 +1194,7 @@ def render_forced_password_reset():
         return False
 
     if not has_approved_password_reset(user['id']):
-        st.session_state['force_password_reset'] = False# ============================================================================
-# PROFILE PAGE (NEW) - full page, opened from sidebar button
-# ============================================================================
-def render_profile_page():
-    """Full-page user profile. Shows role/program/tab (read-only) and lets the
-    user edit their full name and change their password."""
-
-    user = get_current_user()
-    if not user:
-        st.error("No user session found.")
-        return
-
-    # ---------- Back button ----------
-    col_back, _ = st.columns([1, 4])
-    with col_back:
-        if st.button("← Back to Dashboard", use_container_width=True, type="primary"):
-            st.session_state.show_profile_page = False
-            st.rerun()
-
-    # ---------- Header ----------
-    st.markdown("""
-    <div class="app-header fade-in">
-        <h1>👤 My Profile</h1>
-    </div>
-    """, unsafe_allow_html=True)
-
-    # ---------- Profile summary card ----------
-    role_icon = {"admin": "🛡️", "editor": "✏️", "viewer": "👁️"}.get(user.get('role', 'viewer'), "👤")
-    status_icon = "🟢" if user.get('is_active', True) else "🔴"
-    approved_icon = "✅" if user.get('is_approved', False) else "⏳"
-
-    prog_display = user.get('program_access', '') or "None"
-    tab_display = user.get('tab_access', 'All') or "All"
-
-    st.markdown(f"""
-    <div class="custom-card" style="padding: 25px; border-left: 6px solid #2e86c1;">
-        <div style="display: flex; align-items: center; gap: 20px;">
-            <div style="font-size: 4rem; line-height: 1;">{role_icon}</div>
-            <div style="flex: 1;">
-                <div style="font-size: 1.6rem; font-weight: 700; color: #1a5276; font-family: 'Times New Roman', Times, serif;">
-                    {user.get('full_name', 'Unnamed User')}
-                </div>
-                <div style="color: #666; font-size: 1rem; margin-top: 4px;">
-                    📧 {user.get('email', '')}
-                </div>
-            </div>
-            <div style="text-align: right;">
-                <div style="font-size: 0.9rem; color: #555;">
-                    {status_icon} Active &nbsp; | &nbsp; {approved_icon} Approved
-                </div>
-            </div>
-        </div>
-    </div>
-    """, unsafe_allow_html=True)
-
-    # ---------- 3 info cards ----------
-    col1, col2, col3 = st.columns(3)
-
-    with col1:
-        st.markdown(f"""
-        <div class="metric-card" style="background: linear-gradient(135deg, #1a5276 0%, #2e86c1 100%);">
-            <div class="metric-label">🔑 Role</div>
-            <div class="metric-value" style="font-size: 1.4rem;">{user.get('role', 'viewer').title()}</div>
-        </div>
-        """, unsafe_allow_html=True)
-
-    with col2:
-        st.markdown(f"""
-        <div class="metric-card" style="background: linear-gradient(135deg, #1e8449 0%, #27ae60 100%);">
-            <div class="metric-label">📋 Program Access</div>
-            <div class="metric-value" style="font-size: 1.1rem; word-wrap: break-word;">{prog_display}</div>
-        </div>
-        """, unsafe_allow_html=True)
-
-    with col3:
-        st.markdown(f"""
-        <div class="metric-card" style="background: linear-gradient(135deg, #6f42c1 0%, #a569bd 100%);">
-            <div class="metric-label">📑 Tab Access</div>
-            <div class="metric-value" style="font-size: 1.1rem; word-wrap: break-word;">{tab_display}</div>
-        </div>
-        """, unsafe_allow_html=True)
-
-    st.markdown("---")
-
-    # ---------- Two column layout: Edit Name | Change Password ----------
-    col_left, col_right = st.columns(2, gap="large")
-
-    # -------- LEFT: Edit Profile --------
-    with col_left:
-        st.markdown("### ✏️ Edit Profile")
-        st.caption("You can update your display name. Email, role, program, and tab access are managed by the admin.")
-
-        with st.form("edit_profile_form"):
-            new_name = st.text_input(
-                "Full Name",
-                value=user.get('full_name', ''),
-                key="profile_name_input"
-            )
-            st.text_input(
-                "Email (read-only)",
-                value=user.get('email', ''),
-                disabled=True,
-                key="profile_email_readonly"
-            )
-            st.text_input(
-                "Role (read-only)",
-                value=user.get('role', 'viewer'),
-                disabled=True,
-                key="profile_role_readonly"
-            )
-
-            save_profile = st.form_submit_button("💾 Save Profile", use_container_width=True, type="primary")
-
-            if save_profile:
-                if not new_name or not new_name.strip():
-                    st.warning("Full name cannot be empty.")
-                else:
-                    ok, msg = update_user_profile(user['id'], full_name=new_name.strip())
-                    if ok:
-                        refresh_current_user()
-                        st.success(msg)
-                        time.sleep(1)
-                        st.rerun()
-                    else:
-                        st.error(msg)
-
-    # -------- RIGHT: Change Password --------
-    with col_right:
-        st.markdown("### 🔑 Change Password")
-        st.caption("You must enter your current password to set a new one.")
-
-        with st.form("change_password_form", clear_on_submit=True):
-            old_pw = st.text_input("Current Password", type="password", key="cp_old")
-            new_pw = st.text_input("New Password", type="password", key="cp_new")
-            confirm_pw = st.text_input("Confirm New Password", type="password", key="cp_confirm")
-
-            change_btn = st.form_submit_button("🔒 Change Password", use_container_width=True, type="primary")
-
-            if change_btn:
-                if not old_pw or not new_pw or not confirm_pw:
-                    st.warning("Please fill all password fields.")
-                elif new_pw != confirm_pw:
-                    st.error("New passwords do not match.")
-                elif len(new_pw) < 6:
-                    st.error("Password must be at least 6 characters.")
-                elif old_pw == new_pw:
-                    st.error("New password must be different from current password.")
-                else:
-                    ok, msg = change_password(user['id'], old_pw, new_pw)
-                    if ok:
-                        st.success(msg)
-                        time.sleep(1.2)
-                        logout()
-                    else:
-                        st.error(msg)
-
-    st.markdown("---")
-
-    # ---------- Account info footer ----------
-    st.markdown("### 📋 Account Information")
-    info_col1, info_col2 = st.columns(2)
-    with info_col1:
-        st.markdown(f"**Account Created:** {user.get('created_at', 'Unknown')[:19] if user.get('created_at') else 'Unknown'}")
-        st.markdown(f"**Last Login:** {user.get('last_login', 'Unknown')[:19] if user.get('last_login') else 'Unknown'}")
-    with info_col2:
-        st.markdown(f"**User ID:** `{user.get('id', 'N/A')}`")
-        st.markdown(f"**Last Updated:** {user.get('updated_at', 'Unknown')[:19] if user.get('updated_at') else 'Unknown'}")
-
-    st.markdown("---")
-
-    # ---------- Logout button at bottom ----------
-    col_a, col_b, col_c = st.columns([2, 1, 2])
-    with col_b:
-        if st.button("🚪 Logout", use_container_width=True):
-            logout()
+        st.session_state['force_password_reset'] = False
         return False
 
     st.markdown("""
@@ -3926,32 +3800,40 @@ def render_system_generated_action_plan(action_df, material_problems, sheet_name
         st.markdown(table_html, unsafe_allow_html=True)
 
     else:
-        # CARD VIEW
+        # CARD VIEW - Beautiful Card Design like the image
         st.markdown('<div class="card-view-container">', unsafe_allow_html=True)
         for _, row in filtered_df.iterrows():
+            material    = row.get('Material', '') or ''
+            nsoh        = row.get('NSOH', '') or ''
+            amc         = row.get('AMC', '') or ''
+            pmos        = row.get('PMOS', '') or ''
+            nmos        = row.get('NMOS', '') or ''
+            tmos        = row.get('TMOS', '') or ''
+            mos_needed  = row.get('MOS Needed', '') or ''
+            problem     = row.get('Identified Problem', '') or ''
+            action      = row.get('Action Point', '') or ''
+            responsible = row.get('Responsible Body', '') or ''
+            due_date    = row.get('Due Date', '') or ''
+
             st.markdown(f"""
             <div class="data-card">
                 <div class="card-header">
-                    <span class="card-title">{row.get('Material', '')}</span>
+                    <span class="card-title">📦 {material}</span>
                 </div>
                 <div class="card-body">
-                    <span class="label">NSOH</span>
-                    <span class="value">{row.get('NSOH', '')}</span>
-                    <span class="label">AMC</span>
-                    <span class="value">{row.get('AMC', '')}</span>
-                    <span class="label">PMOS</span>
-                    <span class="value">{row.get('PMOS', '')}</span>
-                    <span class="label">NMOS</span>
-                    <span class="value">{row.get('NMOS', '')}</span>
-                    <span class="label">TMOS</span>
-                    <span class="value">{row.get('TMOS', '')}</span>
-                    <span class="label">MOS Needed</span>
-                    <span class="value">{row.get('MOS Needed', '')}</span>
-                    <div class="problem full-width"><strong>⚠️ Problem:</strong> {row.get('Identified Problem', '')}</div>
-                    <div class="action full-width"><strong>📌 Action:</strong> {row.get('Action Point', '')}</div>
+                    <div class="full-width" style="display: grid; grid-template-columns: 1fr 1fr; gap: 4px 12px; margin-bottom: 8px;">
+                        <span class="label">NSOH</span><span class="value">{nsoh}</span>
+                        <span class="label">AMC</span><span class="value">{amc}</span>
+                        <span class="label">PMOS</span><span class="value">{pmos}</span>
+                        <span class="label">NMOS</span><span class="value">{nmos}</span>
+                        <span class="label">TMOS</span><span class="value">{tmos}</span>
+                        <span class="label">MOS Needed</span><span class="value">{mos_needed}</span>
+                    </div>
+                    <div class="problem full-width"><strong>⚠️ Problem:</strong> {problem}</div>
+                    <div class="action full-width"><strong>📌 Action:</strong> {action}</div>
                     <div class="responsible full-width">
-                        <span><strong>👤 Responsible:</strong> {row.get('Responsible Body', '')}</span>
-                        <span><strong>📅 Due:</strong> {row.get('Due Date', '')}</span>
+                        <span><strong>👤 Responsible:</strong> {responsible}</span>
+                        <span><strong>📅 Due:</strong> {due_date}</span>
                     </div>
                 </div>
             </div>
@@ -6167,8 +6049,6 @@ def main():
     # SIDEBAR
     # ============================================================
     with st.sidebar:
-        # ---------- VIEW TOGGLE ----------
-        st.markdown("## 📊 View Mode")
         view_options = ["Table", "Cards"]
         current_view = st.session_state.get("sidebar_view_mode", "Table")
         selected_view = st.selectbox(
@@ -6185,7 +6065,6 @@ def main():
         st.markdown("---")
 
         # ---------- PROGRAM SELECTION ----------
-        st.markdown("## 🎯 Program Selection")
         sheet_id_amc = "14VvZ7IyOmpM4SZrY5_ArHDgLkeFN4inW"
         google_sheets = load_google_sheets(sheet_id_amc)
 
@@ -6241,7 +6120,6 @@ def main():
         st.markdown("---")
 
         # ---------- QUARTER & YEAR FILTERS ----------
-        st.markdown("## 📅 Quarter & Year Filters")
         quarter_options = ["All", "Q1", "Q2", "Q3", "Q4"]
         selected_quarter = st.selectbox(
             "Select Quarter",
