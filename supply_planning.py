@@ -3853,7 +3853,7 @@ def render_system_generated_action_plan(action_df, material_problems, sheet_name
         use_container_width=True
     )
 # ============================================================================
-# RENDER EXPERT ACTION PLAN - WITH QUARTER ORDERING FIX (Requirement 4)
+# RENDER EXPERT ACTION PLAN - RESTRUCTURED GRAPH
 # ============================================================================
 def render_expert_action_plan_with_status(df_filtered, material_problems, action_df, sheet_name, nsoh_pivot, selected_quarter, selected_year):
     current_year = datetime.now().year
@@ -3966,6 +3966,9 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
     if selected_material:
         st.session_state.selected_material_for_expert = selected_material
 
+    # =========================================================================
+    # RESTRUCTURED GRAPH SECTION
+    # =========================================================================
     if selected_material and not nsoh_pivot.empty:
         st.markdown("---")
         st.markdown("### 📊 NMOS Trend with Action Point Proposals")
@@ -4094,341 +4097,322 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
                     nmos_values_display = selected_nmos + future_nmos
                     current_display_nmos = last_selected_nmos
 
+                    # ==========================================================
+                    # STATUS COLOR + LABEL
+                    # ==========================================================
                     if current_display_nmos < 1:
                         nmos_color = '#FF0000'
                         status_text = "🔴 STOCK OUT"
+                        status_bg = "#FFEBEE"
                     elif 1 <= current_display_nmos < 2:
                         nmos_color = '#FF4500'
                         status_text = "🟠 CRITICAL"
+                        status_bg = "#FFF3E0"
                     elif 2 <= current_display_nmos < 6:
                         nmos_color = '#FFD700'
                         status_text = "🟡 WARNING"
+                        status_bg = "#FFFDE7"
                     elif 6 <= current_display_nmos <= 18:
                         nmos_color = '#32CD32'
                         status_text = "🟢 NORMAL"
+                        status_bg = "#E8F5E9"
                     else:
                         nmos_color = '#87CEEB'
                         status_text = "🔵 OVERSTOCK"
+                        status_bg = "#E3F2FD"
 
                     has_pipeline_stock = (git_mos > 0) or (lc_mos > 0) or (wb_mos > 0) or (tmd_mos > 0)
 
-                    if current_display_nmos < 1:
-                        target_threshold = None
-                        threshold_value = None
-                    elif 1 <= current_display_nmos < 2:
-                        target_threshold = 1
-                        threshold_value = 1
-                    elif 2 <= current_display_nmos < 6:
-                        target_threshold = 2
-                        threshold_value = 2
-                    elif 6 <= current_display_nmos < 8:
-                        target_threshold = 6
-                        threshold_value = 6
-                    elif 8 <= current_display_nmos <= 18:
-                        target_threshold = 8
-                        threshold_value = 8
-                    else:
-                        target_threshold = None
-                        threshold_value = None
-
-                    crossing_point = None
-
-                    if target_threshold is not None and len(future_nmos) > 1:
-                        for i in range(1, len(future_nmos)):
-                            prev_val = future_nmos[i-1]
-                            curr_val = future_nmos[i]
-                            prev_month = future_months_dt[i-1]
-                            curr_month = future_months_dt[i]
-
-                            if (prev_val > target_threshold and curr_val <= target_threshold) or (prev_val < target_threshold and curr_val >= target_threshold):
-                                crossing_month = curr_month.strftime('%b-%Y')
-                                crossing_point = {
-                                    'month': crossing_month,
-                                    'value': target_threshold
-                                }
-                                break
-
+                    # ---- Compute action proposal ----
                     action_proposal = ""
                     action_color = "#333"
-                    arrow_info = None
+                    action_title = "Recommended Action"
 
                     if current_display_nmos < 1:
-                        action_proposal = "🔴 IMMEDIATE ACTION REQUIRED: Stock Out! Initiate emergency procurement immediately."
-                        action_color = "#FF0000"
-                        arrow_info = {
-                            'x': all_months_display[-1] if all_months_display else all_months[-1],
-                            'y': current_display_nmos,
-                            'hover_text': action_proposal
-                        }
+                        action_title = "🚨 Immediate Action Required"
+                        action_proposal = "Stock Out! Initiate emergency procurement immediately."
+                        action_color = "#C62828"
 
                     elif current_display_nmos < 8 and not has_pipeline_stock:
                         order_qty = int((18 - current_display_nmos) * amc_value) if amc_value > 0 else 0
-                        action_text = f"Mobilize and Initiate the quantity = (18-{current_display_nmos:.1f}) × AMC = {order_qty:,} units immediately"
-                        action_proposal = f"📦 {action_text}"
-                        action_color = "#FF8C00"
-                        arrow_info = {
-                            'x': all_months_display[-1] if all_months_display else all_months[-1],
-                            'y': current_display_nmos,
-                            'hover_text': action_text
-                        }
+                        action_title = "📦 Procurement Initiation"
+                        action_proposal = (
+                            f"Mobilize and initiate quantity = (18 − {current_display_nmos:.1f}) × AMC "
+                            f"= {order_qty:,} units immediately."
+                        )
+                        action_color = "#E65100"
 
                     elif 1 <= current_display_nmos < 2:
                         if has_pipeline_stock:
-                            if git_mos > 0 and git_po and str(git_po) != 'nan' and str(git_po) != '':
-                                action_text = f"Expedite GIT shipment and customs clearance - PO: {git_po}"
-                            elif lc_mos > 0 and lc_po and str(lc_po) != 'nan' and str(lc_po) != '':
-                                action_text = f"Expedite L/C opening process and shipment - PO: {lc_po}"
-                            elif wb_mos > 0 and wb_po and str(wb_po) != 'nan' and str(wb_po) != '':
-                                action_text = f"Expedite budget transfer and L/C opening process - PO: {wb_po}"
-                            elif tmd_mos > 0 and tmd_po and str(tmd_po) != 'nan' and str(tmd_po) != '':
-                                action_text = f"Expedite tender process and budget transfer request - PO: {tmd_po}"
+                            if git_mos > 0 and git_po and str(git_po) not in ('nan', ''):
+                                action_proposal = f"Expedite GIT shipment and customs clearance — PO: {git_po}"
+                            elif lc_mos > 0 and lc_po and str(lc_po) not in ('nan', ''):
+                                action_proposal = f"Expedite L/C opening process and shipment — PO: {lc_po}"
+                            elif wb_mos > 0 and wb_po and str(wb_po) not in ('nan', ''):
+                                action_proposal = f"Expedite budget transfer and L/C opening process — PO: {wb_po}"
+                            elif tmd_mos > 0 and tmd_po and str(tmd_po) not in ('nan', ''):
+                                action_proposal = f"Expedite tender process and budget transfer request — PO: {tmd_po}"
                             else:
                                 order_qty = int((18 - current_display_nmos) * amc_value) if amc_value > 0 else 0
-                                action_text = f"Mobilize and Initiate quantity = (18-{current_display_nmos:.1f})×AMC = {order_qty:,} units"
+                                action_proposal = f"Mobilize and initiate {(18 - current_display_nmos):.1f} × AMC = {order_qty:,} units."
                         else:
                             order_qty = int((18 - current_display_nmos) * amc_value) if amc_value > 0 else 0
-                            action_text = f"Mobilize and Initiate quantity = (18-{current_display_nmos:.1f})×AMC = {order_qty:,} units"
-
-                        action_proposal = f"🔽 {action_text}"
-                        action_color = "#FF4500"
-
-                        if crossing_point:
-                            arrow_info = {
-                                'x': crossing_point['month'],
-                                'y': crossing_point['value'],
-                                'hover_text': action_text
-                            }
+                            action_proposal = f"Mobilize and initiate {(18 - current_display_nmos):.1f} × AMC = {order_qty:,} units."
+                        action_title = "🔽 Pipeline Expedite / Procurement"
+                        action_color = "#D84315"
 
                     elif 2 <= current_display_nmos < 6:
                         if has_pipeline_stock:
-                            if git_mos > 0 and git_po and str(git_po) != 'nan' and str(git_po) != '':
-                                action_text = f"Expedite GIT shipment and customs clearance - PO: {git_po}"
-                            elif lc_mos > 0 and lc_po and str(lc_po) != 'nan' and str(lc_po) != '':
-                                action_text = f"Expedite L/C opening process and shipment - PO: {lc_po}"
-                            elif wb_mos > 0 and wb_po and str(wb_po) != 'nan' and str(wb_po) != '':
-                                action_text = f"Expedite budget transfer and L/C opening process - PO: {wb_po}"
-                            elif tmd_mos > 0 and tmd_po and str(tmd_po) != 'nan' and str(tmd_po) != '':
-                                action_text = f"Expedite tender process and budget transfer request - PO: {tmd_po}"
+                            if git_mos > 0 and git_po and str(git_po) not in ('nan', ''):
+                                action_proposal = f"Expedite GIT shipment and customs clearance — PO: {git_po}"
+                            elif lc_mos > 0 and lc_po and str(lc_po) not in ('nan', ''):
+                                action_proposal = f"Expedite L/C opening process and shipment — PO: {lc_po}"
+                            elif wb_mos > 0 and wb_po and str(wb_po) not in ('nan', ''):
+                                action_proposal = f"Expedite budget transfer and L/C opening process — PO: {wb_po}"
+                            elif tmd_mos > 0 and tmd_po and str(tmd_po) not in ('nan', ''):
+                                action_proposal = f"Expedite tender process and budget transfer request — PO: {tmd_po}"
                             else:
                                 order_qty = int((18 - current_display_nmos) * amc_value) if amc_value > 0 else 0
-                                action_text = f"Mobilize and Initiate quantity = (18-{current_display_nmos:.1f})×AMC = {order_qty:,} units"
+                                action_proposal = f"Mobilize and initiate {(18 - current_display_nmos):.1f} × AMC = {order_qty:,} units."
                         else:
                             order_qty = int((18 - current_display_nmos) * amc_value) if amc_value > 0 else 0
-                            action_text = f"Mobilize and Initiate quantity = (18-{current_display_nmos:.1f})×AMC = {order_qty:,} units"
-
-                        action_proposal = f"🔽 {action_text}"
-                        action_color = "#FFD700"
-
-                        if crossing_point:
-                            arrow_info = {
-                                'x': crossing_point['month'],
-                                'y': crossing_point['value'],
-                                'hover_text': action_text
-                            }
+                            action_proposal = f"Mobilize and initiate {(18 - current_display_nmos):.1f} × AMC = {order_qty:,} units."
+                        action_title = "📦 Pipeline Expedite / Procurement"
+                        action_color = "#F9A825"
 
                     elif 6 <= current_display_nmos < 8:
                         if has_pipeline_stock:
-                            if git_mos > 0 and git_po and str(git_po) != 'nan' and str(git_po) != '':
-                                action_text = f"Expedite GIT shipment and customs clearance - PO: {git_po}"
-                            elif lc_mos > 0 and lc_po and str(lc_po) != 'nan' and str(lc_po) != '':
-                                action_text = f"Expedite L/C opening process and shipment - PO: {lc_po}"
-                            elif wb_mos > 0 and wb_po and str(wb_po) != 'nan' and str(wb_po) != '':
-                                action_text = f"Expedite budget transfer and L/C opening process - PO: {wb_po}"
-                            elif tmd_mos > 0 and tmd_po and str(tmd_po) != 'nan' and str(tmd_po) != '':
-                                action_text = f"Expedite tender process and budget transfer request - PO: {tmd_po}"
+                            if git_mos > 0 and git_po and str(git_po) not in ('nan', ''):
+                                action_proposal = f"Expedite GIT shipment and customs clearance — PO: {git_po}"
+                            elif lc_mos > 0 and lc_po and str(lc_po) not in ('nan', ''):
+                                action_proposal = f"Expedite L/C opening process and shipment — PO: {lc_po}"
+                            elif wb_mos > 0 and wb_po and str(wb_po) not in ('nan', ''):
+                                action_proposal = f"Expedite budget transfer and L/C opening process — PO: {wb_po}"
+                            elif tmd_mos > 0 and tmd_po and str(tmd_po) not in ('nan', ''):
+                                action_proposal = f"Expedite tender process and budget transfer request — PO: {tmd_po}"
                             else:
                                 order_qty = int((18 - current_display_nmos) * amc_value) if amc_value > 0 else 0
-                                action_text = f"Mobilize and Initiate quantity = (18-{current_display_nmos:.1f})×AMC = {order_qty:,} units"
+                                action_proposal = f"Mobilize and initiate {(18 - current_display_nmos):.1f} × AMC = {order_qty:,} units."
                         else:
                             order_qty = int((18 - current_display_nmos) * amc_value) if amc_value > 0 else 0
-                            action_text = f"Mobilize and Initiate quantity = (18-{current_display_nmos:.1f})×AMC = {order_qty:,} units"
-
-                        action_proposal = f"🔽 {action_text}"
-                        action_color = "#FFD700"
-
-                        if crossing_point:
-                            arrow_info = {
-                                'x': crossing_point['month'],
-                                'y': crossing_point['value'],
-                                'hover_text': action_text
-                            }
+                            action_proposal = f"Mobilize and initiate {(18 - current_display_nmos):.1f} × AMC = {order_qty:,} units."
+                        action_title = "📦 Prepare Procurement (Approaching Reorder)"
+                        action_color = "#F9A825"
 
                     elif 8 <= current_display_nmos <= 18:
                         order_qty = int((18 - 8) * amc_value) if amc_value > 0 else 0
-                        action_text = f"Mobilize and Initiate quantity = (18-8)×AMC = {order_qty:,} units when NMOS reaches 8"
-                        action_proposal = f"📦 {action_text}"
-                        action_color = "#32CD32"
-
-                        if crossing_point:
-                            arrow_info = {
-                                'x': crossing_point['month'],
-                                'y': crossing_point['value'],
-                                'hover_text': action_text
-                            }
+                        action_title = "📦 Planned Procurement at Reorder Point"
+                        action_proposal = (
+                            f"Mobilize and initiate quantity = (18 − 8) × AMC = {order_qty:,} units "
+                            f"when NMOS reaches 8."
+                        )
+                        action_color = "#2E7D32"
 
                     else:
-                        action_proposal = "⚠️ Strict follow up on risk of expiry - Monitor expiry dates closely"
-                        action_color = "#87CEEB"
-                        arrow_info = {
-                            'x': all_months_display[-1] if all_months_display else all_months[-1],
-                            'y': current_display_nmos,
-                            'hover_text': action_proposal
-                        }
+                        action_title = "⚠️ Expiry Risk Monitoring"
+                        action_proposal = "Strict follow-up on risk of expiry — monitor expiry dates closely."
+                        action_color = "#0277BD"
 
+                    # ==========================================================
+                    # KPI BANNER
+                    # ==========================================================
+                    kpi_html = f"""
+                    <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(150px,1fr));
+                                gap:10px; margin:10px 0 15px 0;">
+                        <div style="background:white; border-left:5px solid {nmos_color}; border-radius:10px;
+                                    padding:12px 14px; box-shadow:0 2px 8px rgba(0,0,0,0.06);">
+                            <div style="font-size:11px; color:#666; text-transform:uppercase; letter-spacing:0.5px;">Current NMOS</div>
+                            <div style="font-size:24px; font-weight:700; color:{nmos_color};">{current_display_nmos:.2f}m</div>
+                            <div style="font-size:12px; font-weight:600; color:{nmos_color};">{status_text}</div>
+                        </div>
+                        <div style="background:white; border-left:5px solid #2e86c1; border-radius:10px;
+                                    padding:12px 14px; box-shadow:0 2px 8px rgba(0,0,0,0.06);">
+                            <div style="font-size:11px; color:#666; text-transform:uppercase; letter-spacing:0.5px;">AMC</div>
+                            <div style="font-size:24px; font-weight:700; color:#1a5276;">{int(amc_value):,}</div>
+                            <div style="font-size:12px; color:#666;">units / month</div>
+                        </div>
+                        <div style="background:white; border-left:5px solid #6f42c1; border-radius:10px;
+                                    padding:12px 14px; box-shadow:0 2px 8px rgba(0,0,0,0.06);">
+                            <div style="font-size:11px; color:#666; text-transform:uppercase; letter-spacing:0.5px;">Pipeline MOS</div>
+                            <div style="font-size:24px; font-weight:700; color:#6f42c1;">{git_mos + lc_mos + wb_mos + tmd_mos:.2f}m</div>
+                            <div style="font-size:12px; color:#666;">GIT {git_mos:.1f} · LC {lc_mos:.1f} · WB {wb_mos:.1f} · TMD {tmd_mos:.1f}</div>
+                        </div>
+                        <div style="background:white; border-left:5px solid #fcc419; border-radius:10px;
+                                    padding:12px 14px; box-shadow:0 2px 8px rgba(0,0,0,0.06);">
+                            <div style="font-size:11px; color:#666; text-transform:uppercase; letter-spacing:0.5px;">Current TMOS</div>
+                            <div style="font-size:24px; font-weight:700; color:#e67700;">{current_display_nmos + git_mos + lc_mos + wb_mos + tmd_mos:.2f}m</div>
+                            <div style="font-size:12px; color:#666;">Total incl. pipeline</div>
+                        </div>
+                    </div>
+                    """
+                    st.markdown(kpi_html, unsafe_allow_html=True)
+
+                    # ==========================================================
+                    # OPTIONAL LABELS TOGGLE
+                    # ==========================================================
+                    show_labels = st.checkbox(
+                        "Show numeric labels on chart",
+                        value=False,
+                        key=f"show_labels_{selected_material}"
+                    )
+
+                    # ==========================================================
+                    # BUILD CLEANER CHART
+                    # ==========================================================
                     fig = go.Figure()
 
+                    # ---- Threshold bands (background) ----
+                    fig.add_hrect(y0=0,  y1=1,  fillcolor="rgba(255,0,0,0.06)",     line_width=0, layer="below")
+                    fig.add_hrect(y0=1,  y1=2,  fillcolor="rgba(255,69,0,0.06)",    line_width=0, layer="below")
+                    fig.add_hrect(y0=2,  y1=6,  fillcolor="rgba(255,215,0,0.06)",   line_width=0, layer="below")
+                    fig.add_hrect(y0=6,  y1=18, fillcolor="rgba(50,205,50,0.06)",   line_width=0, layer="below")
+
+                    # ---- Area fill under historical ----
+                    if selected_months:
+                        fig.add_trace(go.Scatter(
+                            x=selected_months + selected_months[::-1],
+                            y=selected_nmos + [0]*len(selected_nmos),
+                            fill='toself',
+                            fillcolor=f'rgba({int(nmos_color[1:3],16)}, {int(nmos_color[3:5],16)}, {int(nmos_color[5:7],16)}, 0.12)',
+                            line=dict(color='rgba(0,0,0,0)'),
+                            showlegend=False,
+                            hoverinfo='skip'
+                        ))
+
+                    # ---- Historical line ----
+                    hist_text = [f"{v:.2f}" for v in selected_nmos] if show_labels else None
                     fig.add_trace(go.Scatter(
-                        x=all_months_display + all_months_display[::-1],
-                        y=nmos_values_display + [0]*len(nmos_values_display),
-                        fill='toself',
-                        fillcolor=f'rgba({int(nmos_color[1:3], 16)}, {int(nmos_color[3:5], 16)}, {int(nmos_color[5:7], 16)}, 0.15)',
-                        line=dict(color='rgba(200, 200, 200, 0)'),
-                        showlegend=False,
-                        hoverinfo='skip'
+                        x=selected_months,
+                        y=selected_nmos,
+                        name='NMOS (Historical)',
+                        mode='lines+markers+text' if show_labels else 'lines+markers',
+                        line=dict(color=nmos_color, width=3),
+                        marker=dict(size=10, color=nmos_color, line=dict(width=2, color='white')),
+                        text=hist_text,
+                        textposition='top center',
+                        textfont=dict(size=9, color='#333'),
+                        customdata=selected_nsoh,
+                        hovertemplate=(
+                            '<b>%{x}</b><br>'
+                            'NMOS: %{y:.2f} months<br>'
+                            'NSOH: %{customdata:,.0f} units'
+                            '<extra></extra>'
+                        )
                     ))
 
+                    # ---- Projected line ----
+                    proj_text = [f"{v:.2f}" for v in future_nmos] if show_labels else None
+                    fig.add_trace(go.Scatter(
+                        x=future_months,
+                        y=future_nmos,
+                        name='NMOS (Projected)',
+                        mode='lines+markers+text' if show_labels else 'lines+markers',
+                        line=dict(color='#FF6B6B', width=2.5, dash='dash'),
+                        marker=dict(size=9, color='#FF6B6B', line=dict(width=1, color='white'), symbol='diamond'),
+                        text=proj_text,
+                        textposition='top center',
+                        textfont=dict(size=9, color='#666'),
+                        hovertemplate='<b>%{x}</b><br>NMOS (Projected): %{y:.2f} months<extra></extra>'
+                    ))
+
+                    # ---- Current marker (star) ----
                     if selected_months:
-                        fig.add_trace(go.Scatter(
-                            x=selected_months,
-                            y=selected_nmos,
-                            name='NMOS (Historical)',
-                            mode='lines+markers+text',
-                            line=dict(color=nmos_color, width=3),
-                            marker=dict(size=10, color=nmos_color, line=dict(width=2, color='white')),
-                            text=[f"{v:.2f}" for v in selected_nmos],
-                            textposition='top center',
-                            textfont=dict(size=9, color='#333'),
-                            hovertemplate='<b>%{x}</b><br>NMOS: %{y:.2f} months<extra></extra>'
-                        ))
-
-                    if future_months:
-                        fig.add_trace(go.Scatter(
-                            x=future_months,
-                            y=future_nmos,
-                            name='NMOS (Projected)',
-                            mode='lines+markers+text',
-                            line=dict(color='#FF6B6B', width=2, dash='dash'),
-                            marker=dict(size=8, color='#FF6B6B', line=dict(width=1, color='white'), symbol='diamond'),
-                            text=[f"{v:.2f}" for v in future_nmos],
-                            textposition='top center',
-                            textfont=dict(size=9, color='#666'),
-                            hovertemplate='<b>%{x}</b><br>NMOS (Projected): %{y:.2f} months<extra></extra>'
-                        ))
-
-                    if selected_months:
-                        fig.add_vline(
-                            x=selected_months[-1],
-                            line_dash='dot',
-                            line_color='#666',
-                            line_width=1.5
-                        )
-
                         fig.add_trace(go.Scatter(
                             x=[selected_months[-1]],
                             y=[current_display_nmos],
                             mode='markers',
-                            marker=dict(symbol='star', size=20, color='#FCC419', line=dict(width=2, color='white')),
+                            marker=dict(symbol='star', size=22, color='#FCC419',
+                                        line=dict(width=2, color='white')),
                             name=f'Current: {current_display_nmos:.2f}m',
                             hovertemplate='<b>Current NMOS</b><br>%{y:.2f} months<extra></extra>'
                         ))
 
-                    if arrow_info:
-                        fig.add_annotation(
-                            x=arrow_info['x'],
-                            y=arrow_info['y'],
-                            text="🔽",
-                            showarrow=True,
-                            arrowhead=2,
-                            arrowsize=2,
-                            arrowwidth=3,
-                            arrowcolor='#FF0000',
-                            font=dict(size=16, color='#FF0000'),
-                            bgcolor='rgba(255, 255, 255, 0.9)',
-                            bordercolor='#FF0000',
-                            borderwidth=2,
-                            borderpad=6,
-                            ay=-50,
-                            ax=0,
-                            hovertext=arrow_info['hover_text'],
-                            hoverlabel=dict(
-                                bgcolor="white",
-                                font_size=13,
-                                font_family="Times New Roman, Times, serif",
-                                bordercolor="#FF0000"
-                            )
+                        # Divider between history and projection
+                        fig.add_vline(
+                            x=selected_months[-1],
+                            line_dash='dot',
+                            line_color='#888',
+                            line_width=1.5
                         )
 
+                    # ---- Threshold lines ----
                     thresholds = [
-                        (1, 'Stock Out (1m)', '#FF0000', 'dash'),
-                        (2, 'Safety Stock (2m)', '#FF6B6B', 'dash'),
-                        (6, 'Min Stock (6m)', '#FF922B', 'dash'),
-                        (8, 'Reorder Point (8m)', '#CC5DE8', 'dash'),
-                        (18, 'Max Stock (18m)', '#51CF66', 'dash')
+                        (1,  'Stock Out (1m)',     '#FF0000'),
+                        (2,  'Safety Stock (2m)',  '#FF6B6B'),
+                        (6,  'Min Stock (6m)',     '#FF922B'),
+                        (8,  'Reorder Point (8m)', '#CC5DE8'),
+                        (18, 'Max Stock (18m)',    '#51CF66'),
                     ]
-
-                    for threshold, label, color, dash in thresholds:
+                    for threshold, label, color in thresholds:
                         fig.add_hline(
                             y=threshold,
-                            line_dash=dash,
+                            line_dash='dash',
                             line_color=color,
-                            line_width=2,
+                            line_width=1.5,
                             annotation_text=label,
                             annotation_position='right',
-                            annotation_font=dict(size=11, color=color, family='Times New Roman, Times, serif')
+                            annotation_font=dict(size=10, color=color),
+                            opacity=0.7
                         )
-
-                    fig.add_hrect(
-                        y0=0, y1=1,
-                        fillcolor="rgba(255, 0, 0, 0.05)",
-                        line_width=0
-                    )
-                    fig.add_hrect(
-                        y0=1, y1=2,
-                        fillcolor="rgba(255, 69, 0, 0.05)",
-                        line_width=0
-                    )
-                    fig.add_hrect(
-                        y0=2, y1=6,
-                        fillcolor="rgba(255, 215, 0, 0.05)",
-                        line_width=0
-                    )
-                    fig.add_hrect(
-                        y0=6, y1=18,
-                        fillcolor="rgba(50, 205, 50, 0.05)",
-                        line_width=0
-                    )
 
                     y_max = max(22, max(nmos_values_display) + 3) if nmos_values_display else 22
 
                     fig.update_layout(
-                        title=f"NMOS Trend with Action Proposals for {selected_material[:50]}",
-                        xaxis_title='Month-Year',
+                        title=dict(
+                            text=f"NMOS Trend — {selected_material[:60]}",
+                            font=dict(size=15, color='#1a5276')
+                        ),
+                        xaxis_title='Month',
                         yaxis_title='Months of Stock (NMOS)',
-                        height=650,
-                        width=1200,
-                        margin=dict(l=80, r=40, t=60, b=100),
-                        legend=dict(orientation='h', yanchor='bottom', y=1.02, xanchor='center', x=0.5),
+                        height=520,
+                        margin=dict(l=70, r=140, t=60, b=90),
+                        legend=dict(
+                            orientation='h',
+                            yanchor='bottom', y=1.02,
+                            xanchor='center', x=0.5,
+                            font=dict(size=11)
+                        ),
                         hovermode='x unified',
                         xaxis=dict(
-                            showgrid=False, 
-                            showline=True, 
-                            tickangle=45, 
-                            categoryorder='array', 
+                            showgrid=False, showline=True,
+                            tickangle=45,
+                            categoryorder='array',
                             categoryarray=all_months_display,
-                            tickfont=dict(size=12),
-                            dtick=1
+                            tickfont=dict(size=11)
                         ),
                         yaxis=dict(
-                            showgrid=True, 
-                            gridcolor='#e0e0e0', 
-                            showline=True, 
+                            showgrid=True, gridcolor='#e8e8e8',
+                            showline=True,
                             range=[0, y_max],
-                            tickfont=dict(size=12)
+                            tickfont=dict(size=11)
                         ),
                         plot_bgcolor='white',
-                        font=dict(family='Times New Roman, Times, serif')
+                        font=dict(family='Times New Roman, Times, serif'),
+                        dragmode='pan'
                     )
-                    st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': True})
+
+                    st.plotly_chart(
+                        fig,
+                        use_container_width=True,
+                        config={'displayModeBar': True, 'scrollZoom': True}
+                    )
+
+                    # ==========================================================
+                    # ACTION PROPOSAL PANEL (below chart)
+                    # ==========================================================
+                    st.markdown(f"""
+                    <div style="background:{status_bg}; border-left:6px solid {action_color};
+                                border-radius:10px; padding:14px 18px; margin: 10px 0 20px 0;
+                                box-shadow:0 2px 8px rgba(0,0,0,0.06);">
+                        <div style="font-size:13px; font-weight:700; color:{action_color};
+                                    text-transform:uppercase; letter-spacing:0.5px; margin-bottom:4px;">
+                            {action_title}
+                        </div>
+                        <div style="font-size:15px; color:#222; line-height:1.5;">
+                            {action_proposal}
+                        </div>
+                    </div>
+                    """, unsafe_allow_html=True)
 
                     st.markdown("---")
                 else:
@@ -4438,6 +4422,9 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
         else:
             st.info(f"No NSOH historical data found for {selected_material}.")
 
+    # =========================================================================
+    # MATERIAL INFO PANEL
+    # =========================================================================
     if st.session_state.show_material_info and selected_material:
         base_info = get_material_base_info(selected_material)
         system_problems = get_system_generated_problems(selected_material)
@@ -4479,6 +4466,9 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
 
         st.markdown("---")
 
+    # =========================================================================
+    # ACTION BUTTONS
+    # =========================================================================
     if selected_material:
         material_records = [r for r in st.session_state.expert_plan_records if r['Material'] == selected_material]
         has_records = len(material_records) > 0
@@ -4511,6 +4501,9 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
 
     st.markdown("---")
 
+    # =========================================================================
+    # CHANGE LIST
+    # =========================================================================
     if selected_material and st.session_state.show_change_list:
         material_records = [r for r in st.session_state.expert_plan_records if r['Material'] == selected_material]
 
@@ -4563,6 +4556,9 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
             st.info(f"No action points for {selected_material}.")
             st.session_state.show_change_list = False
 
+    # =========================================================================
+    # ADD / EDIT FORM
+    # =========================================================================
     is_editing = st.session_state.edit_record_id is not None
     is_adding = st.session_state.adding_action_point
 
@@ -4819,6 +4815,9 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
 
     st.markdown("---")
 
+    # =========================================================================
+    # RECORDS TABLE
+    # =========================================================================
     if st.session_state.expert_plan_records:
         records_df = pd.DataFrame(st.session_state.expert_plan_records)
 
@@ -4977,7 +4976,6 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
                         due         = r.get('Due Date', '') or ''
                         status      = r.get('Status', '') or ''
 
-                        # Build cells only for columns present
                         cell_map = {
                             'Material':           f'<td class="col-material"><strong>{material}</strong></td>',
                             'NSOH':               f'<td class="col-num">{nsoh}</td>',
