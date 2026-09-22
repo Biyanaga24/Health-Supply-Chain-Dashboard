@@ -2659,7 +2659,6 @@ def get_month_columns(df):
 # ============================================================================
 # RENDER FUNCTIONS
 # ============================================================================
-
 def render_unified_historical_table(df_filtered, issue_pivot, nsoh_pivot, consumption_pivot, deliveries_pivot, ordered_materials_tuple, sheet_name):
     if df_filtered.empty:
         st.info("No data available.")
@@ -2991,7 +2990,11 @@ def render_unified_historical_table(df_filtered, issue_pivot, nsoh_pivot, consum
             plot_bgcolor='white',
             margin=dict(l=60, r=40, t=60, b=60)
         )
-        st.plotly_chart(fig_nmos_amos, use_container_width=True, config={'displayModeBar': True})
+        st.plotly_chart(
+            fig_nmos_amos,
+            use_container_width=True,
+            config={'displayModeBar': 'hover'}
+        )
 
     st.markdown("---")
     st.markdown("""
@@ -3105,7 +3108,11 @@ def render_unified_historical_table(df_filtered, issue_pivot, nsoh_pivot, consum
             plot_bgcolor='white',
             margin=dict(l=60, r=40, t=60, b=60)
         )
-        st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': True})
+        st.plotly_chart(
+            fig,
+            use_container_width=True,
+            config={'displayModeBar': 'hover'}
+        )
 
     st.markdown("---")
     st.markdown("""
@@ -3219,7 +3226,11 @@ def render_unified_historical_table(df_filtered, issue_pivot, nsoh_pivot, consum
             plot_bgcolor='white',
             margin=dict(l=60, r=40, t=60, b=60)
         )
-        st.plotly_chart(fig2, use_container_width=True, config={'displayModeBar': True})
+        st.plotly_chart(
+            fig2,
+            use_container_width=True,
+            config={'displayModeBar': 'hover'}
+        )
     else:
         st.info("No AMC data available for comparison.")
 
@@ -4097,7 +4108,7 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
                     nmos_values_display = selected_nmos + future_nmos
                     current_display_nmos = last_selected_nmos
 
-                    # ==========================================================
+                                        # ==========================================================
                     # STATUS COLOR + LABEL
                     # ==========================================================
                     if current_display_nmos < 1:
@@ -4120,98 +4131,6 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
                         nmos_color = '#87CEEB'
                         status_text = "🔵 OVERSTOCK"
                         status_bg = "#E3F2FD"
-
-                    has_pipeline_stock = (git_mos > 0) or (lc_mos > 0) or (wb_mos > 0) or (tmd_mos > 0)
-
-                    # ---- Compute action proposal ----
-                    action_proposal = ""
-                    action_color = "#333"
-                    action_title = "Recommended Action"
-
-                    if current_display_nmos < 1:
-                        action_title = "🚨 Immediate Action Required"
-                        action_proposal = "Stock Out! Initiate emergency procurement immediately."
-                        action_color = "#C62828"
-
-                    elif current_display_nmos < 8 and not has_pipeline_stock:
-                        order_qty = int((18 - current_display_nmos) * amc_value) if amc_value > 0 else 0
-                        action_title = "📦 Procurement Initiation"
-                        action_proposal = (
-                            f"Mobilize and initiate quantity = (18 − {current_display_nmos:.1f}) × AMC "
-                            f"= {order_qty:,} units immediately."
-                        )
-                        action_color = "#E65100"
-
-                    elif 1 <= current_display_nmos < 2:
-                        if has_pipeline_stock:
-                            if git_mos > 0 and git_po and str(git_po) not in ('nan', ''):
-                                action_proposal = f"Expedite GIT shipment and customs clearance — PO: {git_po}"
-                            elif lc_mos > 0 and lc_po and str(lc_po) not in ('nan', ''):
-                                action_proposal = f"Expedite L/C opening process and shipment — PO: {lc_po}"
-                            elif wb_mos > 0 and wb_po and str(wb_po) not in ('nan', ''):
-                                action_proposal = f"Expedite budget transfer and L/C opening process — PO: {wb_po}"
-                            elif tmd_mos > 0 and tmd_po and str(tmd_po) not in ('nan', ''):
-                                action_proposal = f"Expedite tender process and budget transfer request — PO: {tmd_po}"
-                            else:
-                                order_qty = int((18 - current_display_nmos) * amc_value) if amc_value > 0 else 0
-                                action_proposal = f"Mobilize and initiate {(18 - current_display_nmos):.1f} × AMC = {order_qty:,} units."
-                        else:
-                            order_qty = int((18 - current_display_nmos) * amc_value) if amc_value > 0 else 0
-                            action_proposal = f"Mobilize and initiate {(18 - current_display_nmos):.1f} × AMC = {order_qty:,} units."
-                        action_title = "🔽 Pipeline Expedite / Procurement"
-                        action_color = "#D84315"
-
-                    elif 2 <= current_display_nmos < 6:
-                        if has_pipeline_stock:
-                            if git_mos > 0 and git_po and str(git_po) not in ('nan', ''):
-                                action_proposal = f"Expedite GIT shipment and customs clearance — PO: {git_po}"
-                            elif lc_mos > 0 and lc_po and str(lc_po) not in ('nan', ''):
-                                action_proposal = f"Expedite L/C opening process and shipment — PO: {lc_po}"
-                            elif wb_mos > 0 and wb_po and str(wb_po) not in ('nan', ''):
-                                action_proposal = f"Expedite budget transfer and L/C opening process — PO: {wb_po}"
-                            elif tmd_mos > 0 and tmd_po and str(tmd_po) not in ('nan', ''):
-                                action_proposal = f"Expedite tender process and budget transfer request — PO: {tmd_po}"
-                            else:
-                                order_qty = int((18 - current_display_nmos) * amc_value) if amc_value > 0 else 0
-                                action_proposal = f"Mobilize and initiate {(18 - current_display_nmos):.1f} × AMC = {order_qty:,} units."
-                        else:
-                            order_qty = int((18 - current_display_nmos) * amc_value) if amc_value > 0 else 0
-                            action_proposal = f"Mobilize and initiate {(18 - current_display_nmos):.1f} × AMC = {order_qty:,} units."
-                        action_title = "📦 Pipeline Expedite / Procurement"
-                        action_color = "#F9A825"
-
-                    elif 6 <= current_display_nmos < 8:
-                        if has_pipeline_stock:
-                            if git_mos > 0 and git_po and str(git_po) not in ('nan', ''):
-                                action_proposal = f"Expedite GIT shipment and customs clearance — PO: {git_po}"
-                            elif lc_mos > 0 and lc_po and str(lc_po) not in ('nan', ''):
-                                action_proposal = f"Expedite L/C opening process and shipment — PO: {lc_po}"
-                            elif wb_mos > 0 and wb_po and str(wb_po) not in ('nan', ''):
-                                action_proposal = f"Expedite budget transfer and L/C opening process — PO: {wb_po}"
-                            elif tmd_mos > 0 and tmd_po and str(tmd_po) not in ('nan', ''):
-                                action_proposal = f"Expedite tender process and budget transfer request — PO: {tmd_po}"
-                            else:
-                                order_qty = int((18 - current_display_nmos) * amc_value) if amc_value > 0 else 0
-                                action_proposal = f"Mobilize and initiate {(18 - current_display_nmos):.1f} × AMC = {order_qty:,} units."
-                        else:
-                            order_qty = int((18 - current_display_nmos) * amc_value) if amc_value > 0 else 0
-                            action_proposal = f"Mobilize and initiate {(18 - current_display_nmos):.1f} × AMC = {order_qty:,} units."
-                        action_title = "📦 Prepare Procurement (Approaching Reorder)"
-                        action_color = "#F9A825"
-
-                    elif 8 <= current_display_nmos <= 18:
-                        order_qty = int((18 - 8) * amc_value) if amc_value > 0 else 0
-                        action_title = "📦 Planned Procurement at Reorder Point"
-                        action_proposal = (
-                            f"Mobilize and initiate quantity = (18 − 8) × AMC = {order_qty:,} units "
-                            f"when NMOS reaches 8."
-                        )
-                        action_color = "#2E7D32"
-
-                    else:
-                        action_title = "⚠️ Expiry Risk Monitoring"
-                        action_proposal = "Strict follow-up on risk of expiry — monitor expiry dates closely."
-                        action_color = "#0277BD"
 
                     # ==========================================================
                     # KPI BANNER
@@ -4248,29 +4167,104 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
                     st.markdown(kpi_html, unsafe_allow_html=True)
 
                     # ==========================================================
-                    # OPTIONAL LABELS TOGGLE
+                    # RECOMMENDATION HELPER (system-generated priority order)
                     # ==========================================================
-                    show_labels = st.checkbox(
-                        "Show numeric labels on chart",
-                        value=False,
-                        key=f"show_labels_{selected_material}"
-                    )
+                    def _get_system_recommendation(nmos_at_crossing):
+                        """Return recommendation string using same priority as
+                        get_pipeline_recommendation in compute_action_plan."""
+                        git_po_s = str(git_po).strip()  if git_po  is not None else ""
+                        lc_po_s  = str(lc_po).strip()   if lc_po   is not None else ""
+                        wb_po_s  = str(wb_po).strip()   if wb_po   is not None else ""
+                        tmd_po_s = str(tmd_po).strip()  if tmd_po  is not None else ""
+
+                        def _valid(po):
+                            return po and po.lower() not in ("nan", "none", "")
+
+                        if git_mos > 0 and _valid(git_po_s):
+                            return f"Expedite GIT shipment — PO: {git_po_s}"
+                        if lc_mos > 0 and _valid(lc_po_s):
+                            return f"Expedite L/C opening process — PO: {lc_po_s}"
+                        if wb_mos > 0 and _valid(wb_po_s):
+                            return f"Expedite budget transfer — PO: {wb_po_s}"
+                        if tmd_mos > 0 and _valid(tmd_po_s):
+                            return f"Expedite tender process — PO: {tmd_po_s}"
+                        # Fallback: Mobilize and Initiate
+                        if amc_value > 0:
+                            qty = int(max(0, 18 - nmos_at_crossing) * amc_value)
+                            return (f"Mobilize and initiate quantity = "
+                                    f"(18 − {nmos_at_crossing:.1f}) × {int(amc_value):,} "
+                                    f"= {qty:,} units")
+                        return "AMC unknown — review manually"
 
                     # ==========================================================
-                    # BUILD CLEANER CHART
+                    # THRESHOLD CROSSING DETECTION — PROJECTED SEGMENT ONLY
+                    # Only 8m, 6m and 1m produce a recommendation marker.
+                    # ==========================================================
+                    crossing_thresholds = [
+                        (8, "Reorder Point (8m)", "#CC5DE8"),
+                        (6, "Min Stock (6m)",     "#FF922B"),
+                        (1, "Stock Out (1m)",     "#FF0000"),
+                    ]
+
+                    last_hist_index = len(selected_months) - 1
+                    crossing_points = []
+
+                    if len(future_nmos) >= 1:
+                        for thr, thr_label, thr_color in crossing_thresholds:
+                            first_cross = None
+
+                            prev_val = last_selected_nmos
+                            prev_month_name = selected_months[-1] if selected_months else ""
+                            prev_x = last_hist_index
+
+                            for i in range(len(future_nmos)):
+                                curr_val = future_nmos[i]
+                                curr_month_name = future_months[i]
+                                curr_x = last_hist_index + 1 + i
+
+                                if prev_val >= thr and curr_val < thr:
+                                    denom = (prev_val - curr_val)
+                                    t = (prev_val - thr) / denom if denom > 0 else 0.5
+                                    x_pos = prev_x + t * (curr_x - prev_x)
+                                    first_cross = {
+                                        "threshold":  thr,
+                                        "label":      thr_label,
+                                        "color":      thr_color,
+                                        "x_pos":      x_pos,
+                                        "month_prev": prev_month_name,
+                                        "month_curr": curr_month_name,
+                                        "nmos_prev":  prev_val,
+                                        "nmos_curr":  curr_val,
+                                    }
+                                    break
+
+                                prev_val = curr_val
+                                prev_month_name = curr_month_name
+                                prev_x = curr_x
+
+                            if first_cross is not None:
+                                crossing_points.append(first_cross)
+
+                    # ==========================================================
+                    # BUILD CHART
                     # ==========================================================
                     fig = go.Figure()
 
+                    x_indices = list(range(len(all_months_display)))
+                    hist_indices = list(range(len(selected_months)))
+                    future_indices = list(range(len(selected_months),
+                                                len(selected_months) + len(future_months)))
+
                     # ---- Threshold bands (background) ----
-                    fig.add_hrect(y0=0,  y1=1,  fillcolor="rgba(255,0,0,0.06)",     line_width=0, layer="below")
-                    fig.add_hrect(y0=1,  y1=2,  fillcolor="rgba(255,69,0,0.06)",    line_width=0, layer="below")
-                    fig.add_hrect(y0=2,  y1=6,  fillcolor="rgba(255,215,0,0.06)",   line_width=0, layer="below")
-                    fig.add_hrect(y0=6,  y1=18, fillcolor="rgba(50,205,50,0.06)",   line_width=0, layer="below")
+                    fig.add_hrect(y0=0,  y1=1,  fillcolor="rgba(255,0,0,0.06)",   line_width=0, layer="below")
+                    fig.add_hrect(y0=1,  y1=2,  fillcolor="rgba(255,69,0,0.06)",  line_width=0, layer="below")
+                    fig.add_hrect(y0=2,  y1=6,  fillcolor="rgba(255,215,0,0.06)", line_width=0, layer="below")
+                    fig.add_hrect(y0=6,  y1=18, fillcolor="rgba(50,205,50,0.06)", line_width=0, layer="below")
 
                     # ---- Area fill under historical ----
                     if selected_months:
                         fig.add_trace(go.Scatter(
-                            x=selected_months + selected_months[::-1],
+                            x=hist_indices + hist_indices[::-1],
                             y=selected_nmos + [0]*len(selected_nmos),
                             fill='toself',
                             fillcolor=f'rgba({int(nmos_color[1:3],16)}, {int(nmos_color[3:5],16)}, {int(nmos_color[5:7],16)}, 0.12)',
@@ -4279,46 +4273,48 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
                             hoverinfo='skip'
                         ))
 
-                    # ---- Historical line ----
-                    hist_text = [f"{v:.2f}" for v in selected_nmos] if show_labels else None
+                    # ---- Historical line (numeric labels ON) ----
+                    hist_text = [f"{v:.2f}" for v in selected_nmos]
                     fig.add_trace(go.Scatter(
-                        x=selected_months,
+                        x=hist_indices,
                         y=selected_nmos,
                         name='NMOS (Historical)',
-                        mode='lines+markers+text' if show_labels else 'lines+markers',
+                        mode='lines+markers+text',
                         line=dict(color=nmos_color, width=3),
                         marker=dict(size=10, color=nmos_color, line=dict(width=2, color='white')),
                         text=hist_text,
                         textposition='top center',
                         textfont=dict(size=9, color='#333'),
-                        customdata=selected_nsoh,
+                        customdata=[[m, n] for m, n in zip(selected_months, selected_nsoh)],
                         hovertemplate=(
-                            '<b>%{x}</b><br>'
+                            '<b>%{customdata[0]}</b><br>'
                             'NMOS: %{y:.2f} months<br>'
-                            'NSOH: %{customdata:,.0f} units'
+                            'NSOH: %{customdata[1]:,.0f} units'
                             '<extra></extra>'
                         )
                     ))
 
-                    # ---- Projected line ----
-                    proj_text = [f"{v:.2f}" for v in future_nmos] if show_labels else None
+                    # ---- Projected line (numeric labels ON) ----
+                    proj_text = [f"{v:.2f}" for v in future_nmos]
                     fig.add_trace(go.Scatter(
-                        x=future_months,
+                        x=future_indices,
                         y=future_nmos,
                         name='NMOS (Projected)',
-                        mode='lines+markers+text' if show_labels else 'lines+markers',
+                        mode='lines+markers+text',
                         line=dict(color='#FF6B6B', width=2.5, dash='dash'),
-                        marker=dict(size=9, color='#FF6B6B', line=dict(width=1, color='white'), symbol='diamond'),
+                        marker=dict(size=9, color='#FF6B6B',
+                                    line=dict(width=1, color='white'), symbol='diamond'),
                         text=proj_text,
                         textposition='top center',
                         textfont=dict(size=9, color='#666'),
-                        hovertemplate='<b>%{x}</b><br>NMOS (Projected): %{y:.2f} months<extra></extra>'
+                        customdata=future_months,
+                        hovertemplate='<b>%{customdata}</b><br>NMOS (Projected): %{y:.2f} months<extra></extra>'
                     ))
 
                     # ---- Current marker (star) ----
                     if selected_months:
                         fig.add_trace(go.Scatter(
-                            x=[selected_months[-1]],
+                            x=[len(selected_months) - 1],
                             y=[current_display_nmos],
                             mode='markers',
                             marker=dict(symbol='star', size=22, color='#FCC419',
@@ -4327,23 +4323,57 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
                             hovertemplate='<b>Current NMOS</b><br>%{y:.2f} months<extra></extra>'
                         ))
 
-                        # Divider between history and projection
                         fig.add_vline(
-                            x=selected_months[-1],
+                            x=len(selected_months) - 1,
                             line_dash='dot',
                             line_color='#888',
                             line_width=1.5
                         )
 
+                    # ==========================================================
+                    # CROSSING MARKERS (colored dot + hover-only recommendation)
+                    # ==========================================================
+                    for cp in crossing_points:
+                        thr = cp["threshold"]
+
+                        # Stock Out (1m) → use current NMOS for Mobilize formula
+                        if thr == 1:
+                            rec_text = _get_system_recommendation(current_display_nmos)
+                        else:
+                            rec_text = _get_system_recommendation(thr)
+
+                        hover_html = (
+                            f"<b>🔽 Crossed {thr}m — {cp['label']}</b><br>"
+                            f"Month: {cp['month_prev']} → {cp['month_curr']}<br>"
+                            f"NMOS: {cp['nmos_prev']:.2f} → {cp['nmos_curr']:.2f}<br>"
+                            f"Crossed at: {thr:.2f}m<br>"
+                            f"<br><b>📌 Recommendation:</b><br>{rec_text}"
+                        )
+
+                        fig.add_trace(go.Scatter(
+                            x=[cp["x_pos"]],
+                            y=[thr],
+                            mode='markers',
+                            name=f"Crossed {thr}m",
+                            marker=dict(
+                                size=16,
+                                color=cp["color"],
+                                line=dict(width=3, color='white'),
+                                symbol='circle'
+                            ),
+                            showlegend=False,
+                            hovertemplate=hover_html + '<extra></extra>'
+                        ))
+
                     # ---- Threshold lines ----
-                    thresholds = [
+                    thresholds_lines = [
                         (1,  'Stock Out (1m)',     '#FF0000'),
                         (2,  'Safety Stock (2m)',  '#FF6B6B'),
                         (6,  'Min Stock (6m)',     '#FF922B'),
                         (8,  'Reorder Point (8m)', '#CC5DE8'),
                         (18, 'Max Stock (18m)',    '#51CF66'),
                     ]
-                    for threshold, label, color in thresholds:
+                    for threshold, label, color in thresholds_lines:
                         fig.add_hline(
                             y=threshold,
                             line_dash='dash',
@@ -4357,6 +4387,14 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
 
                     y_max = max(22, max(nmos_values_display) + 3) if nmos_values_display else 22
 
+                    tick_vals = x_indices
+                    tick_text = all_months_display
+
+                    inner_chart_width = max(1100, len(all_months_display) * 90)
+
+                    # ==========================================================
+                    # STATIC LAYOUT (no zoom, no pan, hover still works)
+                    # ==========================================================
                     fig.update_layout(
                         title=dict(
                             text=f"NMOS Trend — {selected_material[:60]}",
@@ -4365,6 +4403,7 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
                         xaxis_title='Month',
                         yaxis_title='Months of Stock (NMOS)',
                         height=520,
+                        width=inner_chart_width,
                         margin=dict(l=70, r=140, t=60, b=90),
                         legend=dict(
                             orientation='h',
@@ -4372,47 +4411,73 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
                             xanchor='center', x=0.5,
                             font=dict(size=11)
                         ),
-                        hovermode='x unified',
+                        hovermode='closest',
+                        dragmode=False,
                         xaxis=dict(
-                            showgrid=False, showline=True,
+                            showgrid=False,
+                            showline=True,
+                            tickmode='array',
+                            tickvals=tick_vals,
+                            ticktext=tick_text,
                             tickangle=45,
-                            categoryorder='array',
-                            categoryarray=all_months_display,
-                            tickfont=dict(size=11)
+                            tickfont=dict(size=11),
+                            range=[-0.5, len(all_months_display) - 0.5],
+                            fixedrange=True
                         ),
                         yaxis=dict(
                             showgrid=True, gridcolor='#e8e8e8',
                             showline=True,
                             range=[0, y_max],
-                            tickfont=dict(size=11)
+                            tickfont=dict(size=11),
+                            fixedrange=True
                         ),
                         plot_bgcolor='white',
-                        font=dict(family='Times New Roman, Times, serif'),
-                        dragmode='pan'
+                        font=dict(family='Times New Roman, Times, serif')
                     )
 
+                    # ==========================================================
+                    # HORIZONTAL SCROLL WRAPPER + STATIC PLOT
+                    # ==========================================================
+                    st.markdown(
+                        """
+                        <style>
+                        .nmos-chart-scroll{
+                            width:100%;
+                            overflow-x:auto;
+                            overflow-y:hidden;
+                            padding-bottom:8px;
+                            border:1px solid #e6e6e6;
+                            border-radius:8px;
+                            background:white;
+                            -webkit-overflow-scrolling:touch;
+                        }
+                        .nmos-chart-scroll::-webkit-scrollbar{height:12px;}
+                        .nmos-chart-scroll::-webkit-scrollbar-track{background:#f1f1f1;border-radius:8px;}
+                        .nmos-chart-scroll::-webkit-scrollbar-thumb{background:#b0b7c3;border-radius:8px;}
+                        .nmos-chart-scroll::-webkit-scrollbar-thumb:hover{background:#8a94a6;}
+                        </style>
+                        """,
+                        unsafe_allow_html=True
+                    )
+
+                    st.markdown('<div class="nmos-chart-scroll">', unsafe_allow_html=True)
                     st.plotly_chart(
                         fig,
-                        use_container_width=True,
-                        config={'displayModeBar': True, 'scrollZoom': True}
+                        use_container_width=False,
+                        config={
+                            'displayModeBar': False,
+                            'scrollZoom': False,
+                            'staticPlot': False,
+                            'doubleClick': False,
+                            'displaylogo': False,
+                            'modeBarButtonsToRemove': [
+                                'zoom', 'pan', 'select', 'lasso2d',
+                                'zoomIn', 'zoomOut', 'autoScale', 'resetScale'
+                            ]
+                        },
+                        key=f"nmos_chart_{selected_material}_{start_idx}"
                     )
-
-                    # ==========================================================
-                    # ACTION PROPOSAL PANEL (below chart)
-                    # ==========================================================
-                    st.markdown(f"""
-                    <div style="background:{status_bg}; border-left:6px solid {action_color};
-                                border-radius:10px; padding:14px 18px; margin: 10px 0 20px 0;
-                                box-shadow:0 2px 8px rgba(0,0,0,0.06);">
-                        <div style="font-size:13px; font-weight:700; color:{action_color};
-                                    text-transform:uppercase; letter-spacing:0.5px; margin-bottom:4px;">
-                            {action_title}
-                        </div>
-                        <div style="font-size:15px; color:#222; line-height:1.5;">
-                            {action_proposal}
-                        </div>
-                    </div>
-                    """, unsafe_allow_html=True)
+                    st.markdown('</div>', unsafe_allow_html=True)
 
                     st.markdown("---")
                 else:
@@ -5459,13 +5524,23 @@ def render_ap_progress_follow_up(sheet_name, selected_quarter, selected_year, se
     status_values = [completed, not_completed, pending]
     status_colors_pie = ['#28a745', '#2e86c1', '#ffc107']
 
+    # Build "50% (2)" style labels shown INSIDE the pie
+    _total_status = sum(status_values)
+    status_text_labels = []
+    for _lbl, _val in zip(status_labels, status_values):
+        _pct = (_val / _total_status * 100) if _total_status > 0 else 0
+        status_text_labels.append(f"{_pct:.0f}% ({_val})")
+
     fig_pie = go.Figure(data=[go.Pie(
         labels=status_labels,
         values=status_values,
         hole=0.3,
         marker=dict(colors=status_colors_pie),
-        textinfo='label+percent',
-        textfont=dict(size=13, family='Times New Roman, Times, serif'),
+        text=status_text_labels,
+        textinfo='text',
+        textposition='inside',
+        insidetextorientation='horizontal',
+        textfont=dict(size=13, color='white', family='Times New Roman, Times, serif'),
         hoverinfo='label+value+percent',
         hovertemplate='<b>%{label}</b><br>Count: %{value}<br>Percentage: %{percent}<extra></extra>'
     )])
@@ -5479,15 +5554,20 @@ def render_ap_progress_follow_up(sheet_name, selected_quarter, selected_year, se
         plot_bgcolor='white',
         paper_bgcolor='white',
         legend=dict(
-            orientation='h',
-            yanchor='bottom',
-            y=-0.1,
-            xanchor='center',
-            x=0.5,
+            orientation='v',
+            yanchor='top',
+            y=1.0,
+            xanchor='right',
+            x=1.0,
             font=dict(size=12, family='Times New Roman, Times, serif')
-        )
+        ),
+        margin=dict(l=40, r=160, t=60, b=40)
     )
-    st.plotly_chart(fig_pie, use_container_width=True, config={'displayModeBar': True})
+    st.plotly_chart(
+        fig_pie,
+        use_container_width=True,
+        config={'displayModeBar': 'hover'}
+    )
 
     st.markdown("---")
 
@@ -5506,16 +5586,23 @@ def render_ap_progress_follow_up(sheet_name, selected_quarter, selected_year, se
 
                 colors = ['#1a5276', '#2e86c1', '#4dabf7', '#1f77b4', '#9467bd', '#8c564b', '#e377c2', '#7f7f7f', '#bcbd22', '#17becf']
 
+                # "50% (2)" style labels placed at the tip (outside) of each bar
+                prog_tip_labels = [
+                    f"{pct:.0f}% ({cnt})"
+                    for pct, cnt in zip(program_breakdown['Percentage'], program_breakdown['Count'])
+                ]
+
                 fig_prog_bar.add_trace(go.Bar(
                     x=program_breakdown['Program'],
                     y=program_breakdown['Percentage'],
                     marker_color=colors[:len(program_breakdown)],
-                    text=program_breakdown['Percentage'].apply(lambda x: f'{x:.1f}%'),
-                    textposition='inside',
-                    textfont=dict(size=11, color='white', family='Times New Roman, Times, serif', weight='bold'),
+                    text=prog_tip_labels,
+                    textposition='outside',
+                    textfont=dict(size=11, color='#1a5276', family='Times New Roman, Times, serif', weight='bold'),
                     hovertemplate='<b>%{x}</b><br>Percentage: %{y:.1f}%<br>Count: %{customdata}<extra></extra>',
                     customdata=program_breakdown['Count'],
-                    width=0.6
+                    width=0.6,
+                    cliponaxis=False
                 ))
 
                 fig_prog_bar.update_layout(
@@ -5540,28 +5627,20 @@ def render_ap_progress_follow_up(sheet_name, selected_quarter, selected_year, se
                         showline=True,
                         linecolor='#333',
                         linewidth=1.5,
-                        range=[0, max(60, program_breakdown['Percentage'].max() + 10)] if not program_breakdown.empty else [0, 100],
+                        range=[0, max(60, program_breakdown['Percentage'].max() + 15)] if not program_breakdown.empty else [0, 100],
                         tickformat='.0f',
                         ticksuffix='%'
                     ),
                     plot_bgcolor='white',
-                    margin=dict(l=50, r=30, t=60, b=50),
+                    margin=dict(l=50, r=30, t=60, b=80),
                     font=dict(family='Times New Roman, Times, serif')
                 )
 
-                for i, row in program_breakdown.iterrows():
-                    if row['Count'] > 0:
-                        fig_prog_bar.add_annotation(
-                            x=row['Program'],
-                            y=row['Percentage'] / 2,
-                            text=f"n={row['Count']}",
-                            showarrow=False,
-                            font=dict(size=11, color='white', family='Times New Roman, Times, serif', weight='bold'),
-                            bgcolor='rgba(0,0,0,0)',
-                            borderpad=0
-                        )
-
-                st.plotly_chart(fig_prog_bar, use_container_width=True, config={'displayModeBar': True})
+                st.plotly_chart(
+                    fig_prog_bar,
+                    use_container_width=True,
+                    config={'displayModeBar': 'hover'}
+                )
             else:
                 st.info("No program data available.")
         else:
@@ -5601,16 +5680,23 @@ def render_ap_progress_follow_up(sheet_name, selected_quarter, selected_year, se
 
             colors = ['#1a5276', '#2e86c1', '#4dabf7', '#d62728']
 
+            # "50% (2)" style labels placed at the tip (outside) of each bar
+            org_tip_labels = [
+                f"{pct:.0f}% ({cnt})"
+                for pct, cnt in zip(org_df['Percentage'], org_df['Count'])
+            ]
+
             fig_org_bar.add_trace(go.Bar(
                 x=org_df['Organization'],
                 y=org_df['Percentage'],
                 marker_color=colors[:len(org_df)],
-                text=org_df['Percentage'].apply(lambda x: f'{x:.1f}%'),
-                textposition='inside',
-                textfont=dict(size=11, color='white', family='Times New Roman, Times, serif', weight='bold'),
+                text=org_tip_labels,
+                textposition='outside',
+                textfont=dict(size=11, color='#1a5276', family='Times New Roman, Times, serif', weight='bold'),
                 hovertemplate='<b>%{x}</b><br>Percentage: %{y:.1f}%<br>Count: %{customdata}<extra></extra>',
                 customdata=org_df['Count'],
-                width=0.6
+                width=0.6,
+                cliponaxis=False
             ))
 
             fig_org_bar.update_layout(
@@ -5635,28 +5721,20 @@ def render_ap_progress_follow_up(sheet_name, selected_quarter, selected_year, se
                     showline=True,
                     linecolor='#333',
                     linewidth=1.5,
-                    range=[0, max(60, org_df['Percentage'].max() + 10)] if not org_df.empty else [0, 100],
+                    range=[0, max(60, org_df['Percentage'].max() + 15)] if not org_df.empty else [0, 100],
                     tickformat='.0f',
                     ticksuffix='%'
                 ),
                 plot_bgcolor='white',
-                margin=dict(l=50, r=30, t=60, b=50),
+                margin=dict(l=50, r=30, t=60, b=80),
                 font=dict(family='Times New Roman, Times, serif')
             )
 
-            for i, row in org_df.iterrows():
-                if row['Count'] > 0:
-                    fig_org_bar.add_annotation(
-                        x=row['Organization'],
-                        y=row['Percentage'] / 2,
-                        text=f"n={row['Count']}",
-                        showarrow=False,
-                        font=dict(size=11, color='white', family='Times New Roman, Times, serif', weight='bold'),
-                        bgcolor='rgba(0,0,0,0)',
-                        borderpad=0
-                    )
-
-            st.plotly_chart(fig_org_bar, use_container_width=True, config={'displayModeBar': True})
+            st.plotly_chart(
+                fig_org_bar,
+                use_container_width=True,
+                config={'displayModeBar': 'hover'}
+            )
         else:
             st.info("No responsible body data available.")
 
@@ -5667,7 +5745,109 @@ def render_ap_progress_follow_up(sheet_name, selected_quarter, selected_year, se
         bodies = [b.strip() for b in body_str.split(',') if b.strip()]
         all_bodies.extend(bodies)
 
+    # ======================================================================
+    # ORGANIZATION PIE CHARTS (EPSS / MOH / MSH_SCS) — no expander
+    # ======================================================================
     epss_bodies = ['EPSS_CMD', 'EPSS_DMD', 'EPSS_PMD', 'EPSS_Finance']
+    moh_bodies = ['MOH_PMED', 'MOH_Program']
+    msh_bodies = ['MSH_SCS']
+
+    def _compute_org_status_counts(org_body_list):
+        """Return (completed, not_completed, pending) for the given org bodies."""
+        completed_c = 0
+        not_completed_c = 0
+        pending_c = 0
+        for body in org_body_list:
+            for _, row in filtered_df.iterrows():
+                responsible = row.get('Responsible Body', '')
+                if body in [b.strip() for b in responsible.split(',') if b.strip()]:
+                    status = row.get('Status', 'Pending')
+                    if status == 'Completed':
+                        completed_c += 1
+                    elif status in ('Initiated', 'Ongoing'):
+                        not_completed_c += 1
+                    elif status == 'Pending':
+                        pending_c += 1
+        return completed_c, not_completed_c, pending_c
+
+    org_defs = [
+        ('EPSS',    epss_bodies),
+        ('MOH',     moh_bodies),
+        ('MSH_SCS', msh_bodies),
+    ]
+
+    org_has_data = False
+    for _, bodies in org_defs:
+        if any(b in all_bodies for b in bodies):
+            org_has_data = True
+            break
+
+    if org_has_data:
+        st.markdown("### 🥧 Organization Status Distribution")
+        pie_cols = st.columns(3)
+
+        pie_colors = ['#28a745', '#2e86c1', '#ffc107']  # Completed, Not Completed, Pending
+
+        for col, (org_name, org_bodies) in zip(pie_cols, org_defs):
+            completed_o, not_completed_o, pending_o = _compute_org_status_counts(org_bodies)
+            total_o = completed_o + not_completed_o + pending_o
+
+            with col:
+                if total_o == 0:
+                    st.markdown(
+                        f'<div style="text-align:center; color:#888; '
+                        f'font-family: Times New Roman, Times, serif; padding: 40px 0;">'
+                        f'<strong>{org_name}</strong><br>No data</div>',
+                        unsafe_allow_html=True
+                    )
+                else:
+                    org_labels = ['Completed', 'Not Completed', 'Pending']
+                    org_values = [completed_o, not_completed_o, pending_o]
+                    # "50% (2)" style labels shown INSIDE the pie
+                    org_text_labels = [
+                        f"{(v/total_o*100):.0f}% ({v})" for v in org_values
+                    ]
+
+                    fig_org_pie = go.Figure(data=[go.Pie(
+                        labels=org_labels,
+                        values=org_values,
+                        hole=0.3,
+                        marker=dict(colors=pie_colors),
+                        text=org_text_labels,
+                        textinfo='text',
+                        textposition='inside',
+                        insidetextorientation='horizontal',
+                        textfont=dict(size=12, color='white', family='Times New Roman, Times, serif'),
+                        hovertemplate='<b>%{label}</b><br>Count: %{value}<br>Percentage: %{percent}<extra></extra>'
+                    )])
+                    fig_org_pie.update_layout(
+                        title=dict(
+                            text=f"{org_name} — Total: {total_o}",
+                            font=dict(size=14, color='#1a5276', family='Times New Roman, Times, serif')
+                        ),
+                        height=420,
+                        font=dict(family='Times New Roman, Times, serif'),
+                        plot_bgcolor='white',
+                        paper_bgcolor='white',
+                        legend=dict(
+                            orientation='h',
+                            yanchor='top',
+                            y=-0.05,
+                            xanchor='center',
+                            x=0.5,
+                            font=dict(size=11, family='Times New Roman, Times, serif')
+                        ),
+                        margin=dict(l=20, r=20, t=50, b=80)
+                    )
+                    st.plotly_chart(
+                        fig_org_pie,
+                        use_container_width=True,
+                        config={'displayModeBar': 'hover'},
+                        key=f"org_pie_{org_name}"
+                    )
+
+        st.markdown("---")
+
     epss_total = 0
     for body in epss_bodies:
         epss_total += len([b for b in all_bodies if b == body]) if all_bodies else 0
@@ -5714,16 +5894,23 @@ def render_ap_progress_follow_up(sheet_name, selected_quarter, selected_year, se
             }
 
             for status in statuses:
+                # "50% (2)" style labels placed at the tip (outside) of each stacked segment
+                epss_tip_labels = [
+                    f"{pct:.0f}% ({cnt})"
+                    for pct, cnt in zip(epss_detail_df[f'{status} %'], epss_detail_df[status])
+                ]
+
                 fig_epss.add_trace(go.Bar(
                     name=status,
                     x=epss_detail_df['Body'],
                     y=epss_detail_df[f'{status} %'],
                     marker_color=status_colors_bar.get(status, '#666'),
-                    text=epss_detail_df[f'{status} %'].apply(lambda x: f'{x:.1f}%'),
-                    textposition='inside',
-                    textfont=dict(size=11, color='white', family='Times New Roman, Times, serif'),
+                    text=epss_tip_labels,
+                    textposition='outside',
+                    textfont=dict(size=11, color='#1a5276', family='Times New Roman, Times, serif'),
                     hovertemplate='<b>%{x}</b><br>%{fullData.name}: %{y:.1f}%<br>Count: %{customdata}<extra></extra>',
-                    customdata=epss_detail_df[status]
+                    customdata=epss_detail_df[status],
+                    cliponaxis=False
                 ))
 
             fig_epss.update_layout(
@@ -5757,7 +5944,7 @@ def render_ap_progress_follow_up(sheet_name, selected_quarter, selected_year, se
                     showline=True,
                     linecolor='#333',
                     linewidth=1.5,
-                    range=[0, 105],
+                    range=[0, 115],
                     tickformat='.0f',
                     ticksuffix='%'
                 ),
@@ -5769,7 +5956,7 @@ def render_ap_progress_follow_up(sheet_name, selected_quarter, selected_year, se
             for i, row in epss_detail_df.iterrows():
                 fig_epss.add_annotation(
                     x=row['Body'],
-                    y=102,
+                    y=112,
                     text=f"n={row['Total']}",
                     showarrow=False,
                     font=dict(size=11, color='#1a5276', family='Times New Roman, Times, serif', weight='bold'),
@@ -5779,7 +5966,11 @@ def render_ap_progress_follow_up(sheet_name, selected_quarter, selected_year, se
                     borderpad=4
                 )
 
-            st.plotly_chart(fig_epss, use_container_width=True, config={'displayModeBar': True})
+            st.plotly_chart(
+                fig_epss,
+                use_container_width=True,
+                config={'displayModeBar': 'hover'}
+            )
 
             st.markdown("#### EPSS Summary Table")
             epss_display = epss_detail_df.copy()
