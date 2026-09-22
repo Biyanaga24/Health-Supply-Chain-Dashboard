@@ -1010,6 +1010,12 @@ def load_branch_amc_from_google_sheets(sheet_id):
                 if df[col].dtype == 'object':
                     df[col] = df[col].fillna("")
 
+            # ===== FIX: STRIP COMMAS =====
+            for col in df.columns:
+                if df[col].dtype == 'object':
+                    df[col] = df[col].astype(str).str.replace(',', '', regex=False)
+            # =============================
+
             st.session_state.branch_amc_data = df
             return df
         except Exception as e:
@@ -1458,10 +1464,11 @@ def calculate_dos(current_df):
         # Get NMOS value
         nmos = row.get('NMOS')
         try:
-            if pd.isna(nmos):
+            if pd.isna(nmos) or nmos == "":
                 nmos = 1  # Default to 1 if no data
             else:
-                nmos = float(nmos)
+                # ===== FIX: SAFELY STRIP COMMAS =====
+                nmos = float(str(nmos).replace(',', ''))
         except (ValueError, TypeError):
             nmos = 1
 
@@ -5212,7 +5219,7 @@ with tab1:
         else:
             st.info("No data available for KPI calculations.")
 
-   # ---------------------------------------------------
+    # ---------------------------------------------------
 # TAB 3 - Decision Briefs (UPDATED)
 # ---------------------------------------------------
 with tab3:
@@ -5222,7 +5229,7 @@ with tab3:
         st.markdown(f"<h3 style='font-size: 28px; font-weight: bold; font-family: Times New Roman;'>{program_display} Medicines Needing Immediate Action</h3>", unsafe_allow_html=True)
 
     if not df_filtered.empty and 'Material Description' in df_filtered.columns:
-        decision_df = df_filtered[['Material Description', 'NSOH', 'Expiry', 'AMC', 'NMOS', 'Status', 'Risk Type', 'Stock Status', 'Expiry Risk Details',
+        decision_df = df_filtered[['Material Description', 'NSOH', 'Expiry', 'AMC', 'NMOS', 'Status', 'Risk Type', 'Stock Status', 'Expiry Risk Details', 
                                    'GIT_MOS', 'LC_MOS', 'WB_MOS', 'TMD_MOS', 'GIT_PO', 'LC_PO', 'WB_PO', 'TMD_PO', 'Hubs%', 'Head Office%', 'CV Category']].copy()
 
         def get_identified_problems(row):
@@ -5305,14 +5312,16 @@ with tab3:
             st.markdown("---")
 
             # ============================================
-            # PROBLEM CHECKBOX FILTERS
+            # PROBLEM CHECKBOX FILTERS (NO INFO TEXT, NO SELECT/CLEAR BUTTONS)
             # ============================================
             st.markdown("### 🔍 Filter by Problem Type")
 
             problem_types = sorted(decision_df['Identified Problems'].unique())
             problem_filters = {}
 
+            # Create 2 columns for checkboxes
             col_left, col_right = st.columns(2)
+
             mid_point = (len(problem_types) + 1) // 2
 
             for idx, problem in enumerate(problem_types):
@@ -5339,6 +5348,7 @@ with tab3:
                         )
                         problem_filters[problem] = st.session_state[checkbox_key]
 
+            # Apply filters
             selected_problems = [problem for problem, is_checked in problem_filters.items() if is_checked]
 
             if selected_problems:
@@ -5351,7 +5361,7 @@ with tab3:
             st.markdown("### ✏️ Sales and Operational Planning")
             st.info("💡 Recommendations are auto-generated based on pipeline status (with PO numbers) and distribution patterns. You can edit them as needed.")
 
-            display_columns = ['Material Description', 'NSOH', 'Expiry', 'AMC', 'NMOS', 'Status', 'Identified Problems', 'Recommendation']
+            display_columns = ['Material Description', 'NSOH', 'Expiry', 'AMC', 'NMOS', 'Status', 'CV Category', 'Identified Problems', 'Recommendation']
             available_display_columns = [col for col in display_columns if col in decision_df_filtered.columns]
 
             column_config = {
@@ -5361,6 +5371,7 @@ with tab3:
                 "AMC": st.column_config.TextColumn("AMC", width=100, disabled=True),
                 "NMOS": st.column_config.TextColumn("NMOS", width=80, disabled=True),
                 "Status": st.column_config.TextColumn("Status", width=100, disabled=True),
+                "CV Category": st.column_config.TextColumn("CV Category", width=120, disabled=True),
                 "Identified Problems": st.column_config.TextColumn("Problem", width=120, disabled=True),
                 "Recommendation": st.column_config.TextColumn("Recommendation", width=450, disabled=False)
             }
@@ -5368,9 +5379,9 @@ with tab3:
             edited_result = st.data_editor(
                 decision_df_filtered[available_display_columns],
                 column_config=column_config,
-                use_container_width=True,
-                hide_index=True,
-                height=min(600, (len(decision_df_filtered) + 1) * 45),
+                use_container_width=True, 
+                hide_index=True, 
+                height=min(600, (len(decision_df_filtered) + 1) * 45), 
                 num_rows="fixed"
             )
 
@@ -5382,17 +5393,17 @@ with tab3:
             col_download1, col_download2 = st.columns(2)
             with col_download1:
                 st.download_button(
-                    label="📥 Download Current View (CSV)",
-                    data=edited_result.to_csv(index=False),
-                    file_name=f"{program_display.replace(' ', '_')}_decision_briefs_{datetime.now().strftime('%Y%m%d')}.csv".replace(" ", "_"),
+                    label="📥 Download Current View (CSV)", 
+                    data=edited_result.to_csv(index=False), 
+                    file_name=f"{program_display.replace(' ', '_')}_decision_briefs_{datetime.now().strftime('%Y%m%d')}.csv".replace(" ", "_"), 
                     mime="text/csv",
                     use_container_width=True
                 )
             with col_download2:
                 st.download_button(
-                    label="📊 Download Full Data (CSV)",
-                    data=decision_df.to_csv(index=False),
-                    file_name=f"{program_display.replace(' ', '_')}_decision_briefs_full_{datetime.now().strftime('%Y%m%d')}.csv".replace(" ", "_"),
+                    label="📊 Download Full Data (CSV)", 
+                    data=decision_df.to_csv(index=False), 
+                    file_name=f"{program_display.replace(' ', '_')}_decision_briefs_full_{datetime.now().strftime('%Y%m%d')}.csv".replace(" ", "_"), 
                     mime="text/csv",
                     use_container_width=True
                 )
@@ -5458,6 +5469,12 @@ with tab3:
 # ---------------------------------------------------
 with tab4:
     try:
+        # ===== CRITICAL FIX: REMOVE COMMAS FROM STRING NUMBERS =====
+        for col in df.columns:
+            if df[col].dtype == 'object':
+                df[col] = df[col].astype(str).str.replace(',', '', regex=False)
+        # ===========================================================
+
         if not df.empty:
             if branch_amc_data is not None and 'Material Description' in df.columns and 'Material Description' in branch_amc_data.columns and not branch_amc_data.empty:
                 branch_cols = [col for col in df.columns if 'Branch' in col or col == 'Material Description']
@@ -5744,6 +5761,46 @@ with tab4:
                                     heatmap_page_df_soh = combined_heatmap
 
                                 if not heatmap_page_df_soh.empty:
+                                    # ============================================
+                                    # VISUALIZATION FIXES (Layout & Readability)
+                                    # ============================================
+
+                                    # 1. Determine available screen width (responsive layout)
+                                    max_plot_width = 1600  # Fallback max width
+                                    if 'st' in globals():
+                                        try:
+                                            # Get browser width if possible, otherwise use a safe default for Streamlit
+                                            max_plot_width = 1200 
+                                        except:
+                                            pass
+
+                                    # 2. Calculate dynamic width based on number of materials (columns)
+                                    # Base width per material: 100px, minimum total width: 800px
+                                    num_cols = len(heatmap_page_df_soh.columns)
+                                    base_col_width = 100
+                                    dynamic_width = max(800, num_cols * base_col_width)
+                                    # Cap at max_plot_width to prevent horizontal scrolling if there are too many
+                                    final_width = min(dynamic_width, max_plot_width)
+
+                                    # 3. Calculate dynamic height based on rows (branches)
+                                    # Base height per row: 45px, minimum total height: 400px
+                                    num_rows = len(heatmap_page_df_soh.index)
+                                    base_row_height = 45
+                                    dynamic_height = max(400, num_rows * base_row_height + 80) # +80 for title
+
+                                    # 4. Create text array: Suppress zeros to prevent clutter
+                                    # If value is 0, show empty string, else format with commas
+                                    text_values = []
+                                    for row_vals in heatmap_page_df_soh.values:
+                                        new_row = []
+                                        for val in row_vals:
+                                            if val == 0:
+                                                new_row.append('')
+                                            else:
+                                                new_row.append(f"{int(val):,}")
+                                        text_values.append(new_row)
+
+                                    # 5. Create the Heatmap
                                     fig_soh = go.Figure(data=go.Heatmap(
                                         z=heatmap_page_df_soh.values,
                                         y=heatmap_page_df_soh.index,
@@ -5751,27 +5808,48 @@ with tab4:
                                         colorscale='Reds',
                                         zmin=0,
                                         zmax=heatmap_page_df_soh.max().max() if not heatmap_page_df_soh.empty else 1,
-                                        text=heatmap_page_df_soh.values,
-                                        texttemplate='%{text:,.0f}',
-                                        textfont={"size": 11},
-                                        colorbar=dict(title="Stock on Hand (Units)", title_side="right", ticks="outside"),
+                                        text=text_values, # Using cleaned array
+                                        texttemplate='%{text}',
+                                        textfont={"size": 12}, # Slightly larger font for readability
+                                        colorbar=dict(
+                                            title="Stock on Hand (Units)", 
+                                            title_side="right", 
+                                            ticks="outside",
+                                            thickness=15, # Proportional thickness
+                                            len=0.75 # Proportional length
+                                        ),
                                         hovertemplate='<b>Material:</b> %{x}<br><b>Location:</b> %{y}<br><b>SOH:</b> %{z:,.0f} units<br><extra></extra>'
                                     ))
 
+                                    # 6. Layout Best Practices
                                     fig_soh.update_layout(
                                         title="EPSS Stock on Hand Distribution",
                                         xaxis={
                                             'title': 'Material Description', 
-                                            'tickangle': -45, 
-                                            'tickfont': {'size': 9}, 
+                                            'tickangle': -45, # Rotate labels for readability
+                                            'tickfont': {'size': 11}, 
                                             'automargin': True,
+                                            'side': 'bottom'
                                         },
                                         yaxis={
                                             'title': 'Location', 
-                                            'tickfont': {'size': 11}
+                                            'tickfont': {'size': 12},
+                                            'automargin': True # Ensures branch names don't get cut off
                                         },
-                                        height=max(500, 35 * len(heatmap_page_df_soh.index) + 60),
-                                        margin=dict(l=150, r=50, t=80, b=280)
+                                        # Apply dynamic width and height
+                                        width=final_width, 
+                                        height=dynamic_height,
+                                        # Increase margins significantly so labels don't overlap edges
+                                        margin=dict(
+                                            l=180,  # Larger left margin for branch names
+                                            r=50, 
+                                            t=80,  # Margin for title
+                                            b=250  # Large bottom margin for rotated X-axis labels
+                                        ),
+                                        # Responsive best practices for Streamlit
+                                        autosize=True,
+                                        paper_bgcolor='rgba(0,0,0,0)',
+                                        plot_bgcolor='rgba(0,0,0,0)'
                                     )
 
                                     st.plotly_chart(fig_soh, use_container_width=True)
