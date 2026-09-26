@@ -5471,7 +5471,7 @@ def render_ap_progress_follow_up(sheet_name, selected_quarter, selected_year, se
     display_df['Current TMOS'] = display_df['Material'].apply(lambda x: get_current_value(x, 'Current TMOS'))
 
     # =====================================================================
-    # NEW — Format Due Date as "Oct 26, 2026"
+    # Format Due Date as "Oct 26, 2026"
     # =====================================================================
     def _fmt_due(d):
         if d is None:
@@ -5527,7 +5527,36 @@ def render_ap_progress_follow_up(sheet_name, selected_quarter, selected_year, se
     else:
         display_df['NMOS'] = "N/A"
 
-    cols_to_display = ['Material', 'NMOS', 'Identified Problem', 'Action Point', 'Responsible Body', 'Due Date', 'Status Display', 'Current NMOS', 'Current PMOS', 'Current TMOS']
+    # ---------------------------------------------------------------------
+    # NEW: ensure Purchase Order / Order Quantity columns exist and are clean
+    # ---------------------------------------------------------------------
+    if 'Purchase Order' not in display_df.columns:
+        display_df['Purchase Order'] = ""
+    if 'Order Quantity' not in display_df.columns:
+        display_df['Order Quantity'] = ""
+
+    display_df['Purchase Order'] = display_df['Purchase Order'].apply(
+        lambda x: "" if pd.isna(x) or str(x).strip().lower() in ('nan', 'none') else str(x).strip()
+    )
+    display_df['Order Quantity'] = display_df['Order Quantity'].apply(
+        lambda x: "" if pd.isna(x) or str(x).strip().lower() in ('nan', 'none') else str(x).strip()
+    )
+
+    # Purchase Order & Order Quantity placed right after NMOS
+    cols_to_display = [
+        'Material',
+        'NMOS',
+        'Purchase Order',
+        'Order Quantity',
+        'Identified Problem',
+        'Action Point',
+        'Responsible Body',
+        'Due Date',
+        'Status Display',
+        'Current NMOS',
+        'Current PMOS',
+        'Current TMOS'
+    ]
     cols_to_display = [c for c in cols_to_display if c in display_df.columns or c == 'Status Display']
 
     # Get view mode from sidebar dropdown
@@ -5543,6 +5572,10 @@ def render_ap_progress_follow_up(sheet_name, selected_quarter, selected_year, se
                 html_table += '<th style="font-family: Times New Roman, Times, serif !important; font-size: 15px; width: 12%;">Material</th>'
             elif col == 'NMOS':
                 html_table += '<th style="font-family: Times New Roman, Times, serif !important; font-size: 14px; width: 7%; text-align: center;">NMOS</th>'
+            elif col == 'Purchase Order':
+                html_table += '<th style="font-family: Times New Roman, Times, serif !important; font-size: 14px; width: 8%; text-align: center;">Purchase Order</th>'
+            elif col == 'Order Quantity':
+                html_table += '<th style="font-family: Times New Roman, Times, serif !important; font-size: 14px; width: 8%; text-align: center;">Order Quantity</th>'
             elif col == 'Identified Problem':
                 html_table += '<th style="font-family: Times New Roman, Times, serif !important; font-size: 15px; width: 20%;">Identified Problem</th>'
             elif col == 'Action Point':
@@ -5566,6 +5599,8 @@ def render_ap_progress_follow_up(sheet_name, selected_quarter, selected_year, se
                     html_table += f'<td style="font-family: Times New Roman, Times, serif !important; font-size: 14px; font-weight: 500;">{row.get(col, "")}</td>'
                 elif col == 'NMOS':
                     html_table += f'<td style="font-family: Times New Roman, Times, serif !important; font-size: 14px; text-align: center;">{row.get(col, "N/A")}</td>'
+                elif col in ['Purchase Order', 'Order Quantity']:
+                    html_table += f'<td style="font-family: Times New Roman, Times, serif !important; font-size: 14px; text-align: center;">{row.get(col, "")}</td>'
                 elif col in ['Current NMOS', 'Current PMOS', 'Current TMOS']:
                     html_table += f'<td style="font-family: Times New Roman, Times, serif !important; font-size: 14px; text-align: center;">{row.get(col, "N/A")}</td>'
                 elif col == 'Identified Problem':
@@ -5595,6 +5630,8 @@ def render_ap_progress_follow_up(sheet_name, selected_quarter, selected_year, se
                 </div>
                 <div class="card-body">
                     <span class="label">NMOS</span><span class="value">{row.get('NMOS', 'N/A')}</span>
+                    <span class="label">Purchase Order</span><span class="value">{row.get('Purchase Order', '')}</span>
+                    <span class="label">Order Quantity</span><span class="value">{row.get('Order Quantity', '')}</span>
                     <span class="label">Current NMOS</span><span class="value">{row.get('Current NMOS', 'N/A')}</span>
                     <span class="label">Current PMOS</span><span class="value">{row.get('Current PMOS', 'N/A')}</span>
                     <span class="label">Current TMOS</span><span class="value">{row.get('Current TMOS', 'N/A')}</span>
@@ -5611,7 +5648,11 @@ def render_ap_progress_follow_up(sheet_name, selected_quarter, selected_year, se
 
     output = BytesIO()
     with pd.ExcelWriter(output, engine='openpyxl') as writer:
-        df_to_export = display_df[['Material', 'NMOS', 'Identified Problem', 'Action Point', 'Responsible Body', 'Due Date', 'Status', 'Current NMOS', 'Current PMOS', 'Current TMOS']].copy()
+        df_to_export = display_df[[
+            'Material', 'NMOS', 'Purchase Order', 'Order Quantity',
+            'Identified Problem', 'Action Point', 'Responsible Body',
+            'Due Date', 'Status', 'Current NMOS', 'Current PMOS', 'Current TMOS'
+        ]].copy()
         df_to_export_clean = clean_dataframe_for_excel(df_to_export)
         df_to_export_clean.to_excel(writer, index=False, sheet_name='Action Plan')
     excel_data = output.getvalue()
