@@ -832,7 +832,7 @@ def render_admin_page():
                         st.markdown("#### 📋 Program Access")
                         current_programs = selected_user.get('program_access', '').split(',')
                         current_programs = [p.strip() for p in current_programs if p.strip()]
-                        program_options = ["All", "Malaria", "HIV", "TB", "OI and Hepatitis", "Nutrition", "Lab TB", "HIV Lab"]
+                        program_options = ["All", "Malaria", "HIV", "TB", "OI and Hepatitis","FP","CH","MH", "Nutrition","Lab Malaria", "Lab TB", "HIV Lab","Vaccine"]
                         new_programs = st.multiselect(
                             "Select Programs",
                             program_options,
