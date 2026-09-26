@@ -5341,15 +5341,12 @@ def render_ap_progress_follow_up(sheet_name, selected_quarter, selected_year, se
             all_responsible_bodies.extend(bodies)
 
         def get_organization(body):
-            epss_bodies = ['EPSS_CMD', 'EPSS_DMD', 'EPSS_PMD', 'EPSS_Finance']
-            moh_bodies = ['MOH_PMED', 'MOH_Program']
-            msh_bodies = ['MSH_SCS']
-
-            if body in epss_bodies:
+            body = (body or '').strip()
+            if body.startswith('EPSS_'):
                 return 'EPSS'
-            elif body in moh_bodies:
+            elif body.startswith('MOH_'):
                 return 'MOH'
-            elif body in msh_bodies:
+            elif body.startswith('MSH_'):
                 return 'MSH_SCS'
             else:
                 return 'Other'
@@ -5383,19 +5380,21 @@ def render_ap_progress_follow_up(sheet_name, selected_quarter, selected_year, se
         filtered_df = filtered_df[filtered_df['Identified Problem'] == problem_filter]
 
     if body_filter != "All" and 'Responsible Body' in filtered_df.columns:
-        epss_bodies = ['EPSS_CMD', 'EPSS_DMD', 'EPSS_PMD', 'EPSS_Finance']
-        moh_bodies = ['MOH_PMED', 'MOH_Program']
-        msh_bodies = ['MSH_SCS']
+        def _row_matches_org(resp_str, org):
+            parts = [b.strip() for b in str(resp_str).split(',') if b.strip()]
+            for b in parts:
+                if org == 'EPSS' and b.startswith('EPSS_'):
+                    return True
+                if org == 'MOH' and b.startswith('MOH_'):
+                    return True
+                if org == 'MSH_SCS' and b.startswith('MSH_'):
+                    return True
+                if org == 'Other' and not (b.startswith('EPSS_') or b.startswith('MOH_') or b.startswith('MSH_')):
+                    return True
+            return False
 
-        if body_filter == 'EPSS':
-            filtered_df = filtered_df[filtered_df['Responsible Body'].str.contains('|'.join(epss_bodies), na=False)]
-        elif body_filter == 'MOH':
-            filtered_df = filtered_df[filtered_df['Responsible Body'].str.contains('|'.join(moh_bodies), na=False)]
-        elif body_filter == 'MSH_SCS':
-            filtered_df = filtered_df[filtered_df['Responsible Body'].str.contains('|'.join(msh_bodies), na=False)]
-        elif body_filter == 'Other':
-            all_org_bodies = epss_bodies + moh_bodies + msh_bodies
-            filtered_df = filtered_df[~filtered_df['Responsible Body'].str.contains('|'.join(all_org_bodies), na=False)]
+        if body_filter in ('EPSS', 'MOH', 'MSH_SCS', 'Other'):
+            filtered_df = filtered_df[filtered_df['Responsible Body'].apply(lambda x: _row_matches_org(x, body_filter))]
 
     if status_filter != "All" and 'Status' in filtered_df.columns:
         filtered_df = filtered_df[filtered_df['Status'] == status_filter]
@@ -5470,6 +5469,40 @@ def render_ap_progress_follow_up(sheet_name, selected_quarter, selected_year, se
 
     display_df['Current NMOS'] = display_df['Material'].apply(lambda x: get_current_value(x, 'Current NMOS'))
     display_df['Current TMOS'] = display_df['Material'].apply(lambda x: get_current_value(x, 'Current TMOS'))
+
+    # =====================================================================
+    # NEW — Format Due Date as "Oct 26, 2026"
+    # =====================================================================
+    def _fmt_due(d):
+        if d is None:
+            return ''
+        try:
+            if isinstance(d, float) and pd.isna(d):
+                return ''
+        except Exception:
+            pass
+        s = str(d).strip()
+        if not s or s.lower() in ('nan', 'none', 'nat'):
+            return ''
+        try:
+            if re.match(r'^\d{4}-\d{2}-\d{2}$', s):
+                return datetime.strptime(s, '%Y-%m-%d').strftime('%b %d, %Y')
+            for fmt in ['%B %d, %Y', '%b %d, %Y', '%B %d %Y', '%b %d %Y',
+                        '%d/%m/%Y', '%m/%d/%Y', '%d-%m-%Y', '%m-%d-%Y',
+                        '%Y-%m-%d %H:%M:%S', '%Y-%m-%dT%H:%M:%S']:
+                try:
+                    return datetime.strptime(s, fmt).strftime('%b %d, %Y')
+                except Exception:
+                    continue
+            if hasattr(d, 'strftime'):
+                return d.strftime('%b %d, %Y')
+        except Exception:
+            pass
+        return s
+
+    if 'Due Date' in display_df.columns:
+        display_df['Due Date'] = display_df['Due Date'].apply(_fmt_due)
+    # =====================================================================
 
     def calculate_current_pmos(row):
         tmos = row.get('Current TMOS', 'N/A')
@@ -5602,7 +5635,6 @@ def render_ap_progress_follow_up(sheet_name, selected_quarter, selected_year, se
     status_values = [completed, not_completed, pending]
     status_colors_pie = ['#28a745', '#2e86c1', '#ffc107']
 
-    # Build "50% (2)" style labels shown INSIDE the pie
     _total_status = sum(status_values)
     status_text_labels = []
     for _lbl, _val in zip(status_labels, status_values):
@@ -5664,7 +5696,6 @@ def render_ap_progress_follow_up(sheet_name, selected_quarter, selected_year, se
 
                 colors = ['#1a5276', '#2e86c1', '#4dabf7', '#1f77b4', '#9467bd', '#8c564b', '#e377c2', '#7f7f7f', '#bcbd22', '#17becf']
 
-                # "50% (2)" style labels placed at the tip (outside) of each bar
                 prog_tip_labels = [
                     f"{pct:.0f}% ({cnt})"
                     for pct, cnt in zip(program_breakdown['Percentage'], program_breakdown['Count'])
@@ -5732,15 +5763,12 @@ def render_ap_progress_follow_up(sheet_name, selected_quarter, selected_year, se
 
         if all_bodies:
             def get_organization(body):
-                epss_bodies = ['EPSS_CMD', 'EPSS_DMD', 'EPSS_PMD', 'EPSS_Finance']
-                moh_bodies = ['MOH_PMED', 'MOH_Program']
-                msh_bodies = ['MSH_SCS']
-
-                if body in epss_bodies:
+                body = (body or '').strip()
+                if body.startswith('EPSS_'):
                     return 'EPSS'
-                elif body in moh_bodies:
+                elif body.startswith('MOH_'):
                     return 'MOH'
-                elif body in msh_bodies:
+                elif body.startswith('MSH_'):
                     return 'MSH_SCS'
                 else:
                     return 'Other'
@@ -5758,7 +5786,6 @@ def render_ap_progress_follow_up(sheet_name, selected_quarter, selected_year, se
 
             colors = ['#1a5276', '#2e86c1', '#4dabf7', '#d62728']
 
-            # "50% (2)" style labels placed at the tip (outside) of each bar
             org_tip_labels = [
                 f"{pct:.0f}% ({cnt})"
                 for pct, cnt in zip(org_df['Percentage'], org_df['Count'])
@@ -5824,41 +5851,43 @@ def render_ap_progress_follow_up(sheet_name, selected_quarter, selected_year, se
         all_bodies.extend(bodies)
 
     # ======================================================================
-    # ORGANIZATION PIE CHARTS (EPSS / MOH / MSH_SCS) — no expander
+    # ORGANIZATION PIE CHARTS (EPSS / MOH / MSH_SCS) — prefix-based
     # ======================================================================
-    epss_bodies = ['EPSS_CMD', 'EPSS_DMD', 'EPSS_PMD', 'EPSS_Finance']
-    moh_bodies = ['MOH_PMED', 'MOH_Program']
-    msh_bodies = ['MSH_SCS']
+    def _org_of(body):
+        body = (body or '').strip()
+        if body.startswith('EPSS_'):
+            return 'EPSS'
+        elif body.startswith('MOH_'):
+            return 'MOH'
+        elif body.startswith('MSH_'):
+            return 'MSH_SCS'
+        return 'Other'
 
-    def _compute_org_status_counts(org_body_list):
-        """Return (completed, not_completed, pending) for the given org bodies."""
+    def _compute_org_status_counts(org_name):
+        """Return (completed, not_completed, pending) for the given organization."""
         completed_c = 0
         not_completed_c = 0
         pending_c = 0
-        for body in org_body_list:
-            for _, row in filtered_df.iterrows():
-                responsible = row.get('Responsible Body', '')
-                if body in [b.strip() for b in responsible.split(',') if b.strip()]:
-                    status = row.get('Status', 'Pending')
-                    if status == 'Completed':
-                        completed_c += 1
-                    elif status in ('Initiated', 'Ongoing'):
-                        not_completed_c += 1
-                    elif status == 'Pending':
-                        pending_c += 1
+        for _, row in filtered_df.iterrows():
+            responsible = row.get('Responsible Body', '')
+            parts = [b.strip() for b in str(responsible).split(',') if b.strip()]
+            if any(_org_of(b) == org_name for b in parts):
+                status = row.get('Status', 'Pending')
+                if status == 'Completed':
+                    completed_c += 1
+                elif status in ('Initiated', 'Ongoing'):
+                    not_completed_c += 1
+                elif status == 'Pending':
+                    pending_c += 1
         return completed_c, not_completed_c, pending_c
 
     org_defs = [
-        ('EPSS',    epss_bodies),
-        ('MOH',     moh_bodies),
-        ('MSH_SCS', msh_bodies),
+        ('EPSS',    'EPSS'),
+        ('MOH',     'MOH'),
+        ('MSH_SCS', 'MSH_SCS'),
     ]
 
-    org_has_data = False
-    for _, bodies in org_defs:
-        if any(b in all_bodies for b in bodies):
-            org_has_data = True
-            break
+    org_has_data = any(_org_of(b) in ('EPSS', 'MOH', 'MSH_SCS') for b in all_bodies)
 
     if org_has_data:
         st.markdown("### 🥧 Organization Status Distribution")
@@ -5866,8 +5895,8 @@ def render_ap_progress_follow_up(sheet_name, selected_quarter, selected_year, se
 
         pie_colors = ['#28a745', '#2e86c1', '#ffc107']  # Completed, Not Completed, Pending
 
-        for col, (org_name, org_bodies) in zip(pie_cols, org_defs):
-            completed_o, not_completed_o, pending_o = _compute_org_status_counts(org_bodies)
+        for col, (org_name, org_key) in zip(pie_cols, org_defs):
+            completed_o, not_completed_o, pending_o = _compute_org_status_counts(org_key)
             total_o = completed_o + not_completed_o + pending_o
 
             with col:
@@ -5881,7 +5910,6 @@ def render_ap_progress_follow_up(sheet_name, selected_quarter, selected_year, se
                 else:
                     org_labels = ['Completed', 'Not Completed', 'Pending']
                     org_values = [completed_o, not_completed_o, pending_o]
-                    # "50% (2)" style labels shown INSIDE the pie
                     org_text_labels = [
                         f"{(v/total_o*100):.0f}% ({v})" for v in org_values
                     ]
@@ -5926,15 +5954,17 @@ def render_ap_progress_follow_up(sheet_name, selected_quarter, selected_year, se
 
         st.markdown("---")
 
-    epss_total = 0
-    for body in epss_bodies:
-        epss_total += len([b for b in all_bodies if b == body]) if all_bodies else 0
+    # ======================================================================
+    # EPSS DETAILED BREAKDOWN — prefix-based
+    # ======================================================================
+    epss_body_set = sorted({b for b in all_bodies if _org_of(b) == 'EPSS'})
+    epss_total = sum(1 for b in all_bodies if _org_of(b) == 'EPSS')
 
     if epss_total > 0 and all_bodies:
         st.markdown("### 📊 EPSS Detailed Breakdown")
 
         epss_detail_data = []
-        for body in epss_bodies:
+        for body in epss_body_set:
             body_count = len([b for b in all_bodies if b == body])
             if body_count > 0:
                 body_status_counts = {}
@@ -5972,7 +6002,6 @@ def render_ap_progress_follow_up(sheet_name, selected_quarter, selected_year, se
             }
 
             for status in statuses:
-                # "50% (2)" style labels placed at the tip (outside) of each stacked segment
                 epss_tip_labels = [
                     f"{pct:.0f}% ({cnt})"
                     for pct, cnt in zip(epss_detail_df[f'{status} %'], epss_detail_df[status])
@@ -6061,145 +6090,45 @@ def render_ap_progress_follow_up(sheet_name, selected_quarter, selected_year, se
 
             st.markdown("---")
 
+    # ======================================================================
+    # COMBINED ORGANIZATION SUMMARY TABLE — prefix-based
+    # ======================================================================
     if all_bodies:
-        epss_bodies = ['EPSS_CMD', 'EPSS_DMD', 'EPSS_PMD', 'EPSS_Finance']
-        moh_bodies = ['MOH_PMED', 'MOH_Program']
-        msh_bodies = ['MSH_SCS']
-
         combined_data = []
 
-        epss_total_count = 0
-        epss_completed = 0
-        epss_not_completed = 0
-        epss_pending = 0
+        def _org_summary(org_key):
+            """Aggregate status counts for an organization across all its bodies."""
+            total_count = 0
+            completed_c = 0
+            not_completed_c = 0
+            pending_c = 0
+            for _, row in filtered_df.iterrows():
+                responsible = row.get('Responsible Body', '')
+                parts = [b.strip() for b in str(responsible).split(',') if b.strip()]
+                if any(_org_of(b) == org_key for b in parts):
+                    total_count += 1
+                    status = row.get('Status', 'Pending')
+                    if status == 'Completed':
+                        completed_c += 1
+                    elif status in ('Initiated', 'Ongoing'):
+                        not_completed_c += 1
+                    elif status == 'Pending':
+                        pending_c += 1
+            return total_count, completed_c, not_completed_c, pending_c
 
-        for body in epss_bodies:
-            body_count = len([b for b in all_bodies if b == body])
-            if body_count > 0:
-                epss_total_count += body_count
-                body_status_counts = {}
-                for _, row in filtered_df.iterrows():
-                    responsible = row.get('Responsible Body', '')
-                    if body in [b.strip() for b in responsible.split(',') if b.strip()]:
-                        status = row.get('Status', 'Pending')
-                        body_status_counts[status] = body_status_counts.get(status, 0) + 1
-
-                epss_completed += body_status_counts.get('Completed', 0)
-                epss_not_completed += body_status_counts.get('Initiated', 0) + body_status_counts.get('Ongoing', 0)
-                epss_pending += body_status_counts.get('Pending', 0)
-
-        if epss_total_count > 0:
-            combined_data.append({
-                'Organization': 'EPSS',
-                'Total': epss_total_count,
-                'Completed': epss_completed,
-                'Completed %': round(epss_completed / epss_total_count * 100, 1) if epss_total_count > 0 else 0,
-                'Not Completed': epss_not_completed,
-                'Not Completed %': round(epss_not_completed / epss_total_count * 100, 1) if epss_total_count > 0 else 0,
-                'Pending': epss_pending,
-                'Pending %': round(epss_pending / epss_total_count * 100, 1) if epss_total_count > 0 else 0
-            })
-
-        moh_total_count = 0
-        moh_completed = 0
-        moh_not_completed = 0
-        moh_pending = 0
-
-        for body in moh_bodies:
-            body_count = len([b for b in all_bodies if b == body])
-            if body_count > 0:
-                moh_total_count += body_count
-                body_status_counts = {}
-                for _, row in filtered_df.iterrows():
-                    responsible = row.get('Responsible Body', '')
-                    if body in [b.strip() for b in responsible.split(',') if b.strip()]:
-                        status = row.get('Status', 'Pending')
-                        body_status_counts[status] = body_status_counts.get(status, 0) + 1
-
-                moh_completed += body_status_counts.get('Completed', 0)
-                moh_not_completed += body_status_counts.get('Initiated', 0) + body_status_counts.get('Ongoing', 0)
-                moh_pending += body_status_counts.get('Pending', 0)
-
-        if moh_total_count > 0:
-            combined_data.append({
-                'Organization': 'MOH',
-                'Total': moh_total_count,
-                'Completed': moh_completed,
-                'Completed %': round(moh_completed / moh_total_count * 100, 1) if moh_total_count > 0 else 0,
-                'Not Completed': moh_not_completed,
-                'Not Completed %': round(moh_not_completed / moh_total_count * 100, 1) if moh_total_count > 0 else 0,
-                'Pending': moh_pending,
-                'Pending %': round(moh_pending / moh_total_count * 100, 1) if moh_total_count > 0 else 0
-            })
-
-        msh_total_count = 0
-        msh_completed = 0
-        msh_not_completed = 0
-        msh_pending = 0
-
-        for body in msh_bodies:
-            body_count = len([b for b in all_bodies if b == body])
-            if body_count > 0:
-                msh_total_count += body_count
-                body_status_counts = {}
-                for _, row in filtered_df.iterrows():
-                    responsible = row.get('Responsible Body', '')
-                    if body in [b.strip() for b in responsible.split(',') if b.strip()]:
-                        status = row.get('Status', 'Pending')
-                        body_status_counts[status] = body_status_counts.get(status, 0) + 1
-
-                msh_completed += body_status_counts.get('Completed', 0)
-                msh_not_completed += body_status_counts.get('Initiated', 0) + body_status_counts.get('Ongoing', 0)
-                msh_pending += body_status_counts.get('Pending', 0)
-
-        if msh_total_count > 0:
-            combined_data.append({
-                'Organization': 'MSH_SCS',
-                'Total': msh_total_count,
-                'Completed': msh_completed,
-                'Completed %': round(msh_completed / msh_total_count * 100, 1) if msh_total_count > 0 else 0,
-                'Not Completed': msh_not_completed,
-                'Not Completed %': round(msh_not_completed / msh_total_count * 100, 1) if msh_total_count > 0 else 0,
-                'Pending': msh_pending,
-                'Pending %': round(msh_pending / msh_total_count * 100, 1) if msh_total_count > 0 else 0
-            })
-
-        other_bodies = []
-        for body in set(all_bodies):
-            if body not in epss_bodies and body not in moh_bodies and body not in msh_bodies:
-                other_bodies.append(body)
-
-        other_total_count = 0
-        other_completed = 0
-        other_not_completed = 0
-        other_pending = 0
-
-        for body in other_bodies:
-            body_count = len([b for b in all_bodies if b == body])
-            if body_count > 0:
-                other_total_count += body_count
-                body_status_counts = {}
-                for _, row in filtered_df.iterrows():
-                    responsible = row.get('Responsible Body', '')
-                    if body in [b.strip() for b in responsible.split(',') if b.strip()]:
-                        status = row.get('Status', 'Pending')
-                        body_status_counts[status] = body_status_counts.get(status, 0) + 1
-
-                other_completed += body_status_counts.get('Completed', 0)
-                other_not_completed += body_status_counts.get('Initiated', 0) + body_status_counts.get('Ongoing', 0)
-                other_pending += body_status_counts.get('Pending', 0)
-
-        if other_total_count > 0:
-            combined_data.append({
-                'Organization': 'Other',
-                'Total': other_total_count,
-                'Completed': other_completed,
-                'Completed %': round(other_completed / other_total_count * 100, 1) if other_total_count > 0 else 0,
-                'Not Completed': other_not_completed,
-                'Not Completed %': round(other_not_completed / other_total_count * 100, 1) if other_total_count > 0 else 0,
-                'Pending': other_pending,
-                'Pending %': round(other_pending / other_total_count * 100, 1) if other_total_count > 0 else 0
-            })
+        for org_key, org_label in [('EPSS', 'EPSS'), ('MOH', 'MOH'), ('MSH_SCS', 'MSH_SCS'), ('Other', 'Other')]:
+            t, c, nc, p = _org_summary(org_key)
+            if t > 0:
+                combined_data.append({
+                    'Organization': org_label,
+                    'Total': t,
+                    'Completed': c,
+                    'Completed %': round(c / t * 100, 1),
+                    'Not Completed': nc,
+                    'Not Completed %': round(nc / t * 100, 1),
+                    'Pending': p,
+                    'Pending %': round(p / t * 100, 1)
+                })
 
         if combined_data:
             st.markdown("### 📊 Organization Breakdown Summary Table")
