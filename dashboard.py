@@ -377,7 +377,200 @@ if 'auth' not in st.session_state:
 if not st.session_state['auth']:
     show_login_page()
     st.stop()
+# ===================================================
+# PROCUREMENT LEAD TIME FUNCTIONS
+# ===================================================
 
+@st.cache_data(ttl=300, show_spinner=False)
+def load_procurement_lead_time(_cache_bust=0):
+    """
+    Load all procurement lead time records from Supabase.
+    The _cache_bust parameter is used only to invalidate the cache
+    (Streamlit ignores parameters prefixed with '_' when building the cache key).
+    """
+    try:
+        if st.session_state.get('supabase_client') is None:
+            return pd.DataFrame()
+
+        all_data = []
+        page = 0
+        page_size = 1000
+
+        while True:
+            response = st.session_state.supabase_client.table("procurement_lead_time") \
+                .select("*") \
+                .order("posting_date", desc=True) \
+                .range(page * page_size, (page + 1) * page_size - 1) \
+                .execute()
+
+            if not response.data:
+                break
+            all_data.extend(response.data)
+            if len(response.data) < page_size:
+                break
+            page += 1
+
+        if not all_data:
+            return pd.DataFrame()
+
+        df = pd.DataFrame(all_data)
+
+        for col in ['epss_date', 'dmd_received_date', 'dmd_submission_date', 'posting_date']:
+            if col in df.columns:
+                df[col] = pd.to_datetime(df[col], errors='coerce')
+
+        for col in ['request_quantity', 'po_quantity']:
+            if col in df.columns:
+                df[col] = pd.to_numeric(df[col], errors='coerce')
+
+        return df
+    except Exception as e:
+        if "relation" in str(e) and "does not exist" in str(e):
+            return pd.DataFrame()
+        st.error(f"Error loading procurement lead time: {e}")
+        return pd.DataFrame()
+
+
+def save_procurement_record(record_dict):
+    """Insert a new procurement lead time record"""
+    try:
+        if st.session_state.get('supabase_client') is None:
+            return False
+
+        for key in ['epss_date', 'dmd_received_date', 'dmd_submission_date', 'posting_date']:
+            if key in record_dict and record_dict[key] is not None:
+                if hasattr(record_dict[key], 'isoformat'):
+                    record_dict[key] = record_dict[key].isoformat()
+
+        record_dict['updated_at'] = datetime.now().isoformat()
+        record_dict.pop('id', None)
+
+        st.session_state.supabase_client.table("procurement_lead_time").insert(record_dict).execute()
+        return True
+    except Exception as e:
+        st.error(f"Error saving procurement record: {e}")
+        return False
+
+
+def update_procurement_record(record_id, record_dict):
+    """Update an existing procurement lead time record"""
+    try:
+        if st.session_state.get('supabase_client') is None:
+            return False
+
+        for key in ['epss_date', 'dmd_received_date', 'dmd_submission_date', 'posting_date']:
+            if key in record_dict and record_dict[key] is not None:
+                if hasattr(record_dict[key], 'isoformat'):
+                    record_dict[key] = record_dict[key].isoformat()
+
+        record_dict['updated_at'] = datetime.now().isoformat()
+        record_dict.pop('id', None)
+
+        st.session_state.supabase_client.table("procurement_lead_time") \
+            .update(record_dict).eq("id", record_id).execute()
+        return True
+    except Exception as e:
+        st.error(f"Error updating procurement record: {e}")
+        return False
+
+
+def delete_procurement_record(record_id):
+    """Delete a procurement lead time record"""
+    try:
+        if st.session_state.get('supabase_client') is None:
+            return False
+        st.session_state.supabase_client.table("procurement_lead_time") \
+            .delete().eq("id", record_id).execute()
+        return True
+    except Exception as e:
+        st.error(f"Error deleting record: {e}")
+        return False
+
+
+def calculate_procurement_lead_times(df):
+    """
+    Compute:
+    - DMD Processing Days = DMD Submission - DMD Received   (whole days)
+    - Procurement Lead Time = Posting Date - DMD Submission Date  (only if posted)
+    - Procurement Process Time = Today - DMD Submission Date  (only if NOT posted)
+    """
+    if df.empty:
+        return df
+    df = df.copy()
+
+    df['DMD Processing Days'] = (
+        df['dmd_submission_date'] - df['dmd_received_date']
+    ).dt.days
+
+    today = pd.Timestamp(date.today())
+
+    df['Procurement Lead Time'] = np.where(
+        df['posting_date'].notna() & df['dmd_submission_date'].notna(),
+        (df['posting_date'] - df['dmd_submission_date']).dt.days,
+        np.nan
+    )
+
+    df['Procurement Process Time'] = np.where(
+        df['posting_date'].isna() & df['dmd_submission_date'].notna(),
+        (today - df['dmd_submission_date']).dt.days,
+        np.nan
+    )
+
+    return df
+# ===================================================
+# LOOKUP POSTING DATE FROM NEW DELIVERIES
+# ===================================================
+def enrich_posting_date_from_deliveries(proc_df, deliveries_df):
+    """
+    Fill/overwrite posting_date in procurement records by matching
+    Material Description + PO Number against New Deliveries data.
+
+    Rule: When Material Description AND Purchase Order match,
+    take the Posting Date from New Deliveries.
+    """
+    if proc_df is None or proc_df.empty:
+        return proc_df
+    if deliveries_df is None or deliveries_df.empty:
+        return proc_df
+
+    proc_df = proc_df.copy()
+    deliveries_df = deliveries_df.copy()
+
+    # Normalize keys for matching
+    deliveries_df['PO Number'] = deliveries_df['PO Number'].astype(str).str.strip()
+    deliveries_df['Material Description'] = deliveries_df['Material Description'].astype(str).str.strip()
+    deliveries_df['Posting Date'] = pd.to_datetime(deliveries_df['Posting Date'], errors='coerce')
+
+    # Build lookup: (Material, PO) -> latest posting date
+    lookup = (
+        deliveries_df
+        .dropna(subset=['Posting Date'])
+        .groupby(['Material Description', 'PO Number'])['Posting Date']
+        .max()
+        .to_dict()
+    )
+
+    # Normalize procurement keys
+    proc_df['material_description'] = proc_df['material_description'].astype(str).str.strip()
+    proc_df['po_number'] = proc_df['po_number'].astype(str).str.strip()
+
+    def resolve_posting(row):
+        key = (row['material_description'], row['po_number'])
+        if key in lookup:
+            return lookup[key]
+        # Fallback: keep existing posting date if not found in deliveries
+        return row.get('posting_date')
+
+    proc_df['posting_date'] = proc_df.apply(resolve_posting, axis=1)
+    proc_df['posting_date'] = pd.to_datetime(proc_df['posting_date'], errors='coerce')
+
+    return proc_df
+
+# ===================================================
+# SESSION STATE INIT FOR PROCUREMENT CACHE BUST
+# ===================================================
+if 'proc_cache_bust' not in st.session_state:
+    st.session_state.proc_cache_bust = 0
 # ---------------------------------------------------
 # Page Setup
 # ---------------------------------------------------
@@ -4531,7 +4724,7 @@ else:
         "💡 Decision Briefs", 
         "📍 Hubs Distribution",
         "📦 Supply Planning",
-        "📋 Purchase Order Status",
+        "📋 Procurement Lead Time",
         "🚚 New Deliveries"
     ])
 
@@ -6666,145 +6859,469 @@ with tab5:
         st.warning("Required columns for supply planning not found in the data.")
 
     # ---------------------------------------------------
-    # TAB 6 - Purchase Order Status
-    # ---------------------------------------------------
-    with tab6:
-        st.markdown("<h3 style='font-size: 28px; font-weight: bold; font-family: Times New Roman;'>📋 Purchase Order Status Tracking</h3>", unsafe_allow_html=True)
-        st.caption("Pipeline Purchase Orders - Track all active POs with their status and pipeline months of stock")
+# TAB 6 - Procurement Lead Time (FULLY REVISED)
+# ---------------------------------------------------
 
-        if not df_filtered.empty:
-            po_records = []
+# ---- Fragment for Procurement Lead Time tab (fixes tab-jump + slow filters) ----
+@st.fragment
+def render_procurement_lead_time_tab():
+    st.markdown("<h3 style='font-size: 28px; font-weight: bold; font-family: Times New Roman;'>⏱️ Procurement Lead Time Tracking</h3>", unsafe_allow_html=True)
 
-            for idx, row in df_filtered.iterrows():
-                material = row.get('Material Description', '')
-                if pd.isna(material) or material == '':
-                    continue
+    material_options = (
+        sorted(df['Material Description'].dropna().astype(str).unique().tolist())
+        if not df.empty and 'Material Description' in df.columns else []
+    )
 
-                actual_status = row.get('Status', '')
-                if pd.isna(actual_status) or actual_status == '':
-                    actual_status = 'No Status'
+    # ============================================
+    # QUICK ADD FORM (Admin only)
+    # ============================================
+    if st.session_state['user']['role'] == 'admin':
+        with st.expander("➕ Quick Add New Procurement Record", expanded=False):
+            with st.form("quick_add_procurement", clear_on_submit=True):
+                c1, c2, c3 = st.columns(3)
 
-                git_mos = row.get('GIT_MOS', 0)
-                lc_mos = row.get('LC_MOS', 0)
-                wb_mos = row.get('WB_MOS', 0)
-                tmd_mos = row.get('TMD_MOS', 0)
-
-                git_po = row.get('GIT_PO', '')
-                lc_po = row.get('LC_PO', '')
-                wb_po = row.get('WB_PO', '')
-                tmd_po = row.get('TMD_PO', '')
-
-                git_qty = row.get('GIT_Qty', 0)
-                lc_qty = row.get('LC_Qty', 0)
-                wb_qty = row.get('WB_Qty', 0)
-                tmd_qty = row.get('TMD_Qty', 0)
-
-                try:
-                    git_mos = float(git_mos) if pd.notna(git_mos) else 0
-                    lc_mos = float(lc_mos) if pd.notna(lc_mos) else 0
-                    wb_mos = float(wb_mos) if pd.notna(wb_mos) else 0
-                    tmd_mos = float(tmd_mos) if pd.notna(tmd_mos) else 0
-
-                    git_qty = float(git_qty) if pd.notna(git_qty) else 0
-                    lc_qty = float(lc_qty) if pd.notna(lc_qty) else 0
-                    wb_qty = float(wb_qty) if pd.notna(wb_qty) else 0
-                    tmd_qty = float(tmd_qty) if pd.notna(tmd_qty) else 0
-                except:
-                    continue
-
-                if git_mos > 0 and git_po != '' and str(git_po) != 'nan':
-                    po_records.append({
-                        'Material Description': material,
-                        'PO Number': str(git_po),
-                        'Quantity': format_number_with_commas(git_qty) if git_qty > 0 else 'N/A',
-                        'PMOS': round(git_mos, 2),
-                        'Status': actual_status,
-                        'Status Type': 'GIT'
-                    })
-
-                if lc_mos > 0 and lc_po != '' and str(lc_po) != 'nan':
-                    po_records.append({
-                        'Material Description': material,
-                        'PO Number': str(lc_po),
-                        'Quantity': format_number_with_commas(lc_qty) if lc_qty > 0 else 'N/A',
-                        'PMOS': round(lc_mos, 2),
-                        'Status': actual_status,
-                        'Status Type': 'LC'
-                    })
-
-                if wb_mos > 0 and wb_po != '' and str(wb_po) != 'nan':
-                    po_records.append({
-                        'Material Description': material,
-                        'PO Number': str(wb_po),
-                        'Quantity': format_number_with_commas(wb_qty) if wb_qty > 0 else 'N/A',
-                        'PMOS': round(wb_mos, 2),
-                        'Status': actual_status,
-                        'Status Type': 'WB'
-                    })
-
-                if tmd_mos > 0 and tmd_po != '' and str(tmd_po) != 'nan':
-                    po_records.append({
-                        'Material Description': material,
-                        'PO Number': str(tmd_po),
-                        'Quantity': format_number_with_commas(tmd_qty) if tmd_qty > 0 else 'N/A',
-                        'PMOS': round(tmd_mos, 2),
-                        'Status': actual_status,
-                        'Status Type': 'TMD'
-                    })
-
-            if po_records:
-                po_df = pd.DataFrame(po_records)
-
-                col1, col2, col3, col4 = st.columns(4)
-                with col1:
-                    st.metric("📋 Total POs", len(po_df))
-                with col2:
-                    unique_materials = po_df['Material Description'].nunique()
-                    st.metric("📦 Materials with POs", unique_materials)
-                with col3:
-                    total_pmos = po_df['PMOS'].sum()
-                    st.metric("📊 Total Pipeline MOS", f"{total_pmos:.2f}")
-                with col4:
-                    status_counts = po_df['Status Type'].value_counts()
-                    most_common = status_counts.index[0] if len(status_counts) > 0 else 'N/A'
-                    st.metric("🔝 Most Common", most_common)
-
-                st.markdown("---")
-
-                status_options = ["All"] + sorted(po_df['Status'].unique().tolist())
-                po_status_filter = st.selectbox("Filter by Status", status_options, key="po_status_filter")
-
-                if po_status_filter != "All":
-                    filtered_po_df = po_df[po_df['Status'] == po_status_filter]
-                    st.info(f"Showing {len(filtered_po_df)} POs with status: {po_status_filter}")
-                else:
-                    filtered_po_df = po_df
-                    st.info(f"Showing all {len(filtered_po_df)} POs")
-
-                po_search = st.text_input("🔍 Search by Material or PO Number", placeholder="e.g., 'artesunate' or 'PO-12345'")
-                if po_search:
-                    search_mask = (
-                        filtered_po_df['Material Description'].str.contains(po_search, case=False, na=False) |
-                        filtered_po_df['PO Number'].str.contains(po_search, case=False, na=False)
+                with c1:
+                    f_mat = st.selectbox(
+                        "Material Description *",
+                        options=["-- Select Material --"] + material_options,
+                        key="add_material_select"
                     )
-                    filtered_po_df = filtered_po_df[search_mask]
-                    st.info(f"Found {len(filtered_po_df)} matching POs")
+                    f_year = st.number_input("Year of Request", min_value=2000, max_value=2100,
+                                             value=datetime.now().year, step=1, key="add_year")
+                    f_funding = st.text_input("Funding Source", placeholder="e.g., SDG, GF, Treasury",
+                                              key="add_funding_text")
+                with c2:
+                    f_req_qty = st.number_input("Request Quantity", min_value=0.0, step=1.0,
+                                                value=0.0, key="add_req_qty")
+                    f_po = st.text_input("PO Number", placeholder="e.g., 4500012345", key="add_po")
+                    f_po_qty = st.number_input("PO Quantity", min_value=0.0, step=1.0,
+                                               value=0.0, key="add_po_qty")
+                with c3:
+                    st.markdown("**Dates** *(leave blank if not available)*")
+                    f_epss = st.date_input("EPSS Date", value=None, key="add_epss_date")
+                    f_dmd_rec = st.date_input("DMD Received Date", value=None, key="add_dmd_rec_date")
+                    f_dmd_sub = st.date_input("DMD Submission Date", value=None, key="add_dmd_sub_date")
+                    f_posting = st.date_input("Posting Date", value=None, key="add_posting_date")
 
-                st.dataframe(
-                    filtered_po_df,
-                    column_config={
-                        'Material Description': st.column_config.TextColumn('Material Description', width=300),
-                        'PO Number': st.column_config.TextColumn('PO Number', width=150),
-                        'Quantity': st.column_config.TextColumn('Quantity', width=100),
-                        'PMOS': st.column_config.NumberColumn('PMOS (Months)', width=100, format="%.2f"),
-                        'Status': st.column_config.TextColumn('Status', width=200),
-                        'Status Type': st.column_config.TextColumn('Type', width=80)
-                    },
-                    use_container_width=True,
-                    hide_index=True
+                submitted = st.form_submit_button("💾 Save Record", use_container_width=True, type="primary")
+
+                if submitted:
+                    if not f_mat or f_mat == "-- Select Material --":
+                        st.error("⚠️ Please select a Material Description")
+                    elif not f_funding or f_funding.strip() == "":
+                        st.error("⚠️ Please enter a Funding Source")
+                    else:
+                        record = {
+                            'material_description': f_mat,
+                            'year_of_request': int(f_year),
+                            'funding_source': f_funding.strip(),
+                            'request_quantity': float(f_req_qty) if f_req_qty else None,
+                            'po_number': f_po.strip() if f_po else None,
+                            'po_quantity': float(f_po_qty) if f_po_qty else None,
+                            'epss_date': f_epss,
+                            'dmd_received_date': f_dmd_rec,
+                            'dmd_submission_date': f_dmd_sub,
+                            'posting_date': f_posting,
+                        }
+                        if save_procurement_record(record):
+                            st.session_state.proc_cache_bust = st.session_state.get('proc_cache_bust', 0) + 1
+                            st.success(f"✅ Saved record for {f_mat[:50]}")
+
+    # ============================================
+    # LOAD DATA (cached + enriched)
+    # ============================================
+    proc_df = load_procurement_lead_time(st.session_state.get('proc_cache_bust', 0))
+
+    # Auto-fill posting_date from New Deliveries (Material + PO match)
+    if not proc_df.empty and 'df_new_deliveries' in globals() and not df_new_deliveries.empty:
+        proc_df = enrich_posting_date_from_deliveries(proc_df, df_new_deliveries)
+
+    if proc_df.empty:
+        st.info("📭 No procurement lead time records yet. Use 'Quick Add' above to add the first record.")
+        return
+
+    proc_df = calculate_procurement_lead_times(proc_df)
+
+    # ============================================
+    # FILTERS
+    # ============================================
+    st.markdown("### 🔍 Filters")
+    fc1, fc2, fc3, fc4 = st.columns([1, 1, 1, 2])
+
+    with fc1:
+        year_opts = ["All"] + sorted(
+            [str(int(y)) for y in proc_df['year_of_request'].dropna().unique()], reverse=True
+        )
+        year_filter = st.selectbox("Year of Request", year_opts, key="proc_lead_year")
+
+    with fc2:
+        funding_opts = ["All"] + sorted([str(f) for f in proc_df['funding_source'].dropna().unique()])
+        funding_filter = st.selectbox("Funding Source", funding_opts, key="proc_lead_funding")
+
+    with fc3:
+        mat_filter_opts = ["All"] + sorted(proc_df['material_description'].dropna().unique().tolist())
+        mat_filter = st.selectbox("Material", mat_filter_opts, key="proc_lead_material")
+
+    with fc4:
+        po_search = st.text_input("🔍 Search PO Number", placeholder="e.g., '4500012345'", key="proc_lead_search")
+
+    filtered = proc_df.copy()
+    if year_filter != "All":
+        filtered = filtered[filtered['year_of_request'].astype(str) == year_filter]
+    if funding_filter != "All":
+        filtered = filtered[filtered['funding_source'].astype(str) == funding_filter]
+    if mat_filter != "All":
+        filtered = filtered[filtered['material_description'] == mat_filter]
+    if po_search:
+        filtered = filtered[filtered['po_number'].astype(str).str.contains(po_search, case=False, na=False)]
+
+    # ✅ Sort by Year of Request (newest to oldest)
+    if 'year_of_request' in filtered.columns:
+        filtered = filtered.sort_values(
+            by=['year_of_request'],
+            ascending=False,
+            na_position='last'
+        ).reset_index(drop=True)
+
+    # ============================================
+    # KPI CARDS (3 KPIs only)
+    # ============================================
+    st.markdown("### 📊 Summary Metrics")
+
+    avg_dmd_proc = filtered['DMD Processing Days'].dropna().mean() if not filtered.empty else 0
+    avg_proc_lead = filtered['Procurement Lead Time'].dropna().mean() if not filtered.empty else 0
+    avg_proc_process = filtered['Procurement Process Time'].dropna().mean() if not filtered.empty else 0
+
+    k1, k2, k3 = st.columns(3)
+    with k1:
+        st.markdown(f"""
+        <div style='background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%); border-radius: 12px; padding: 15px; text-align: center; color: white;'>
+            <p style='margin: 0; font-size: 13px; opacity: 0.9;'>⏱️ Avg DMD Processing</p>
+            <p style='margin: 5px 0 0 0; font-size: 28px; font-weight: bold;'>{round(avg_dmd_proc) if pd.notna(avg_dmd_proc) else 0} days</p>
+        </div>
+        """, unsafe_allow_html=True)
+    with k2:
+        st.markdown(f"""
+        <div style='background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%); border-radius: 12px; padding: 15px; text-align: center; color: white;'>
+            <p style='margin: 0; font-size: 13px; opacity: 0.9;'>📦 Avg Procurement Lead</p>
+            <p style='margin: 5px 0 0 0; font-size: 28px; font-weight: bold;'>{round(avg_proc_lead) if pd.notna(avg_proc_lead) else 0} days</p>
+        </div>
+        """, unsafe_allow_html=True)
+    with k3:
+        st.markdown(f"""
+        <div style='background: linear-gradient(135deg, #fa709a 0%, #fee140 100%); border-radius: 12px; padding: 15px; text-align: center; color: white;'>
+            <p style='margin: 0; font-size: 13px; opacity: 0.9;'>📅 Avg. Days Outstanding</p>
+            <p style='margin: 5px 0 0 0; font-size: 28px; font-weight: bold;'>{round(avg_proc_process) if pd.notna(avg_proc_process) else 0} days</p>
+        </div>
+        """, unsafe_allow_html=True)
+
+    st.markdown("---")
+
+    # ============================================
+    # MAIN TABLE (no ID column, thousand separators, no None)
+    # ============================================
+    st.markdown("### 📋 Procurement Lead Time Records")
+
+    # ✅ 'id' is kept OUT of the display list; we keep a hidden parallel array
+    #    of ids indexed to match table_df rows for save logic.
+    display_cols = [
+        'material_description', 'year_of_request', 'funding_source',
+        'request_quantity', 'po_number', 'po_quantity',
+        'epss_date', 'dmd_received_date', 'dmd_submission_date', 'posting_date',
+        'DMD Processing Days', 'Procurement Lead Time', 'Procurement Process Time'
+    ]
+    available_cols = [c for c in display_cols if c in filtered.columns]
+    table_df = filtered[available_cols].copy()
+
+    # ✅ Keep row ids aligned with table_df (same order, same index)
+    row_ids = filtered['id'].reset_index(drop=True).tolist() if 'id' in filtered.columns else []
+
+    # Format dates as strings
+    for col in ['epss_date', 'dmd_received_date', 'dmd_submission_date', 'posting_date']:
+        if col in table_df.columns:
+            table_df[col] = table_df[col].dt.strftime('%Y-%m-%d')
+
+    # Format numeric day columns as whole numbers, empty if NaN
+    for col in ['DMD Processing Days', 'Procurement Lead Time', 'Procurement Process Time']:
+        if col in table_df.columns:
+            table_df[col] = table_df[col].apply(lambda x: int(round(x)) if pd.notna(x) else "")
+
+    # ✅ Thousand separators for Request Qty & PO Qty
+    for col in ['request_quantity', 'po_quantity']:
+        if col in table_df.columns:
+            table_df[col] = table_df[col].apply(
+                lambda x: f"{int(x):,}" if pd.notna(x) and x != "" else ""
+            )
+
+    # ✅ Replace None / NaN with empty string everywhere
+    table_df = table_df.where(pd.notna(table_df), "")
+    for col in table_df.columns:
+        table_df[col] = table_df[col].apply(
+            lambda x: "" if x is None or (isinstance(x, float) and pd.isna(x)) else x
+        )
+
+    # Reset index so we can map edited rows back to ids by position
+    table_df = table_df.reset_index(drop=True)
+
+    if st.session_state['user']['role'] == 'admin':
+        edited = st.data_editor(
+            table_df,
+            use_container_width=True,
+            hide_index=True,
+            num_rows="dynamic",
+            key="proc_lead_editor_v4",
+            column_config={
+                'material_description': st.column_config.SelectboxColumn(
+                    'Material Description', width='large', options=material_options, required=True
+                ),
+                'year_of_request': st.column_config.NumberColumn('Year', width='small'),
+                'funding_source': st.column_config.TextColumn('Funding', width='small'),
+                'request_quantity': st.column_config.TextColumn('Req Qty', width='small'),
+                'po_number': st.column_config.TextColumn('PO Number', width='medium'),
+                'po_quantity': st.column_config.TextColumn('PO Qty', width='small'),
+                'epss_date': st.column_config.TextColumn('EPSS Date', width='small'),
+                'dmd_received_date': st.column_config.TextColumn('DMD Rcvd', width='small'),
+                'dmd_submission_date': st.column_config.TextColumn('DMD Sub', width='small'),
+                'posting_date': st.column_config.TextColumn('Posting Date (Auto)', width='small'),
+                'DMD Processing Days': st.column_config.NumberColumn('DMD Proc.', disabled=True, width='small', format='%d'),
+                'Procurement Lead Time': st.column_config.NumberColumn('Proc. Lead', disabled=True, width='small', format='%d'),
+                'Procurement Process Time': st.column_config.NumberColumn('Proc. Process', disabled=True, width='small', format='%d'),
+            }
+        )
+
+        # ============================================
+        # SAVE ALL CHANGES (BATCHED — fast)
+        # ============================================
+        col_btn1, col_btn2 = st.columns([1, 4])
+        with col_btn1:
+            if st.button("💾 Save All Changes", use_container_width=True, type="primary"):
+                inserts = []
+                updates = []
+                skipped = 0
+
+                for i, row in edited.iterrows():
+                    rec = {}
+                    for k in ['material_description', 'year_of_request', 'funding_source',
+                              'request_quantity', 'po_number', 'po_quantity',
+                              'epss_date', 'dmd_received_date',
+                              'dmd_submission_date', 'posting_date']:
+                        if k in row:
+                            val = row[k]
+                            if pd.isna(val) or val == '' or val is None:
+                                rec[k] = None
+                            else:
+                                if k in ['epss_date', 'dmd_received_date', 'dmd_submission_date', 'posting_date']:
+                                    try:
+                                        rec[k] = pd.to_datetime(val).date()
+                                    except Exception:
+                                        rec[k] = None
+                                elif k in ['request_quantity', 'po_quantity']:
+                                    try:
+                                        rec[k] = float(str(val).replace(',', '').strip())
+                                    except Exception:
+                                        rec[k] = None
+                                elif k == 'year_of_request':
+                                    try:
+                                        rec[k] = int(val)
+                                    except Exception:
+                                        rec[k] = None
+                                else:
+                                    rec[k] = val
+
+                    # ✅ Use positional id mapping (works even if user reorders via filter)
+                    row_id = row_ids[i] if i < len(row_ids) else None
+
+                    if row_id is None or pd.isna(row_id):
+                        # NEW ROW (added by user) → insert
+                        if rec.get('material_description') and rec.get('material_description') != '-- Select Material --':
+                            inserts.append(rec)
+                        else:
+                            skipped += 1
+                    else:
+                        updates.append((int(row_id), rec))
+
+                success_count = 0
+                error_count = 0
+
+                # --- Batched insert ---
+                if inserts:
+                    try:
+                        bulk = []
+                        for rec in inserts:
+                            r = dict(rec)
+                            for key in ['epss_date', 'dmd_received_date', 'dmd_submission_date', 'posting_date']:
+                                if key in r and r[key] is not None and hasattr(r[key], 'isoformat'):
+                                    r[key] = r[key].isoformat()
+                            r['updated_at'] = datetime.now().isoformat()
+                            bulk.append(r)
+                        st.session_state.supabase_client.table("procurement_lead_time").insert(bulk).execute()
+                        success_count += len(bulk)
+                    except Exception as e:
+                        error_count += len(inserts)
+                        st.error(f"Batch insert error: {e}")
+
+                # --- Batched update (single upsert) ---
+                if updates:
+                    try:
+                        bulk = []
+                        for rec_id, rec in updates:
+                            r = dict(rec)
+                            for key in ['epss_date', 'dmd_received_date', 'dmd_submission_date', 'posting_date']:
+                                if key in r and r[key] is not None and hasattr(r[key], 'isoformat'):
+                                    r[key] = r[key].isoformat()
+                            r['updated_at'] = datetime.now().isoformat()
+                            r['id'] = rec_id
+                            bulk.append(r)
+                        st.session_state.supabase_client.table("procurement_lead_time").upsert(bulk).execute()
+                        success_count += len(bulk)
+                    except Exception as e:
+                        error_count += len(updates)
+                        st.error(f"Batch update error: {e}")
+
+                if success_count or error_count or skipped:
+                    st.session_state.proc_cache_bust = st.session_state.get('proc_cache_bust', 0) + 1
+                    msg = f"✅ Saved {success_count} record(s)."
+                    if error_count:
+                        msg += f" ⚠️ {error_count} error(s)."
+                    if skipped:
+                        msg += f" Skipped {skipped} empty row(s)."
+                    st.success(msg)
+                    st.rerun()
+
+        # ============================================
+        # DELETE
+        # ============================================
+        st.markdown("##### 🗑️ Delete Records")
+        del_col1, del_col2 = st.columns([3, 1])
+        with del_col1:
+            delete_options = filtered.apply(
+                lambda r: f"ID {int(r['id'])} | {str(r['material_description'])[:40]} | PO {r.get('po_number', 'N/A')}",
+                axis=1
+            ).tolist()
+            delete_map = dict(zip(delete_options, filtered['id'].astype(int).tolist()))
+            to_delete = st.selectbox("Select a record to delete", ["-- Select --"] + delete_options, key="del_record_select")
+        with del_col2:
+            st.markdown("<br>", unsafe_allow_html=True)
+            if st.button("🗑️ Delete", use_container_width=True, type="secondary", disabled=(to_delete == "-- Select --")):
+                if to_delete in delete_map:
+                    if delete_procurement_record(delete_map[to_delete]):
+                        st.session_state.proc_cache_bust = st.session_state.get('proc_cache_bust', 0) + 1
+                        st.success("✅ Record deleted")
+                        st.rerun()
+    else:
+        # Read-only view
+        st.dataframe(table_df, use_container_width=True, hide_index=True)
+
+    # ============================================
+    # VISUALIZATIONS
+    # ============================================
+    st.markdown("---")
+    st.markdown("### 📈 Lead Time Analysis")
+
+    viz_df = filtered.dropna(subset=['DMD Processing Days']).copy()
+    if not viz_df.empty:
+        vc1, vc2 = st.columns(2)
+
+        with vc1:
+            trend_source = filtered.copy()
+            trend_source['Effective_Days'] = trend_source['Procurement Lead Time'].fillna(trend_source['Procurement Process Time'])
+            trend_source = trend_source.dropna(subset=['dmd_submission_date', 'Effective_Days'])
+            if not trend_source.empty:
+                trend_source['Month'] = trend_source['dmd_submission_date'].dt.strftime('%b-%Y')
+                monthly = trend_source.groupby('Month').agg({
+                    'Effective_Days': 'mean',
+                    'DMD Processing Days': 'mean'
+                }).reset_index()
+                try:
+                    monthly['sort_key'] = pd.to_datetime(monthly['Month'], format='%b-%Y')
+                    monthly = monthly.sort_values('sort_key').drop(columns=['sort_key'])
+                except Exception:
+                    pass
+
+                fig_trend = go.Figure()
+                fig_trend.add_trace(go.Scatter(
+                    x=monthly['Month'], y=monthly['Effective_Days'].round(0),
+                    mode='lines+markers', name='Procurement (Lead or Process)',
+                    line=dict(color='#f5576c', width=3), marker=dict(size=8)
+                ))
+                fig_trend.add_trace(go.Scatter(
+                    x=monthly['Month'], y=monthly['DMD Processing Days'].round(0),
+                    mode='lines+markers', name='DMD Processing Days',
+                    line=dict(color='#11998e', width=3), marker=dict(size=8)
+                ))
+                fig_trend.update_layout(
+                    title='Average Lead Time Trend by Month',
+                    xaxis_title='Month', yaxis_title='Days',
+                    height=400, xaxis_tickangle=-45
                 )
-            else:
-                st.info("No active purchase orders found")
+                st.plotly_chart(fig_trend, use_container_width=True)
+
+        with vc2:
+            dist_df = filtered.dropna(subset=['Procurement Lead Time'])
+            if not dist_df.empty:
+                fig_hist = px.histogram(
+                    dist_df, x='Procurement Lead Time', nbins=20,
+                    title='Distribution of Procurement Lead Time (Posted only)',
+                    color_discrete_sequence=['#667eea']
+                )
+                fig_hist.update_layout(height=400, xaxis_title='Days', yaxis_title='Count',
+                                       xaxis=dict(tickformat='d'))
+                st.plotly_chart(fig_hist, use_container_width=True)
+
+        st.markdown("#### 🏆 Top 10 Materials by Avg Procurement Lead Time")
+        top_src = filtered.dropna(subset=['Procurement Lead Time'])
+        if not top_src.empty:
+            top_mat = top_src.groupby('material_description').agg({
+                'Procurement Lead Time': 'mean',
+                'DMD Processing Days': 'mean'
+            }).round(0).sort_values('Procurement Lead Time', ascending=False).head(10).reset_index()
+
+            fig_top = go.Figure()
+            fig_top.add_trace(go.Bar(
+                y=top_mat['material_description'].apply(lambda x: x[:40]),
+                x=top_mat['Procurement Lead Time'],
+                name='Procurement Lead Time',
+                orientation='h',
+                marker_color='#f5576c',
+                text=top_mat['Procurement Lead Time'].astype(int).astype(str) + 'd',
+                textposition='outside'
+            ))
+            fig_top.update_layout(
+                height=max(400, 35 * len(top_mat) + 80),
+                xaxis_title='Average Days',
+                yaxis=dict(autorange='reversed'),
+                margin=dict(l=200, r=60)
+            )
+            st.plotly_chart(fig_top, use_container_width=True)
+    else:
+        st.info("Not enough data to generate visualizations.")
+
+    # ============================================
+    # EXPORT
+    # ============================================
+    st.markdown("---")
+    export_df = filtered.drop(columns=['id'], errors='ignore').copy()
+    for col in ['epss_date', 'dmd_received_date', 'dmd_submission_date', 'posting_date']:
+        if col in export_df.columns:
+            export_df[col] = export_df[col].dt.strftime('%Y-%m-%d')
+    for col in ['DMD Processing Days', 'Procurement Lead Time', 'Procurement Process Time']:
+        if col in export_df.columns:
+            export_df[col] = export_df[col].apply(lambda x: int(round(x)) if pd.notna(x) else "")
+
+    export_df = export_df.where(pd.notna(export_df), "")
+
+    st.download_button(
+        label="📥 Download Procurement Lead Time Data (CSV)",
+        data=export_df.to_csv(index=False),
+        file_name=f"procurement_lead_time_{datetime.now().strftime('%Y%m%d')}.csv",
+        mime="text/csv",
+        use_container_width=True
+    )
+
+
+# ---- Render the tab content (fragment keeps filters inside the tab) ----
+with tab6:
+    render_procurement_lead_time_tab()
 
          # ---------------------------------------------------
     # TAB 7 - New Deliveries with Lead Time Tracking
