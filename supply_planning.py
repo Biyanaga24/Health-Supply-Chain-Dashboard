@@ -3881,6 +3881,27 @@ def render_system_generated_action_plan(action_df, material_problems, sheet_name
 def render_expert_action_plan_with_status(df_filtered, material_problems, action_df, sheet_name, nsoh_pivot, selected_quarter, selected_year):
     current_year = datetime.now().year
 
+    # ------------------------------------------------------------------
+    # LOCAL HELPER: latest (Year, Quarter) present in a records DataFrame
+    # ------------------------------------------------------------------
+    def get_current_quarter_from_records(records_df):
+        """Return (quarter, year) tuple of the latest (Year, Quarter) present
+        in the given records DataFrame. Returns (None, None) if empty."""
+        if records_df is None or records_df.empty:
+            return None, None
+        if 'Quarter' not in records_df.columns or 'Year' not in records_df.columns:
+            return None, None
+
+        quarter_order = {'Q1': 1, 'Q2': 2, 'Q3': 3, 'Q4': 4}
+        valid = records_df.dropna(subset=['Quarter', 'Year']).copy()
+        if valid.empty:
+            return None, None
+
+        valid['_qsort'] = valid['Quarter'].map(quarter_order).fillna(0)
+        valid['_ysort'] = pd.to_numeric(valid['Year'], errors='coerce').fillna(0)
+        idx = (valid['_ysort'] * 10 + valid['_qsort']).idxmax()
+        return valid.loc[idx, 'Quarter'], int(valid.loc[idx, 'Year'])
+
     if 'expert_plan_records' not in st.session_state:
         st.session_state.expert_plan_records = load_expert_plan_records(
             sheet_name if sheet_name != "All" else None,
@@ -4685,7 +4706,7 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
     st.markdown("---")
 
     # =========================================================================
-    # CHANGE LIST — only latest quarter
+    # CHANGE LIST — only latest quarter, edit/delete gated by current quarter
     # =========================================================================
     if selected_material and st.session_state.show_change_list:
         material_records = [r for r in st.session_state.expert_plan_records if r['Material'] == selected_material]
@@ -4702,6 +4723,7 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
                     y = 0
                 return (y, quarter_order.get(q, 0))
 
+            # Only show the latest quarter's records in the popup
             latest_key = max(_rec_sort_key(r) for r in material_records)
             material_records = [
                 r for r in material_records
@@ -4709,6 +4731,21 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
             ]
 
         if material_records:
+            # ------------------------------------------------------------------
+            # Determine current quarter from the whole filtered dataset so we
+            # know which records are editable.
+            # ------------------------------------------------------------------
+            all_filtered = pd.DataFrame(st.session_state.expert_plan_records)
+
+            if sheet_name != "All":
+                all_filtered = all_filtered[all_filtered['Program'] == sheet_name]
+            if selected_quarter != "All":
+                all_filtered = all_filtered[all_filtered['Quarter'] == selected_quarter]
+            if selected_year != "All":
+                all_filtered = all_filtered[all_filtered['Year'] == int(selected_year)]
+
+            current_q, current_y = get_current_quarter_from_records(all_filtered)
+
             latest_rec = material_records[0]
             latest_q = latest_rec.get('Quarter', '')
             latest_y = latest_rec.get('Year', '')
@@ -4719,6 +4756,17 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
                 unsafe_allow_html=True
             )
             for idx, record in enumerate(material_records):
+                rec_q = record.get('Quarter')
+                rec_y = record.get('Year')
+                try:
+                    rec_y_int = int(rec_y) if rec_y is not None else None
+                except:
+                    rec_y_int = None
+
+                is_current_quarter = (
+                    rec_q == current_q and rec_y_int == current_y
+                )
+
                 with st.container():
                     col1, col2, col3 = st.columns([3, 1, 1])
                     with col1:
@@ -4735,27 +4783,43 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
                         </div>
                         """, unsafe_allow_html=True)
                     with col2:
-                        if st.button(f"Edit", key=f"change_edit_{record['record_id']}"):
-                            st.session_state.edit_record_id = record['record_id']
-                            st.session_state.adding_action_point = False
-                            st.session_state.show_change_list = False
-                            st.session_state.show_custom_responsible = False
-                            st.rerun()
-                    with col3:
-                        if st.button(f"Delete", key=f"change_delete_{record['record_id']}"):
-                            if st.session_state.get(f'confirm_delete_{record["record_id"]}', False):
-                                delete_expert_plan_record(record['record_id'])
-                                st.session_state.expert_plan_records = load_expert_plan_records(
-                                    sheet_name if sheet_name != "All" else None,
-                                    selected_quarter if selected_quarter != "All" else None,
-                                    selected_year if selected_year != "All" else None
-                                )
-                                st.session_state[f'confirm_delete_{record["record_id"]}'] = False
+                        if is_current_quarter:
+                            if st.button(f"Edit", key=f"change_edit_{record['record_id']}"):
+                                st.session_state.edit_record_id = record['record_id']
+                                st.session_state.adding_action_point = False
                                 st.session_state.show_change_list = False
+                                st.session_state.show_custom_responsible = False
                                 st.rerun()
-                            else:
-                                st.session_state[f'confirm_delete_{record["record_id"]}'] = True
-                                st.warning(f"⚠️ Click Delete again to confirm")
+                        else:
+                            st.button(
+                                f"🔒 Edit",
+                                key=f"change_edit_locked_{record['record_id']}",
+                                disabled=True,
+                                help=f"Past quarter ({rec_q} {rec_y}) — read-only"
+                            )
+                    with col3:
+                        if is_current_quarter:
+                            if st.button(f"Delete", key=f"change_delete_{record['record_id']}"):
+                                if st.session_state.get(f'confirm_delete_{record["record_id"]}', False):
+                                    delete_expert_plan_record(record['record_id'])
+                                    st.session_state.expert_plan_records = load_expert_plan_records(
+                                        sheet_name if sheet_name != "All" else None,
+                                        selected_quarter if selected_quarter != "All" else None,
+                                        selected_year if selected_year != "All" else None
+                                    )
+                                    st.session_state[f'confirm_delete_{record["record_id"]}'] = False
+                                    st.session_state.show_change_list = False
+                                    st.rerun()
+                                else:
+                                    st.session_state[f'confirm_delete_{record["record_id"]}'] = True
+                                    st.warning(f"⚠️ Click Delete again to confirm")
+                        else:
+                            st.button(
+                                f"🔒 Delete",
+                                key=f"change_delete_locked_{record['record_id']}",
+                                disabled=True,
+                                help=f"Past quarter ({rec_q} {rec_y}) — read-only"
+                            )
                     st.markdown("---")
         else:
             st.info(f"No action points for {selected_material}.")
@@ -4775,8 +4839,16 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
                     edit_record = r
                     break
 
-        base_info = get_material_base_info(selected_material)
-        material_program = get_material_program(selected_material, sheet_name) if selected_material else ""
+        # When editing, use the record's own Material/Program (locked).
+        if is_editing and edit_record:
+            locked_material = edit_record.get('Material', selected_material)
+            locked_program = edit_record.get('Program', '')
+        else:
+            locked_material = selected_material
+            locked_program = get_material_program(selected_material, sheet_name) if selected_material else ""
+
+        base_info = get_material_base_info(locked_material)
+        material_program = locked_program
 
         if is_editing and edit_record:
             problem_val = edit_record.get('Identified Problem', '')
@@ -4807,8 +4879,23 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
         # Due Date: for EDITING default to stored date. For NEW records leave unset.
         _due_default_for_picker = parse_date_for_input(due_val) if (is_editing and due_val) else None
 
-        with st.form(key=f"action_point_form_{selected_material}"):
+        with st.form(key=f"action_point_form_{locked_material}"):
             st.markdown(f"### {'✏️ Edit Action Point' if is_editing else '➕ Add New Action Point'}")
+
+            if is_editing:
+                st.markdown(
+                    f"""
+                    <div style="background: #eaf2f8; padding: 10px 14px; border-radius: 8px;
+                                border-left: 4px solid #2e86c1; margin-bottom: 12px;">
+                        <div style="font-size: 12px; color: #555;">🔒 Locked (original record)</div>
+                        <div style="font-size: 14px; color: #1a5276; margin-top: 4px;">
+                            <strong>Material:</strong> {locked_material}<br>
+                            <strong>Program:</strong> {locked_program or 'N/A'}
+                        </div>
+                    </div>
+                    """,
+                    unsafe_allow_html=True
+                )
 
             col_q, col_y = st.columns(2)
             with col_q:
@@ -4881,7 +4968,7 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
                 due_date_obj = st.date_input(
                     "",
                     value=_due_default_for_picker,
-                    key=f"ap_due_date_picker_{selected_material}_{'edit' if is_editing else 'add'}",
+                    key=f"ap_due_date_picker_{locked_material}_{'edit' if is_editing else 'add'}",
                     label_visibility="collapsed",
                     format="YYYY-MM-DD"
                 )
@@ -4930,16 +5017,23 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
                     st.warning("Please select a Due Date.")
                     return
 
-                if selected_material and identified_problem and action_point and due_date:
+                if identified_problem and action_point and due_date:
                     if is_editing and edit_record:
+                        # --------------------------------------------------
+                        # EDIT PATH — only form fields update.
+                        # Locked: Material, Program, NSOH, AMC, PMOS, NMOS, TMOS
+                        # --------------------------------------------------
                         updated_record = {
                             'record_id': st.session_state.edit_record_id,
-                            'Material': selected_material,
-                            'NSOH': base_info['nsoh'] if base_info else "",
-                            'AMC': base_info['amc'] if base_info else "",
-                            'PMOS': base_info['pmos'] if base_info else 0,
-                            'NMOS': base_info['nmos'] if base_info else 0,
-                            'TMOS': base_info['tmos'] if base_info else 0,
+                            # ---------- LOCKED (from original record) ----------
+                            'Material': edit_record.get('Material', ''),
+                            'Program': edit_record.get('Program', ''),
+                            'NSOH': edit_record.get('NSOH', ''),
+                            'AMC': edit_record.get('AMC', ''),
+                            'PMOS': edit_record.get('PMOS', 0),
+                            'NMOS': edit_record.get('NMOS', 0),
+                            'TMOS': edit_record.get('TMOS', 0),
+                            # ---------- EDITABLE (from form) ----------
                             'Purchase Order': purchase_order,
                             'Order Quantity': order_quantity,
                             'Identified Problem': identified_problem,
@@ -4949,7 +5043,6 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
                             'Status': status,
                             'Quarter': quarter,
                             'Year': int(year),
-                            'Program': material_program if material_program != "Multiple Programs" else sheet_name if sheet_name != "All" else "Multiple Programs"
                         }
                         if save_expert_plan_record(updated_record):
                             st.session_state.expert_plan_records = load_expert_plan_records(sheet_name if sheet_name != "All" else None, quarter if quarter != "All" else None, year if year != "All" else None)
@@ -4958,9 +5051,12 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
                             st.session_state.show_custom_responsible = False
                             st.rerun()
                     else:
+                        # --------------------------------------------------
+                        # ADD PATH — capture current snapshot.
+                        # --------------------------------------------------
                         new_record = {
                             'record_id': generate_record_id(),
-                            'Material': selected_material,
+                            'Material': locked_material,
                             'NSOH': base_info['nsoh'] if base_info else "",
                             'AMC': base_info['amc'] if base_info else "",
                             'PMOS': base_info['pmos'] if base_info else 0,
