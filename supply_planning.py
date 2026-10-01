@@ -1484,13 +1484,25 @@ def load_new_deliveries_raw():
     if supabase is None:
         return pd.DataFrame()
     try:
-        response = supabase.table("new_deliveries") \
-            .select("*") \
-            .execute()
-        if not response.data:
+        all_data = []
+        page = 0
+        page_size = 1000
+        while True:
+            response = supabase.table("new_deliveries") \
+                .select("*") \
+                .range(page * page_size, (page + 1) * page_size - 1) \
+                .execute()
+            if not response.data:
+                break
+            all_data.extend(response.data)
+            if len(response.data) < page_size:
+                break
+            page += 1
+        if not all_data:
             return pd.DataFrame()
-        return pd.DataFrame(response.data)
-    except Exception:
+        return pd.DataFrame(all_data)
+    except Exception as e:
+        st.error(f"Error loading new_deliveries: {e}")
         return pd.DataFrame()
 
 @st.cache_data(ttl=CACHE_TTL, show_spinner=False)
