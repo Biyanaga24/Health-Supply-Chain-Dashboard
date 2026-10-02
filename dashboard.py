@@ -3913,7 +3913,7 @@ elif page == "Advanced Analytics":
         else:
             st.info("Google Sheets data not available for program comparison")
 
-    # ========== TAB 6: Regional Map ==========
+        # ========== TAB 6: Regional Map ==========
     with aa_tab6:
         st.markdown("<h3 style='font-size: 24px; font-weight: bold;'>Regional Stock Distribution Map</h3>", unsafe_allow_html=True)
         st.caption("🔴 Red = HMOS < 2 (Understock) | 🟢 Green = HMOS 2-4 (Normal) | 🔵 Skyblue = HMOS > 4 (Overstock)")
@@ -3942,7 +3942,12 @@ elif page == "Advanced Analytics":
 
             for stock_col in branch_stock_cols:
                 if stock_col in branch_amc_data.columns:
-                    merged = pd.merge(df[['Material Description', stock_col]], branch_amc_data[['Material Description', stock_col]], on='Material Description', how='inner')
+                    merged = pd.merge(
+                        df[['Material Description', stock_col]],
+                        branch_amc_data[['Material Description', stock_col]],
+                        on='Material Description',
+                        how='inner'
+                    )
                     if not merged.empty:
                         stock_values = pd.to_numeric(merged[stock_col + '_x'], errors='coerce').fillna(0)
                         amc_values = pd.to_numeric(merged[stock_col + '_y'], errors='coerce').fillna(1)
@@ -3959,20 +3964,101 @@ elif page == "Advanced Analytics":
                             status = "Overstock"
 
                         coords = branch_coords.get(stock_col, [9.0, 38.0])
-                        map_data.append({'Branch': stock_col, 'Latitude': coords[0], 'Longitude': coords[1], 'Average HMOS': round(avg_hmos, 2), 'Status': status})
+                        map_data.append({
+                            'Branch': stock_col,
+                            'Latitude': coords[0],
+                            'Longitude': coords[1],
+                            'Average HMOS': round(avg_hmos, 2),
+                            'Status': status
+                        })
 
             if map_data:
                 map_df = pd.DataFrame(map_data)
-                fig = px.scatter_mapbox(map_df, lat='Latitude', lon='Longitude', size='Average HMOS', size_max=30,
-                                       color='Status', hover_name='Branch', hover_data=['Average HMOS'],
-                                       color_discrete_map={'Understock': 'red', 'Normal': 'green', 'Overstock': 'skyblue'},
-                                       zoom=5, height=600, title='Branch Stock Distribution Map (Average HMOS)')
-                fig.update_layout(mapbox_style='open-street-map')
-                fig.update_layout(margin=dict(l=0, r=0, t=30, b=0))
+
+                # ============================================================
+                # ✅ FIXED: Use scatter_geo instead of scatter_mapbox
+                #    (no Mapbox token required — works on Streamlit Cloud)
+                # ============================================================
+                fig = px.scatter_geo(
+                    map_df,
+                    lat='Latitude',
+                    lon='Longitude',
+                    size='Average HMOS',
+                    size_max=30,
+                    color='Status',
+                    hover_name='Branch',
+                    hover_data={'Average HMOS': True, 'Latitude': False, 'Longitude': False},
+                    color_discrete_map={
+                        'Understock': 'red',
+                        'Normal': 'green',
+                        'Overstock': 'skyblue'
+                    },
+                    title='Branch Stock Distribution Map (Average HMOS)'
+                )
+
+                fig.update_geos(
+                    showcountries=True,
+                    showcoastlines=True,
+                    showland=True,
+                    showlakes=False,
+                    landcolor="lightgray",
+                    countrycolor="white",
+                    coastlinecolor="white",
+                    fitbounds="locations",   # auto-zoom to Ethiopia
+                    projection_type="natural earth"
+                )
+
+                fig.update_layout(
+                    height=600,
+                    margin=dict(l=0, r=0, t=50, b=0),
+                    legend=dict(
+                        orientation="h",
+                        yanchor="bottom",
+                        y=1.02,
+                        xanchor="right",
+                        x=1
+                    )
+                )
+
                 st.plotly_chart(fig, use_container_width=True)
-                st.dataframe(map_df[['Branch', 'Average HMOS', 'Status']], use_container_width=True, hide_index=True)
+
+                # Summary table below the map
+                st.markdown("### 📋 Branch Summary")
+                summary_display = map_df[['Branch', 'Average HMOS', 'Status']].copy()
+                summary_display = summary_display.sort_values('Average HMOS', ascending=False)
+                st.dataframe(
+                    summary_display,
+                    use_container_width=True,
+                    hide_index=True,
+                    column_config={
+                        'Branch': st.column_config.TextColumn('Branch', width='medium'),
+                        'Average HMOS': st.column_config.NumberColumn('Average HMOS', format='%.2f', width='small'),
+                        'Status': st.column_config.TextColumn('Status', width='small')
+                    }
+                )
+
+                # Quick stats
+                col_m1, col_m2, col_m3 = st.columns(3)
+                with col_m1:
+                    understock_count = len(map_df[map_df['Status'] == 'Understock'])
+                    st.metric("🔴 Understock Branches", understock_count)
+                with col_m2:
+                    normal_count = len(map_df[map_df['Status'] == 'Normal'])
+                    st.metric("🟢 Normal Branches", normal_count)
+                with col_m3:
+                    overstock_count = len(map_df[map_df['Status'] == 'Overstock'])
+                    st.metric("🔵 Overstock Branches", overstock_count)
+
+                # Download button
+                st.download_button(
+                    label="📥 Download Regional Map Data (CSV)",
+                    data=map_df.to_csv(index=False),
+                    file_name=f"regional_map_{datetime.now().strftime('%Y%m%d')}.csv",
+                    mime="text/csv",
+                    use_container_width=True
+                )
             else:
-                st.info("Map data not available.")
+                st.info("Map data not available. Please ensure branch stock and AMC data are loaded.")
         else:
             st.info("Branch AMC data not available for map")
 
