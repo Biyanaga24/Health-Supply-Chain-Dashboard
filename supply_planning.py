@@ -1787,18 +1787,25 @@ def save_expert_plan_record(record):
             'action_point': record.get('Action Point'),
             'responsible_body': record.get('Responsible Body'),
             'due_date': record.get('Due Date'),
-            'completion_date': record.get('Completion Date'),   # NEW
+            'completion_date': record.get('Completion Date'),
             'status': record.get('Status', 'Pending'),
             'quarter': record.get('Quarter'),
             'year': int(record.get('Year')) if record.get('Year') else None,
             'program': record.get('Program')
         }
-        response = supabase.table("expert_plan_records") \
-            .upsert(data, on_conflict="record_id") \
-            .execute()
+        existing = supabase.table("expert_plan_records") \
+            .select("record_id").eq("record_id", data['record_id']).execute()
+
+        if existing.data:
+            supabase.table("expert_plan_records").update(data) \
+                .eq("record_id", data['record_id']).execute()
+        else:
+            supabase.table("expert_plan_records").insert(data).execute()
+
         load_expert_plan_records.clear()
         return True
-    except Exception:
+    except Exception as e:
+        st.error(f"Save failed: {e}")
         return False
 
 def delete_expert_plan_record(record_id):
@@ -4930,7 +4937,7 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
                     label_visibility="collapsed",
                     format="YYYY-MM-DD"
                 )
-                due_date = due_date_obj.strftime('%Y-%m-%d') if due_date_obj else ""
+                due_date = due_date_obj.strftime('%Y-%m-%d') if due_date_obj else None
 
             with col_st:
                 st.markdown('<p style="font-weight: bold; color: black; font-size: 15px; margin-bottom: 5px;">Status</p>', unsafe_allow_html=True)
@@ -4953,10 +4960,11 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
                 if status != "Completed":
                     st.markdown('<p style="font-size: 12px; color: #999; margin-top: 2px;">Enabled when Status = Completed</p>', unsafe_allow_html=True)
 
+            # ✅ FIX: send None (not "") for empty dates so Postgres accepts NULL
             if status == "Completed" and completion_date_obj is not None:
                 completion_date = completion_date_obj.strftime('%Y-%m-%d')
             else:
-                completion_date = ""
+                completion_date = None
 
             col_btn1, col_btn2 = st.columns(2)
             with col_btn1:
@@ -5007,7 +5015,10 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
                             st.session_state.edit_record_id = None
                             st.session_state.adding_action_point = False
                             st.session_state.show_custom_responsible = False
+                            st.success("✅ Updated successfully!")
                             st.rerun()
+                        else:
+                            st.error("❌ Update failed — see error above.")
                     else:
                         new_record = {
                             'record_id': generate_record_id(),
@@ -5037,7 +5048,10 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
                             )
                             st.session_state.adding_action_point = False
                             st.session_state.show_custom_responsible = False
+                            st.success("✅ Saved successfully!")
                             st.rerun()
+                        else:
+                            st.error("❌ Save failed — see error above.")
                 else:
                     st.warning("Please fill all required fields (Identified Problem, Action Point, Due Date).")
 
