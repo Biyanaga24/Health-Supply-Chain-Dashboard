@@ -1755,10 +1755,13 @@ def load_expert_plan_records(program=None, quarter=None, year=None):
                     'Action Point': rec.get('action_point'),
                     'Responsible Body': rec.get('responsible_body'),
                     'Due Date': rec.get('due_date'),
+                    'Completion Date': rec.get('completion_date'),
                     'Status': rec.get('status', 'Pending'),
                     'Quarter': rec.get('quarter'),
                     'Year': rec.get('year'),
-                    'Program': rec.get('program')
+                    'Program': rec.get('program'),
+                    'Updated At': rec.get('updated_at'),
+                    'Created At': rec.get('created_at'),
                 })
             return records
         return []
@@ -1784,6 +1787,7 @@ def save_expert_plan_record(record):
             'action_point': record.get('Action Point'),
             'responsible_body': record.get('Responsible Body'),
             'due_date': record.get('Due Date'),
+            'completion_date': record.get('Completion Date'),   # NEW
             'status': record.get('Status', 'Pending'),
             'quarter': record.get('Quarter'),
             'year': int(record.get('Year')) if record.get('Year') else None,
@@ -3876,32 +3880,82 @@ def render_system_generated_action_plan(action_df, material_problems, sheet_name
         use_container_width=True
     )
 # ============================================================================
-# RENDER EXPERT ACTION PLAN - RESTRUCTURED GRAPH
+# RENDER EXPERT ACTION PLAN — with Completion Date support
 # ============================================================================
-def render_expert_action_plan_with_status(df_filtered, material_problems, action_df, sheet_name, nsoh_pivot, selected_quarter, selected_year):
+def render_expert_action_plan_with_status(df_filtered, material_problems, action_df,
+                                          sheet_name, nsoh_pivot, selected_quarter, selected_year):
     current_year = datetime.now().year
 
     # ------------------------------------------------------------------
-    # LOCAL HELPER: latest (Year, Quarter) present in a records DataFrame
+    # HELPER: latest (Year, Quarter) present in records
     # ------------------------------------------------------------------
     def get_current_quarter_from_records(records_df):
-        """Return (quarter, year) tuple of the latest (Year, Quarter) present
-        in the given records DataFrame. Returns (None, None) if empty."""
         if records_df is None or records_df.empty:
             return None, None
         if 'Quarter' not in records_df.columns or 'Year' not in records_df.columns:
             return None, None
-
         quarter_order = {'Q1': 1, 'Q2': 2, 'Q3': 3, 'Q4': 4}
         valid = records_df.dropna(subset=['Quarter', 'Year']).copy()
         if valid.empty:
             return None, None
-
         valid['_qsort'] = valid['Quarter'].map(quarter_order).fillna(0)
         valid['_ysort'] = pd.to_numeric(valid['Year'], errors='coerce').fillna(0)
         idx = (valid['_ysort'] * 10 + valid['_qsort']).idxmax()
         return valid.loc[idx, 'Quarter'], int(valid.loc[idx, 'Year'])
 
+    # ------------------------------------------------------------------
+    # TIMELINESS HELPER
+    # ------------------------------------------------------------------
+    def compute_timeliness(status, due_date_val, completion_date_val):
+        from datetime import date as _date
+        today = datetime.now().date()
+
+        def _parse_date(v):
+            if v is None:
+                return None
+            try:
+                if isinstance(v, _date) and not isinstance(v, datetime):
+                    return v
+                if isinstance(v, datetime):
+                    return v.date()
+                if isinstance(v, float) and pd.isna(v):
+                    return None
+                s = str(v).strip()
+                if not s or s.lower() in ('nan', 'none', 'nat', '', 'null'):
+                    return None
+                if re.match(r'^\d{4}-\d{2}-\d{2}$', s):
+                    return datetime.strptime(s, '%Y-%m-%d').date()
+                for fmt in ['%Y-%m-%d %H:%M:%S', '%Y-%m-%dT%H:%M:%S',
+                            '%B %d, %Y', '%b %d, %Y', '%B %d %Y', '%b %d %Y',
+                            '%d/%m/%Y', '%m/%d/%Y', '%d-%m-%Y', '%m-%d-%Y']:
+                    try:
+                        return datetime.strptime(s, fmt).date()
+                    except Exception:
+                        continue
+            except Exception:
+                pass
+            return None
+
+        due_date = _parse_date(due_date_val)
+        completion_date = _parse_date(completion_date_val)
+        status_norm = (str(status).strip() if status else '').lower()
+
+        if status_norm == 'completed':
+            if due_date is None or completion_date is None:
+                return "🟢", "On Time"
+            if completion_date <= due_date:
+                return "🟢", "On Time"
+            return "🟠", "Late"
+
+        if due_date is None:
+            return "🔵", "Not Yet Due"
+        if due_date < today:
+            return "🔴", "Overdue"
+        return "🔵", "Not Yet Due"
+
+    # ------------------------------------------------------------------
+    # SESSION STATE INIT
+    # ------------------------------------------------------------------
     if 'expert_plan_records' not in st.session_state:
         st.session_state.expert_plan_records = load_expert_plan_records(
             sheet_name if sheet_name != "All" else None,
@@ -3923,11 +3977,21 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
     if 'show_custom_responsible' not in st.session_state:
         st.session_state.show_custom_responsible = False
 
+    # ------------------------------------------------------------------
+    # Small helpers
+    # ------------------------------------------------------------------
     def generate_record_id():
         return int(datetime.now().timestamp() * 1000) + random.randint(1, 1000)
 
     def format_due_date_display(date_str):
-        if not date_str or date_str == '':
+        if date_str is None:
+            return ''
+        try:
+            if pd.isna(date_str):
+                return ''
+        except Exception:
+            pass
+        if not date_str or date_str == '' or str(date_str).strip().lower() in ('nan', 'none', 'nat', 'null'):
             return ''
         try:
             if isinstance(date_str, str):
@@ -3948,7 +4012,14 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
         return str(date_str)
 
     def parse_date_for_input(date_str):
-        if not date_str or date_str == '':
+        if date_str is None:
+            return None
+        try:
+            if pd.isna(date_str):
+                return None
+        except Exception:
+            pass
+        if str(date_str).strip().lower() in ('', 'nan', 'none', 'nat', 'null'):
             return None
         try:
             if isinstance(date_str, str):
@@ -3967,6 +4038,19 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
         except:
             pass
         return None
+
+    def _safe_val(v):
+        if v is None:
+            return ''
+        try:
+            if pd.isna(v):
+                return ''
+        except Exception:
+            pass
+        s = str(v).strip()
+        if s.lower() in ('nan', 'none', 'nat', 'null'):
+            return ''
+        return v
 
     def compute_po_mos(status_str, amc):
         if not status_str or status_str == '' or status_str == 'N/A':
@@ -4105,8 +4189,22 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
             })
         return problems
 
+    # ------------------------------------------------------------------
+    # Strict program filter for material dropdown
+    # ------------------------------------------------------------------
     ordered_materials = get_program_materials(sheet_name)
-    material_list = df_filtered['Material Description'].dropna().unique().tolist()
+
+    if sheet_name != "All":
+        _sheet_id = "14VvZ7IyOmpM4SZrY5_ArHDgLkeFN4inW"
+        _gs = load_google_sheets(_sheet_id)
+        if sheet_name in _gs and 'Material Description' in _gs[sheet_name].columns:
+            _allowed = set(_gs[sheet_name]['Material Description'].dropna().tolist())
+            material_list = [m for m in df_filtered['Material Description'].dropna().unique().tolist()
+                             if m in _allowed]
+        else:
+            material_list = []
+    else:
+        material_list = df_filtered['Material Description'].dropna().unique().tolist()
 
     if ordered_materials:
         order_map = {mat: idx for idx, mat in enumerate(ordered_materials)}
@@ -4114,13 +4212,17 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
     else:
         material_list.sort()
 
+    if not material_list:
+        st.warning(f"No materials found for program **{sheet_name}**. Please check the Google Sheet.")
+        return
+
     selected_material = st.selectbox("🔍 Select Material", material_list, key="expert_material_select")
 
     if selected_material:
         st.session_state.selected_material_for_expert = selected_material
 
     # =========================================================================
-    # RESTRUCTURED GRAPH SECTION
+    # GRAPH SECTION
     # =========================================================================
     if selected_material and not nsoh_pivot.empty:
         st.markdown("---")
@@ -4128,14 +4230,8 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
 
         mat_row = df_filtered[df_filtered['Material Description'] == selected_material]
         amc_value = 0
-        git_mos = 0
-        lc_mos = 0
-        wb_mos = 0
-        tmd_mos = 0
-        git_po = ""
-        lc_po = ""
-        wb_po = ""
-        tmd_po = ""
+        git_mos = 0; lc_mos = 0; wb_mos = 0; tmd_mos = 0
+        git_po = ""; lc_po = ""; wb_po = ""; tmd_po = ""
         nsoh_value = 0
 
         if not mat_row.empty:
@@ -4178,7 +4274,6 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
                             nmos_values.append(0)
 
                     HISTORY_WINDOW = 6
-
                     if len(all_months) > HISTORY_WINDOW:
                         selected_months = all_months[-HISTORY_WINDOW:]
                         selected_months_dt = months_dt[-HISTORY_WINDOW:]
@@ -4209,43 +4304,30 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
                     current_month_label = last_selected_month.strftime('%b-%Y')
 
                     if current_display_nmos < 1:
-                        nmos_color = '#FF0000'
-                        status_text = "🔴 STOCK OUT"
+                        nmos_color = '#FF0000'; status_text = "🔴 STOCK OUT"
                     elif 1 <= current_display_nmos < 2:
-                        nmos_color = '#FF4500'
-                        status_text = "🟠 CRITICAL"
+                        nmos_color = '#FF4500'; status_text = "🟠 CRITICAL"
                     elif 2 <= current_display_nmos < 6:
-                        nmos_color = '#FFD700'
-                        status_text = "🟡 WARNING"
+                        nmos_color = '#FFD700'; status_text = "🟡 WARNING"
                     elif 6 <= current_display_nmos <= 18:
-                        nmos_color = '#32CD32'
-                        status_text = "🟢 NORMAL"
+                        nmos_color = '#32CD32'; status_text = "🟢 NORMAL"
                     else:
-                        nmos_color = '#87CEEB'
-                        status_text = "🔵 OVERSTOCK"
+                        nmos_color = '#87CEEB'; status_text = "🔵 OVERSTOCK"
 
                     pipeline_queue = []
-                    if git_mos > 0:
-                        pipeline_queue.append(('GIT', git_mos, git_po))
-                    if lc_mos > 0:
-                        pipeline_queue.append(('LC', lc_mos, lc_po))
-                    if wb_mos > 0:
-                        pipeline_queue.append(('WB', wb_mos, wb_po))
-                    if tmd_mos > 0:
-                        pipeline_queue.append(('TMD', tmd_mos, tmd_po))
+                    if git_mos > 0: pipeline_queue.append(('GIT', git_mos, git_po))
+                    if lc_mos > 0: pipeline_queue.append(('LC', lc_mos, lc_po))
+                    if wb_mos > 0: pipeline_queue.append(('WB', wb_mos, wb_po))
+                    if tmd_mos > 0: pipeline_queue.append(('TMD', tmd_mos, tmd_po))
 
                     PROJECTION_WINDOW = 6
-
                     future_months = []
                     future_months_dt = []
                     projected_nmos_line = []
                     trigger_events = []
-
                     running_nmos = last_selected_nmos
                     pipeline_idx = 0
-
                     current_month_x_idx = len(selected_months) - 1
-
                     pending_mos_next_month = 0.0
 
                     for i in range(1, PROJECTION_WINDOW + 1):
@@ -4256,18 +4338,15 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
 
                         nmos_before_depletion = running_nmos
                         nmos_after_depletion = running_nmos - 1.0
-
                         if pending_mos_next_month > 0:
                             nmos_after_depletion += pending_mos_next_month
                             pending_mos_next_month = 0.0
-
                         triggered_this_month = False
 
                         if pipeline_idx < len(pipeline_queue):
                             fire_stage = False
                             x_trigger = None
                             crossing_threshold = None
-
                             if nmos_before_depletion < 6:
                                 fire_stage = True
                                 x_trigger = current_x_idx - 0.5
@@ -4278,13 +4357,10 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
                                 t_frac = (nmos_before_depletion - 6.0) / denom if denom > 0 else 0.5
                                 x_trigger = (current_x_idx - 1) + t_frac
                                 crossing_threshold = 6.0
-
                             if fire_stage:
                                 stage, stage_mos, stage_po = pipeline_queue[pipeline_idx]
                                 pipeline_idx += 1
-
                                 y_marker = 6.0 if stage != 'Mobilize' else 8.0
-
                                 trigger_events.append({
                                     'x_exact': x_trigger,
                                     'y_marker': y_marker,
@@ -4298,7 +4374,6 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
                                     'nmos_after': nmos_after_depletion + stage_mos,
                                     'is_current_month': False,
                                 })
-
                                 nmos_after_depletion += stage_mos
                                 triggered_this_month = True
 
@@ -4313,7 +4388,6 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
                                     t_frac = (nmos_before_depletion - 6.0) / denom if denom > 0 else 0.5
                                     x_trigger = (current_x_idx - 1) + t_frac
                                     crossing_threshold = 6.0
-
                                 shortfall = 12.0
                                 qty = int(shortfall * amc_value) if amc_value > 0 else 0
                                 trigger_events.append({
@@ -4340,38 +4414,17 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
                     x_indices_full = list(range(len(all_months_display)))
                     hist_count = len(selected_months)
 
-                    usable_nmos_val = _cur_nmos_usable
-                    total_expiry_mos_val = _cur_exp_total
-                    lost_mos_val = _cur_lost
-
-                    if usable_nmos_val < 1:
-                        usable_color = '#FF0000'
-                    elif usable_nmos_val < 2:
-                        usable_color = '#FF4500'
-                    elif usable_nmos_val < 6:
-                        usable_color = '#FFD700'
-                    elif usable_nmos_val <= 18:
-                        usable_color = '#32CD32'
-                    else:
-                        usable_color = '#87CEEB'
-
                     fig = go.Figure()
-
                     total_points = len(all_months_display)
 
-                    fig.add_hrect(y0=0,  y1=1,  fillcolor="rgba(255,0,0,0.06)",   line_width=0, layer="below")
-                    fig.add_hrect(y0=1,  y1=2,  fillcolor="rgba(255,69,0,0.06)",  line_width=0, layer="below")
-                    fig.add_hrect(y0=2,  y1=6,  fillcolor="rgba(255,215,0,0.06)", line_width=0, layer="below")
-                    fig.add_hrect(y0=6,  y1=18, fillcolor="rgba(50,205,50,0.06)", line_width=0, layer="below")
+                    fig.add_hrect(y0=0, y1=1, fillcolor="rgba(255,0,0,0.06)", line_width=0, layer="below")
+                    fig.add_hrect(y0=1, y1=2, fillcolor="rgba(255,69,0,0.06)", line_width=0, layer="below")
+                    fig.add_hrect(y0=2, y1=6, fillcolor="rgba(255,215,0,0.06)", line_width=0, layer="below")
+                    fig.add_hrect(y0=6, y1=18, fillcolor="rgba(50,205,50,0.06)", line_width=0, layer="below")
 
                     for i in range(total_points):
-                        fig.add_vline(
-                            x=i,
-                            line_width=1,
-                            line_color='rgba(0,0,0,0.08)',
-                            line_dash='solid',
-                            layer='below'
-                        )
+                        fig.add_vline(x=i, line_width=1, line_color='rgba(0,0,0,0.08)',
+                                      line_dash='solid', layer='below')
 
                     fig.add_trace(go.Scatter(
                         x=x_indices_full + x_indices_full[::-1],
@@ -4379,39 +4432,28 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
                         fill='toself',
                         fillcolor=f'rgba({int(nmos_color[1:3],16)}, {int(nmos_color[3:5],16)}, {int(nmos_color[5:7],16)}, 0.10)',
                         line=dict(color='rgba(0,0,0,0)'),
-                        showlegend=False,
-                        hoverinfo='skip'
+                        showlegend=False, hoverinfo='skip'
                     ))
 
                     text_vals = [f"{v:.2f}" for v in combined_nmos_values]
                     custom = [[m, v] for m, v in zip(all_months_display, combined_nmos_values)]
 
                     fig.add_trace(go.Scatter(
-                        x=x_indices_full,
-                        y=combined_nmos_values,
-                        name='NMOS',
+                        x=x_indices_full, y=combined_nmos_values, name='NMOS',
                         mode='lines+markers+text',
                         line=dict(color='#2e86c1', width=3),
-                        marker=dict(size=10, color='#2e86c1',
-                                    line=dict(width=2, color='white')),
-                        text=text_vals,
-                        textposition='top center',
+                        marker=dict(size=10, color='#2e86c1', line=dict(width=2, color='white')),
+                        text=text_vals, textposition='top center',
                         textfont=dict(size=9, color='#333'),
                         customdata=custom,
                         hovertemplate='<b>%{customdata[0]}</b><br>NMOS: %{y:.2f} months<extra></extra>'
                     ))
 
                     if hist_count > 0:
-                        fig.add_vline(
-                            x=hist_count - 1,
-                            line_dash='dot',
-                            line_color='#888',
-                            line_width=1.5
-                        )
-
+                        fig.add_vline(x=hist_count - 1, line_dash='dot',
+                                      line_color='#888', line_width=1.5)
                         fig.add_trace(go.Scatter(
-                            x=[hist_count - 1],
-                            y=[current_display_nmos],
+                            x=[hist_count - 1], y=[current_display_nmos],
                             mode='markers',
                             marker=dict(symbol='star', size=22, color='#FCC419',
                                         line=dict(width=2, color='white')),
@@ -4420,13 +4462,9 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
                         ))
 
                     stage_colors = {
-                        'GIT': '#6f42c1',
-                        'LC':  '#2e86c1',
-                        'WB':  '#1e8449',
-                        'TMD': '#e67e22',
-                        'Mobilize': '#dc3545',
+                        'GIT': '#6f42c1', 'LC': '#2e86c1', 'WB': '#1e8449',
+                        'TMD': '#e67e22', 'Mobilize': '#dc3545',
                     }
-
                     from collections import defaultdict
                     triggers_by_x = defaultdict(list)
                     for ev in trigger_events:
@@ -4434,89 +4472,60 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
 
                     for x_pos, evs in triggers_by_x.items():
                         evs_sorted = sorted(evs, key=lambda e: -e['stage_mos'])
-
                         for idx_ev, ev in enumerate(evs_sorted):
                             stage = ev['stage']
                             color = stage_colors.get(stage, '#333')
                             y_marker = ev['y_marker']
                             month_curr = ev.get('month_curr', '')
-
                             if stage == 'Mobilize':
-                                rec_text = (
-                                    f"Mobilize & initiate new purchase — "
-                                    f"(18 − 6) × {int(amc_value):,} = {ev['qty']:,} units"
-                                )
+                                rec_text = (f"Mobilize & initiate new purchase — "
+                                            f"(18 − 6) × {int(amc_value):,} = {ev['qty']:,} units")
                                 stage_label = "🟠 Mobilize & Initiate"
                             else:
                                 po_s = str(ev['stage_po']).strip() if ev['stage_po'] is not None else ''
                                 po_s = po_s if po_s and po_s.lower() not in ('nan', 'none', '') else '(no PO)'
                                 rec_text = f"Expedite {stage} — PO: {po_s}"
                                 stage_label = f"🟣 {stage}"
-
                             header_html = (
                                 f"<b>{stage_label}</b><br>"
                                 f"Trigger month: {month_curr}<br>"
                                 f"NMOS at trigger: {ev['nmos_before']:.2f}m<br>"
-                                f"After adding {stage} (+{ev['stage_mos']:.2f}m): "
-                                f"{ev['nmos_after']:.2f}m<br>"
+                                f"After adding {stage} (+{ev['stage_mos']:.2f}m): {ev['nmos_after']:.2f}m<br>"
                             )
-
                             hover_html = header_html + f"<br><b>📌 Recommendation:</b><br>{rec_text}"
-
                             x_draw = x_pos
-
                             fig.add_trace(go.Scatter(
-                                x=[x_draw, x_draw],
-                                y=[0, y_marker],
-                                mode='lines',
-                                line=dict(color=color, width=4),
-                                name=stage,
-                                showlegend=False,
+                                x=[x_draw, x_draw], y=[0, y_marker],
+                                mode='lines', line=dict(color=color, width=4),
+                                name=stage, showlegend=False,
                                 hovertemplate=hover_html + '<extra></extra>'
                             ))
-
                             fig.add_trace(go.Scatter(
-                                x=[x_draw],
-                                y=[y_marker],
-                                mode='markers',
-                                marker=dict(
-                                    size=14,
-                                    color=color,
-                                    symbol='circle',
-                                    line=dict(width=2, color='white'),
-                                ),
-                                showlegend=False,
-                                hoverinfo='skip'
+                                x=[x_draw], y=[y_marker], mode='markers',
+                                marker=dict(size=14, color=color, symbol='circle',
+                                            line=dict(width=2, color='white')),
+                                showlegend=False, hoverinfo='skip'
                             ))
-
                             fig.add_annotation(
-                                x=x_draw,
-                                y=y_marker,
-                                text=f"{stage}",
-                                showarrow=False,
-                                yshift=14 + idx_ev * 14,
+                                x=x_draw, y=y_marker, text=f"{stage}",
+                                showarrow=False, yshift=14 + idx_ev * 14,
                                 font=dict(size=10, color=color,
                                           family='Times New Roman, Times, serif'),
                                 bgcolor='rgba(255,255,255,0.9)',
-                                bordercolor=color,
-                                borderwidth=1,
-                                borderpad=3,
+                                bordercolor=color, borderwidth=1, borderpad=3,
                             )
 
                     thresholds_lines = [
-                        (1,  'Stock Out (1m)',     '#FF0000'),
-                        (2,  'Safety Stock (2m)',  '#FF6B6B'),
-                        (6,  'Min Stock (6m)',     '#FF922B'),
-                        (8,  'Reorder Point (8m)', '#CC5DE8'),
-                        (18, 'Max Stock (18m)',    '#51CF66'),
+                        (1, 'Stock Out (1m)', '#FF0000'),
+                        (2, 'Safety Stock (2m)', '#FF6B6B'),
+                        (6, 'Min Stock (6m)', '#FF922B'),
+                        (8, 'Reorder Point (8m)', '#CC5DE8'),
+                        (18, 'Max Stock (18m)', '#51CF66'),
                     ]
                     for threshold, label, color in thresholds_lines:
                         fig.add_hline(
-                            y=threshold,
-                            line_dash='dash',
-                            line_color=color,
-                            line_width=1.5,
-                            annotation_text=label,
+                            y=threshold, line_dash='dash', line_color=color,
+                            line_width=1.5, annotation_text=label,
                             annotation_position='right',
                             annotation_font=dict(size=10, color=color),
                             opacity=0.7
@@ -4527,67 +4536,39 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
 
                     tick_vals = x_indices_full
                     tick_text = all_months_display
-
                     max_marker_x = max([ev['x_exact'] for ev in trigger_events], default=total_points - 1)
                     chart_right = max(total_points - 0.5, max_marker_x + 0.5)
                     chart_left = -0.5
-
                     inner_chart_width = max(1100, int((chart_right - chart_left) * 100))
 
                     fig.update_layout(
-                        title=dict(
-                            text=f"NMOS Trend — {selected_material[:60]}",
-                            font=dict(size=15, color='#1a5276')
-                        ),
-                        xaxis_title='Month',
-                        yaxis_title='Months of Stock (NMOS)',
-                        height=520,
-                        width=inner_chart_width,
+                        title=dict(text=f"NMOS Trend — {selected_material[:60]}",
+                                   font=dict(size=15, color='#1a5276')),
+                        xaxis_title='Month', yaxis_title='Months of Stock (NMOS)',
+                        height=520, width=inner_chart_width,
                         margin=dict(l=70, r=140, t=60, b=90),
-                        legend=dict(
-                            orientation='h',
-                            yanchor='bottom', y=1.02,
-                            xanchor='center', x=0.5,
-                            font=dict(size=11)
-                        ),
-                        hovermode='closest',
-                        dragmode=False,
-                        xaxis=dict(
-                            showgrid=False,
-                            showline=True,
-                            tickmode='array',
-                            tickvals=tick_vals,
-                            ticktext=tick_text,
-                            tickangle=45,
-                            tickfont=dict(size=11),
-                            range=[chart_left, chart_right],
-                            fixedrange=True
-                        ),
-                        yaxis=dict(
-                            showgrid=True, gridcolor='#e8e8e8',
-                            showline=True,
-                            range=[0, y_max],
-                            tickmode='array',
-                            tickvals=[0, 2, 4, 6, 8, 10, 12, 14, 16, 18],
-                            ticktext=['0', '2', '4', '6', '8', '10', '12', '14', '16', '18'],
-                            tickfont=dict(size=11),
-                            fixedrange=True
-                        ),
+                        legend=dict(orientation='h', yanchor='bottom', y=1.02,
+                                    xanchor='center', x=0.5, font=dict(size=11)),
+                        hovermode='closest', dragmode=False,
+                        xaxis=dict(showgrid=False, showline=True, tickmode='array',
+                                   tickvals=tick_vals, ticktext=tick_text, tickangle=45,
+                                   tickfont=dict(size=11),
+                                   range=[chart_left, chart_right], fixedrange=True),
+                        yaxis=dict(showgrid=True, gridcolor='#e8e8e8', showline=True,
+                                   range=[0, y_max], tickmode='array',
+                                   tickvals=[0, 2, 4, 6, 8, 10, 12, 14, 16, 18],
+                                   ticktext=['0', '2', '4', '6', '8', '10', '12', '14', '16', '18'],
+                                   tickfont=dict(size=11), fixedrange=True),
                         plot_bgcolor='white',
                         font=dict(family='Times New Roman, Times, serif')
                     )
 
-                    st.markdown(
-                        """
+                    st.markdown("""
                         <style>
                         .nmos-chart-scroll{
-                            width:100%;
-                            overflow-x:auto;
-                            overflow-y:hidden;
-                            padding-bottom:8px;
-                            border:1px solid #e6e6e6;
-                            border-radius:8px;
-                            background:white;
+                            width:100%;overflow-x:auto;overflow-y:hidden;
+                            padding-bottom:8px;border:1px solid #e6e6e6;
+                            border-radius:8px;background:white;
                             -webkit-overflow-scrolling:touch;
                         }
                         .nmos-chart-scroll::-webkit-scrollbar{height:12px;}
@@ -4595,19 +4576,14 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
                         .nmos-chart-scroll::-webkit-scrollbar-thumb{background:#b0b7c3;border-radius:8px;}
                         .nmos-chart-scroll::-webkit-scrollbar-thumb:hover{background:#8a94a6;}
                         </style>
-                        """,
-                        unsafe_allow_html=True
-                    )
+                    """, unsafe_allow_html=True)
 
                     st.markdown('<div class="nmos-chart-scroll">', unsafe_allow_html=True)
                     st.plotly_chart(
-                        fig,
-                        use_container_width=False,
+                        fig, use_container_width=False,
                         config={
-                            'displayModeBar': False,
-                            'scrollZoom': False,
-                            'staticPlot': False,
-                            'doubleClick': False,
+                            'displayModeBar': False, 'scrollZoom': False,
+                            'staticPlot': False, 'doubleClick': False,
                             'displaylogo': False,
                             'modeBarButtonsToRemove': [
                                 'zoom', 'pan', 'select', 'lasso2d',
@@ -4617,7 +4593,6 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
                         key=f"nmos_chart_{selected_material}_{hist_count}"
                     )
                     st.markdown('</div>', unsafe_allow_html=True)
-
                     st.markdown("---")
                 else:
                     st.info("No historical data available from Jan-2026 onward.")
@@ -4706,14 +4681,13 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
     st.markdown("---")
 
     # =========================================================================
-    # CHANGE LIST — only latest quarter, edit/delete gated by current quarter
+    # CHANGE LIST — only latest quarter
     # =========================================================================
     if selected_material and st.session_state.show_change_list:
         material_records = [r for r in st.session_state.expert_plan_records if r['Material'] == selected_material]
 
         if material_records:
             quarter_order = {'Q1': 1, 'Q2': 2, 'Q3': 3, 'Q4': 4}
-
             def _rec_sort_key(rec):
                 q = rec.get('Quarter') or ''
                 y = rec.get('Year') or 0
@@ -4722,21 +4696,11 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
                 except:
                     y = 0
                 return (y, quarter_order.get(q, 0))
-
-            # Only show the latest quarter's records in the popup
             latest_key = max(_rec_sort_key(r) for r in material_records)
-            material_records = [
-                r for r in material_records
-                if _rec_sort_key(r) == latest_key
-            ]
+            material_records = [r for r in material_records if _rec_sort_key(r) == latest_key]
 
         if material_records:
-            # ------------------------------------------------------------------
-            # Determine current quarter from the whole filtered dataset so we
-            # know which records are editable.
-            # ------------------------------------------------------------------
             all_filtered = pd.DataFrame(st.session_state.expert_plan_records)
-
             if sheet_name != "All":
                 all_filtered = all_filtered[all_filtered['Program'] == sheet_name]
             if selected_quarter != "All":
@@ -4751,8 +4715,7 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
             latest_y = latest_rec.get('Year', '')
             st.markdown(
                 f"### 📋 Action Points for {selected_material} "
-                f"<span style='font-size:14px; color:#666;'>"
-                f"(Latest: {latest_q} {latest_y})</span>",
+                f"<span style='font-size:14px; color:#666;'>(Latest: {latest_q} {latest_y})</span>",
                 unsafe_allow_html=True
             )
             for idx, record in enumerate(material_records):
@@ -4762,14 +4725,13 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
                     rec_y_int = int(rec_y) if rec_y is not None else None
                 except:
                     rec_y_int = None
-
-                is_current_quarter = (
-                    rec_q == current_q and rec_y_int == current_y
-                )
+                is_current_quarter = (rec_q == current_q and rec_y_int == current_y)
 
                 with st.container():
                     col1, col2, col3 = st.columns([3, 1, 1])
                     with col1:
+                        completion_display = format_due_date_display(record.get('Completion Date', ''))
+                        completion_line = f" | <strong>Completed:</strong> {completion_display}" if completion_display else ""
                         st.markdown(f"""
                         <div style="background: #f8f9fa; padding: 12px 15px; border-radius: 8px; margin-bottom: 5px; border-left: 4px solid #2e86c1;">
                             <div><strong>Action #{idx + 1}</strong></div>
@@ -4777,7 +4739,7 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
                             <div><strong>Action:</strong> {record.get('Action Point', '')}</div>
                             <div style="font-size: 12px; color: #666; margin-top: 3px;">
                                 <strong>Responsible:</strong> {record.get('Responsible Body', '')} | 
-                                <strong>Due:</strong> {format_due_date_display(record.get('Due Date', ''))} | 
+                                <strong>Due:</strong> {format_due_date_display(record.get('Due Date', ''))}{completion_line} | 
                                 <strong>Status:</strong> {record.get('Status', 'Pending')}
                             </div>
                         </div>
@@ -4791,12 +4753,9 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
                                 st.session_state.show_custom_responsible = False
                                 st.rerun()
                         else:
-                            st.button(
-                                f"🔒 Edit",
-                                key=f"change_edit_locked_{record['record_id']}",
-                                disabled=True,
-                                help=f"Past quarter ({rec_q} {rec_y}) — read-only"
-                            )
+                            st.button(f"🔒 Edit", key=f"change_edit_locked_{record['record_id']}",
+                                      disabled=True,
+                                      help=f"Past quarter ({rec_q} {rec_y}) — read-only")
                     with col3:
                         if is_current_quarter:
                             if st.button(f"Delete", key=f"change_delete_{record['record_id']}"):
@@ -4814,12 +4773,9 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
                                     st.session_state[f'confirm_delete_{record["record_id"]}'] = True
                                     st.warning(f"⚠️ Click Delete again to confirm")
                         else:
-                            st.button(
-                                f"🔒 Delete",
-                                key=f"change_delete_locked_{record['record_id']}",
-                                disabled=True,
-                                help=f"Past quarter ({rec_q} {rec_y}) — read-only"
-                            )
+                            st.button(f"🔒 Delete", key=f"change_delete_locked_{record['record_id']}",
+                                      disabled=True,
+                                      help=f"Past quarter ({rec_q} {rec_y}) — read-only")
                     st.markdown("---")
         else:
             st.info(f"No action points for {selected_material}.")
@@ -4839,13 +4795,15 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
                     edit_record = r
                     break
 
-        # When editing, use the record's own Material/Program (locked).
         if is_editing and edit_record:
             locked_material = edit_record.get('Material', selected_material)
             locked_program = edit_record.get('Program', '')
         else:
             locked_material = selected_material
-            locked_program = get_material_program(selected_material, sheet_name) if selected_material else ""
+            if sheet_name != "All":
+                locked_program = sheet_name
+            else:
+                locked_program = get_material_program(selected_material, "All") if selected_material else ""
 
         base_info = get_material_base_info(locked_material)
         material_program = locked_program
@@ -4855,6 +4813,7 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
             action_val = edit_record.get('Action Point', '')
             resp_val = edit_record.get('Responsible Body', '') or ''
             due_val = edit_record.get('Due Date', '')
+            completion_val = edit_record.get('Completion Date', '')
             status_val = edit_record.get('Status', 'Pending')
             purchase_order_val = edit_record.get('Purchase Order', '')
             order_quantity_val = edit_record.get('Order Quantity', '')
@@ -4865,6 +4824,7 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
             action_val = ""
             resp_val = ""
             due_val = ""
+            completion_val = ""
             status_val = "Select Status"
             quarter_val = "Select Quarter"
             year_val = "Select Year"
@@ -4876,58 +4836,58 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
         default_responsible_selection = [p for p in existing_resp_parts if p in responsible_list]
         default_custom_responsible = ", ".join([p for p in existing_resp_parts if p not in responsible_list])
 
-        # Due Date: for EDITING default to stored date. For NEW records leave unset.
         _due_default_for_picker = parse_date_for_input(due_val) if (is_editing and due_val) else None
+        _completion_default_for_picker = parse_date_for_input(completion_val) if (is_editing and completion_val) else None
+
+        st.markdown(f"### {'✏️ Edit Action Point' if is_editing else '➕ Add New Action Point'}")
+
+        if is_editing:
+            st.markdown(
+                f"""
+                <div style="background: #eaf2f8; padding: 10px 14px; border-radius: 8px;
+                            border-left: 4px solid #2e86c1; margin-bottom: 12px;">
+                    <div style="font-size: 12px; color: #555;">🔒 Locked (original record)</div>
+                    <div style="font-size: 14px; color: #1a5276; margin-top: 4px;">
+                        <strong>Material:</strong> {locked_material}<br>
+                        <strong>Program:</strong> {locked_program or 'N/A'}
+                    </div>
+                </div>
+                """,
+                unsafe_allow_html=True
+            )
 
         with st.form(key=f"action_point_form_{locked_material}"):
-            st.markdown(f"### {'✏️ Edit Action Point' if is_editing else '➕ Add New Action Point'}")
-
-            if is_editing:
-                st.markdown(
-                    f"""
-                    <div style="background: #eaf2f8; padding: 10px 14px; border-radius: 8px;
-                                border-left: 4px solid #2e86c1; margin-bottom: 12px;">
-                        <div style="font-size: 12px; color: #555;">🔒 Locked (original record)</div>
-                        <div style="font-size: 14px; color: #1a5276; margin-top: 4px;">
-                            <strong>Material:</strong> {locked_material}<br>
-                            <strong>Program:</strong> {locked_program or 'N/A'}
-                        </div>
-                    </div>
-                    """,
-                    unsafe_allow_html=True
-                )
 
             col_q, col_y = st.columns(2)
             with col_q:
                 st.markdown('<p style="font-weight: bold; color: black; font-size: 15px; margin-bottom: 5px;">Quarter</p>', unsafe_allow_html=True)
                 quarter_options = ["Select Quarter", "Q1", "Q2", "Q3", "Q4"]
-                quarter_index = 0
-                if quarter_val in quarter_options:
-                    quarter_index = quarter_options.index(quarter_val)
-                quarter = st.selectbox("", quarter_options, index=quarter_index, key="ap_quarter", label_visibility="collapsed")
+                quarter_index = quarter_options.index(quarter_val) if quarter_val in quarter_options else 0
+                quarter = st.selectbox("", quarter_options, index=quarter_index,
+                                       key="ap_quarter_in_form", label_visibility="collapsed")
             with col_y:
                 st.markdown('<p style="font-weight: bold; color: black; font-size: 15px; margin-bottom: 5px;">Year</p>', unsafe_allow_html=True)
                 year_options = ["Select Year"] + list(range(2020, 2031))
-                year_index = 0
-                if year_val in year_options:
-                    year_index = year_options.index(year_val)
-                year = st.selectbox("", year_options, index=year_index, key="ap_year", label_visibility="collapsed")
+                year_index = year_options.index(year_val) if year_val in year_options else 0
+                year = st.selectbox("", year_options, index=year_index,
+                                    key="ap_year_in_form", label_visibility="collapsed")
 
             col1, col2 = st.columns(2)
             with col1:
                 st.markdown('<p style="font-weight: bold; color: black; font-size: 15px; margin-bottom: 5px;">Purchase Order</p>', unsafe_allow_html=True)
                 purchase_order = st.text_input("", value=purchase_order_val, key="ap_purchase_order", label_visibility="collapsed")
-                st.markdown('<p style="font-weight: bold; color: black; font-size: 15px; margin-bottom: 5px; margin-top: 10px;">Identified Problem</p>', unsafe_allow_html=True)
-                identified_problem = st.text_area("", value=problem_val, key="ap_problem", height=60, label_visibility="collapsed")
             with col2:
                 st.markdown('<p style="font-weight: bold; color: black; font-size: 15px; margin-bottom: 5px;">Order Quantity</p>', unsafe_allow_html=True)
                 order_quantity = st.text_input("", value=order_quantity_val, key="ap_order_quantity", label_visibility="collapsed")
-                st.markdown('<p style="font-weight: bold; color: black; font-size: 15px; margin-bottom: 5px; margin-top: 10px;">Action Point</p>', unsafe_allow_html=True)
-                action_point = st.text_area("", value=action_val, key="ap_action", height=60, label_visibility="collapsed")
 
-            # --------------------------------------------------------------
-            # RESPONSIBLE BODY — multi-select + custom
-            # --------------------------------------------------------------
+            col3, col4 = st.columns(2)
+            with col3:
+                st.markdown('<p style="font-weight: bold; color: black; font-size: 15px; margin-bottom: 5px;">Identified Problem</p>', unsafe_allow_html=True)
+                identified_problem = st.text_area("", value=problem_val, key="ap_problem", height=80, label_visibility="collapsed")
+            with col4:
+                st.markdown('<p style="font-weight: bold; color: black; font-size: 15px; margin-bottom: 5px;">Action Point</p>', unsafe_allow_html=True)
+                action_point = st.text_area("", value=action_val, key="ap_action", height=80, label_visibility="collapsed")
+
             st.markdown('<p style="font-weight: bold; color: black; font-size: 15px; margin-bottom: 5px;">Responsible Body</p>', unsafe_allow_html=True)
             col_r1a, col_r1b = st.columns([2, 2])
             with col_r1a:
@@ -4958,13 +4918,11 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
                         final_responsible_parts.append(b)
             final_responsible = ", ".join(final_responsible_parts)
 
-            # --------------------------------------------------------------
-            # DUE DATE — picker always visible. New records start unset.
-            # --------------------------------------------------------------
-            col_r2a, col_r2b = st.columns([1, 1])
-            with col_r2a:
-                st.markdown('<p style="font-weight: bold; color: black; font-size: 15px; margin-bottom: 5px;">Due Date</p>', unsafe_allow_html=True)
+            st.markdown("---")
+            col_due, col_st, col_cd = st.columns(3)
 
+            with col_due:
+                st.markdown('<p style="font-weight: bold; color: black; font-size: 15px; margin-bottom: 5px;">Due Date</p>', unsafe_allow_html=True)
                 due_date_obj = st.date_input(
                     "",
                     value=_due_default_for_picker,
@@ -4972,29 +4930,33 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
                     label_visibility="collapsed",
                     format="YYYY-MM-DD"
                 )
+                due_date = due_date_obj.strftime('%Y-%m-%d') if due_date_obj else ""
 
-                if due_date_obj is not None:
-                    due_date = due_date_obj.strftime('%Y-%m-%d')
-                else:
-                    due_date = ""
-
-                if due_date:
-                    st.markdown(
-                        f'<p style="font-size: 12px; color: #666; margin-top: 2px;">Display: {format_due_date_display(due_date)}</p>',
-                        unsafe_allow_html=True
-                    )
-                else:
-                    st.markdown(
-                        '<p style="font-size: 12px; color: #999; margin-top: 2px;">Please select a date</p>',
-                        unsafe_allow_html=True
-                    )
-            with col_r2b:
+            with col_st:
                 st.markdown('<p style="font-weight: bold; color: black; font-size: 15px; margin-bottom: 5px;">Status</p>', unsafe_allow_html=True)
                 status_options = ["Select Status", "Initiated", "Ongoing", "Pending", "Completed"]
-                status_index = 0
-                if status_val in status_options:
-                    status_index = status_options.index(status_val)
-                status = st.selectbox("", status_options, index=status_index, key="ap_status", label_visibility="collapsed")
+                status_index = status_options.index(status_val) if status_val in status_options else 0
+                status = st.selectbox("", status_options, index=status_index,
+                                      key="ap_status_in_form", label_visibility="collapsed")
+
+            with col_cd:
+                st.markdown('<p style="font-weight: bold; color: black; font-size: 15px; margin-bottom: 5px;">Completion Date</p>', unsafe_allow_html=True)
+                completion_date_obj = st.date_input(
+                    "",
+                    value=_completion_default_for_picker,
+                    key=f"ap_completion_date_{locked_material}_{'edit' if is_editing else 'add'}",
+                    label_visibility="collapsed",
+                    format="YYYY-MM-DD",
+                    disabled=(status != "Completed"),
+                    help="Enabled only when Status = 'Completed'"
+                )
+                if status != "Completed":
+                    st.markdown('<p style="font-size: 12px; color: #999; margin-top: 2px;">Enabled when Status = Completed</p>', unsafe_allow_html=True)
+
+            if status == "Completed" and completion_date_obj is not None:
+                completion_date = completion_date_obj.strftime('%Y-%m-%d')
+            else:
+                completion_date = ""
 
             col_btn1, col_btn2 = st.columns(2)
             with col_btn1:
@@ -5006,26 +4968,18 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
             if submit_clicked:
                 if quarter == "Select Quarter":
                     st.warning("Please select a Quarter.")
-                    return
-                if year == "Select Year":
+                elif year == "Select Year":
                     st.warning("Please select a Year.")
-                    return
-                if status == "Select Status":
+                elif status == "Select Status":
                     st.warning("Please select a Status.")
-                    return
-                if not due_date:
+                elif not due_date:
                     st.warning("Please select a Due Date.")
-                    return
-
-                if identified_problem and action_point and due_date:
+                elif status == "Completed" and not completion_date:
+                    st.warning("Please select a Completion Date (required when Status = Completed).")
+                elif identified_problem and action_point and due_date:
                     if is_editing and edit_record:
-                        # --------------------------------------------------
-                        # EDIT PATH — only form fields update.
-                        # Locked: Material, Program, NSOH, AMC, PMOS, NMOS, TMOS
-                        # --------------------------------------------------
                         updated_record = {
                             'record_id': st.session_state.edit_record_id,
-                            # ---------- LOCKED (from original record) ----------
                             'Material': edit_record.get('Material', ''),
                             'Program': edit_record.get('Program', ''),
                             'NSOH': edit_record.get('NSOH', ''),
@@ -5033,27 +4987,28 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
                             'PMOS': edit_record.get('PMOS', 0),
                             'NMOS': edit_record.get('NMOS', 0),
                             'TMOS': edit_record.get('TMOS', 0),
-                            # ---------- EDITABLE (from form) ----------
                             'Purchase Order': purchase_order,
                             'Order Quantity': order_quantity,
                             'Identified Problem': identified_problem,
                             'Action Point': action_point,
                             'Responsible Body': final_responsible,
                             'Due Date': due_date,
+                            'Completion Date': completion_date,
                             'Status': status,
                             'Quarter': quarter,
                             'Year': int(year),
                         }
                         if save_expert_plan_record(updated_record):
-                            st.session_state.expert_plan_records = load_expert_plan_records(sheet_name if sheet_name != "All" else None, quarter if quarter != "All" else None, year if year != "All" else None)
+                            st.session_state.expert_plan_records = load_expert_plan_records(
+                                sheet_name if sheet_name != "All" else None,
+                                quarter if quarter != "All" else None,
+                                year if year != "All" else None
+                            )
                             st.session_state.edit_record_id = None
                             st.session_state.adding_action_point = False
                             st.session_state.show_custom_responsible = False
                             st.rerun()
                     else:
-                        # --------------------------------------------------
-                        # ADD PATH — capture current snapshot.
-                        # --------------------------------------------------
                         new_record = {
                             'record_id': generate_record_id(),
                             'Material': locked_material,
@@ -5068,13 +5023,18 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
                             'Action Point': action_point,
                             'Responsible Body': final_responsible,
                             'Due Date': due_date,
+                            'Completion Date': completion_date,
                             'Status': status,
                             'Quarter': quarter,
                             'Year': int(year),
                             'Program': material_program if material_program != "Multiple Programs" else sheet_name if sheet_name != "All" else "Multiple Programs"
                         }
                         if save_expert_plan_record(new_record):
-                            st.session_state.expert_plan_records = load_expert_plan_records(sheet_name if sheet_name != "All" else None, quarter if quarter != "All" else None, year if year != "All" else None)
+                            st.session_state.expert_plan_records = load_expert_plan_records(
+                                sheet_name if sheet_name != "All" else None,
+                                quarter if quarter != "All" else None,
+                                year if year != "All" else None
+                            )
                             st.session_state.adding_action_point = False
                             st.session_state.show_custom_responsible = False
                             st.rerun()
@@ -5091,7 +5051,7 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
     st.markdown("---")
 
     # =========================================================================
-    # RECORDS TABLE
+    # RECORDS TABLE — NaN-safe
     # =========================================================================
     if st.session_state.expert_plan_records:
         records_df = pd.DataFrame(st.session_state.expert_plan_records)
@@ -5112,9 +5072,63 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
 
             records_df = records_df.sort_values('Material')
 
+            # ==============================================================
+            # TIMELINESS FILTER — computed once on records_df
+            # ==============================================================
+            def _parse_dt_expert(v):
+                if v is None:
+                    return None
+                try:
+                    if isinstance(v, float) and pd.isna(v):
+                        return None
+                except Exception:
+                    pass
+                s = str(v).strip()
+                if not s or s.lower() in ('nan', 'none', 'nat', ''):
+                    return None
+                try:
+                    if re.match(r'^\d{4}-\d{2}-\d{2}$', s):
+                        return datetime.strptime(s, '%Y-%m-%d').date()
+                    for fmt in ['%Y-%m-%d %H:%M:%S', '%Y-%m-%dT%H:%M:%S',
+                                '%B %d, %Y', '%b %d, %Y', '%B %d %Y', '%b %d %Y',
+                                '%d/%m/%Y', '%m/%d/%Y', '%d-%m-%Y', '%m-%d-%Y']:
+                        try:
+                            return datetime.strptime(s, fmt).date()
+                        except Exception:
+                            continue
+                    if hasattr(v, 'date') and not isinstance(v, str):
+                        return v.date()
+                except Exception:
+                    pass
+                return None
+
+            def _timeliness_label_expert(status_val, due_val, comp_val):
+                today_d = datetime.now().date()
+                st_norm = (str(status_val).strip() if status_val else '').lower()
+                dd = _parse_dt_expert(due_val)
+                cd = _parse_dt_expert(comp_val)
+                if st_norm == 'completed':
+                    if dd is None or cd is None:
+                        return "On Time"
+                    return "On Time" if cd <= dd else "Late"
+                if dd is None:
+                    return "Not Yet Due"
+                return "Overdue" if dd < today_d else "Not Yet Due"
+
+            records_df['_Timeliness_Filter'] = records_df.apply(
+                lambda r: _timeliness_label_expert(
+                    r.get('Status', ''),
+                    r.get('Due Date', ''),
+                    r.get('Completion Date', '')
+                ),
+                axis=1
+            )
+
+            # ==============================================================
+            # FILTER ROW — Program | NMOS | Status | Timeliness
+            # ==============================================================
             all_programs = sorted(records_df['Program'].unique().tolist()) if 'Program' in records_df.columns else []
             default_programs = ['Malaria'] if 'Malaria' in all_programs else all_programs[:1] if all_programs else []
-            all_problems = sorted(records_df['Identified Problem'].unique().tolist()) if 'Identified Problem' in records_df.columns else []
             all_statuses = sorted(records_df['Status'].unique().tolist()) if 'Status' in records_df.columns else []
 
             col_filter1, col_filter2, col_filter3, col_filter4 = st.columns(4)
@@ -5123,9 +5137,14 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
             with col_filter2:
                 nmos_filter_type = st.selectbox("NMOS Filter", ["All", "< 1", "1-4", "1-6", "< 6", "6-18", "> 18", "< 12"], key="nmos_filter_type_expert")
             with col_filter3:
-                selected_problems = st.multiselect("Identified Problem", options=all_problems, default=[], key="filter_problem_expert")
-            with col_filter4:
                 selected_statuses = st.multiselect("Status", options=all_statuses, default=[], key="filter_status_expert")
+            with col_filter4:
+                timeliness_options = ["All", "On Time", "Late", "Overdue", "Not Yet Due"]
+                timeliness_filter_expert = st.selectbox(
+                    "Timeliness",
+                    timeliness_options,
+                    key="timeliness_filter_expert"
+                )
 
             filtered_df = records_df.copy()
 
@@ -5149,10 +5168,11 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
                 elif nmos_filter_type == "< 12":
                     filtered_df = filtered_df[filtered_df['NMOS'] < 12]
 
-            if selected_problems:
-                filtered_df = filtered_df[filtered_df['Identified Problem'].isin(selected_problems)]
             if selected_statuses:
                 filtered_df = filtered_df[filtered_df['Status'].isin(selected_statuses)]
+
+            if timeliness_filter_expert != "All" and '_Timeliness_Filter' in filtered_df.columns:
+                filtered_df = filtered_df[filtered_df['_Timeliness_Filter'] == timeliness_filter_expert]
 
             if not filtered_df.empty:
                 view_mode = st.session_state.get("sidebar_view_mode", "Table")
@@ -5207,20 +5227,26 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
                 def build_expert_html_table(df_in, cols):
                     rows_html_parts = []
                     for _, r in df_in.iterrows():
-                        material    = r.get('Material', '') or ''
-                        nsoh        = r.get('NSOH', '') or ''
-                        amc         = r.get('AMC', '') or ''
-                        pmos        = r.get('PMOS', '') or ''
-                        nmos        = r.get('NMOS', '') or ''
-                        tmos        = r.get('TMOS', '') or ''
-                        po          = r.get('Purchase Order', '') or ''
-                        oq          = r.get('Order Quantity', '') or ''
-                        problem     = r.get('Identified Problem', '') or ''
-                        action      = r.get('Action Point', '') or ''
-                        resp        = r.get('Responsible Body', '') or ''
-                        due_raw     = r.get('Due Date', '') or ''
-                        status      = r.get('Status', '') or ''
+                        material = _safe_val(r.get('Material', '')) or ''
+                        nsoh = _safe_val(r.get('NSOH', '')) or ''
+                        amc = _safe_val(r.get('AMC', '')) or ''
+                        pmos = _safe_val(r.get('PMOS', '')) or ''
+                        nmos = _safe_val(r.get('NMOS', '')) or ''
+                        tmos = _safe_val(r.get('TMOS', '')) or ''
+                        po = _safe_val(r.get('Purchase Order', '')) or ''
+                        oq = _safe_val(r.get('Order Quantity', '')) or ''
+                        problem = _safe_val(r.get('Identified Problem', '')) or ''
+                        action = _safe_val(r.get('Action Point', '')) or ''
+                        resp = _safe_val(r.get('Responsible Body', '')) or ''
+                        due_raw = r.get('Due Date', '')
+                        completion_raw = r.get('Completion Date', '')
+                        status = _safe_val(r.get('Status', '')) or ''
+
                         due = format_due_date_display(due_raw)
+                        completion_display = format_due_date_display(completion_raw)
+
+                        t_icon, t_label = compute_timeliness(status, due_raw, completion_raw)
+                        timeliness_html = f'{t_icon} {t_label}'
 
                         cell_map = {
                             'Material':           f'<td class="col-material"><strong>{material}</strong></td>',
@@ -5235,15 +5261,24 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
                             'Action Point':       f'<td class="col-action">{action}</td>',
                             'Responsible Body':   f'<td class="col-responsible">{resp}</td>',
                             'Due Date':           f'<td class="col-date">{due}</td>',
+                            'Completion Date':    f'<td class="col-date">{completion_display}</td>',
                             'Status':             f'<td class="col-status">{status}</td>',
+                            'Timeliness':         f'<td class="col-status">{timeliness_html}</td>',
                         }
-
                         row_cells = "".join(cell_map[c] for c in cols if c in cell_map)
                         rows_html_parts.append(f'<tr>{row_cells}</tr>')
 
+                    def _hdr_class(c):
+                        if c == "Material": return "material"
+                        if c in ["NSOH", "AMC", "PMOS", "NMOS", "TMOS", "Purchase Order", "Order Quantity"]: return "num"
+                        if c == "Identified Problem": return "problem"
+                        if c == "Action Point": return "action"
+                        if c == "Responsible Body": return "responsible"
+                        if c in ["Due Date", "Completion Date"]: return "date"
+                        return "status"
+
                     header_cells = "".join(
-                        f'<th class="col-{"material" if c=="Material" else "num" if c in ["NSOH","AMC","PMOS","NMOS","TMOS","Purchase Order","Order Quantity"] else "problem" if c=="Identified Problem" else "action" if c=="Action Point" else "responsible" if c=="Responsible Body" else "date" if c=="Due Date" else "status"}">{c}</th>'
-                        for c in cols
+                        f'<th class="col-{_hdr_class(c)}">{c}</th>' for c in cols
                     )
 
                     return (
@@ -5272,10 +5307,7 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
                         else:
                             if 'Program' in filtered_df.columns and not filtered_df.empty:
                                 unique_programs = filtered_df['Program'].unique().tolist()
-                                if len(unique_programs) == 1:
-                                    program_display = unique_programs[0]
-                                else:
-                                    program_display = "All Programs"
+                                program_display = unique_programs[0] if len(unique_programs) == 1 else "All Programs"
                             else:
                                 program_display = "All Programs"
 
@@ -5283,8 +5315,9 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
                             st.markdown(f"### 📋 {quarter}, {year} Supply Planning {program_display} Action Plan")
                             cols = ['Material', 'NSOH', 'AMC', 'PMOS', 'NMOS', 'TMOS',
                                     'Purchase Order', 'Order Quantity', 'Identified Problem',
-                                    'Action Point', 'Responsible Body', 'Due Date', 'Status']
-                            cols = [c for c in cols if c in quarter_df.columns]
+                                    'Action Point', 'Responsible Body', 'Due Date',
+                                    'Completion Date', 'Status', 'Timeliness']
+                            cols = [c for c in cols if c in quarter_df.columns or c in ('Timeliness', 'Completion Date')]
                             table_html = build_expert_html_table(quarter_df, cols)
                             st.markdown(table_html, unsafe_allow_html=True)
                             st.markdown("---")
@@ -5295,6 +5328,13 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
                                 status = row.get('Status', 'Pending')
                                 status_class = status.lower() if status else 'pending'
                                 due_display = format_due_date_display(row.get('Due Date', ''))
+                                completion_display = format_due_date_display(row.get('Completion Date', ''))
+                                t_icon, t_label = compute_timeliness(
+                                    status,
+                                    row.get('Due Date', ''),
+                                    row.get('Completion Date', '')
+                                )
+                                completion_html = f'<span><strong>✅ Completed:</strong> {completion_display}</span>' if completion_display else ''
                                 st.markdown(f"""
                                 <div class="data-card">
                                     <div class="card-header">
@@ -5309,11 +5349,13 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
                                         <span class="label">TMOS</span><span class="value">{row.get('TMOS', '')}</span>
                                         <span class="label">PO</span><span class="value">{row.get('Purchase Order', '')}</span>
                                         <span class="label">Order Qty</span><span class="value">{row.get('Order Quantity', '')}</span>
+                                        <span class="label">Timeliness</span><span class="value">{t_icon} {t_label}</span>
                                         <div class="problem full-width"><strong>⚠️ Problem:</strong> {row.get('Identified Problem', '')}</div>
                                         <div class="action full-width"><strong>📌 Action:</strong> {row.get('Action Point', '')}</div>
                                         <div class="responsible full-width">
                                             <span><strong>👤 Responsible:</strong> {row.get('Responsible Body', '')}</span>
                                             <span><strong>📅 Due:</strong> {due_display}</span>
+                                            {completion_html}
                                         </div>
                                     </div>
                                 </div>
@@ -5324,8 +5366,9 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
                     if view_mode == "Table":
                         cols = ['Material', 'NSOH', 'AMC', 'PMOS', 'NMOS', 'TMOS',
                                 'Purchase Order', 'Order Quantity', 'Identified Problem',
-                                'Action Point', 'Responsible Body', 'Due Date', 'Status']
-                        cols = [c for c in cols if c in filtered_df.columns]
+                                'Action Point', 'Responsible Body', 'Due Date',
+                                'Completion Date', 'Status', 'Timeliness']
+                        cols = [c for c in cols if c in filtered_df.columns or c in ('Timeliness', 'Completion Date')]
                         table_html = build_expert_html_table(filtered_df, cols)
                         st.markdown(table_html, unsafe_allow_html=True)
                     else:
@@ -5334,6 +5377,13 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
                             status = row.get('Status', 'Pending')
                             status_class = status.lower() if status else 'pending'
                             due_display = format_due_date_display(row.get('Due Date', ''))
+                            completion_display = format_due_date_display(row.get('Completion Date', ''))
+                            t_icon, t_label = compute_timeliness(
+                                status,
+                                row.get('Due Date', ''),
+                                row.get('Completion Date', '')
+                            )
+                            completion_html = f'<span><strong>✅ Completed:</strong> {completion_display}</span>' if completion_display else ''
                             st.markdown(f"""
                             <div class="data-card">
                                 <div class="card-header">
@@ -5348,11 +5398,13 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
                                     <span class="label">TMOS</span><span class="value">{row.get('TMOS', '')}</span>
                                     <span class="label">PO</span><span class="value">{row.get('Purchase Order', '')}</span>
                                     <span class="label">Order Qty</span><span class="value">{row.get('Order Quantity', '')}</span>
+                                    <span class="label">Timeliness</span><span class="value">{t_icon} {t_label}</span>
                                     <div class="problem full-width"><strong>⚠️ Problem:</strong> {row.get('Identified Problem', '')}</div>
                                     <div class="action full-width"><strong>📌 Action:</strong> {row.get('Action Point', '')}</div>
                                     <div class="responsible full-width">
                                         <span><strong>👤 Responsible:</strong> {row.get('Responsible Body', '')}</span>
                                         <span><strong>📅 Due:</strong> {due_display}</span>
+                                        {completion_html}
                                     </div>
                                 </div>
                             </div>
@@ -5366,6 +5418,20 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
                 export_df = filtered_df.copy()
                 if 'Due Date' in export_df.columns:
                     export_df['Due Date'] = export_df['Due Date'].apply(format_due_date_display)
+                if 'Completion Date' in export_df.columns:
+                    export_df['Completion Date'] = export_df['Completion Date'].apply(format_due_date_display)
+                if 'Status' in export_df.columns:
+                    export_df['Timeliness'] = export_df.apply(
+                        lambda r: " ".join(compute_timeliness(
+                            r.get('Status', ''),
+                            r.get('Due Date', ''),
+                            r.get('Completion Date', '')
+                        )),
+                        axis=1
+                    )
+                export_df = export_df.replace({pd.NA: '', np.nan: ''})
+                if '_Timeliness_Filter' in export_df.columns:
+                    export_df = export_df.drop(columns=['_Timeliness_Filter'])
                 filtered_df_clean = clean_dataframe_for_excel(export_df)
                 filtered_df_clean.to_excel(writer, index=False, sheet_name='Action Points')
             excel_data = output.getvalue()
@@ -5407,22 +5473,125 @@ def render_ap_progress_follow_up(sheet_name, selected_quarter, selected_year, se
     if 'Status' not in df.columns:
         df['Status'] = "Pending"
 
-    latest_quarter = None
-    latest_year = None
+    program_name = sheet_name if sheet_name != "All" else "All Programs"
+
+    # ======================================================================
+    # Compute Timeliness label per row (needed for the filter dropdown)
+    # ======================================================================
+    def _parse_date_val(v):
+        if v is None:
+            return None
+        try:
+            if isinstance(v, float) and pd.isna(v):
+                return None
+        except Exception:
+            pass
+        s = str(v).strip()
+        if not s or s.lower() in ('nan', 'none', 'nat', ''):
+            return None
+        try:
+            if re.match(r'^\d{4}-\d{2}-\d{2}$', s):
+                return datetime.strptime(s, '%Y-%m-%d').date()
+            for fmt in ['%Y-%m-%d %H:%M:%S', '%Y-%m-%dT%H:%M:%S',
+                        '%B %d, %Y', '%b %d, %Y', '%B %d %Y', '%b %d %Y',
+                        '%d/%m/%Y', '%m/%d/%Y', '%d-%m-%Y', '%m-%d-%Y']:
+                try:
+                    return datetime.strptime(s, fmt).date()
+                except Exception:
+                    continue
+            if hasattr(v, 'date') and not isinstance(v, str):
+                return v.date()
+        except Exception:
+            pass
+        return None
+
+    def _compute_timeliness_followup(status, due_date_val, completion_date_val):
+        today = datetime.now().date()
+        due_date = _parse_date_val(due_date_val)
+        completion_date = _parse_date_val(completion_date_val)
+        status_norm = (str(status).strip() if status else '').lower()
+
+        if status_norm == 'completed':
+            if due_date is None or completion_date is None:
+                return "On Time"
+            if completion_date <= due_date:
+                return "On Time"
+            return "Late"
+
+        if due_date is None:
+            return "Not Yet Due"
+        if due_date < today:
+            return "Overdue"
+        return "Not Yet Due"
+
+    df['_Timeliness_Filter'] = df.apply(
+        lambda r: _compute_timeliness_followup(
+            r.get('Status', ''),
+            r.get('Due Date', ''),
+            r.get('Completion Date', '')
+        ),
+        axis=1
+    )
+
+    # ======================================================================
+    # DETERMINE TARGET QUARTER/YEAR *BEFORE* ANY FILTERS
+    # ----------------------------------------------------------------------
+    # Priority order:
+    #   1. Sidebar chose BOTH quarter and year  -> use them.
+    #   2. Sidebar chose only year              -> latest quarter in that year.
+    #   3. Sidebar chose only quarter           -> latest year with that quarter.
+    #   4. Sidebar chose neither ("All")        -> latest (year, quarter) in FULL df.
+    # Locking the target from the UNFILTERED df means a Status/Timeliness
+    # filter can never cause fallback into an older quarter.
+    # ======================================================================
+    target_quarter = None
+    target_year = None
+
     if 'Quarter' in df.columns and 'Year' in df.columns:
         quarter_order = {'Q1': 1, 'Q2': 2, 'Q3': 3, 'Q4': 4}
-        df['Quarter_Sort'] = df['Year'].astype(str) + df['Quarter'].map(quarter_order).astype(str)
-        if not df.empty:
-            latest_row = df.loc[df['Quarter_Sort'].idxmax()]
-            latest_quarter = latest_row['Quarter']
-            latest_year = latest_row['Year']
 
-    program_name = sheet_name if sheet_name != "All" else "All Programs"
-    if latest_quarter and latest_year:
-        st.markdown(f"### 📋 {latest_quarter}, {latest_year} - {program_name} Action Plan Summary Table")
+        if selected_quarter != "All" and selected_year != "All":
+            target_quarter = selected_quarter
+            target_year = selected_year
+        elif selected_year != "All":
+            year_subset = df[df['Year'].astype(str) == str(selected_year)].copy()
+            if year_subset.empty:
+                st.info(f"No records found for year {selected_year}.")
+                return
+            year_subset['_qsort'] = year_subset['Quarter'].map(quarter_order).fillna(0)
+            latest_row = year_subset.loc[year_subset['_qsort'].idxmax()]
+            target_quarter = latest_row['Quarter']
+            target_year = latest_row['Year']
+        elif selected_quarter != "All":
+            q_subset = df[df['Quarter'] == selected_quarter].copy()
+            if q_subset.empty:
+                st.info(f"No records found for {selected_quarter}.")
+                return
+            q_subset['_ysort'] = pd.to_numeric(q_subset['Year'], errors='coerce').fillna(0)
+            latest_row = q_subset.loc[q_subset['_ysort'].idxmax()]
+            target_quarter = latest_row['Quarter']
+            target_year = latest_row['Year']
+        else:
+            df_tmp = df.copy()
+            df_tmp['_qsort'] = (
+                pd.to_numeric(df_tmp['Year'], errors='coerce').fillna(0).astype(int) * 10
+                + df_tmp['Quarter'].map(quarter_order).fillna(0).astype(int)
+            )
+            latest_row = df_tmp.loc[df_tmp['_qsort'].idxmax()]
+            target_quarter = latest_row['Quarter']
+            target_year = latest_row['Year']
+
+    # ======================================================================
+    # HEADER — now locked to the target quarter
+    # ======================================================================
+    if target_quarter and target_year:
+        st.markdown(f"### 📋 {target_quarter}, {target_year} - {program_name} Action Plan Summary Table")
     else:
         st.markdown(f"### 📋 {program_name} Action Plan Summary Table")
 
+    # ======================================================================
+    # FILTER ROW — Program | Status | Responsible Body | Timeliness
+    # ======================================================================
     st.markdown('<div class="filter-row">', unsafe_allow_html=True)
 
     col_filter0, col_filter1, col_filter2, col_filter3 = st.columns(4)
@@ -5439,8 +5608,8 @@ def render_ap_progress_follow_up(sheet_name, selected_quarter, selected_year, se
         )
 
     with col_filter1:
-        problem_options = ["All"] + sorted(df['Identified Problem'].unique().tolist()) if 'Identified Problem' in df.columns else ["All"]
-        problem_filter = st.selectbox("Problem Type", problem_options, key="problem_filter_dropdown")
+        status_options = ["All"] + sorted(df['Status'].unique().tolist()) if 'Status' in df.columns else ["All"]
+        status_filter = st.selectbox("Status", status_options, key="status_filter_dropdown_ap")
 
     with col_filter2:
         all_responsible_bodies = []
@@ -5474,18 +5643,25 @@ def render_ap_progress_follow_up(sheet_name, selected_quarter, selected_year, se
         body_filter = st.selectbox("Responsible Body", body_options, key="body_filter_dropdown")
 
     with col_filter3:
-        status_options = ["All"] + sorted(df['Status'].unique().tolist()) if 'Status' in df.columns else ["All"]
-        status_filter = st.selectbox("Status", status_options, key="status_filter_dropdown_ap")
+        timeliness_options = ["All", "On Time", "Late", "Overdue", "Not Yet Due"]
+        timeliness_filter = st.selectbox(
+            "Timeliness",
+            timeliness_options,
+            key="timeliness_filter_dropdown"
+        )
 
     st.markdown('</div>', unsafe_allow_html=True)
 
+    # ======================================================================
+    # APPLY FILTERS (Program -> Status -> Responsible Body -> Timeliness)
+    # ======================================================================
     filtered_df = df.copy()
 
     if program_filter:
         filtered_df = filtered_df[filtered_df['Program'].isin(program_filter)]
 
-    if problem_filter != "All" and 'Identified Problem' in filtered_df.columns:
-        filtered_df = filtered_df[filtered_df['Identified Problem'] == problem_filter]
+    if status_filter != "All" and 'Status' in filtered_df.columns:
+        filtered_df = filtered_df[filtered_df['Status'] == status_filter]
 
     if body_filter != "All" and 'Responsible Body' in filtered_df.columns:
         def _row_matches_org(resp_str, org):
@@ -5504,28 +5680,27 @@ def render_ap_progress_follow_up(sheet_name, selected_quarter, selected_year, se
         if body_filter in ('EPSS', 'MOH', 'MSH_SCS', 'Other'):
             filtered_df = filtered_df[filtered_df['Responsible Body'].apply(lambda x: _row_matches_org(x, body_filter))]
 
-    if status_filter != "All" and 'Status' in filtered_df.columns:
-        filtered_df = filtered_df[filtered_df['Status'] == status_filter]
+    if timeliness_filter != "All" and '_Timeliness_Filter' in filtered_df.columns:
+        filtered_df = filtered_df[filtered_df['_Timeliness_Filter'] == timeliness_filter]
 
     if selected_status != "All" and 'Status' in filtered_df.columns:
         filtered_df = filtered_df[filtered_df['Status'] == selected_status]
 
+    # ======================================================================
+    # LOCK TO TARGET QUARTER/YEAR (computed above from UNFILTERED df)
+    # ======================================================================
+    if target_quarter and target_year and 'Quarter' in filtered_df.columns and 'Year' in filtered_df.columns:
+        filtered_df = filtered_df[
+            (filtered_df['Quarter'] == target_quarter)
+            & (filtered_df['Year'].astype(str) == str(target_year))
+        ]
+
     if filtered_df.empty:
-        st.info("No records match the selected filters.")
+        st.info(
+            f"No records found for {target_quarter or 'the selected period'} "
+            f"{target_year or ''} with the selected filters."
+        )
         return
-
-    if 'Quarter' in filtered_df.columns and 'Year' in filtered_df.columns:
-        quarter_order = {'Q1': 1, 'Q2': 2, 'Q3': 3, 'Q4': 4}
-        filtered_df['Quarter_Sort'] = filtered_df['Year'].astype(str) + filtered_df['Quarter'].map(quarter_order).astype(str)
-        if not filtered_df.empty:
-            latest_quarter_val = filtered_df.loc[filtered_df['Quarter_Sort'].idxmax()]['Quarter']
-            latest_year_val = filtered_df.loc[filtered_df['Quarter_Sort'].idxmax()]['Year']
-
-            filtered_df = filtered_df[(filtered_df['Quarter'] == latest_quarter_val) & (filtered_df['Year'] == latest_year_val)]
-
-            if filtered_df.empty:
-                st.info(f"No records found for the latest quarter ({latest_quarter_val}, {latest_year_val}).")
-                return
 
     filtered_df = filtered_df.sort_values('Material')
 
@@ -5550,6 +5725,9 @@ def render_ap_progress_follow_up(sheet_name, selected_quarter, selected_year, se
     display_df = filtered_df.copy()
     display_df['Status Display'] = display_df.apply(lambda row: status_badge_html(row.get('Status', 'Pending'), row.get('Material', '')), axis=1)
 
+    # ======================================================================
+    # LOOKUP CURRENT VALUES FROM LIVE DATA
+    # ======================================================================
     sheet_name_param = sheet_name if sheet_name != "All" else "All"
     subcategory_filter = st.session_state.get('selected_subcategory', 'All')
     df_filtered_current = get_filtered_data(sheet_name_param, subcategory_filter)
@@ -5578,9 +5756,6 @@ def render_ap_progress_follow_up(sheet_name, selected_quarter, selected_year, se
     display_df['Current NMOS'] = display_df['Material'].apply(lambda x: get_current_value(x, 'Current NMOS'))
     display_df['Current TMOS'] = display_df['Material'].apply(lambda x: get_current_value(x, 'Current TMOS'))
 
-    # =====================================================================
-    # Format Due Date as "Oct 26, 2026"
-    # =====================================================================
     def _fmt_due(d):
         if d is None:
             return ''
@@ -5610,7 +5785,16 @@ def render_ap_progress_follow_up(sheet_name, selected_quarter, selected_year, se
 
     if 'Due Date' in display_df.columns:
         display_df['Due Date'] = display_df['Due Date'].apply(_fmt_due)
-    # =====================================================================
+
+    # Recompute Timeliness (uses already-formatted Due Date strings)
+    display_df['Timeliness'] = display_df.apply(
+        lambda r: _compute_timeliness_followup(
+            r.get('Status', ''),
+            r.get('Due Date', ''),
+            r.get('Completion Date', '')
+        ),
+        axis=1
+    )
 
     def calculate_current_pmos(row):
         tmos = row.get('Current TMOS', 'N/A')
@@ -5635,9 +5819,6 @@ def render_ap_progress_follow_up(sheet_name, selected_quarter, selected_year, se
     else:
         display_df['NMOS'] = "N/A"
 
-    # ---------------------------------------------------------------------
-    # NEW: ensure Purchase Order / Order Quantity columns exist and are clean
-    # ---------------------------------------------------------------------
     if 'Purchase Order' not in display_df.columns:
         display_df['Purchase Order'] = ""
     if 'Order Quantity' not in display_df.columns:
@@ -5650,7 +5831,9 @@ def render_ap_progress_follow_up(sheet_name, selected_quarter, selected_year, se
         lambda x: "" if pd.isna(x) or str(x).strip().lower() in ('nan', 'none') else str(x).strip()
     )
 
-    # Purchase Order & Order Quantity placed right after NMOS
+    # ======================================================================
+    # COLUMN ORDER: Status BEFORE Timeliness
+    # ======================================================================
     cols_to_display = [
         'Material',
         'NMOS',
@@ -5661,21 +5844,22 @@ def render_ap_progress_follow_up(sheet_name, selected_quarter, selected_year, se
         'Responsible Body',
         'Due Date',
         'Status Display',
+        'Timeliness',
         'Current NMOS',
         'Current PMOS',
         'Current TMOS'
     ]
-    cols_to_display = [c for c in cols_to_display if c in display_df.columns or c == 'Status Display']
+    cols_to_display = [c for c in cols_to_display if c in display_df.columns or c in ('Status Display', 'Timeliness')]
 
-    # Get view mode from sidebar dropdown
     view_mode = st.session_state.get("sidebar_view_mode", "Table")
 
     if view_mode == "Table":
-        # TABLE VIEW
         html_table = '<div class="dataframe-container"><table class="styled-table" style="font-family: Times New Roman, Times, serif !important; font-size: 14px; width: 100%;"><thead><tr>'
         for col in cols_to_display:
             if col == 'Status Display':
                 html_table += '<th style="font-family: Times New Roman, Times, serif !important; font-size: 15px; width: 9%;">Status</th>'
+            elif col == 'Timeliness':
+                html_table += '<th style="font-family: Times New Roman, Times, serif !important; font-size: 15px; width: 12%; text-align: center;">Timeliness</th>'
             elif col == 'Material':
                 html_table += '<th style="font-family: Times New Roman, Times, serif !important; font-size: 15px; width: 12%;">Material</th>'
             elif col == 'NMOS':
@@ -5685,13 +5869,13 @@ def render_ap_progress_follow_up(sheet_name, selected_quarter, selected_year, se
             elif col == 'Order Quantity':
                 html_table += '<th style="font-family: Times New Roman, Times, serif !important; font-size: 14px; width: 8%; text-align: center;">Order Quantity</th>'
             elif col == 'Identified Problem':
-                html_table += '<th style="font-family: Times New Roman, Times, serif !important; font-size: 15px; width: 20%;">Identified Problem</th>'
+                html_table += '<th style="font-family: Times New Roman, Times, serif !important; font-size: 15px; width: 18%;">Identified Problem</th>'
             elif col == 'Action Point':
-                html_table += '<th style="font-family: Times New Roman, Times, serif !important; font-size: 15px; width: 20%;">Action Point</th>'
+                html_table += '<th style="font-family: Times New Roman, Times, serif !important; font-size: 15px; width: 18%;">Action Point</th>'
             elif col == 'Responsible Body':
-                html_table += '<th style="font-family: Times New Roman, Times, serif !important; font-size: 15px; width: 12%;">Responsible Body</th>'
+                html_table += '<th style="font-family: Times New Roman, Times, serif !important; font-size: 15px; width: 11%;">Responsible Body</th>'
             elif col == 'Due Date':
-                html_table += '<th style="font-family: Times New Roman, Times, serif !important; font-size: 15px; width: 8%;">Due Date</th>'
+                html_table += '<th style="font-family: Times New Roman, Times, serif !important; font-size: 15px; width: 9%;">Due Date</th>'
             elif col in ['Current NMOS', 'Current PMOS', 'Current TMOS']:
                 html_table += f'<th style="font-family: Times New Roman, Times, serif !important; font-size: 13px; width: 7%; text-align: center;">{col}</th>'
             else:
@@ -5703,6 +5887,8 @@ def render_ap_progress_follow_up(sheet_name, selected_quarter, selected_year, se
             for col in cols_to_display:
                 if col == 'Status Display':
                     html_table += f'<td style="font-family: Times New Roman, Times, serif !important; font-size: 14px; text-align: center;">{row[col]}</td>'
+                elif col == 'Timeliness':
+                    html_table += f'<td style="font-family: Times New Roman, Times, serif !important; font-size: 14px; text-align: center; white-space: nowrap;">{row.get(col, "")}</td>'
                 elif col == 'Material':
                     html_table += f'<td style="font-family: Times New Roman, Times, serif !important; font-size: 14px; font-weight: 500;">{row.get(col, "")}</td>'
                 elif col == 'NMOS':
@@ -5716,7 +5902,7 @@ def render_ap_progress_follow_up(sheet_name, selected_quarter, selected_year, se
                 elif col == 'Action Point':
                     html_table += f'<td style="font-family: Times New Roman, Times, serif !important; font-size: 14px; min-width: 200px;">{row.get(col, "")}</td>'
                 elif col == 'Due Date':
-                    html_table += f'<td style="font-family: Times New Roman, Times, serif !important; font-size: 14px; text-align: center;">{row.get(col, "")}</td>'
+                    html_table += f'<td style="font-family: Times New Roman, Times, serif !important; font-size: 14px; text-align: center; white-space: nowrap;">{row.get(col, "")}</td>'
                 else:
                     html_table += f'<td style="font-family: Times New Roman, Times, serif !important; font-size: 14px;">{row.get(col, "")}</td>'
             html_table += '</tr>'
@@ -5725,7 +5911,6 @@ def render_ap_progress_follow_up(sheet_name, selected_quarter, selected_year, se
         st.markdown(html_table, unsafe_allow_html=True)
 
     else:
-        # CARD VIEW
         st.markdown('<div class="card-view-container">', unsafe_allow_html=True)
         for _, row in display_df.iterrows():
             status = row.get('Status', 'Pending')
@@ -5748,6 +5933,7 @@ def render_ap_progress_follow_up(sheet_name, selected_quarter, selected_year, se
                     <div class="responsible full-width">
                         <span><strong>👤 Responsible:</strong> {row.get('Responsible Body', '')}</span>
                         <span><strong>📅 Due:</strong> {row.get('Due Date', '')}</span>
+                        <span><strong>⏱️ Timeliness:</strong> {row.get('Timeliness', '')}</span>
                     </div>
                 </div>
             </div>
@@ -5759,7 +5945,7 @@ def render_ap_progress_follow_up(sheet_name, selected_quarter, selected_year, se
         df_to_export = display_df[[
             'Material', 'NMOS', 'Purchase Order', 'Order Quantity',
             'Identified Problem', 'Action Point', 'Responsible Body',
-            'Due Date', 'Status', 'Current NMOS', 'Current PMOS', 'Current TMOS'
+            'Due Date', 'Status', 'Timeliness', 'Current NMOS', 'Current PMOS', 'Current TMOS'
         ]].copy()
         df_to_export_clean = clean_dataframe_for_excel(df_to_export)
         df_to_export_clean.to_excel(writer, index=False, sheet_name='Action Plan')
@@ -5775,14 +5961,28 @@ def render_ap_progress_follow_up(sheet_name, selected_quarter, selected_year, se
 
     st.markdown("---")
 
+    # ======================================================================
+    # STATUS + TIMELINESS DISTRIBUTION (side-by-side on one row)
+    # ======================================================================
     selected_program_names = program_filter if program_filter else ["All Programs"]
     program_title = ", ".join(selected_program_names)
 
-    st.markdown(f"### 📊 {program_title} Action Plan Status Distribution")
+    st.markdown(f"### 📊 {program_title} Action Plan Status and Timeliness Distribution")
 
     status_labels = ['Completed', 'Not Completed', 'Pending']
     status_values = [completed, not_completed, pending]
     status_colors_pie = ['#28a745', '#2e86c1', '#ffc107']
+
+    timeliness_series = display_df.get('Timeliness', pd.Series([], dtype=str))
+    timeliness_order = ['On Time', 'Late', 'Overdue', 'Not Yet Due']
+    timeliness_colors_map = {
+        'On Time':     '#28a745',
+        'Late':        '#fcc419',
+        'Overdue':     '#dc3545',
+        'Not Yet Due': '#2e86c1',
+    }
+    timeliness_values = [int((timeliness_series == lbl).sum()) for lbl in timeliness_order]
+    timeliness_pairs = [(lbl, val) for lbl, val in zip(timeliness_order, timeliness_values) if val > 0]
 
     _total_status = sum(status_values)
     status_text_labels = []
@@ -5790,43 +5990,105 @@ def render_ap_progress_follow_up(sheet_name, selected_quarter, selected_year, se
         _pct = (_val / _total_status * 100) if _total_status > 0 else 0
         status_text_labels.append(f"{_pct:.0f}% ({_val})")
 
-    fig_pie = go.Figure(data=[go.Pie(
-        labels=status_labels,
-        values=status_values,
-        hole=0.3,
-        marker=dict(colors=status_colors_pie),
-        text=status_text_labels,
-        textinfo='text',
-        textposition='inside',
-        insidetextorientation='horizontal',
-        textfont=dict(size=13, color='white', family='Times New Roman, Times, serif'),
-        hoverinfo='label+value+percent',
-        hovertemplate='<b>%{label}</b><br>Count: %{value}<br>Percentage: %{percent}<extra></extra>'
-    )])
-    fig_pie.update_layout(
-        title=dict(
-            text=f"Total Action Points: {total}",
-            font=dict(size=14, color='#1a5276', family='Times New Roman, Times, serif')
-        ),
-        height=400,
-        font=dict(family='Times New Roman, Times, serif'),
-        plot_bgcolor='white',
-        paper_bgcolor='white',
-        legend=dict(
-            orientation='v',
-            yanchor='top',
-            y=1.0,
-            xanchor='right',
-            x=1.0,
-            font=dict(size=12, family='Times New Roman, Times, serif')
-        ),
-        margin=dict(l=40, r=160, t=60, b=40)
-    )
-    st.plotly_chart(
-        fig_pie,
-        use_container_width=True,
-        config={'displayModeBar': 'hover'}
-    )
+    col_left, col_right = st.columns(2)
+
+    with col_left:
+        fig_pie = go.Figure(data=[go.Pie(
+            labels=status_labels,
+            values=status_values,
+            hole=0.3,
+            marker=dict(colors=status_colors_pie),
+            text=status_text_labels,
+            textinfo='text',
+            textposition='inside',
+            insidetextorientation='horizontal',
+            textfont=dict(size=13, color='white', family='Times New Roman, Times, serif'),
+            hoverinfo='label+value+percent',
+            hovertemplate='<b>%{label}</b><br>Count: %{value}<br>Percentage: %{percent}<extra></extra>'
+        )])
+        fig_pie.update_layout(
+            title=dict(
+                text=f"Status Distribution — Total: {total}",
+                font=dict(size=14, color='#1a5276', family='Times New Roman, Times, serif')
+            ),
+            height=420,
+            font=dict(family='Times New Roman, Times, serif'),
+            plot_bgcolor='white',
+            paper_bgcolor='white',
+            legend=dict(
+                orientation='v',
+                yanchor='top',
+                y=1.0,
+                xanchor='right',
+                x=1.0,
+                font=dict(size=12, family='Times New Roman, Times, serif')
+            ),
+            margin=dict(l=40, r=160, t=60, b=40)
+        )
+        st.plotly_chart(
+            fig_pie,
+            use_container_width=True,
+            config={'displayModeBar': 'hover'},
+            key="ap_status_pie_followup"
+        )
+
+    with col_right:
+        if timeliness_pairs:
+            t_labels = [p[0] for p in timeliness_pairs]
+            t_values = [p[1] for p in timeliness_pairs]
+            t_colors = [timeliness_colors_map.get(lbl, '#6c757d') for lbl in t_labels]
+
+            t_total = sum(t_values)
+            t_text_labels = [
+                f"{(v / t_total * 100):.0f}% ({v})" if t_total > 0 else f"0% ({v})"
+                for v in t_values
+            ]
+
+            fig_t = go.Figure(data=[go.Pie(
+                labels=t_labels,
+                values=t_values,
+                hole=0.3,
+                marker=dict(colors=t_colors),
+                text=t_text_labels,
+                textinfo='text',
+                textposition='inside',
+                insidetextorientation='horizontal',
+                textfont=dict(size=13, color='white', family='Times New Roman, Times, serif'),
+                hoverinfo='label+value+percent',
+                hovertemplate='<b>%{label}</b><br>Count: %{value}<br>Percentage: %{percent}<extra></extra>'
+            )])
+            fig_t.update_layout(
+                title=dict(
+                    text=f"Timeliness Distribution — Total: {t_total}",
+                    font=dict(size=14, color='#1a5276', family='Times New Roman, Times, serif')
+                ),
+                height=420,
+                font=dict(family='Times New Roman, Times, serif'),
+                plot_bgcolor='white',
+                paper_bgcolor='white',
+                legend=dict(
+                    orientation='v',
+                    yanchor='top',
+                    y=1.15,
+                    xanchor='right',
+                    x=1.0,
+                    font=dict(size=12, family='Times New Roman, Times, serif')
+                ),
+                margin=dict(l=40, r=160, t=90, b=40)
+            )
+            st.plotly_chart(
+                fig_t,
+                use_container_width=True,
+                config={'displayModeBar': 'hover'},
+                key="ap_timeliness_pie_followup"
+            )
+        else:
+            st.markdown(
+                '<div style="text-align:center; color:#888; padding:180px 0; '
+                'font-family: Times New Roman, Times, serif; font-size: 14px;">'
+                'No timeliness data available for this selection.</div>',
+                unsafe_allow_html=True
+            )
 
     st.markdown("---")
 
@@ -5999,9 +6261,6 @@ def render_ap_progress_follow_up(sheet_name, selected_quarter, selected_year, se
         bodies = [b.strip() for b in body_str.split(',') if b.strip()]
         all_bodies.extend(bodies)
 
-    # ======================================================================
-    # ORGANIZATION PIE CHARTS (EPSS / MOH / MSH_SCS) — prefix-based
-    # ======================================================================
     def _org_of(body):
         body = (body or '').strip()
         if body.startswith('EPSS_'):
@@ -6013,7 +6272,6 @@ def render_ap_progress_follow_up(sheet_name, selected_quarter, selected_year, se
         return 'Other'
 
     def _compute_org_status_counts(org_name):
-        """Return (completed, not_completed, pending) for the given organization."""
         completed_c = 0
         not_completed_c = 0
         pending_c = 0
@@ -6042,7 +6300,7 @@ def render_ap_progress_follow_up(sheet_name, selected_quarter, selected_year, se
         st.markdown("### 🥧 Organization Status Distribution")
         pie_cols = st.columns(3)
 
-        pie_colors = ['#28a745', '#2e86c1', '#ffc107']  # Completed, Not Completed, Pending
+        pie_colors = ['#28a745', '#2e86c1', '#ffc107']
 
         for col, (org_name, org_key) in zip(pie_cols, org_defs):
             completed_o, not_completed_o, pending_o = _compute_org_status_counts(org_key)
@@ -6103,9 +6361,6 @@ def render_ap_progress_follow_up(sheet_name, selected_quarter, selected_year, se
 
         st.markdown("---")
 
-    # ======================================================================
-    # EPSS DETAILED BREAKDOWN — prefix-based
-    # ======================================================================
     epss_body_set = sorted({b for b in all_bodies if _org_of(b) == 'EPSS'})
     epss_total = sum(1 for b in all_bodies if _org_of(b) == 'EPSS')
 
@@ -6239,14 +6494,10 @@ def render_ap_progress_follow_up(sheet_name, selected_quarter, selected_year, se
 
             st.markdown("---")
 
-    # ======================================================================
-    # COMBINED ORGANIZATION SUMMARY TABLE — prefix-based
-    # ======================================================================
     if all_bodies:
         combined_data = []
 
         def _org_summary(org_key):
-            """Aggregate status counts for an organization across all its bodies."""
             total_count = 0
             completed_c = 0
             not_completed_c = 0
@@ -6288,6 +6539,459 @@ def render_ap_progress_follow_up(sheet_name, selected_quarter, selected_year, se
         st.info("No responsible body data available.")
 
     st.markdown("---")
+
+    # ======================================================================
+    # MULTI-PROGRAM MULTI-SHEET XLSX EXPORT
+    # ======================================================================
+    st.markdown("### 📥 Download Action Plan by Program (Multi-Sheet XLSX)")
+
+    SHEET_NAME_MAP = {
+        "Malaria":          "Malaria",
+        "HIV":              "HIV",
+        "OI and Hepatitis": "OIs and Hepatitis",
+        "TB":               "TB",
+    }
+
+    EXPORT_COLUMNS = [
+        'Material', 'NMOS', 'Purchase Order', 'Order Quantity',
+        'Identified Problem', 'Action Point', 'Responsible Body', 'Due Date'
+    ]
+
+    FONT_FAMILY = 'Times New Roman'
+
+    def _safe_cell(v):
+        if v is None:
+            return ''
+        try:
+            if isinstance(v, float) and pd.isna(v):
+                return ''
+        except Exception:
+            pass
+        s = str(v).strip()
+        if s.lower() in ('nan', 'none', 'nat'):
+            return ''
+        return v
+
+    def _clean_numeric_string(v):
+        if v is None or v == '':
+            return ''
+        try:
+            if isinstance(v, (int, float)) and not (isinstance(v, float) and pd.isna(v)):
+                return v
+        except Exception:
+            pass
+        s = str(v).strip()
+        if s == '' or s.lower() in ('nan', 'none', 'nat', 'n/a'):
+            return ''
+        try:
+            f = float(s.replace(',', ''))
+            if f.is_integer():
+                return int(f)
+            return f
+        except Exception:
+            return s
+
+    def _coerce_to_int_for_cell(v):
+        if v is None:
+            return None
+        if isinstance(v, bool):
+            return None
+        if isinstance(v, int):
+            return v
+        if isinstance(v, float):
+            try:
+                if pd.isna(v):
+                    return None
+                return int(round(v))
+            except Exception:
+                return None
+        s = str(v).strip()
+        if s == '' or s.lower() in ('nan', 'none', 'nat', 'n/a', '-'):
+            return None
+        cleaned = re.sub(r'[,\s\u00A0]+', '', s)
+        if not re.fullmatch(r'-?\d+(\.\d+)?', cleaned):
+            return None
+        try:
+            return int(round(float(cleaned)))
+        except Exception:
+            return None
+
+    def _to_ordinal_quarter(q):
+        try:
+            n = int(str(q).strip().upper().replace('Q', ''))
+        except Exception:
+            return str(q)
+        suffix_map = {1: 'st', 2: 'nd', 3: 'rd', 4: 'th'}
+        return f"{n}{suffix_map.get(n, 'th')} Q"
+
+    def _build_program_export_df(program_key):
+        try:
+            prog_records = load_expert_plan_records(
+                program_key,
+                selected_quarter if selected_quarter != "All" else None,
+                selected_year if selected_year != "All" else None
+            )
+        except Exception:
+            prog_records = None
+
+        if not prog_records:
+            return pd.DataFrame(columns=EXPORT_COLUMNS)
+
+        try:
+            p_df = pd.DataFrame(prog_records)
+        except Exception:
+            return pd.DataFrame(columns=EXPORT_COLUMNS)
+
+        if p_df.empty:
+            return pd.DataFrame(columns=EXPORT_COLUMNS)
+
+        if 'Quarter' in p_df.columns and 'Year' in p_df.columns:
+            q_order = {'Q1': 1, 'Q2': 2, 'Q3': 3, 'Q4': 4}
+            p_df['_qsort'] = (
+                pd.to_numeric(p_df['Year'], errors='coerce').fillna(0).astype(int) * 10
+                + p_df['Quarter'].map(q_order).fillna(0).astype(int)
+            )
+            latest_key = p_df['_qsort'].max()
+            p_df = p_df[p_df['_qsort'] == latest_key].drop(columns=['_qsort'])
+
+        if p_df.empty:
+            return pd.DataFrame(columns=EXPORT_COLUMNS)
+
+        if 'Material' in p_df.columns:
+            p_df = p_df.sort_values('Material')
+
+        export = pd.DataFrame()
+        for col in EXPORT_COLUMNS:
+            if col == 'Due Date':
+                export['Due Date'] = (
+                    p_df['Due Date'].apply(_fmt_due) if 'Due Date' in p_df.columns else ''
+                )
+            elif col == 'NMOS':
+                if 'NMOS' in p_df.columns:
+                    export['NMOS'] = p_df['NMOS'].apply(_clean_numeric_string)
+                else:
+                    export['NMOS'] = ''
+            elif col == 'Order Quantity':
+                if 'Order Quantity' in p_df.columns:
+                    export['Order Quantity'] = p_df['Order Quantity']
+                else:
+                    export['Order Quantity'] = ''
+            else:
+                if col in p_df.columns:
+                    export[col] = p_df[col].apply(_safe_cell)
+                else:
+                    export[col] = ''
+
+        if 'Material' in export.columns:
+            export = export[export['Material'].astype(str).str.strip() != '']
+
+        export = export.reset_index(drop=True)
+        return export
+
+    def _write_beautiful_sheet(writer, df_to_write, sheet_name, program_label, quarter_label):
+        from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+        from openpyxl.utils import get_column_letter
+
+        wb = writer.book
+        ws = wb.create_sheet(title=sheet_name)
+
+        n_cols = max(len(EXPORT_COLUMNS), 1)
+
+        title_text = f"{quarter_label} {program_label} Medicines Action Plan"
+
+        ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=n_cols)
+        title_cell = ws.cell(row=1, column=1)
+        title_cell.value = title_text
+        title_cell.font = Font(name=FONT_FAMILY, size=12, bold=True, color='FFFFFF')
+        title_cell.fill = PatternFill(start_color='1A5276', end_color='1A5276', fill_type='solid')
+        title_cell.alignment = Alignment(horizontal='center', vertical='center', wrap_text=False)
+        ws.row_dimensions[1].height = 28
+
+        thin = Side(border_style='thin', color='BFBFBF')
+        medium = Side(border_style='medium', color='1A5276')
+        for c in range(1, n_cols + 1):
+            cell = ws.cell(row=1, column=c)
+            cell.border = Border(
+                left=medium if c == 1 else thin,
+                right=medium if c == n_cols else thin,
+                top=medium, bottom=medium
+            )
+
+        header_row_idx = 3
+        header_font = Font(name=FONT_FAMILY, size=12, bold=True, color='FFFFFF')
+        header_fill = PatternFill(start_color='2E86C1', end_color='2E86C1', fill_type='solid')
+        header_align = Alignment(horizontal='center', vertical='center', wrap_text=True)
+        header_border = Border(left=thin, right=thin, top=thin, bottom=thin)
+
+        for c_idx, col_name in enumerate(EXPORT_COLUMNS, start=1):
+            cell = ws.cell(row=header_row_idx, column=c_idx)
+            cell.value = str(col_name)
+            cell.font = header_font
+            cell.fill = header_fill
+            cell.alignment = header_align
+            cell.border = header_border
+        ws.row_dimensions[header_row_idx].height = 26
+
+        band_fill_even = PatternFill(start_color='F2F7FC', end_color='F2F7FC', fill_type='solid')
+        body_font = Font(name=FONT_FAMILY, size=12, color='222222')
+        body_border = Border(left=thin, right=thin, top=thin, bottom=thin)
+
+        red_font    = Font(name=FONT_FAMILY, size=12, color='C0392B', bold=True)
+        orange_font = Font(name=FONT_FAMILY, size=12, color='D35400', bold=True)
+        blue_font   = Font(name=FONT_FAMILY, size=12, color='1F618D', bold=True)
+        purple_font = Font(name=FONT_FAMILY, size=12, color='6F42C1', bold=True)
+        yellow_font = Font(name=FONT_FAMILY, size=12, color='B7950B', bold=True)
+
+        wrap_cols = {'Material', 'Identified Problem', 'Action Point', 'Responsible Body'}
+        center_cols = {'NMOS', 'Purchase Order', 'Order Quantity', 'Due Date'}
+
+        if df_to_write.empty:
+            msg_row = header_row_idx + 1
+            ws.merge_cells(start_row=msg_row, start_column=1,
+                           end_row=msg_row, end_column=n_cols)
+            msg_cell = ws.cell(row=msg_row, column=1)
+            msg_cell.value = f"No action points recorded for {program_label} for the selected period."
+            msg_cell.font = Font(name=FONT_FAMILY, size=12, italic=True, color='888888')
+            msg_cell.alignment = Alignment(horizontal='center', vertical='center')
+            ws.row_dimensions[msg_row].height = 30
+
+            default_widths = {
+                'Material': 40, 'NMOS': 10,
+                'Purchase Order': 22, 'Order Quantity': 18,
+                'Identified Problem': 40, 'Action Point': 55,
+                'Responsible Body': 28, 'Due Date': 16
+            }
+            for c_idx, col_name in enumerate(EXPORT_COLUMNS, start=1):
+                ws.column_dimensions[get_column_letter(c_idx)].width = default_widths.get(col_name, 18)
+            ws.freeze_panes = ws.cell(row=header_row_idx + 1, column=1)
+            return
+
+        df_work = df_to_write.copy()
+        df_work['_MaterialKey'] = df_work['Material'].astype(str)
+        material_order = list(dict.fromkeys(df_work['_MaterialKey'].tolist()))
+
+        excel_row = header_row_idx + 1
+        band_counter = 0
+        merge_ops = []
+
+        for mat in material_order:
+            block = df_work[df_work['_MaterialKey'] == mat]
+            if block.empty:
+                continue
+
+            n_block_rows = len(block)
+            block_start_row = excel_row
+            block_end_row = excel_row + n_block_rows - 1
+
+            material_val = str(block.iloc[0].get('Material', '') or '')
+            nmos_val = block.iloc[0].get('NMOS', '')
+            if nmos_val == '' or nmos_val is None:
+                nmos_val = ''
+
+            for r_offset, (_, r) in enumerate(block.iterrows()):
+                current_row = block_start_row + r_offset
+                is_even_band = (band_counter % 2 == 0)
+
+                for c_idx, col_name in enumerate(EXPORT_COLUMNS, start=1):
+                    if col_name == 'Material':
+                        cell_val = material_val if r_offset == 0 else ''
+                    elif col_name == 'NMOS':
+                        cell_val = nmos_val if r_offset == 0 else ''
+                    else:
+                        cell_val = r.get(col_name, '')
+                        if cell_val is None:
+                            cell_val = ''
+                        try:
+                            if isinstance(cell_val, float) and pd.isna(cell_val):
+                                cell_val = ''
+                        except Exception:
+                            pass
+                        if str(cell_val).strip().lower() in ('nan', 'none', 'nat'):
+                            cell_val = ''
+
+                    cell = ws.cell(row=current_row, column=c_idx)
+
+                    if col_name == 'Order Quantity':
+                        coerced = _coerce_to_int_for_cell(cell_val)
+                        if coerced is not None:
+                            cell.value = coerced
+                            cell.data_type = 'n'
+                            cell.number_format = '#,##0'
+                        else:
+                            cell.value = cell_val if cell_val is not None else ''
+                    elif col_name == 'NMOS':
+                        try:
+                            if cell_val is not None and str(cell_val).strip() not in ('', 'nan', 'None', 'nat'):
+                                fv = float(str(cell_val).replace(',', ''))
+                                cell.value = fv
+                                cell.data_type = 'n'
+                                cell.number_format = '0.00'
+                            else:
+                                cell.value = cell_val if cell_val is not None else ''
+                        except Exception:
+                            cell.value = cell_val if cell_val is not None else ''
+                    else:
+                        cell.value = cell_val if cell_val is not None else ''
+
+                    if col_name in center_cols:
+                        cell.alignment = Alignment(horizontal='center', vertical='top', wrap_text=False)
+                    elif col_name in wrap_cols:
+                        cell.alignment = Alignment(horizontal='left', vertical='top', wrap_text=True)
+                    else:
+                        cell.alignment = Alignment(horizontal='left', vertical='top', wrap_text=False)
+
+                    cell.font = body_font
+                    cell.border = body_border
+                    if is_even_band:
+                        cell.fill = band_fill_even
+
+                    val_txt = str(cell.value) if cell.value is not None else ''
+                    lv = val_txt.strip().lower()
+                    if col_name == 'Identified Problem':
+                        if '🔴' in val_txt or lv == 'stock out':
+                            cell.font = red_font
+                        elif '🟡' in val_txt or 'risk of stock' in lv:
+                            cell.font = yellow_font
+                        elif '⚠️' in val_txt or 'expiry' in lv:
+                            cell.font = orange_font
+                        elif '📉' in val_txt or 'below minimum' in lv:
+                            cell.font = blue_font
+                        elif '📦' in val_txt or 'pipeline insuff' in lv:
+                            cell.font = purple_font
+                    elif col_name == 'Due Date':
+                        if lv in ('immediately', 'asap'):
+                            cell.font = red_font
+                    elif col_name == 'Responsible Body':
+                        if lv.startswith('epss'):
+                            cell.font = Font(name=FONT_FAMILY, size=12, color='1F618D', bold=True)
+                        elif lv.startswith('moh'):
+                            cell.font = Font(name=FONT_FAMILY, size=12, color='6F42C1', bold=True)
+                        elif lv.startswith('msh'):
+                            cell.font = Font(name=FONT_FAMILY, size=12, color='1E8449', bold=True)
+
+                ws.row_dimensions[current_row].height = 34
+
+            if n_block_rows > 1:
+                merge_ops.append((1, block_start_row, block_end_row))
+                merge_ops.append((2, block_start_row, block_end_row))
+
+            excel_row = block_end_row + 1
+            band_counter += 1
+
+        for (col_idx, s_row, e_row) in merge_ops:
+            ws.merge_cells(
+                start_row=s_row, start_column=col_idx,
+                end_row=e_row, end_column=col_idx
+            )
+            merged_cell = ws.cell(row=s_row, column=col_idx)
+            if col_idx == 2:
+                merged_cell.alignment = Alignment(horizontal='center', vertical='center', wrap_text=False)
+            else:
+                merged_cell.alignment = Alignment(horizontal='left', vertical='center', wrap_text=True)
+
+        last_body_row = excel_row - 1
+
+        col_widths = {}
+        for c_idx, col_name in enumerate(EXPORT_COLUMNS, start=1):
+            max_len = len(str(col_name)) + 2
+            for value in df_work[col_name].astype(str).fillna('').tolist():
+                v = str(value)
+                if col_name in wrap_cols:
+                    max_len = max(max_len, min(len(v), 60))
+                else:
+                    max_len = max(max_len, len(v))
+
+            if col_name == 'Material':
+                col_widths[c_idx] = min(max(max_len, 20), 55)
+            elif col_name in ('Identified Problem', 'Action Point'):
+                col_widths[c_idx] = min(max(max_len, 30), 60)
+            elif col_name == 'Responsible Body':
+                col_widths[c_idx] = min(max(max_len, 18), 35)
+            elif col_name == 'Order Quantity':
+                col_widths[c_idx] = min(max(max_len, 14), 22)
+            else:
+                col_widths[c_idx] = min(max(max_len, 10), 30)
+
+        for c_idx, width in col_widths.items():
+            ws.column_dimensions[get_column_letter(c_idx)].width = width
+
+        ws.freeze_panes = ws.cell(row=header_row_idx + 1, column=1)
+        last_col_letter = get_column_letter(n_cols)
+        ws.auto_filter.ref = f"A{header_row_idx}:{last_col_letter}{last_body_row}"
+
+    try:
+        multi_output = BytesIO()
+        with pd.ExcelWriter(multi_output, engine='openpyxl') as writer:
+            if 'Sheet' in writer.book.sheetnames:
+                del writer.book['Sheet']
+
+            effective_quarter = selected_quarter
+            effective_year = selected_year
+
+            if effective_quarter == "All" or effective_year == "All":
+                try:
+                    all_records = load_expert_plan_records() or []
+                except Exception:
+                    all_records = []
+
+                if all_records:
+                    _q_order = {'Q1': 1, 'Q2': 2, 'Q3': 3, 'Q4': 4}
+                    def _key(rec):
+                        try:
+                            y = int(rec.get('Year') or 0)
+                        except Exception:
+                            y = 0
+                        q = _q_order.get(str(rec.get('Quarter') or '').upper(), 0)
+                        return (y, q)
+                    latest = max(all_records, key=_key)
+                    if effective_quarter == "All":
+                        effective_quarter = latest.get('Quarter') or effective_quarter
+                    if effective_year == "All":
+                        effective_year = latest.get('Year') or effective_year
+
+            if effective_quarter == "All" or effective_year == "All":
+                _now = datetime.now()
+                _q = (_now.month - 1) // 3 + 1
+                if effective_quarter == "All":
+                    effective_quarter = f"Q{_q}"
+                if effective_year == "All":
+                    effective_year = _now.year
+
+            quarter_label = f"{_to_ordinal_quarter(effective_quarter)}, {effective_year}"
+
+            for prog_key, sheet_label in SHEET_NAME_MAP.items():
+                prog_df = _build_program_export_df(prog_key)
+                if prog_df.empty:
+                    prog_df = pd.DataFrame(columns=EXPORT_COLUMNS)
+                prog_df_clean = clean_dataframe_for_excel(prog_df)
+                _write_beautiful_sheet(
+                    writer,
+                    prog_df_clean,
+                    sheet_label,
+                    prog_key,
+                    quarter_label,
+                )
+
+        multi_excel_data = multi_output.getvalue()
+
+        _quarter_for_file = _to_ordinal_quarter(effective_quarter).replace(' ', '_')
+        _year_for_file = str(effective_year)
+        _date_stamp = datetime.now().strftime('%Y%m%d')
+        file_name = (
+            f"{_quarter_for_file}_{_year_for_file}_"
+            f"Malaria_HIV_OI_and_TB_Medicines_Action_Plan_{_date_stamp}.xlsx"
+        )
+
+        st.download_button(
+            label="📥 Malaria, HIV, OI and TB Medicines Action Plan",
+            data=multi_excel_data,
+            file_name=file_name,
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            use_container_width=True,
+            key="download_multi_program_xlsx_followup"
+        )
+    except Exception as _e:
+        st.error(f"Could not build multi-program XLSX: {_e}")
 
 # ============================================================================
 # MAIN FUNCTION - WITH REFRESH BUTTON (Requirement 5)
@@ -6534,7 +7238,7 @@ def main():
         st.error("No data available for the selected filters.")
         st.stop()
 
-    # ============================================================
+        # ============================================================
     # PROGRESS SUMMARY
     # ============================================================
     records = load_expert_plan_records(
@@ -6560,9 +7264,18 @@ def main():
             initiated = len(df_records[df_records['Status'] == 'Initiated'])
 
             program_display = sheet_name if sheet_name != "All" else "All Programs"
+
+            # ---------- MAIN TITLE ----------
             st.markdown(f"""
             <div class="progress-summary-container">
-                <h3 class="progress-summary-title">📊 {program_display} - {latest_quarter_val} {latest_year_val} Progress Status Summary</h3>
+                <h3 class="progress-summary-title">📊 {program_display} - {latest_quarter_val} {latest_year_val} Progress Status and Timeliness Summary</h3>
+            </div>
+            """, unsafe_allow_html=True)
+
+            # ---------- STATUS SUMMARY SUB-HEADING ----------
+            st.markdown(f"""
+            <div class="progress-summary-container" style="margin-top: 5px;">
+                <h4 class="progress-summary-title" style="font-size: 16px;">📋 Status Summary</h4>
             </div>
             """, unsafe_allow_html=True)
 
@@ -6588,6 +7301,102 @@ def main():
                 st.markdown(status_card_html("Pending", pending, "Pending", "card-pending", "⏳", st.session_state.selected_status == "Pending"), unsafe_allow_html=True)
             with col5:
                 st.markdown(status_card_html("Initiated", initiated, "Initiated", "card-initiated", "🚀", st.session_state.selected_status == "Initiated"), unsafe_allow_html=True)
+
+            # ============================================================
+            # TIMELINESS SUMMARY ROW
+            # ============================================================
+            def _parse_dt(v):
+                if v is None:
+                    return None
+                try:
+                    if isinstance(v, float) and pd.isna(v):
+                        return None
+                except Exception:
+                    pass
+                s = str(v).strip()
+                if not s or s.lower() in ('nan', 'none', 'nat', ''):
+                    return None
+                try:
+                    if re.match(r'^\d{4}-\d{2}-\d{2}$', s):
+                        return datetime.strptime(s, '%Y-%m-%d').date()
+                    for fmt in ['%Y-%m-%d %H:%M:%S', '%Y-%m-%dT%H:%M:%S',
+                                '%B %d, %Y', '%b %d, %Y', '%B %d %Y', '%b %d %Y',
+                                '%d/%m/%Y', '%m/%d/%Y', '%d-%m-%Y', '%m-%d-%Y']:
+                        try:
+                            return datetime.strptime(s, fmt).date()
+                        except Exception:
+                            continue
+                except Exception:
+                    pass
+                return None
+
+            _today = datetime.now().date()
+            _on_time = 0
+            _late = 0
+            _overdue = 0
+            _not_yet_due = 0
+
+            for _, _r in df_records.iterrows():
+                _status = str(_r.get('Status', '')).strip()
+                _due = _parse_dt(_r.get('Due Date', ''))
+                _comp = _parse_dt(_r.get('Completion Date', ''))
+
+                if _status.lower() == 'completed':
+                    if _due is None or _comp is None:
+                        _on_time += 1
+                    elif _comp <= _due:
+                        _on_time += 1
+                    else:
+                        _late += 1
+                else:
+                    if _due is None:
+                        _not_yet_due += 1
+                    elif _due < _today:
+                        _overdue += 1
+                    else:
+                        _not_yet_due += 1
+
+            # ---------- TIMELINESS SUMMARY SUB-HEADING ----------
+            st.markdown(f"""
+            <div class="progress-summary-container" style="margin-top: 10px;">
+                <h4 class="progress-summary-title" style="font-size: 16px;">⏱️ Timeliness Summary</h4>
+            </div>
+            """, unsafe_allow_html=True)
+
+            tcol1, tcol2, tcol3, tcol4 = st.columns(4)
+
+            with tcol1:
+                st.markdown(f"""
+                <div class="progress-status-card" style="background: linear-gradient(135deg, #28a745 0%, #20c997 100%);">
+                    <div class="status-icon">🟢</div>
+                    <div class="status-number">{_on_time}</div>
+                    <div class="status-label">On Time</div>
+                </div>
+                """, unsafe_allow_html=True)
+            with tcol2:
+                st.markdown(f"""
+                <div class="progress-status-card" style="background: linear-gradient(135deg, #fcc419 0%, #ff922b 100%);">
+                    <div class="status-icon">🟠</div>
+                    <div class="status-number">{_late}</div>
+                    <div class="status-label">Late</div>
+                </div>
+                """, unsafe_allow_html=True)
+            with tcol3:
+                st.markdown(f"""
+                <div class="progress-status-card" style="background: linear-gradient(135deg, #dc3545 0%, #c82333 100%);">
+                    <div class="status-icon">🔴</div>
+                    <div class="status-number">{_overdue}</div>
+                    <div class="status-label">Overdue</div>
+                </div>
+                """, unsafe_allow_html=True)
+            with tcol4:
+                st.markdown(f"""
+                <div class="progress-status-card" style="background: linear-gradient(135deg, #2e86c1 0%, #4dabf7 100%);">
+                    <div class="status-icon">🔵</div>
+                    <div class="status-number">{_not_yet_due}</div>
+                    <div class="status-label">Not Yet Due</div>
+                </div>
+                """, unsafe_allow_html=True)
 
             st.markdown("---")
 
