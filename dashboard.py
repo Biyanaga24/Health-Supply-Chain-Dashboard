@@ -7451,6 +7451,7 @@ with tab5:
 
    # ---------------------------------------------------
 # TAB 6 - Procurement Lead Time (FULLY REVISED)
+# Linked to sidebar via the globally-filtered `df`
 # ---------------------------------------------------
 
 # ===================================================
@@ -7479,6 +7480,46 @@ def _normalize_material(mat):
     except Exception:
         pass
     return " ".join(str(mat).strip().upper().split())
+
+
+# ===================================================
+# SIDEBAR LINKAGE
+# Filter procurement records to only those whose
+# Material Description exists in the globally filtered
+# `df` (i.e., the same df every other tab uses).
+# ===================================================
+def _link_procurement_to_sidebar(proc_df, filtered_df):
+    """
+    Keep only procurement rows whose material_description is present
+    in the sidebar-filtered `filtered_df`. This mirrors whatever the
+    sidebar selected (Program -> Materials, Material, Year, etc.)
+    without needing to know sidebar variable names.
+    """
+    if proc_df is None or proc_df.empty:
+        return proc_df
+    if filtered_df is None or filtered_df.empty:
+        # Sidebar filtered everything out -> nothing to show
+        return proc_df.iloc[0:0].copy()
+
+    if 'Material Description' not in filtered_df.columns:
+        return proc_df
+
+    allowed_materials = set(
+        filtered_df['Material Description']
+        .dropna()
+        .astype(str)
+        .map(_normalize_material)
+        .tolist()
+    )
+
+    if not allowed_materials:
+        return proc_df.iloc[0:0].copy()
+
+    out = proc_df.copy()
+    out['_mat_key_norm'] = out['material_description'].apply(_normalize_material)
+    out = out[out['_mat_key_norm'].isin(allowed_materials)]
+    out = out.drop(columns=['_mat_key_norm'], errors='ignore')
+    return out.reset_index(drop=True)
 
 
 # ===================================================
@@ -7678,7 +7719,6 @@ def export_smart_table_to_xlsx(smart_df, program_label="All Programs"):
         if col in export_df.columns:
             export_df[col] = pd.to_datetime(export_df[col], errors='coerce').dt.strftime('%Y-%m-%d')
 
-    # Keep Qty columns numeric so Excel can apply #,##0 format
     qty_cols = ['Request Qty', 'PO Qty', 'Delivered Qty', 'PO Qty Variance']
     for col in qty_cols:
         if col in export_df.columns:
@@ -7728,7 +7768,6 @@ def export_smart_table_to_xlsx(smart_df, program_label="All Programs"):
             cell.border = border
         ws.row_dimensions[2].height = 32
 
-        # Identify column indexes for special formatting
         variance_col_idx = None
         qty_col_indexes = []
         for idx, col_name in enumerate(export_df.columns, start=1):
@@ -7746,8 +7785,6 @@ def export_smart_table_to_xlsx(smart_df, program_label="All Programs"):
                 cell.alignment = Alignment(horizontal="left", vertical="center", wrap_text=True)
                 if band:
                     cell.fill = band_fill
-
-                # Apply #,##0 number format to Qty columns
                 if c_idx in qty_col_indexes:
                     cell.number_format = '#,##0'
 
@@ -7771,7 +7808,6 @@ def export_smart_table_to_xlsx(smart_df, program_label="All Programs"):
             for r_idx in range(3, 3 + len(export_df)):
                 v = ws.cell(row=r_idx, column=c_idx).value
                 if v is not None:
-                    # Account for comma formatting when measuring width
                     formatted = f"{v:,}" if c_idx in qty_col_indexes and isinstance(v, (int, float)) else str(v)
                     max_len = max(max_len, len(formatted))
             ws.column_dimensions[letter].width = min(max(max_len + 2, 12), 55)
@@ -7876,20 +7912,86 @@ def render_procurement_lead_time_tab():
         unsafe_allow_html=True
     )
 
-    material_options = (
-        sorted(df['Material Description'].dropna().astype(str).unique().tolist())
-        if not df.empty and 'Material Description' in df.columns else []
-    )
+    # -------------------------------------------------
+    # 0) READ SIDEBAR-FILTERED df  (this is the KEY)
+    #    We rebuild it here the same way the sidebar does,
+    #    so Tab 6 sees exactly the same rows as every other tab.
+    # -------------------------------------------------
+    # The sidebar-filtered df is typically available in the
+    # enclosing scope. We grab it defensively.
+    base_df = None
+    if 'df' in globals() and isinstance(df, pd.DataFrame):
+        base_df = df
+    elif 'filtered_df' in globals() and isinstance(filtered_df, pd.DataFrame):
+        base_df = filtered_df
+    elif 'df_filtered' in globals() and isinstance(df_filtered, pd.DataFrame):
+        base_df = df_filtered
 
-    # LOAD DATA
+    # If the sidebar stores the filtered df in session_state, prefer that.
+    for _key in ('filtered_df', 'df_filtered', 'sidebar_filtered_df', 'df'):
+        try:
+            _candidate = st.session_state.get(_key)
+            if isinstance(_candidate, pd.DataFrame) and not _candidate.empty:
+                base_df = _candidate
+                break
+        except Exception:
+            continue
+
+    # -------------------------------------------------
+    # 1) LOAD PROCUREMENT DATA
+    # -------------------------------------------------
     proc_df = load_procurement_lead_time(st.session_state.get('proc_cache_bust', 0))
-
-    if not proc_df.empty and 'df_new_deliveries' in globals() and not df_new_deliveries.empty:
-        proc_df = enrich_posting_date_from_deliveries(proc_df, df_new_deliveries)
-        proc_df = enrich_delivered_qty_from_deliveries(proc_df, df_new_deliveries)
 
     if proc_df.empty:
         st.info("📭 No procurement lead time records yet. Use '➕ Quick Add New Procurement Record' below.")
+        # Build material options from the sidebar-filtered df so newly-added rows
+        # are limited to the currently visible program
+        fallback_materials = []
+        if base_df is not None and not base_df.empty and 'Material Description' in base_df.columns:
+            fallback_materials = sorted(
+                base_df['Material Description'].dropna().astype(str).unique().tolist()
+            )
+        _render_quick_add_form(fallback_materials)
+        return
+
+    # Enrich with deliveries
+    deliveries_source = None
+    if 'df_new_deliveries' in globals() and not df_new_deliveries.empty:
+        deliveries_source = df_new_deliveries
+    elif base_df is not None and not base_df.empty:
+        deliveries_source = base_df
+
+    if deliveries_source is not None and not deliveries_source.empty:
+        try:
+            proc_df = enrich_posting_date_from_deliveries(proc_df, deliveries_source)
+        except Exception:
+            pass
+        proc_df = enrich_delivered_qty_from_deliveries(proc_df, deliveries_source)
+
+    # -------------------------------------------------
+    # 2) LINK TO SIDEBAR
+    #    Keep only procurement rows whose material appears
+    #    in the sidebar-filtered df.
+    # -------------------------------------------------
+    if base_df is not None and not base_df.empty and 'Material Description' in base_df.columns:
+        proc_df = _link_procurement_to_sidebar(proc_df, base_df)
+
+    # Build material options from the LINKED set
+    if not proc_df.empty and 'material_description' in proc_df.columns:
+        material_options = sorted(
+            proc_df['material_description'].dropna().astype(str).unique().tolist()
+        )
+    elif base_df is not None and not base_df.empty and 'Material Description' in base_df.columns:
+        material_options = sorted(
+            base_df['Material Description'].dropna().astype(str).unique().tolist()
+        )
+    else:
+        material_options = []
+
+    # If the sidebar filtered everything out, show a friendly message
+    if proc_df.empty:
+        st.info("📭 No procurement lead time records match the current sidebar filters. "
+                "Adjust the sidebar or use '➕ Quick Add New Procurement Record' below.")
         _render_quick_add_form(material_options)
         return
 
@@ -7897,7 +7999,7 @@ def render_procurement_lead_time_tab():
     proc_df = calculate_po_qty_variance(proc_df)
 
     # ============================================
-    # 1) FILTERS
+    # 3) TAB-LOCAL FILTERS (on top of sidebar)
     # ============================================
     st.markdown("### 🔍 Filters")
     fc1, fc2, fc3, fc4 = st.columns([1, 1, 1, 2])
@@ -7937,7 +8039,7 @@ def render_procurement_lead_time_tab():
     st.markdown("---")
 
     # ============================================
-    # 2) SUMMARY METRICS
+    # 4) SUMMARY METRICS
     # ============================================
     st.markdown("### 📊 Summary Metrics")
 
@@ -7971,7 +8073,7 @@ def render_procurement_lead_time_tab():
     st.markdown("---")
 
     # ============================================
-    # 3) SMART TABLE
+    # 5) SMART TABLE
     # ============================================
     st.markdown("### 🧠 Health Program Procurement Lead Time — Smart Summary")
 
@@ -7980,21 +8082,18 @@ def render_procurement_lead_time_tab():
     if not smart_df.empty:
         smart_display = smart_df.copy()
 
-        # Dates
         for col in ['epss_date', 'dmd_received_date', 'dmd_submission_date', 'posting_date']:
             if col in smart_display.columns:
                 smart_display[col] = pd.to_datetime(
                     smart_display[col], errors='coerce'
                 ).dt.strftime('%Y-%m-%d').fillna('')
 
-        # Days as int
         for col in ['DMD Processing Days', 'Procurement Lead Time', 'Procurement Process Time']:
             if col in smart_display.columns:
                 smart_display[col] = smart_display[col].apply(
                     lambda x: int(round(x)) if pd.notna(x) else ''
                 )
 
-        # >>> KEY CHANGE: Qty columns formatted with thousand separators (123,876) <<<
         for col in ['request_quantity', 'po_quantity', 'Delivered Qty', 'PO Qty Variance']:
             if col in smart_display.columns:
                 smart_display[col] = smart_display[col].apply(
@@ -8012,7 +8111,6 @@ def render_procurement_lead_time_tab():
                 lambda x: '' if x is None else x
             )
 
-        # Rename
         display_rename = {
             'material_description': 'Material Description',
             'year_of_request': 'Year',
@@ -8033,11 +8131,9 @@ def render_procurement_lead_time_tab():
         }
         smart_display = smart_display.rename(columns=display_rename)
 
-        # Reset index — no serial-number column
         smart_display = smart_display.reset_index(drop=True)
         smart_display.index.name = None
 
-        # Styles
         table_styles = [
             {'selector': 'table',
              'props': [('border-collapse', 'collapse'),
@@ -8072,7 +8168,6 @@ def render_procurement_lead_time_tab():
 
         styler = smart_display.style.set_table_styles(table_styles)
 
-        # Right-align Qty columns for numeric readability
         qty_display_cols = ['Request Qty', 'PO Qty', 'Delivered Qty', 'PO Qty Variance']
         qty_present = [c for c in qty_display_cols if c in smart_display.columns]
         if qty_present:
@@ -8112,7 +8207,6 @@ def render_procurement_lead_time_tab():
                 return ''
             styler = styler.map(_status_color, subset=['Status'])
 
-        # Column widths
         col_widths = _compute_html_column_widths(
             smart_display, {c: c for c in smart_display.columns}, cap=280, floor=100
         )
@@ -8126,7 +8220,6 @@ def render_procurement_lead_time_tab():
 
         import re as _re
 
-        # Strip any residual index cells from the HTML
         table_html = _re.sub(
             r'(<thead>\s*<tr>\s*)<th[^>]*>\s*</th>',
             r'\1',
@@ -8178,7 +8271,6 @@ def render_procurement_lead_time_tab():
         )
         st.markdown(scrollable_html, unsafe_allow_html=True)
 
-        # XLSX export
         program_label = program_display if 'program_display' in globals() else "All Programs"
         xlsx_bytes = export_smart_table_to_xlsx(smart_df, program_label)
         if xlsx_bytes is not None:
@@ -8197,7 +8289,7 @@ def render_procurement_lead_time_tab():
     st.markdown("---")
 
     # ============================================
-    # 4) LEAD TIME ANALYSIS
+    # 6) LEAD TIME ANALYSIS
     # ============================================
     st.markdown("### 📈 Lead Time Analysis")
 
@@ -8260,7 +8352,7 @@ def render_procurement_lead_time_tab():
     st.markdown("---")
 
     # ============================================
-    # 5) TOP 10 MATERIALS BY AVG PROCUREMENT LEAD TIME
+    # 7) TOP 10 MATERIALS BY AVG PROCUREMENT LEAD TIME
     # ============================================
     st.markdown("#### 🏆 Top 10 Materials by Avg Procurement Lead Time")
     top_src = filtered.dropna(subset=['Procurement Lead Time'])
@@ -8315,7 +8407,7 @@ def render_procurement_lead_time_tab():
     st.markdown("---")
 
     # ============================================
-    # 6) EDITABLE PROCUREMENT LEAD TIME RECORDS
+    # 8) EDITABLE PROCUREMENT LEAD TIME RECORDS
     # ============================================
     st.markdown("### 📋 Procurement Lead Time Records")
     st.caption("Edit any cell. The Smart Summary table above updates automatically after clicking 💾 Save All Changes.")
@@ -8340,7 +8432,6 @@ def render_procurement_lead_time_tab():
         if col in table_df.columns:
             table_df[col] = table_df[col].apply(lambda x: int(round(x)) if pd.notna(x) else "")
 
-    # Qty columns already formatted with commas in the editor (this was already there)
     for col in ['request_quantity', 'po_quantity', 'Delivered Qty', 'PO Qty Variance']:
         if col in table_df.columns:
             table_df[col] = table_df[col].apply(
@@ -8499,7 +8590,7 @@ def render_procurement_lead_time_tab():
     st.markdown("---")
 
     # ============================================
-    # 7) QUICK ADD FORM (BOTTOM)
+    # 9) QUICK ADD FORM (BOTTOM)
     # ============================================
     _render_quick_add_form(material_options)
 
