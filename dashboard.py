@@ -4975,19 +4975,33 @@ with tab1:
             </div>
             """, unsafe_allow_html=True)
 
-        # DOWNLOAD REPORT
+                # ==================================================================
+        # DOWNLOAD REPORT — Advanced, share-ready, per-program sheets (Excel only)
+        # ==================================================================
         st.markdown("---")
         st.markdown("<h4 style='font-size: 20px; font-weight: bold; font-family: Times New Roman;'>📥 Download Report</h4>", unsafe_allow_html=True)
 
-        report_columns = []
+        from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 
+        try:
+            from openpyxl.worksheet.errors import IgnoredError
+            _HAS_IGNORED_ERRORS = True
+        except Exception:
+            IgnoredError = None
+            _HAS_IGNORED_ERRORS = False
+
+        # ------------------------------------------------------------------
+        # 1) Determine report_columns (Material Description → TMOS)
+        # ------------------------------------------------------------------
+        report_columns = []
         if 'Material Description' in df_filtered.columns:
             report_columns.append('Material Description')
 
         all_columns = list(df_filtered.columns)
 
-        # EXCLUDE DOS from the download report
-        columns_to_exclude = ['Stock Status', 'Risk of Stock', 'Hubs%', 'Head Office%', 'Distr. Gap', 'CV (%)', 'CV Category', 'Has Expiry Risk', 'Expiry Risk Details', 'Assigned Subcategory', 'Risk Type', 'DOS']
+        columns_to_exclude = ['Stock Status', 'Risk of Stock', 'Hubs%', 'Head Office%',
+                              'Distr. Gap', 'CV (%)', 'CV Category', 'Has Expiry Risk',
+                              'Expiry Risk Details', 'Assigned Subcategory', 'Risk Type', 'DOS']
 
         if 'Material Description' in all_columns and 'TMOS' in all_columns:
             mat_index = all_columns.index('Material Description')
@@ -5010,73 +5024,564 @@ with tab1:
                 if col not in columns_to_exclude:
                     report_columns.append(col)
 
-        # Remove any duplicates
         report_columns = list(dict.fromkeys(report_columns))
-
-        # Ensure Material Description is first
         if 'Material Description' in report_columns:
             report_columns.remove('Material Description')
             report_columns.insert(0, 'Material Description')
 
-        report_df = df_filtered[report_columns].copy()
+        # ------------------------------------------------------------------
+        # 2) Column classification
+        # ------------------------------------------------------------------
+        TEXT_COLUMNS  = {'Material Description', 'Status', 'Expiry'}
+        PO_COLUMNS    = {'GIT_PO', 'LC_PO', 'WB_PO', 'TMD_PO'}
+        FLOAT_COLUMNS = {'NMOS', 'GIT_MOS', 'LC_MOS', 'WB_MOS', 'TMD_MOS', 'TMOS'}
 
-        for col in report_df.columns:
-            if col in ['NMOS', 'GIT_MOS', 'LC_MOS', 'WB_MOS', 'TMD_MOS', 'TMOS']:
-                report_df[col] = report_df[col].apply(lambda x: round(x, 2) if pd.notna(x) else "")
-            elif col in ['NSOH', 'AMC', 'Hubs', 'Head Office']:
-                report_df[col] = report_df[col].apply(lambda x: f"{int(x):,}" if pd.notna(x) and x != "" else "" if x == "" else x)
+        BRANCH_COLUMNS = {c for c in report_columns if 'Branch' in c}
 
-        output = BytesIO()
+        FIXED_WIDTHS = {
+            'Expiry': 48,
+            'Status': 50,
+        }
+        MD_WIDTH = 32
 
-        try:
-            with pd.ExcelWriter(output, engine='openpyxl') as writer:
-                if show_all_programs or len(selected_programs_list) == 0:
-                    report_title = "All Programs Medicines Monthly National and Pipeline Report"
+        # ------------------------------------------------------------------
+        # 3) Build clean data
+        # ------------------------------------------------------------------
+        def _is_subcategory_header(material):
+            if not isinstance(material, str):
+                return False
+            for parent, meta in PROGRAM_HIERARCHY.items():
+                if material.strip() in meta.get("subcategories", []):
+                    return True
+            return False
+
+        def _clean_text(s):
+            if s is None:
+                return None
+            try:
+                if pd.isna(s):
+                    return None
+            except Exception:
+                pass
+            s = str(s).strip().lstrip("'\"")
+            if s == "" or s.lower() == "nan":
+                return None
+            if s.endswith(".0") and s[:-2].replace(".", "", 1).replace(",", "").isdigit():
+                s = s[:-2]
+            return s
+
+        def _stack_pos(val):
+            """Return PO value:
+               - Single PO       -> integer (real number, no triangle, no decimals)
+               - Multiple POs    -> text, one PO per line (forced-text to avoid triangle)
+            """
+            if val is None:
+                return None
+            try:
+                if pd.isna(val):
+                    return None
+            except Exception:
+                pass
+
+            s = str(val).strip().lstrip("'\"")
+            if s == "" or s.lower() == "nan":
+                return None
+
+            parts = re.split(r"[,\;\|\n]+", s)
+            cleaned = []
+            for p in parts:
+                p = p.strip().lstrip("'\"")
+                if not p:
+                    continue
+                if p.endswith(".0") and p[:-2].replace(".", "", 1).isdigit():
+                    p = p[:-2]
+                cleaned.append(p)
+
+            if not cleaned:
+                return None
+
+            # Single PO → store as integer (real number, no triangle, no float)
+            if len(cleaned) == 1:
+                try:
+                    return int(cleaned[0])
+                except ValueError:
+                    return cleaned[0]
+
+            # Multiple POs → stacked text with forced-text marker
+            return "'" + "\n".join(cleaned)
+
+        def _coerce_value(col, val):
+            if val is None:
+                return None
+            try:
+                if pd.isna(val):
+                    return None
+            except Exception:
+                pass
+
+            if col in PO_COLUMNS:
+                return _stack_pos(val)
+            if col in TEXT_COLUMNS:
+                return _clean_text(val)
+
+            s = str(val).replace(",", "").strip()
+            if s == "" or s.lower() == "nan":
+                return None
+            try:
+                num = float(s)
+            except Exception:
+                return None
+
+            if col in FLOAT_COLUMNS:
+                return round(num, 2)
+            return int(round(num))
+
+        def _clean_sheet_df(df_part):
+            df_out = df_part[report_columns].copy()
+            for col in df_out.columns:
+                df_out[col] = df_out[col].apply(lambda v: _coerce_value(col, v))
+            return df_out
+
+        def _build_ordered_materials(program_name):
+            if program_name not in google_sheets:
+                return []
+            prog_df = google_sheets[program_name]
+            if prog_df.empty or 'Material Description' not in prog_df.columns:
+                return []
+            subcats = PROGRAM_HIERARCHY.get(program_name, {}).get("subcategories", [])
+            ordered = []
+            current_sub = None
+            for mat in prog_df['Material Description'].dropna().tolist():
+                mat_str = str(mat).strip()
+                if mat_str in subcats:
+                    current_sub = mat_str
                 else:
-                    report_title = f"{', '.join(selected_programs_list)} Medicines Monthly National and Pipeline Report"
+                    ordered.append((current_sub, mat_str))
+            return ordered
 
-                report_df.to_excel(writer, sheet_name=report_title[:31], index=False)
-                worksheet = writer.sheets[report_title[:31]]
+        SUBCAT_PALETTE = [
+            "1F4E78", "2E75B6", "7030A0", "C00000",
+            "BF8F00", "375623", "833C00", "203864",
+        ]
 
-                for column in report_df.columns:
-                    try:
-                        str_values = report_df[column].astype(str).replace('nan', '').replace('None', '')
-                        if len(str_values) > 0:
-                            column_length = max(str_values.map(len).max(), len(column))
+        TITLE_FILL  = PatternFill("solid", fgColor="1A5276")
+        HEADER_FILL = PatternFill("solid", fgColor="2E75B6")
+        BAND_FILL   = PatternFill("solid", fgColor="F2F7FB")
+
+        TITLE_FONT  = Font(name="Times New Roman", size=14, bold=True, color="FFFFFF")
+        HEADER_FONT = Font(name="Times New Roman", size=12, bold=True, color="FFFFFF")
+        SUBCAT_FONT = Font(name="Times New Roman", size=12, bold=True, color="FFFFFF")
+        DATA_FONT   = Font(name="Times New Roman", size=12, color="1F2A38")
+
+        thin = Side(border_style="thin", color="B8C6D6")
+        BORDER = Border(left=thin, right=thin, top=thin, bottom=thin)
+
+        LEFT_WRAP_TOP = Alignment(horizontal="left", vertical="top", wrap_text=True)
+
+        def _branch_header_text(name):
+            if name not in BRANCH_COLUMNS:
+                return name
+            parts = name.rsplit(" ", 1)
+            if len(parts) == 2:
+                return parts[0] + "\n" + parts[1]
+            return name
+
+        # ------------------------------------------------------------------
+        # 4) Build {sheet_name: rows}
+        # ------------------------------------------------------------------
+        sheets_to_write = {}
+
+        def _build_sheet_rows(program_name, filtered_df):
+            ordered_mats = _build_ordered_materials(program_name)
+            if not ordered_mats:
+                clean = _clean_sheet_df(filtered_df)
+                return [("header", None)] + [("data", r) for _, r in clean.iterrows()]
+            clean_df = _clean_sheet_df(filtered_df)
+            clean_df = clean_df.set_index('Material Description', drop=False)
+            rows = [("header", None)]
+            current_sub_emitted = None
+            for subcat, material in ordered_mats:
+                if material not in clean_df.index:
+                    continue
+                if subcat and subcat != current_sub_emitted:
+                    rows.append(("subcategory", subcat))
+                    current_sub_emitted = subcat
+                matches = clean_df.loc[[material]]
+                if isinstance(matches, pd.DataFrame):
+                    for _, r in matches.iterrows():
+                        rows.append(("data", r))
+                else:
+                    rows.append(("data", matches))
+            return rows
+
+        if show_all_programs or len(selected_programs_list) == 0:
+            ordered_programs = list(PROGRAM_ORDER_LIST) + [
+                p for p in google_sheets.keys() if p not in PROGRAM_ORDER_LIST
+            ]
+            for prog_name in ordered_programs:
+                if prog_name not in google_sheets:
+                    continue
+                prog_sheet_df = google_sheets[prog_name]
+                if prog_sheet_df.empty or 'Material Description' not in prog_sheet_df.columns:
+                    continue
+                prog_materials = prog_sheet_df['Material Description'].dropna().tolist()
+                prog_materials = [m for m in prog_materials if not _is_subcategory_header(m)]
+                prog_filtered = df_filtered[df_filtered['Material Description'].isin(prog_materials)].copy()
+                if prog_filtered.empty:
+                    continue
+                sheets_to_write[prog_name] = _build_sheet_rows(prog_name, prog_filtered)
+
+        elif len(selected_programs_list) == 1:
+            prog_name = selected_programs_list[0]
+            sheet_label = prog_name
+            if subcategory_filter != "All":
+                sheet_label = f"{prog_name} - {subcategory_filter}"
+            if prog_name in google_sheets:
+                sheets_to_write[sheet_label] = _build_sheet_rows(prog_name, df_filtered)
+            else:
+                clean = _clean_sheet_df(df_filtered)
+                sheets_to_write[sheet_label] = [("header", None)] + [("data", r) for _, r in clean.iterrows()]
+
+        else:
+            for prog_name in selected_programs_list:
+                if prog_name not in google_sheets:
+                    continue
+                prog_sheet_df = google_sheets[prog_name]
+                if prog_sheet_df.empty or 'Material Description' not in prog_sheet_df.columns:
+                    continue
+                prog_materials = prog_sheet_df['Material Description'].dropna().tolist()
+                prog_materials = [m for m in prog_materials if not _is_subcategory_header(m)]
+                prog_filtered = df_filtered[df_filtered['Material Description'].isin(prog_materials)].copy()
+                if prog_filtered.empty:
+                    continue
+                sheets_to_write[prog_name] = _build_sheet_rows(prog_name, prog_filtered)
+
+        # ------------------------------------------------------------------
+        # 5) Descriptive file label
+        # ------------------------------------------------------------------
+        if show_all_programs or len(selected_programs_list) == 0:
+            file_label = "All Programs"
+        elif len(selected_programs_list) == 1:
+            file_label = selected_programs_list[0]
+            if subcategory_filter != "All":
+                file_label = f"{file_label} - {subcategory_filter}"
+        elif len(selected_programs_list) == 2:
+            file_label = f"{selected_programs_list[0]} and {selected_programs_list[1]}"
+        else:
+            file_label = ", ".join(selected_programs_list[:-1]) + f" and {selected_programs_list[-1]}"
+
+        safe_file_label = re.sub(r'[\[\]:\*\?/\\]', '', file_label).strip()
+        safe_file_label = re.sub(r'\s+', ' ', safe_file_label)
+
+        file_name = (
+            f"{safe_file_label} Medicines Monthly National and Pipeline Stock Status Report "
+            f"{datetime.now().strftime('%Y%m%d')}.xlsx"
+        )
+
+        # ------------------------------------------------------------------
+        # 6) Compute column widths
+        # ------------------------------------------------------------------
+        def _compute_col_widths(sheets_map):
+            widths = {}
+            for col in report_columns:
+                if col in FIXED_WIDTHS:
+                    widths[col] = FIXED_WIDTHS[col]
+                    continue
+                if col == 'Material Description':
+                    widths[col] = MD_WIDTH
+                    continue
+                if col in PO_COLUMNS:
+                    widths[col] = 14
+                    continue
+                if col in BRANCH_COLUMNS:
+                    widths[col] = 14
+                    continue
+                if col in FLOAT_COLUMNS:
+                    widths[col] = 12
+                    continue
+
+                header_len = len(str(col))
+                max_val_len = 0
+                for _sheet, rows in sheets_map.items():
+                    for rt, payload in rows:
+                        if rt != "data":
+                            continue
+                        v = payload[col] if col in payload.index else None
+                        if v is None:
+                            continue
+                        try:
+                            if pd.isna(v):
+                                continue
+                        except Exception:
+                            pass
+                        s = str(v)
+                        if s.strip() == "":
+                            continue
+                        for line in s.split("\n"):
+                            max_val_len = max(max_val_len, len(line))
+
+                w = max(header_len, max_val_len) + 2
+                widths[col] = min(max(w, 10), 30)
+
+            return widths
+
+        COL_WIDTHS = _compute_col_widths(sheets_to_write)
+
+        # ------------------------------------------------------------------
+        # 7) Write workbook
+        # ------------------------------------------------------------------
+        if not sheets_to_write:
+            st.warning("⚠️ No data available to generate the report. Please adjust your filters.")
+        else:
+            output = BytesIO()
+            try:
+                with pd.ExcelWriter(output, engine='openpyxl') as writer:
+                    pd.DataFrame().to_excel(writer, sheet_name="__tmp__", index=False)
+                    del writer.book["__tmp__"]
+
+                    used_names = set()
+                    n_cols = len(report_columns)
+                    last_col_letter = get_column_letter(n_cols)
+
+                    col_formats = {}
+                    for col in report_columns:
+                        if col in PO_COLUMNS or col in TEXT_COLUMNS:
+                            col_formats[col] = "@"
+                        elif col in FLOAT_COLUMNS:
+                            col_formats[col] = "#,##0.00"
                         else:
-                            column_length = len(column)
-                        column_length = min(column_length, 50)
-                        col_idx = report_df.columns.get_loc(column)
-                        col_letter = get_column_letter(col_idx + 1)
-                        worksheet.column_dimensions[col_letter].width = column_length + 2
-                    except Exception:
-                        col_idx = report_df.columns.get_loc(column)
-                        col_letter = get_column_letter(col_idx + 1)
-                        worksheet.column_dimensions[col_letter].width = 15
+                            col_formats[col] = "#,##0"
 
-            output.seek(0)
-            st.download_button(
-                label=f"📊 Download {program_display} Monthly National and Pipeline Report (Excel)",
-                data=output,
-                file_name=f"{program_display.replace(' ', '_')}_Monthly_National_Pipeline_Report_{datetime.now().strftime('%Y%m%d')}.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                use_container_width=True,
-                type="primary",
-                key="download_monthly_report_excel"
-            )
-            st.caption(f"Report includes columns from Material Description to TMOS ({len(report_columns)} columns)")
+                    po_col_letters = [
+                        get_column_letter(report_columns.index(c) + 1)
+                        for c in report_columns if c in PO_COLUMNS
+                    ]
+                    md_col_letter = get_column_letter(report_columns.index('Material Description') + 1) \
+                        if 'Material Description' in report_columns else None
+                    md_col_width = COL_WIDTHS.get('Material Description', MD_WIDTH)
 
-        except Exception as excel_error:
-            st.error(f"Error creating Excel file: {excel_error}")
-            csv_data = report_df.to_csv(index=False)
-            st.download_button(
-                label=f"📊 Download {program_display} Monthly National and Pipeline Report (CSV)",
-                data=csv_data,
-                file_name=f"{program_display.replace(' ', '_')}_Monthly_National_Pipeline_Report_{datetime.now().strftime('%Y%m%d')}.csv",
-                mime="text/csv",
-                use_container_width=True,
-                key="download_monthly_report_csv"
-            )
+                    for sheet_name, rows in sheets_to_write.items():
+                        safe_name = re.sub(r'[\[\]:\*\?/\\]', '_', str(sheet_name)).strip()
+                        safe_name = safe_name[:31] if safe_name else "Sheet"
+                        base_name = safe_name
+                        i = 1
+                        while safe_name in used_names:
+                            suffix = f"_{i}"
+                            safe_name = base_name[:31 - len(suffix)] + suffix
+                            i += 1
+                        used_names.add(safe_name)
+
+                        ws = writer.book.create_sheet(title=safe_name)
+
+                        # ---------- Row 1: Title ----------
+                        ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=n_cols)
+                        tcell = ws.cell(
+                            row=1, column=1,
+                            value=f"{sheet_name.upper()} — Medicines Monthly National and Pipeline Stock Status Report"
+                        )
+                        tcell.font = TITLE_FONT
+                        tcell.fill = TITLE_FILL
+                        tcell.alignment = LEFT_WRAP_TOP
+                        ws.row_dimensions[1].height = 30
+
+                        # ---------- Row 2: Column header ----------
+                        header_row_idx = 2
+                        for c_idx, col_name in enumerate(report_columns, start=1):
+                            display_name = _branch_header_text(col_name)
+                            cell = ws.cell(row=header_row_idx, column=c_idx, value=display_name)
+                            cell.font = HEADER_FONT
+                            cell.fill = HEADER_FILL
+                            cell.alignment = Alignment(
+                                horizontal="left",
+                                vertical="top",
+                                wrap_text=True,
+                                shrink_to_fit=False,
+                            )
+                            cell.border = BORDER
+                        ws.row_dimensions[header_row_idx].height = 50
+
+                        # ---------- Rows 3+: Data ----------
+                        current_row = header_row_idx + 1
+                        data_band_index = 0
+                        subcat_color_idx = 0
+
+                        for row_type, payload in rows:
+                            if row_type == "header":
+                                continue
+
+                            if row_type == "subcategory":
+                                ws.merge_cells(start_row=current_row, start_column=1,
+                                               end_row=current_row, end_column=n_cols)
+                                cell = ws.cell(row=current_row, column=1, value=f"▶  {payload}")
+                                color = SUBCAT_PALETTE[subcat_color_idx % len(SUBCAT_PALETTE)]
+                                subcat_color_idx += 1
+                                cell.fill = PatternFill("solid", fgColor=color)
+                                cell.font = SUBCAT_FONT
+                                cell.alignment = Alignment(horizontal="left", vertical="top",
+                                                           indent=1, wrap_text=False)
+                                cell.border = BORDER
+                                for c_idx in range(2, n_cols + 1):
+                                    ws.cell(row=current_row, column=c_idx).border = BORDER
+                                ws.row_dimensions[current_row].height = 22
+                                current_row += 1
+                                data_band_index = 0
+                                continue
+
+                            if row_type == "data":
+                                r = payload
+                                band_fill = BAND_FILL if data_band_index % 2 == 1 else None
+
+                                # ---- estimate lines for each column ----
+                                md_lines = 1
+                                other_max_lines = 1
+                                for col_name in report_columns:
+                                    val = r[col_name] if col_name in r.index else None
+                                    if val is None:
+                                        continue
+                                    try:
+                                        if pd.isna(val):
+                                            continue
+                                    except Exception:
+                                        pass
+                                    text = str(val)
+                                    if text.strip() == "":
+                                        continue
+                                    cw = COL_WIDTHS.get(col_name, 18)
+                                    total_lines = 0
+                                    for part in text.split("\n"):
+                                        total_lines += max(1, -(-len(part) // max(1, cw)))
+                                    if col_name == 'Material Description':
+                                        md_lines = max(md_lines, total_lines)
+                                    else:
+                                        other_max_lines = max(other_max_lines, total_lines)
+
+                                estimated_lines = max(md_lines, other_max_lines)
+                                needed_height = max(32, estimated_lines * 18)
+
+                                for c_idx, col_name in enumerate(report_columns, start=1):
+                                    val = r[col_name] if col_name in r.index else None
+                                    cell = ws.cell(row=current_row, column=c_idx)
+
+                                    is_blank = False
+                                    if val is None:
+                                        is_blank = True
+                                    else:
+                                        try:
+                                            if pd.isna(val):
+                                                is_blank = True
+                                        except Exception:
+                                            pass
+                                        if isinstance(val, str) and val.strip() == "":
+                                            is_blank = True
+
+                                    if not is_blank:
+                                        if col_name in PO_COLUMNS:
+                                            # int → real number, no triangle, no decimals
+                                            # '…' string → forced text (multi-PO stacked)
+                                            if isinstance(val, str) and val.startswith("'"):
+                                                cell.value = val
+                                                cell.number_format = "@"
+                                            elif isinstance(val, (int, float)):
+                                                cell.value = int(val)
+                                                cell.number_format = "0"
+                                            else:
+                                                cell.value = str(val)
+                                                cell.number_format = "@"
+                                        elif col_name in TEXT_COLUMNS:
+                                            cell.value = str(val)
+                                            cell.data_type = "s"
+                                            cell.number_format = "@"
+                                        else:
+                                            cell.value = val
+                                            cell.number_format = col_formats.get(col_name, "General")
+
+                                    cell.font = DATA_FONT
+                                    cell.alignment = LEFT_WRAP_TOP
+                                    cell.border = BORDER
+                                    if band_fill:
+                                        cell.fill = band_fill
+
+                                # Force Material Description's own wrap height
+                                if md_col_letter is not None:
+                                    md_text = r['Material Description'] if 'Material Description' in r.index else None
+                                    if md_text is not None:
+                                        try:
+                                            md_is_na = pd.isna(md_text)
+                                        except Exception:
+                                            md_is_na = False
+                                        if not md_is_na and str(md_text).strip() != "":
+                                            s = str(md_text)
+                                            md_lines_needed = 0
+                                            for part in s.split("\n"):
+                                                md_lines_needed += max(1, -(-len(part) // max(1, md_col_width)))
+                                            md_min_height = max(32, md_lines_needed * 18)
+                                            needed_height = max(needed_height, md_min_height)
+
+                                ws.row_dimensions[current_row].height = needed_height
+                                data_band_index += 1
+                                current_row += 1
+
+                        # ---------- Freeze + AutoFilter ----------
+                        ws.freeze_panes = ws.cell(row=header_row_idx + 1, column=1)
+                        ws.auto_filter.ref = f"A{header_row_idx}:{last_col_letter}{current_row - 1}"
+
+                        # ---------- Kill green triangles on PO columns (SAFE) ----------
+                        last_data_row = current_row - 1
+                        try:
+                            if _HAS_IGNORED_ERRORS and hasattr(ws, "ignored_errors"):
+                                for col_letter in po_col_letters:
+                                    rng = f"{col_letter}{header_row_idx + 1}:{col_letter}{last_data_row}"
+                                    ws.ignored_errors.append(
+                                        IgnoredError(
+                                            sqref=rng,
+                                            numberStoredAsText=True,
+                                            formula=False,
+                                            emptyCellReference=False,
+                                            listDataValidation=False,
+                                            calculatedColumn=False,
+                                            twoDigitTextYear=False,
+                                            unlockedFormula=False,
+                                            evalError=False,
+                                        )
+                                    )
+                        except Exception:
+                            pass
+
+                        # ---------- Column widths + hide branch columns ----------
+                        for c_idx, col_name in enumerate(report_columns, start=1):
+                            letter = get_column_letter(c_idx)
+                            width = COL_WIDTHS.get(col_name, 18)
+                            ws.column_dimensions[letter].width = width
+
+                            if col_name in BRANCH_COLUMNS:
+                                ws.column_dimensions[letter].hidden = True
+
+                output.seek(0)
+
+                # ------------------------------------------------------------------
+                # 8) Download button
+                # ------------------------------------------------------------------
+                n_sheets = len(sheets_to_write)
+
+                st.download_button(
+                    label=f"📊 Download {program_display} Monthly National and Pipeline Stock Status Report (Excel)",
+                    data=output,
+                    file_name=file_name,
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    use_container_width=True,
+                    type="primary",
+                    key="download_monthly_report_excel"
+                )
+                st.caption(
+                    f"Report includes columns from Material Description to TMOS "
+                    f"({len(report_columns)} columns) — {n_sheets} sheet(s), fully formatted with "
+                    f"colorful headings, subcategory separators, frozen header, autofilter, "
+                    f"wrapped text, stacked PO numbers, hidden branch columns and banded rows."
+                )
+
+            except Exception as excel_error:
+                st.error(f"❌ Error creating Excel file: {excel_error}")
+                st.info("Please check the data and try again. No CSV fallback will be produced.")
 
         # ============================================
         # 📈 NSOH HISTORICAL TREND SECTION - INSIDE TAB 1 ONLY
@@ -6944,92 +7449,455 @@ with tab5:
     else:
         st.warning("Required columns for supply planning not found in the data.")
 
-    # ---------------------------------------------------
+   # ---------------------------------------------------
 # TAB 6 - Procurement Lead Time (FULLY REVISED)
 # ---------------------------------------------------
 
-# ---- Fragment for Procurement Lead Time tab (fixes tab-jump + slow filters) ----
+# ===================================================
+# NORMALIZERS
+# ===================================================
+def _normalize_po(po):
+    if po is None:
+        return ""
+    try:
+        if pd.isna(po):
+            return ""
+    except Exception:
+        pass
+    s = str(po).strip().upper()
+    if s.endswith(".0") and s[:-2].replace(".", "", 1).isdigit():
+        s = s[:-2]
+    return "".join(s.split())
+
+
+def _normalize_material(mat):
+    if mat is None:
+        return ""
+    try:
+        if pd.isna(mat):
+            return ""
+    except Exception:
+        pass
+    return " ".join(str(mat).strip().upper().split())
+
+
+# ===================================================
+# HELPER: Enrich Delivered Qty
+# Rule: TAKE ONE row per (Material, PO) — DO NOT SUM
+# ===================================================
+def enrich_delivered_qty_from_deliveries(proc_df, deliveries_df):
+    """
+    Delivered Qty = one Quantity value per (Material, PO) from New Deliveries.
+
+    Rule:
+      - If the same (Material, PO) appears in multiple rows, TAKE ONE
+        (the earliest Posting Date). Do NOT sum.
+    """
+    if proc_df is None or proc_df.empty:
+        return proc_df
+
+    proc_df = proc_df.copy()
+
+    if deliveries_df is None or deliveries_df.empty:
+        if 'Delivered Qty' not in proc_df.columns:
+            proc_df['Delivered Qty'] = None
+        return proc_df
+
+    deliveries_df = deliveries_df.copy()
+
+    # Normalize keys
+    deliveries_df['_po_key']  = deliveries_df['PO Number'].apply(_normalize_po)
+    deliveries_df['_mat_key'] = deliveries_df['Material Description'].apply(_normalize_material)
+
+    # Clean Quantity
+    deliveries_df['Quantity'] = (
+        deliveries_df['Quantity']
+        .astype(str)
+        .str.replace(',', '', regex=False)
+        .str.strip()
+    )
+    deliveries_df['Quantity'] = pd.to_numeric(deliveries_df['Quantity'], errors='coerce').fillna(0)
+
+    # Sort so "first" = earliest Posting Date
+    if 'Posting Date' in deliveries_df.columns:
+        deliveries_df['_post_dt'] = pd.to_datetime(deliveries_df['Posting Date'], errors='coerce')
+        deliveries_df = deliveries_df.sort_values(
+            by=['_post_dt'], ascending=True, na_position='last'
+        ).reset_index(drop=True)
+    else:
+        deliveries_df = deliveries_df.reset_index(drop=True)
+
+    # TAKE ONE row per (Material, PO) — do NOT sum
+    deduped = deliveries_df.drop_duplicates(subset=['_mat_key', '_po_key'], keep='first')
+
+    table2_lookup = dict(
+        zip(
+            zip(deduped['_mat_key'], deduped['_po_key']),
+            deduped['Quantity']
+        )
+    )
+
+    # Normalize procurement keys
+    proc_df['_po_key']  = proc_df['po_number'].apply(_normalize_po)
+    proc_df['_mat_key'] = proc_df['material_description'].apply(_normalize_material)
+
+    def _resolve(row):
+        return table2_lookup.get((row['_mat_key'], row['_po_key']), None)
+
+    proc_df['Delivered Qty'] = proc_df.apply(_resolve, axis=1)
+    proc_df['Delivered Qty'] = pd.to_numeric(proc_df['Delivered Qty'], errors='coerce')
+
+    proc_df = proc_df.drop(columns=['_po_key', '_mat_key'], errors='ignore')
+    return proc_df
+
+
+# ===================================================
+# HELPER: PO Qty Variance
+# ===================================================
+def calculate_po_qty_variance(df):
+    if df.empty:
+        return df
+    df = df.copy()
+    po_qty = pd.to_numeric(df.get('po_quantity', 0), errors='coerce').fillna(0)
+    delivered_qty = pd.to_numeric(df.get('Delivered Qty', 0), errors='coerce').fillna(0)
+    df['PO Qty Variance'] = po_qty - delivered_qty
+    return df
+
+
+# ===================================================
+# HELPER: Build Smart Table — NO re-grouping, just dedupe
+# ===================================================
+def build_smart_procurement_table(filtered_df, material_options=None):
+    """
+    Data is ALREADY one row per (Material, PO).
+    Just take rows as-is; if a duplicate (Material, PO) appears,
+    keep the first one. Do NOT re-aggregate.
+    """
+    if filtered_df is None or filtered_df.empty:
+        return pd.DataFrame()
+
+    work = filtered_df.copy()
+
+    # Deduplicate by (Material, PO) — keep first
+    if 'material_description' in work.columns and 'po_number' in work.columns:
+        work['_mat_key'] = work['material_description'].apply(_normalize_material)
+        work['_po_key'] = work['po_number'].apply(_normalize_po)
+        work = work.drop_duplicates(subset=['_mat_key', '_po_key'], keep='first')
+        work = work.drop(columns=['_mat_key', '_po_key'], errors='ignore')
+
+    # Recompute variance & status on the deduped rows
+    work['PO Qty Variance'] = (
+        pd.to_numeric(work.get('po_quantity', 0), errors='coerce').fillna(0)
+        - pd.to_numeric(work.get('Delivered Qty', 0), errors='coerce').fillna(0)
+    )
+
+    def _status(row):
+        po_qty = row.get('po_quantity', 0) or 0
+        del_qty = row.get('Delivered Qty', 0)
+        posting = row.get('posting_date')
+        if pd.isna(del_qty):
+            del_qty = 0
+        if pd.notna(posting) and po_qty > 0 and del_qty >= po_qty:
+            return "✅ Fully Delivered"
+        elif del_qty > 0 and del_qty < po_qty:
+            return "🟡 Partially Delivered"
+        elif pd.notna(posting) and del_qty == 0:
+            return "⚠️ Posted - No Delivery"
+        elif pd.isna(posting):
+            return "⏳ In Progress"
+        return ""
+
+    work['Status'] = work.apply(_status, axis=1)
+
+    ordered_cols = [
+        'material_description', 'year_of_request', 'funding_source',
+        'request_quantity', 'epss_date', 'dmd_received_date', 'dmd_submission_date',
+        'po_number', 'po_quantity', 'Delivered Qty', 'posting_date',
+        'DMD Processing Days', 'Procurement Lead Time', 'Procurement Process Time',
+        'PO Qty Variance', 'Status',
+    ]
+    ordered_cols = [c for c in ordered_cols if c in work.columns]
+    smart = work[ordered_cols].copy()
+
+    # Sort: newest year first, then material
+    if 'year_of_request' in smart.columns:
+        smart = smart.sort_values(
+            by=['year_of_request', 'material_description'],
+            ascending=[False, True], na_position='last'
+        ).reset_index(drop=True)
+    else:
+        smart = smart.sort_values(
+            by=['material_description'], ascending=[True]
+        ).reset_index(drop=True)
+
+    return smart
+
+
+# ===================================================
+# HELPER: Export Smart Table to XLSX
+# ===================================================
+def export_smart_table_to_xlsx(smart_df, program_label="All Programs"):
+    from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+    from openpyxl.utils import get_column_letter
+
+    if smart_df.empty:
+        return None
+
+    output = BytesIO()
+
+    rename_map = {
+        'material_description': 'Material Description',
+        'year_of_request': 'Year',
+        'funding_source': 'Source of Fund',
+        'request_quantity': 'Request Qty',
+        'epss_date': 'EPSS Date',
+        'dmd_received_date': 'DMD Received Date',
+        'dmd_submission_date': 'DMD Submission Date',
+        'po_number': 'PO Number',
+        'po_quantity': 'PO Qty',
+        'Delivered Qty': 'Delivered Qty',
+        'posting_date': 'Posting Date',
+        'DMD Processing Days': 'DMD Proc. (Days)',
+        'Procurement Lead Time': 'Proc. Lead (Days)',
+        'Procurement Process Time': 'Proc. Process (Days)',
+        'PO Qty Variance': 'PO Qty Variance',
+        'Status': 'Status',
+    }
+
+    export_order = [
+        'material_description', 'year_of_request', 'funding_source',
+        'request_quantity', 'epss_date', 'dmd_received_date', 'dmd_submission_date',
+        'po_number', 'po_quantity', 'Delivered Qty', 'posting_date',
+        'DMD Processing Days', 'Procurement Lead Time', 'Procurement Process Time',
+        'PO Qty Variance', 'Status',
+    ]
+    export_order = [c for c in export_order if c in smart_df.columns]
+    export_df = smart_df[export_order].copy().rename(columns=rename_map)
+
+    for col in ['EPSS Date', 'DMD Received Date', 'DMD Submission Date', 'Posting Date']:
+        if col in export_df.columns:
+            export_df[col] = pd.to_datetime(export_df[col], errors='coerce').dt.strftime('%Y-%m-%d')
+
+    # Keep Qty columns numeric so Excel can apply #,##0 format
+    qty_cols = ['Request Qty', 'PO Qty', 'Delivered Qty', 'PO Qty Variance']
+    for col in qty_cols:
+        if col in export_df.columns:
+            export_df[col] = pd.to_numeric(export_df[col], errors='coerce')
+
+    for col in ['DMD Proc. (Days)', 'Proc. Lead (Days)', 'Proc. Process (Days)']:
+        if col in export_df.columns:
+            export_df[col] = pd.to_numeric(export_df[col], errors='coerce').round(0)
+
+    export_df = export_df.where(pd.notna(export_df), None)
+
+    with pd.ExcelWriter(output, engine='openpyxl') as writer:
+        sheet_name = "Procurement Lead Time"
+        export_df.to_excel(writer, sheet_name=sheet_name, index=False)
+        ws = writer.sheets[sheet_name]
+
+        title_font = Font(name="Times New Roman", size=14, bold=True, color="FFFFFF")
+        header_font = Font(name="Times New Roman", size=11, bold=True, color="FFFFFF")
+        data_font = Font(name="Times New Roman", size=11, color="1F2A38")
+
+        title_fill = PatternFill("solid", fgColor="1A5276")
+        header_fill = PatternFill("solid", fgColor="E67E22")
+        band_fill = PatternFill("solid", fgColor="FDF2E3")
+        shortfall_fill = PatternFill("solid", fgColor="FADBD8")
+        over_fill = PatternFill("solid", fgColor="D5F5E3")
+
+        thin = Side(border_style="thin", color="B8C6D6")
+        border = Border(left=thin, right=thin, top=thin, bottom=thin)
+
+        n_cols = len(export_df.columns)
+        last_col = get_column_letter(n_cols)
+
+        ws.insert_rows(1)
+        ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=n_cols)
+        tcell = ws.cell(row=1, column=1,
+                        value=f"{program_label} — Health Program Procurement Lead Time")
+        tcell.font = title_font
+        tcell.fill = title_fill
+        tcell.alignment = Alignment(horizontal="left", vertical="center")
+        ws.row_dimensions[1].height = 28
+
+        for c_idx in range(1, n_cols + 1):
+            cell = ws.cell(row=2, column=c_idx)
+            cell.font = header_font
+            cell.fill = header_fill
+            cell.alignment = Alignment(horizontal="left", vertical="center", wrap_text=True)
+            cell.border = border
+        ws.row_dimensions[2].height = 32
+
+        # Identify column indexes for special formatting
+        variance_col_idx = None
+        qty_col_indexes = []
+        for idx, col_name in enumerate(export_df.columns, start=1):
+            if col_name == 'PO Qty Variance':
+                variance_col_idx = idx
+            if col_name in qty_cols:
+                qty_col_indexes.append(idx)
+
+        for r_idx in range(3, 3 + len(export_df)):
+            band = (r_idx % 2 == 1)
+            for c_idx in range(1, n_cols + 1):
+                cell = ws.cell(row=r_idx, column=c_idx)
+                cell.font = data_font
+                cell.border = border
+                cell.alignment = Alignment(horizontal="left", vertical="center", wrap_text=True)
+                if band:
+                    cell.fill = band_fill
+
+                # Apply #,##0 number format to Qty columns
+                if c_idx in qty_col_indexes:
+                    cell.number_format = '#,##0'
+
+            if variance_col_idx is not None:
+                vcell = ws.cell(row=r_idx, column=variance_col_idx)
+                try:
+                    val = vcell.value
+                    if val is not None:
+                        v = float(val)
+                        if v > 0:
+                            vcell.fill = shortfall_fill
+                        elif v < 0:
+                            vcell.fill = over_fill
+                except Exception:
+                    pass
+
+        for c_idx, col_name in enumerate(export_df.columns, start=1):
+            letter = get_column_letter(c_idx)
+            header_len = len(str(col_name))
+            max_len = header_len
+            for r_idx in range(3, 3 + len(export_df)):
+                v = ws.cell(row=r_idx, column=c_idx).value
+                if v is not None:
+                    # Account for comma formatting when measuring width
+                    formatted = f"{v:,}" if c_idx in qty_col_indexes and isinstance(v, (int, float)) else str(v)
+                    max_len = max(max_len, len(formatted))
+            ws.column_dimensions[letter].width = min(max(max_len + 2, 12), 55)
+
+        ws.freeze_panes = "A3"
+        ws.auto_filter.ref = f"A2:{last_col}{2 + len(export_df)}"
+
+    output.seek(0)
+    return output
+
+
+# ===================================================
+# HELPER: Quick Add form
+# ===================================================
+def _render_quick_add_form(material_options):
+    if st.session_state['user']['role'] != 'admin':
+        return
+
+    st.markdown("### ➕ Quick Add New Procurement Record")
+    with st.expander("➕ Add New Record", expanded=False):
+        with st.form("quick_add_procurement_v6", clear_on_submit=True):
+            c1, c2, c3 = st.columns(3)
+
+            with c1:
+                f_mat = st.selectbox(
+                    "Material Description *",
+                    options=["-- Select Material --"] + material_options,
+                    key="add_material_select_v6"
+                )
+                f_year = st.number_input("Year of Request", min_value=2000, max_value=2100,
+                                         value=datetime.now().year, step=1, key="add_year_v6")
+                f_funding = st.text_input("Source of Fund", placeholder="e.g., SDG, GF, Treasury",
+                                          key="add_funding_text_v6")
+            with c2:
+                f_req_qty = st.number_input("Request Quantity", min_value=0.0, step=1.0,
+                                            value=0.0, key="add_req_qty_v6")
+                f_po = st.text_input("PO Number", placeholder="e.g., 4500012345", key="add_po_v6")
+                f_po_qty = st.number_input("PO Quantity", min_value=0.0, step=1.0,
+                                           value=0.0, key="add_po_qty_v6")
+            with c3:
+                st.markdown("**Dates** *(leave blank if not available)*")
+                f_epss = st.date_input("EPSS Date", value=None, key="add_epss_date_v6")
+                f_dmd_rec = st.date_input("DMD Received Date", value=None, key="add_dmd_rec_date_v6")
+                f_dmd_sub = st.date_input("DMD Submission Date", value=None, key="add_dmd_sub_date_v6")
+                f_posting = st.date_input("Posting Date", value=None, key="add_posting_date_v6")
+
+            submitted = st.form_submit_button("💾 Save Record", use_container_width=True, type="primary")
+
+            if submitted:
+                if not f_mat or f_mat == "-- Select Material --":
+                    st.error("⚠️ Please select a Material Description")
+                elif not f_funding or f_funding.strip() == "":
+                    st.error("⚠️ Please enter a Source of Fund")
+                else:
+                    record = {
+                        'material_description': f_mat,
+                        'year_of_request': int(f_year),
+                        'funding_source': f_funding.strip(),
+                        'request_quantity': float(f_req_qty) if f_req_qty else None,
+                        'po_number': f_po.strip() if f_po else None,
+                        'po_quantity': float(f_po_qty) if f_po_qty else None,
+                        'epss_date': f_epss,
+                        'dmd_received_date': f_dmd_rec,
+                        'dmd_submission_date': f_dmd_sub,
+                        'posting_date': f_posting,
+                    }
+                    if save_procurement_record(record):
+                        st.session_state.proc_cache_bust = st.session_state.get('proc_cache_bust', 0) + 1
+                        st.success(f"✅ Saved record for {f_mat[:50]}")
+                        st.rerun()
+
+
+# ===================================================
+# HELPER: per-column width
+# ===================================================
+def _compute_html_column_widths(display_df, header_labels, cap=280, floor=100):
+    widths = []
+    for col in display_df.columns:
+        header = header_labels.get(col, col)
+        max_chars = len(str(header))
+
+        series = display_df[col].astype(str)
+        if not series.empty:
+            max_len = series.str.len().max()
+            if pd.notna(max_len):
+                max_chars = max(max_chars, int(max_len))
+
+        px = int(max_chars * 8.5) + 24
+        px = max(floor, min(px, cap))
+        widths.append(px)
+    return widths
+
+
+# ===================================================
+# FRAGMENT: Tab renderer
+# ===================================================
 @st.fragment
 def render_procurement_lead_time_tab():
-    st.markdown("<h3 style='font-size: 28px; font-weight: bold; font-family: Times New Roman;'>⏱️ Procurement Lead Time Tracking</h3>", unsafe_allow_html=True)
+    st.markdown(
+        "<h3 style='font-size: 28px; font-weight: bold; font-family: Times New Roman;'>"
+        "⏱️ Procurement Lead Time Tracking</h3>",
+        unsafe_allow_html=True
+    )
 
     material_options = (
         sorted(df['Material Description'].dropna().astype(str).unique().tolist())
         if not df.empty and 'Material Description' in df.columns else []
     )
 
-    # ============================================
-    # QUICK ADD FORM (Admin only)
-    # ============================================
-    if st.session_state['user']['role'] == 'admin':
-        with st.expander("➕ Quick Add New Procurement Record", expanded=False):
-            with st.form("quick_add_procurement", clear_on_submit=True):
-                c1, c2, c3 = st.columns(3)
-
-                with c1:
-                    f_mat = st.selectbox(
-                        "Material Description *",
-                        options=["-- Select Material --"] + material_options,
-                        key="add_material_select"
-                    )
-                    f_year = st.number_input("Year of Request", min_value=2000, max_value=2100,
-                                             value=datetime.now().year, step=1, key="add_year")
-                    f_funding = st.text_input("Funding Source", placeholder="e.g., SDG, GF, Treasury",
-                                              key="add_funding_text")
-                with c2:
-                    f_req_qty = st.number_input("Request Quantity", min_value=0.0, step=1.0,
-                                                value=0.0, key="add_req_qty")
-                    f_po = st.text_input("PO Number", placeholder="e.g., 4500012345", key="add_po")
-                    f_po_qty = st.number_input("PO Quantity", min_value=0.0, step=1.0,
-                                               value=0.0, key="add_po_qty")
-                with c3:
-                    st.markdown("**Dates** *(leave blank if not available)*")
-                    f_epss = st.date_input("EPSS Date", value=None, key="add_epss_date")
-                    f_dmd_rec = st.date_input("DMD Received Date", value=None, key="add_dmd_rec_date")
-                    f_dmd_sub = st.date_input("DMD Submission Date", value=None, key="add_dmd_sub_date")
-                    f_posting = st.date_input("Posting Date", value=None, key="add_posting_date")
-
-                submitted = st.form_submit_button("💾 Save Record", use_container_width=True, type="primary")
-
-                if submitted:
-                    if not f_mat or f_mat == "-- Select Material --":
-                        st.error("⚠️ Please select a Material Description")
-                    elif not f_funding or f_funding.strip() == "":
-                        st.error("⚠️ Please enter a Funding Source")
-                    else:
-                        record = {
-                            'material_description': f_mat,
-                            'year_of_request': int(f_year),
-                            'funding_source': f_funding.strip(),
-                            'request_quantity': float(f_req_qty) if f_req_qty else None,
-                            'po_number': f_po.strip() if f_po else None,
-                            'po_quantity': float(f_po_qty) if f_po_qty else None,
-                            'epss_date': f_epss,
-                            'dmd_received_date': f_dmd_rec,
-                            'dmd_submission_date': f_dmd_sub,
-                            'posting_date': f_posting,
-                        }
-                        if save_procurement_record(record):
-                            st.session_state.proc_cache_bust = st.session_state.get('proc_cache_bust', 0) + 1
-                            st.success(f"✅ Saved record for {f_mat[:50]}")
-
-    # ============================================
-    # LOAD DATA (cached + enriched)
-    # ============================================
+    # LOAD DATA
     proc_df = load_procurement_lead_time(st.session_state.get('proc_cache_bust', 0))
 
-    # Auto-fill posting_date from New Deliveries (Material + PO match)
     if not proc_df.empty and 'df_new_deliveries' in globals() and not df_new_deliveries.empty:
         proc_df = enrich_posting_date_from_deliveries(proc_df, df_new_deliveries)
+        proc_df = enrich_delivered_qty_from_deliveries(proc_df, df_new_deliveries)
 
     if proc_df.empty:
-        st.info("📭 No procurement lead time records yet. Use 'Quick Add' above to add the first record.")
+        st.info("📭 No procurement lead time records yet. Use '➕ Quick Add New Procurement Record' below.")
+        _render_quick_add_form(material_options)
         return
 
     proc_df = calculate_procurement_lead_times(proc_df)
+    proc_df = calculate_po_qty_variance(proc_df)
 
     # ============================================
-    # FILTERS
+    # 1) FILTERS
     # ============================================
     st.markdown("### 🔍 Filters")
     fc1, fc2, fc3, fc4 = st.columns([1, 1, 1, 2])
@@ -7038,18 +7906,18 @@ def render_procurement_lead_time_tab():
         year_opts = ["All"] + sorted(
             [str(int(y)) for y in proc_df['year_of_request'].dropna().unique()], reverse=True
         )
-        year_filter = st.selectbox("Year of Request", year_opts, key="proc_lead_year")
+        year_filter = st.selectbox("Year of Request", year_opts, key="proc_lead_year_v6")
 
     with fc2:
         funding_opts = ["All"] + sorted([str(f) for f in proc_df['funding_source'].dropna().unique()])
-        funding_filter = st.selectbox("Funding Source", funding_opts, key="proc_lead_funding")
+        funding_filter = st.selectbox("Source of Fund", funding_opts, key="proc_lead_funding_v6")
 
     with fc3:
         mat_filter_opts = ["All"] + sorted(proc_df['material_description'].dropna().unique().tolist())
-        mat_filter = st.selectbox("Material", mat_filter_opts, key="proc_lead_material")
+        mat_filter = st.selectbox("Material", mat_filter_opts, key="proc_lead_material_v6")
 
     with fc4:
-        po_search = st.text_input("🔍 Search PO Number", placeholder="e.g., '4500012345'", key="proc_lead_search")
+        po_search = st.text_input("🔍 Search PO Number", placeholder="e.g., '4500012345'", key="proc_lead_search_v6")
 
     filtered = proc_df.copy()
     if year_filter != "All":
@@ -7061,16 +7929,15 @@ def render_procurement_lead_time_tab():
     if po_search:
         filtered = filtered[filtered['po_number'].astype(str).str.contains(po_search, case=False, na=False)]
 
-    # ✅ Sort by Year of Request (newest to oldest)
     if 'year_of_request' in filtered.columns:
         filtered = filtered.sort_values(
-            by=['year_of_request'],
-            ascending=False,
-            na_position='last'
+            by=['year_of_request'], ascending=False, na_position='last'
         ).reset_index(drop=True)
 
+    st.markdown("---")
+
     # ============================================
-    # KPI CARDS (3 KPIs only)
+    # 2) SUMMARY METRICS
     # ============================================
     st.markdown("### 📊 Summary Metrics")
 
@@ -7104,204 +7971,234 @@ def render_procurement_lead_time_tab():
     st.markdown("---")
 
     # ============================================
-    # MAIN TABLE (no ID column, thousand separators, no None)
+    # 3) SMART TABLE
     # ============================================
-    st.markdown("### 📋 Procurement Lead Time Records")
+    st.markdown("### 🧠 Health Program Procurement Lead Time — Smart Summary")
 
-    # ✅ 'id' is kept OUT of the display list; we keep a hidden parallel array
-    #    of ids indexed to match table_df rows for save logic.
-    display_cols = [
-        'material_description', 'year_of_request', 'funding_source',
-        'request_quantity', 'po_number', 'po_quantity',
-        'epss_date', 'dmd_received_date', 'dmd_submission_date', 'posting_date',
-        'DMD Processing Days', 'Procurement Lead Time', 'Procurement Process Time'
-    ]
-    available_cols = [c for c in display_cols if c in filtered.columns]
-    table_df = filtered[available_cols].copy()
+    smart_df = build_smart_procurement_table(filtered, material_options)
 
-    # ✅ Keep row ids aligned with table_df (same order, same index)
-    row_ids = filtered['id'].reset_index(drop=True).tolist() if 'id' in filtered.columns else []
+    if not smart_df.empty:
+        smart_display = smart_df.copy()
 
-    # Format dates as strings
-    for col in ['epss_date', 'dmd_received_date', 'dmd_submission_date', 'posting_date']:
-        if col in table_df.columns:
-            table_df[col] = table_df[col].dt.strftime('%Y-%m-%d')
+        # Dates
+        for col in ['epss_date', 'dmd_received_date', 'dmd_submission_date', 'posting_date']:
+            if col in smart_display.columns:
+                smart_display[col] = pd.to_datetime(
+                    smart_display[col], errors='coerce'
+                ).dt.strftime('%Y-%m-%d').fillna('')
 
-    # Format numeric day columns as whole numbers, empty if NaN
-    for col in ['DMD Processing Days', 'Procurement Lead Time', 'Procurement Process Time']:
-        if col in table_df.columns:
-            table_df[col] = table_df[col].apply(lambda x: int(round(x)) if pd.notna(x) else "")
+        # Days as int
+        for col in ['DMD Processing Days', 'Procurement Lead Time', 'Procurement Process Time']:
+            if col in smart_display.columns:
+                smart_display[col] = smart_display[col].apply(
+                    lambda x: int(round(x)) if pd.notna(x) else ''
+                )
 
-    # ✅ Thousand separators for Request Qty & PO Qty
-    for col in ['request_quantity', 'po_quantity']:
-        if col in table_df.columns:
-            table_df[col] = table_df[col].apply(
-                lambda x: f"{int(x):,}" if pd.notna(x) and x != "" else ""
+        # >>> KEY CHANGE: Qty columns formatted with thousand separators (123,876) <<<
+        for col in ['request_quantity', 'po_quantity', 'Delivered Qty', 'PO Qty Variance']:
+            if col in smart_display.columns:
+                smart_display[col] = smart_display[col].apply(
+                    lambda x: f"{int(x):,}" if pd.notna(x) and x != '' else ''
+                )
+
+        if 'year_of_request' in smart_display.columns:
+            smart_display['year_of_request'] = smart_display['year_of_request'].apply(
+                lambda x: int(x) if pd.notna(x) else ''
             )
 
-    # ✅ Replace None / NaN with empty string everywhere
-    table_df = table_df.where(pd.notna(table_df), "")
-    for col in table_df.columns:
-        table_df[col] = table_df[col].apply(
-            lambda x: "" if x is None or (isinstance(x, float) and pd.isna(x)) else x
-        )
+        smart_display = smart_display.where(pd.notna(smart_display), '')
+        for col in smart_display.columns:
+            smart_display[col] = smart_display[col].apply(
+                lambda x: '' if x is None else x
+            )
 
-    # Reset index so we can map edited rows back to ids by position
-    table_df = table_df.reset_index(drop=True)
+        # Rename
+        display_rename = {
+            'material_description': 'Material Description',
+            'year_of_request': 'Year',
+            'funding_source': 'Source of Fund',
+            'request_quantity': 'Request Qty',
+            'epss_date': 'EPSS Date',
+            'dmd_received_date': 'DMD Received Date',
+            'dmd_submission_date': 'DMD Submission Date',
+            'po_number': 'PO Number',
+            'po_quantity': 'PO Qty',
+            'Delivered Qty': 'Delivered Qty',
+            'posting_date': 'Posting Date',
+            'DMD Processing Days': 'DMD Proc. (Days)',
+            'Procurement Lead Time': 'Proc. Lead (Days)',
+            'Procurement Process Time': 'Proc. Process (Days)',
+            'PO Qty Variance': 'PO Qty Variance',
+            'Status': 'Status',
+        }
+        smart_display = smart_display.rename(columns=display_rename)
 
-    if st.session_state['user']['role'] == 'admin':
-        edited = st.data_editor(
-            table_df,
-            use_container_width=True,
-            hide_index=True,
-            num_rows="dynamic",
-            key="proc_lead_editor_v4",
-            column_config={
-                'material_description': st.column_config.SelectboxColumn(
-                    'Material Description', width='large', options=material_options, required=True
-                ),
-                'year_of_request': st.column_config.NumberColumn('Year', width='small'),
-                'funding_source': st.column_config.TextColumn('Funding', width='small'),
-                'request_quantity': st.column_config.TextColumn('Req Qty', width='small'),
-                'po_number': st.column_config.TextColumn('PO Number', width='medium'),
-                'po_quantity': st.column_config.TextColumn('PO Qty', width='small'),
-                'epss_date': st.column_config.TextColumn('EPSS Date', width='small'),
-                'dmd_received_date': st.column_config.TextColumn('DMD Rcvd', width='small'),
-                'dmd_submission_date': st.column_config.TextColumn('DMD Sub', width='small'),
-                'posting_date': st.column_config.TextColumn('Posting Date (Auto)', width='small'),
-                'DMD Processing Days': st.column_config.NumberColumn('DMD Proc.', disabled=True, width='small', format='%d'),
-                'Procurement Lead Time': st.column_config.NumberColumn('Proc. Lead', disabled=True, width='small', format='%d'),
-                'Procurement Process Time': st.column_config.NumberColumn('Proc. Process', disabled=True, width='small', format='%d'),
-            }
-        )
+        # Reset index — no serial-number column
+        smart_display = smart_display.reset_index(drop=True)
+        smart_display.index.name = None
 
-        # ============================================
-        # SAVE ALL CHANGES (BATCHED — fast)
-        # ============================================
-        col_btn1, col_btn2 = st.columns([1, 4])
-        with col_btn1:
-            if st.button("💾 Save All Changes", use_container_width=True, type="primary"):
-                inserts = []
-                updates = []
-                skipped = 0
+        # Styles
+        table_styles = [
+            {'selector': 'table',
+             'props': [('border-collapse', 'collapse'),
+                       ('font-size', '12px'),
+                       ('font-family', 'Arial, sans-serif'),
+                       ('table-layout', 'fixed'),
+                       ('width', '100%')]},
+            {'selector': 'thead th',
+             'props': [('background-color', '#E67E22'),
+                       ('color', 'white'),
+                       ('font-weight', 'bold'),
+                       ('font-size', '13px'),
+                       ('text-align', 'left'),
+                       ('padding', '10px 12px'),
+                       ('border-bottom', '2px solid #B85C00'),
+                       ('border-right', '1px solid #B85C00'),
+                       ('white-space', 'nowrap')]},
+            {'selector': 'tbody tr:nth-child(odd)',
+             'props': [('background-color', '#FFFFFF')]},
+            {'selector': 'tbody tr:nth-child(even)',
+             'props': [('background-color', '#FDF2E3')]},
+            {'selector': 'tbody tr:hover',
+             'props': [('background-color', '#FFE8CC')]},
+            {'selector': 'tbody td',
+             'props': [('padding', '8px 12px'),
+                       ('border-bottom', '1px solid #F0D9BC'),
+                       ('border-right', '1px solid #F0D9BC'),
+                       ('white-space', 'nowrap'),
+                       ('color', '#1F2A38'),
+                       ('font-size', '12px')]},
+        ]
 
-                for i, row in edited.iterrows():
-                    rec = {}
-                    for k in ['material_description', 'year_of_request', 'funding_source',
-                              'request_quantity', 'po_number', 'po_quantity',
-                              'epss_date', 'dmd_received_date',
-                              'dmd_submission_date', 'posting_date']:
-                        if k in row:
-                            val = row[k]
-                            if pd.isna(val) or val == '' or val is None:
-                                rec[k] = None
-                            else:
-                                if k in ['epss_date', 'dmd_received_date', 'dmd_submission_date', 'posting_date']:
-                                    try:
-                                        rec[k] = pd.to_datetime(val).date()
-                                    except Exception:
-                                        rec[k] = None
-                                elif k in ['request_quantity', 'po_quantity']:
-                                    try:
-                                        rec[k] = float(str(val).replace(',', '').strip())
-                                    except Exception:
-                                        rec[k] = None
-                                elif k == 'year_of_request':
-                                    try:
-                                        rec[k] = int(val)
-                                    except Exception:
-                                        rec[k] = None
-                                else:
-                                    rec[k] = val
+        styler = smart_display.style.set_table_styles(table_styles)
 
-                    # ✅ Use positional id mapping (works even if user reorders via filter)
-                    row_id = row_ids[i] if i < len(row_ids) else None
+        # Right-align Qty columns for numeric readability
+        qty_display_cols = ['Request Qty', 'PO Qty', 'Delivered Qty', 'PO Qty Variance']
+        qty_present = [c for c in qty_display_cols if c in smart_display.columns]
+        if qty_present:
+            styler = styler.set_properties(
+                subset=qty_present,
+                **{'text-align': 'right'}
+            )
 
-                    if row_id is None or pd.isna(row_id):
-                        # NEW ROW (added by user) → insert
-                        if rec.get('material_description') and rec.get('material_description') != '-- Select Material --':
-                            inserts.append(rec)
-                        else:
-                            skipped += 1
+        if 'PO Qty Variance' in smart_display.columns:
+            def _variance_color(val):
+                try:
+                    s = str(val).strip()
+                    if s == '':
+                        return ''
+                    v = float(s.replace(',', ''))
+                    if v > 0:
+                        return 'background-color: #FADBD8; color: #922B21; font-weight: bold;'
+                    elif v < 0:
+                        return 'background-color: #D5F5E3; color: #1E8449; font-weight: bold;'
                     else:
-                        updates.append((int(row_id), rec))
+                        return 'background-color: #EAECEE; color: #566573;'
+                except Exception:
+                    return ''
+            styler = styler.map(_variance_color, subset=['PO Qty Variance'])
 
-                success_count = 0
-                error_count = 0
+        if 'Status' in smart_display.columns:
+            def _status_color(val):
+                v = str(val)
+                if '✅' in v:
+                    return 'color: #1E8449; font-weight: bold;'
+                if '🟡' in v:
+                    return 'color: #B9770E; font-weight: bold;'
+                if '⚠️' in v:
+                    return 'color: #922B21; font-weight: bold;'
+                if '⏳' in v:
+                    return 'color: #1A5276; font-weight: bold;'
+                return ''
+            styler = styler.map(_status_color, subset=['Status'])
 
-                # --- Batched insert ---
-                if inserts:
-                    try:
-                        bulk = []
-                        for rec in inserts:
-                            r = dict(rec)
-                            for key in ['epss_date', 'dmd_received_date', 'dmd_submission_date', 'posting_date']:
-                                if key in r and r[key] is not None and hasattr(r[key], 'isoformat'):
-                                    r[key] = r[key].isoformat()
-                            r['updated_at'] = datetime.now().isoformat()
-                            bulk.append(r)
-                        st.session_state.supabase_client.table("procurement_lead_time").insert(bulk).execute()
-                        success_count += len(bulk)
-                    except Exception as e:
-                        error_count += len(inserts)
-                        st.error(f"Batch insert error: {e}")
+        # Column widths
+        col_widths = _compute_html_column_widths(
+            smart_display, {c: c for c in smart_display.columns}, cap=280, floor=100
+        )
+        total_min_width = sum(col_widths)
 
-                # --- Batched update (single upsert) ---
-                if updates:
-                    try:
-                        bulk = []
-                        for rec_id, rec in updates:
-                            r = dict(rec)
-                            for key in ['epss_date', 'dmd_received_date', 'dmd_submission_date', 'posting_date']:
-                                if key in r and r[key] is not None and hasattr(r[key], 'isoformat'):
-                                    r[key] = r[key].isoformat()
-                            r['updated_at'] = datetime.now().isoformat()
-                            r['id'] = rec_id
-                            bulk.append(r)
-                        st.session_state.supabase_client.table("procurement_lead_time").upsert(bulk).execute()
-                        success_count += len(bulk)
-                    except Exception as e:
-                        error_count += len(updates)
-                        st.error(f"Batch update error: {e}")
+        colgroup_html = "<colgroup>" + "".join(
+            f'<col style="width:{w}px;">' for w in col_widths
+        ) + "</colgroup>"
 
-                if success_count or error_count or skipped:
-                    st.session_state.proc_cache_bust = st.session_state.get('proc_cache_bust', 0) + 1
-                    msg = f"✅ Saved {success_count} record(s)."
-                    if error_count:
-                        msg += f" ⚠️ {error_count} error(s)."
-                    if skipped:
-                        msg += f" Skipped {skipped} empty row(s)."
-                    st.success(msg)
-                    st.rerun()
+        table_html = styler.to_html(index=False)
 
-        # ============================================
-        # DELETE
-        # ============================================
-        st.markdown("##### 🗑️ Delete Records")
-        del_col1, del_col2 = st.columns([3, 1])
-        with del_col1:
-            delete_options = filtered.apply(
-                lambda r: f"ID {int(r['id'])} | {str(r['material_description'])[:40]} | PO {r.get('po_number', 'N/A')}",
-                axis=1
-            ).tolist()
-            delete_map = dict(zip(delete_options, filtered['id'].astype(int).tolist()))
-            to_delete = st.selectbox("Select a record to delete", ["-- Select --"] + delete_options, key="del_record_select")
-        with del_col2:
-            st.markdown("<br>", unsafe_allow_html=True)
-            if st.button("🗑️ Delete", use_container_width=True, type="secondary", disabled=(to_delete == "-- Select --")):
-                if to_delete in delete_map:
-                    if delete_procurement_record(delete_map[to_delete]):
-                        st.session_state.proc_cache_bust = st.session_state.get('proc_cache_bust', 0) + 1
-                        st.success("✅ Record deleted")
-                        st.rerun()
+        import re as _re
+
+        # Strip any residual index cells from the HTML
+        table_html = _re.sub(
+            r'(<thead>\s*<tr>\s*)<th[^>]*>\s*</th>',
+            r'\1',
+            table_html,
+            count=1
+        )
+        table_html = _re.sub(
+            r'(<tr[^>]*>)\s*<th[^>]*>.*?</th>',
+            r'\1',
+            table_html
+        )
+        table_html = _re.sub(
+            r'(<tr[^>]*>)\s*<td[^>]*>\s*</td>',
+            r'\1',
+            table_html
+        )
+
+        table_html = _re.sub(
+            r'(<table[^>]*>)',
+            lambda m: m.group(1) + colgroup_html,
+            table_html,
+            count=1
+        )
+
+        scrollable_html = (
+            '<div style="width:100%;overflow-x:auto;overflow-y:visible;'
+            'border:1px solid #E1E8F0;border-radius:10px;'
+            'box-shadow:0 4px 12px rgba(0,0,0,0.06);'
+            'padding-bottom:6px;-webkit-overflow-scrolling:touch;">'
+            f'<div style="min-width:{total_min_width}px;padding:2px;">'
+            f'{table_html}'
+            '</div>'
+            '</div>'
+            '<style>'
+            'div[data-testid="stMarkdownContainer"] table thead th:empty {'
+            'display:none !important;padding:0 !important;border:none !important;'
+            'width:0 !important;max-width:0 !important;min-width:0 !important;}'
+            'div[data-testid="stMarkdownContainer"] table tbody td:first-child:empty {'
+            'display:none !important;padding:0 !important;border:none !important;'
+            'width:0 !important;max-width:0 !important;min-width:0 !important;}'
+            'div[data-testid="stMarkdownContainer"] table thead th {'
+            'position:sticky !important;top:0;z-index:2;}'
+            'div[data-testid="stMarkdownContainer"] > div::-webkit-scrollbar {height:10px;}'
+            'div[data-testid="stMarkdownContainer"] > div::-webkit-scrollbar-thumb {'
+            'background:#B8C6D6;border-radius:5px;}'
+            'div[data-testid="stMarkdownContainer"] > div::-webkit-scrollbar-track {'
+            'background:#F0F4F9;border-radius:5px;}'
+            '</style>'
+        )
+        st.markdown(scrollable_html, unsafe_allow_html=True)
+
+        # XLSX export
+        program_label = program_display if 'program_display' in globals() else "All Programs"
+        xlsx_bytes = export_smart_table_to_xlsx(smart_df, program_label)
+        if xlsx_bytes is not None:
+            st.download_button(
+                label="📥 Download Health Program Procurement Lead Time (XLSX)",
+                data=xlsx_bytes,
+                file_name=f"Health_Program_Procurement_Lead_Time_{datetime.now().strftime('%Y%m%d')}.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                use_container_width=True,
+                type="primary",
+                key="download_proc_lead_xlsx_v6",
+            )
     else:
-        # Read-only view
-        st.dataframe(table_df, use_container_width=True, hide_index=True)
+        st.info("No records to summarize for the current filters.")
+
+    st.markdown("---")
 
     # ============================================
-    # VISUALIZATIONS
+    # 4) LEAD TIME ANALYSIS
     # ============================================
-    st.markdown("---")
     st.markdown("### 📈 Lead Time Analysis")
 
     viz_df = filtered.dropna(subset=['DMD Processing Days']).copy()
@@ -7310,7 +8207,9 @@ def render_procurement_lead_time_tab():
 
         with vc1:
             trend_source = filtered.copy()
-            trend_source['Effective_Days'] = trend_source['Procurement Lead Time'].fillna(trend_source['Procurement Process Time'])
+            trend_source['Effective_Days'] = trend_source['Procurement Lead Time'].fillna(
+                trend_source['Procurement Process Time']
+            )
             trend_source = trend_source.dropna(subset=['dmd_submission_date', 'Effective_Days'])
             if not trend_source.empty:
                 trend_source['Month'] = trend_source['dmd_submission_date'].dt.strftime('%b-%Y')
@@ -7350,62 +8249,262 @@ def render_procurement_lead_time_tab():
                     title='Distribution of Procurement Lead Time (Posted only)',
                     color_discrete_sequence=['#667eea']
                 )
-                fig_hist.update_layout(height=400, xaxis_title='Days', yaxis_title='Count',
-                                       xaxis=dict(tickformat='d'))
+                fig_hist.update_layout(
+                    height=400, xaxis_title='Days', yaxis_title='Count',
+                    xaxis=dict(tickformat='d')
+                )
                 st.plotly_chart(fig_hist, use_container_width=True)
-
-        st.markdown("#### 🏆 Top 10 Materials by Avg Procurement Lead Time")
-        top_src = filtered.dropna(subset=['Procurement Lead Time'])
-        if not top_src.empty:
-            top_mat = top_src.groupby('material_description').agg({
-                'Procurement Lead Time': 'mean',
-                'DMD Processing Days': 'mean'
-            }).round(0).sort_values('Procurement Lead Time', ascending=False).head(10).reset_index()
-
-            fig_top = go.Figure()
-            fig_top.add_trace(go.Bar(
-                y=top_mat['material_description'].apply(lambda x: x[:40]),
-                x=top_mat['Procurement Lead Time'],
-                name='Procurement Lead Time',
-                orientation='h',
-                marker_color='#f5576c',
-                text=top_mat['Procurement Lead Time'].astype(int).astype(str) + 'd',
-                textposition='outside'
-            ))
-            fig_top.update_layout(
-                height=max(400, 35 * len(top_mat) + 80),
-                xaxis_title='Average Days',
-                yaxis=dict(autorange='reversed'),
-                margin=dict(l=200, r=60)
-            )
-            st.plotly_chart(fig_top, use_container_width=True)
     else:
         st.info("Not enough data to generate visualizations.")
 
-    # ============================================
-    # EXPORT
-    # ============================================
     st.markdown("---")
-    export_df = filtered.drop(columns=['id'], errors='ignore').copy()
+
+    # ============================================
+    # 5) TOP 10 MATERIALS BY AVG PROCUREMENT LEAD TIME
+    # ============================================
+    st.markdown("#### 🏆 Top 10 Materials by Avg Procurement Lead Time")
+    top_src = filtered.dropna(subset=['Procurement Lead Time'])
+    top_src = top_src[
+        top_src['material_description'].notna() &
+        (top_src['material_description'].astype(str).str.strip() != "")
+    ]
+
+    if not top_src.empty:
+        top_mat = top_src.groupby('material_description').agg({
+            'Procurement Lead Time': 'mean',
+            'DMD Processing Days': 'mean',
+            'po_number': 'count'
+        }).round(0).sort_values('Procurement Lead Time', ascending=False).head(10).reset_index()
+        top_mat = top_mat.rename(columns={'po_number': 'PO Count'})
+
+        def _mat_label(row):
+            mat = str(row['material_description'])
+            return mat[:55] + '…' if len(mat) > 55 else mat
+
+        top_mat['label'] = top_mat.apply(_mat_label, axis=1)
+
+        fig_top = go.Figure()
+        fig_top.add_trace(go.Bar(
+            y=top_mat['label'],
+            x=top_mat['Procurement Lead Time'],
+            name='Procurement Lead Time',
+            orientation='h',
+            marker_color='#f5576c',
+            text=top_mat['Procurement Lead Time'].astype(int).astype(str) + 'd',
+            textposition='outside',
+            customdata=top_mat[['DMD Processing Days', 'PO Count']].values,
+            hovertemplate=(
+                "<b>%{y}</b><br>"
+                "Procurement Lead Time: %{x:.0f} days<br>"
+                "DMD Processing: %{customdata[0]:.0f} days<br>"
+                "PO Count: %{customdata[1]}"
+                "<extra></extra>"
+            )
+        ))
+        fig_top.update_layout(
+            title="Top 10 Materials by Average Procurement Lead Time (Posted only)",
+            height=max(400, 35 * len(top_mat) + 80),
+            xaxis_title='Average Days',
+            yaxis=dict(autorange='reversed'),
+            margin=dict(l=320, r=60)
+        )
+        st.plotly_chart(fig_top, use_container_width=True)
+    else:
+        st.info("No materials with procurement lead time data to display.")
+
+    st.markdown("---")
+
+    # ============================================
+    # 6) EDITABLE PROCUREMENT LEAD TIME RECORDS
+    # ============================================
+    st.markdown("### 📋 Procurement Lead Time Records")
+    st.caption("Edit any cell. The Smart Summary table above updates automatically after clicking 💾 Save All Changes.")
+
+    display_cols = [
+        'material_description', 'year_of_request', 'funding_source',
+        'request_quantity', 'po_number', 'po_quantity',
+        'Delivered Qty', 'PO Qty Variance',
+        'epss_date', 'dmd_received_date', 'dmd_submission_date', 'posting_date',
+        'DMD Processing Days', 'Procurement Lead Time', 'Procurement Process Time'
+    ]
+    available_cols = [c for c in display_cols if c in filtered.columns]
+    table_df = filtered[available_cols].copy()
+
+    row_ids = filtered['id'].reset_index(drop=True).tolist() if 'id' in filtered.columns else []
+
     for col in ['epss_date', 'dmd_received_date', 'dmd_submission_date', 'posting_date']:
-        if col in export_df.columns:
-            export_df[col] = export_df[col].dt.strftime('%Y-%m-%d')
+        if col in table_df.columns:
+            table_df[col] = table_df[col].dt.strftime('%Y-%m-%d')
+
     for col in ['DMD Processing Days', 'Procurement Lead Time', 'Procurement Process Time']:
-        if col in export_df.columns:
-            export_df[col] = export_df[col].apply(lambda x: int(round(x)) if pd.notna(x) else "")
+        if col in table_df.columns:
+            table_df[col] = table_df[col].apply(lambda x: int(round(x)) if pd.notna(x) else "")
 
-    export_df = export_df.where(pd.notna(export_df), "")
+    # Qty columns already formatted with commas in the editor (this was already there)
+    for col in ['request_quantity', 'po_quantity', 'Delivered Qty', 'PO Qty Variance']:
+        if col in table_df.columns:
+            table_df[col] = table_df[col].apply(
+                lambda x: f"{int(x):,}" if pd.notna(x) and x != "" else ""
+            )
 
-    st.download_button(
-        label="📥 Download Procurement Lead Time Data (CSV)",
-        data=export_df.to_csv(index=False),
-        file_name=f"procurement_lead_time_{datetime.now().strftime('%Y%m%d')}.csv",
-        mime="text/csv",
-        use_container_width=True
-    )
+    table_df = table_df.where(pd.notna(table_df), "")
+    for col in table_df.columns:
+        table_df[col] = table_df[col].apply(
+            lambda x: "" if x is None or (isinstance(x, float) and pd.isna(x)) else x
+        )
+
+    table_df = table_df.reset_index(drop=True)
+
+    if st.session_state['user']['role'] == 'admin':
+        edited = st.data_editor(
+            table_df,
+            use_container_width=True,
+            hide_index=True,
+            num_rows="dynamic",
+            key="proc_lead_editor_v6",
+            column_config={
+                'material_description': st.column_config.SelectboxColumn(
+                    'Material Description', width='large', options=material_options, required=True
+                ),
+                'year_of_request': st.column_config.NumberColumn('Year', width='small'),
+                'funding_source': st.column_config.TextColumn('Source of Fund', width='small'),
+                'request_quantity': st.column_config.TextColumn('Req Qty', width='small'),
+                'po_number': st.column_config.TextColumn('PO Number', width='medium'),
+                'po_quantity': st.column_config.TextColumn('PO Qty', width='small'),
+                'Delivered Qty': st.column_config.TextColumn('Delivered Qty', width='small', disabled=True),
+                'PO Qty Variance': st.column_config.TextColumn('PO Qty Variance', width='small', disabled=True),
+                'epss_date': st.column_config.TextColumn('EPSS Date', width='small'),
+                'dmd_received_date': st.column_config.TextColumn('DMD Rcvd', width='small'),
+                'dmd_submission_date': st.column_config.TextColumn('DMD Sub', width='small'),
+                'posting_date': st.column_config.TextColumn('Posting Date (Auto)', width='small'),
+                'DMD Processing Days': st.column_config.NumberColumn('DMD Proc.', disabled=True, width='small', format='%d'),
+                'Procurement Lead Time': st.column_config.NumberColumn('Proc. Lead', disabled=True, width='small', format='%d'),
+                'Procurement Process Time': st.column_config.NumberColumn('Proc. Process', disabled=True, width='small', format='%d'),
+            }
+        )
+
+        col_btn1, col_btn2 = st.columns([1, 4])
+        with col_btn1:
+            if st.button("💾 Save All Changes", use_container_width=True, type="primary", key="save_proc_v6"):
+                inserts = []
+                updates = []
+                skipped = 0
+
+                for i, row in edited.iterrows():
+                    rec = {}
+                    for k in ['material_description', 'year_of_request', 'funding_source',
+                              'request_quantity', 'po_number', 'po_quantity',
+                              'epss_date', 'dmd_received_date',
+                              'dmd_submission_date', 'posting_date']:
+                        if k in row:
+                            val = row[k]
+                            if pd.isna(val) or val == '' or val is None:
+                                rec[k] = None
+                            else:
+                                if k in ['epss_date', 'dmd_received_date', 'dmd_submission_date', 'posting_date']:
+                                    try:
+                                        rec[k] = pd.to_datetime(val).date()
+                                    except Exception:
+                                        rec[k] = None
+                                elif k in ['request_quantity', 'po_quantity']:
+                                    try:
+                                        rec[k] = float(str(val).replace(',', '').strip())
+                                    except Exception:
+                                        rec[k] = None
+                                elif k == 'year_of_request':
+                                    try:
+                                        rec[k] = int(val)
+                                    except Exception:
+                                        rec[k] = None
+                                else:
+                                    rec[k] = val
+
+                    row_id = row_ids[i] if i < len(row_ids) else None
+
+                    if row_id is None or pd.isna(row_id):
+                        if rec.get('material_description') and rec.get('material_description') != '-- Select Material --':
+                            inserts.append(rec)
+                        else:
+                            skipped += 1
+                    else:
+                        updates.append((int(row_id), rec))
+
+                success_count = 0
+                error_count = 0
+
+                if inserts:
+                    try:
+                        bulk = []
+                        for rec in inserts:
+                            r = dict(rec)
+                            for key in ['epss_date', 'dmd_received_date', 'dmd_submission_date', 'posting_date']:
+                                if key in r and r[key] is not None and hasattr(r[key], 'isoformat'):
+                                    r[key] = r[key].isoformat()
+                            r['updated_at'] = datetime.now().isoformat()
+                            bulk.append(r)
+                        st.session_state.supabase_client.table("procurement_lead_time").insert(bulk).execute()
+                        success_count += len(bulk)
+                    except Exception as e:
+                        error_count += len(inserts)
+                        st.error(f"Batch insert error: {e}")
+
+                if updates:
+                    try:
+                        bulk = []
+                        for rec_id, rec in updates:
+                            r = dict(rec)
+                            for key in ['epss_date', 'dmd_received_date', 'dmd_submission_date', 'posting_date']:
+                                if key in r and r[key] is not None and hasattr(r[key], 'isoformat'):
+                                    r[key] = r[key].isoformat()
+                            r['updated_at'] = datetime.now().isoformat()
+                            r['id'] = rec_id
+                            bulk.append(r)
+                        st.session_state.supabase_client.table("procurement_lead_time").upsert(bulk).execute()
+                        success_count += len(bulk)
+                    except Exception as e:
+                        error_count += len(updates)
+                        st.error(f"Batch update error: {e}")
+
+                if success_count or error_count or skipped:
+                    st.session_state.proc_cache_bust = st.session_state.get('proc_cache_bust', 0) + 1
+                    msg = f"✅ Saved {success_count} record(s)."
+                    if error_count:
+                        msg += f" ⚠️ {error_count} error(s)."
+                    if skipped:
+                        msg += f" Skipped {skipped} empty row(s)."
+                    st.success(msg)
+                    st.rerun()
+
+        st.markdown("##### 🗑️ Delete Records")
+        del_col1, del_col2 = st.columns([3, 1])
+        with del_col1:
+            delete_options = filtered.apply(
+                lambda r: f"ID {int(r['id'])} | {str(r['material_description'])[:40]} | PO {r.get('po_number', 'N/A')}",
+                axis=1
+            ).tolist()
+            delete_map = dict(zip(delete_options, filtered['id'].astype(int).tolist()))
+            to_delete = st.selectbox("Select a record to delete", ["-- Select --"] + delete_options, key="del_record_select_v6")
+        with del_col2:
+            st.markdown("<br>", unsafe_allow_html=True)
+            if st.button("🗑️ Delete", use_container_width=True, type="secondary",
+                         disabled=(to_delete == "-- Select --"), key="del_proc_v6"):
+                if to_delete in delete_map:
+                    if delete_procurement_record(delete_map[to_delete]):
+                        st.session_state.proc_cache_bust = st.session_state.get('proc_cache_bust', 0) + 1
+                        st.success("✅ Record deleted")
+                        st.rerun()
+    else:
+        st.dataframe(table_df, use_container_width=True, hide_index=True)
+
+    st.markdown("---")
+
+    # ============================================
+    # 7) QUICK ADD FORM (BOTTOM)
+    # ============================================
+    _render_quick_add_form(material_options)
 
 
-# ---- Render the tab content (fragment keeps filters inside the tab) ----
+# ---- Render the tab content ----
 with tab6:
     render_procurement_lead_time_tab()
 
