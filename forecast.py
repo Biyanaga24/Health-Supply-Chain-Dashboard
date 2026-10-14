@@ -934,6 +934,54 @@ def find_best_sarima_adaptive(train_data, seasonal_period=12):
 
     return find_best_sarima_auto(train_data, seasonal_period, max_p, max_d, max_q, max_P, max_D, max_Q)
 
+
+# ============================================================
+# HELPER: Split any monthly series into 12-month fiscal blocks
+# starting from the first available month.
+# ============================================================
+def build_fiscal_blocks(series, block_length=12):
+    """
+    Split a monthly time series into consecutive 12-month blocks.
+    - Block 1 starts at the first month in the series.
+    - Each block covers exactly `block_length` months.
+    - Any trailing partial block is DROPPED.
+    Returns:
+        df_blocks : DataFrame with columns
+                    ['Block_Label', 'Block_Num', 'Month_Label', 'Month_Num', 'Demand', 'Date']
+        block_labels : ordered list of block labels (e.g. "Jul-2022 → Jun-2023")
+    """
+    df = pd.DataFrame({'Date': series.index, 'Demand': series.values})
+    df = df.sort_values('Date').reset_index(drop=True)
+
+    # Month label like "Jul-2022"
+    df['Month_Label'] = df['Date'].dt.strftime('%b-%Y')
+    # Position of the month inside its own 12-month block (0..11)
+    df['Month_Num'] = df.index % block_length
+    # Which fiscal year block the row belongs to (0-based)
+    df['Block_Num'] = df.index // block_length
+
+    # Drop the trailing partial block if the total count is not a multiple of 12
+    n_complete_blocks = len(df) // block_length
+    df = df[df['Block_Num'] < n_complete_blocks].copy()
+
+    # Build a friendly label for each block: "Jul-2022 → Jun-2023"
+    block_labels = []
+    for b in range(n_complete_blocks):
+        block_rows = df[df['Block_Num'] == b]
+        start = block_rows['Date'].iloc[0].strftime('%b-%Y')
+        end   = block_rows['Date'].iloc[-1].strftime('%b-%Y')
+        block_labels.append(f"{start} → {end}")
+
+    # Map block number -> label
+    label_map = {i: lbl for i, lbl in enumerate(block_labels)}
+    df['Block_Label'] = df['Block_Num'].map(label_map)
+
+    # Also give a short label like "FY 1", "FY 2" ... for concise display
+    df['Block_Short'] = df['Block_Num'].apply(lambda x: f"FY {x+1}")
+
+    return df, block_labels
+
+
 if uploaded_file is not None:
     with st.spinner("Loading data..."):
         df, materials = parse_and_load_data(uploaded_file)
@@ -1145,60 +1193,102 @@ if st.session_state.data_loaded:
         st.pyplot(fig3)
 
     with tab2:
-        st.markdown(f"### 📅 Fiscal Year Comparison (April-March) - {selected_material[:50]}...")
-        st.markdown('<div class="info-box">This chart compares demand across different fiscal years (April to March), helping identify year-over-year trends and seasonal patterns.</div>', unsafe_allow_html=True)
+        st.markdown(f"### 📅 Fiscal Year Comparison (12-month blocks) - {selected_material[:50]}...")
+        st.markdown(
+            '<div class="info-box">Each fiscal year below is <b>exactly 12 consecutive months</b>, '
+            'starting from the first month in the data. Incomplete trailing months are excluded.</div>',
+            unsafe_allow_html=True
+        )
 
         if len(material_data_full) >= 12:
-            df_fiscal = pd.DataFrame({
-                'Date': material_data_full.index,
-                'Demand': material_data_full.values
-            })
+            # ----------------------------------------------------------------
+            # Build 12-month fiscal blocks starting from the first month
+            # ----------------------------------------------------------------
+            df_blocks, block_labels = build_fiscal_blocks(material_data_full, block_length=12)
 
-            df_fiscal['Fiscal_Year_Num'] = df_fiscal['Date'].apply(get_fiscal_year)
-            df_fiscal['Fiscal_Year_Label'] = df_fiscal['Date'].apply(get_fiscal_year_label)
-            df_fiscal = df_fiscal.sort_values('Date')
-            df_fiscal['Month_Short'] = df_fiscal['Date'].dt.strftime('%b')
+            n_blocks = len(block_labels)
+            n_dropped = len(material_data_full) - (n_blocks * 12)
 
-            month_order = {4:1, 5:2, 6:3, 7:4, 8:5, 9:6, 10:7, 11:8, 12:9, 1:10, 2:11, 3:12}
-            df_fiscal['Month_Num'] = df_fiscal['Date'].dt.month.map(month_order)
-            df_fiscal_monthly = df_fiscal.sort_values('Month_Num')
+            # ----------------------------------------------------------------
+            # Block completeness / info table
+            # ----------------------------------------------------------------
+            st.markdown("#### 🗓️ Fiscal Year Blocks (each = 12 months = 1 full year)")
+            block_info = []
+            for i, lbl in enumerate(block_labels):
+                rows = df_blocks[df_blocks['Block_Num'] == i]
+                block_info.append({
+                    "Fiscal Year": f"FY {i+1}",
+                    "Period": lbl,
+                    "Months": f"{len(rows)}/12",
+                    "Total Demand": f"{rows['Demand'].sum():,.0f}",
+                    "Average Monthly": f"{rows['Demand'].mean():,.0f}"
+                })
+            st.dataframe(pd.DataFrame(block_info), use_container_width=True, hide_index=True)
 
-            fiscal_pivot = df_fiscal_monthly.pivot(index='Month_Short', columns='Fiscal_Year_Label', values='Demand')
-            month_seq = ['Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec', 'Jan', 'Feb', 'Mar']
-            fiscal_pivot = fiscal_pivot.reindex(month_seq)
+            if n_dropped > 0:
+                st.warning(
+                    f"⚠️ {n_dropped} trailing month(s) at the end were **dropped** because they do "
+                    f"not form a complete 12-month fiscal year."
+                )
+
+            # ----------------------------------------------------------------
+            # Pivot: Month position (1..12) x Fiscal Year block
+            # ----------------------------------------------------------------
+            fiscal_pivot = df_blocks.pivot_table(
+                index='Month_Num',
+                columns='Block_Short',
+                values='Demand',
+                aggfunc='sum'
+            ).reindex(range(12))
+
+            # Row labels: show the real month name from the FIRST block
+            first_block_rows = df_blocks[df_blocks['Block_Num'] == 0].sort_values('Month_Num')
+            month_row_labels = first_block_rows['Month_Label'].tolist()
+            fiscal_pivot.index = month_row_labels
+
+            block_short_labels = [f"FY {i+1}" for i in range(n_blocks)]
+            fiscal_pivot = fiscal_pivot.reindex(columns=block_short_labels)
 
             colors = ['#2E86AB', '#E63946', '#2A9D8F', '#E9C46A', '#9B5DE5', '#F4A261']
             markers = ['o', 's', '^', 'D', 'v', '<']
 
-            st.markdown("#### 📈 Monthly Demand Pattern by Fiscal Year")
+            # ============================================================
+            # CHART 1: Monthly Demand Pattern by Fiscal Year
+            # ============================================================
+            st.markdown("#### 📈 Monthly Demand Pattern by Fiscal Year (12 months each)")
             fig1, ax1 = plt.subplots(figsize=(14, 7))
 
-            years_sorted = sorted(fiscal_pivot.columns, key=lambda x: int(x.split('/')[0].split()[-1]))
-            for i, year in enumerate(years_sorted):
-                col = fiscal_pivot[year]
+            for i, fy_label in enumerate(block_short_labels):
+                col = fiscal_pivot[fy_label]
                 if not col.isna().all():
-                    ax1.plot(fiscal_pivot.index, col.values, 
-                           marker=markers[i % len(markers)], 
-                           linewidth=2.5, 
-                           markersize=8,
-                           color=colors[i % len(colors)], 
-                           label=year,
-                           markevery=1)
-
+                    ax1.plot(
+                        fiscal_pivot.index, col.values,
+                        marker=markers[i % len(markers)],
+                        linewidth=2.5, markersize=8,
+                        color=colors[i % len(colors)],
+                        label=f"{fy_label}: {block_labels[i]}",
+                        markevery=1
+                    )
                     for j, (month, value) in enumerate(zip(fiscal_pivot.index, col.values)):
                         if not pd.isna(value) and value > 0:
                             offset = 15 if j % 2 == 0 else -15
-                            ax1.annotate(f'{value:,.0f}', 
-                                       xy=(month, value), 
-                                       xytext=(0, offset),
-                                       textcoords='offset points',
-                                       fontsize=8,
-                                       ha='center',
-                                       bbox=dict(boxstyle='round,pad=0.2', facecolor='white', alpha=0.8, edgecolor='gray', linewidth=0.5))
+                            ax1.annotate(
+                                f'{value:,.0f}',
+                                xy=(month, value),
+                                xytext=(0, offset),
+                                textcoords='offset points',
+                                fontsize=8, ha='center',
+                                bbox=dict(boxstyle='round,pad=0.2',
+                                          facecolor='white', alpha=0.8,
+                                          edgecolor='gray', linewidth=0.5)
+                            )
 
-            ax1.set_xlabel("Month", fontsize=11)
+            ax1.set_xlabel("Month within Fiscal Year (1 → 12)", fontsize=11)
             ax1.set_ylabel("Demand Quantity", fontsize=11)
-            ax1.set_title(f"Monthly Demand by Fiscal Year\n{selected_material[:60]}", fontsize=12)
+            ax1.set_title(
+                f"Monthly Demand by Fiscal Year (12 months = 1 year)\n{selected_material[:60]}",
+                fontsize=12
+            )
             ax1.legend(loc='upper left', bbox_to_anchor=(1, 1), fontsize=9)
             ax1.grid(True, alpha=0.3)
             ax1.tick_params(labelsize=9)
@@ -1206,25 +1296,25 @@ if st.session_state.data_loaded:
             plt.tight_layout()
             st.pyplot(fig1)
 
+            # ============================================================
+            # CHART 2: Average Monthly Demand Across All Fiscal Years
+            # ============================================================
             st.markdown("#### 📊 Average Monthly Demand Across All Fiscal Years")
             fig4, ax4 = plt.subplots(figsize=(14, 7))
 
             monthly_avg = fiscal_pivot.mean(axis=1)
-            bars = ax4.bar(monthly_avg.index, monthly_avg.values, 
+            bars = ax4.bar(monthly_avg.index, monthly_avg.values,
                            color='#2E86AB', alpha=0.7, edgecolor='black', width=0.7)
-
             for bar, avg in zip(bars, monthly_avg.values):
                 if not pd.isna(avg):
-                    ax4.annotate(f'{avg:,.0f}',
-                                xy=(bar.get_x() + bar.get_width() / 2, bar.get_height()),
-                                xytext=(0, 8),
-                                textcoords="offset points",
-                                ha='center',
-                                va='bottom',
-                                fontsize=9,
-                                fontweight='bold')
+                    ax4.annotate(
+                        f'{avg:,.0f}',
+                        xy=(bar.get_x() + bar.get_width() / 2, bar.get_height()),
+                        xytext=(0, 8), textcoords="offset points",
+                        ha='center', va='bottom', fontsize=9, fontweight='bold'
+                    )
 
-            ax4.set_xlabel("Month", fontsize=11)
+            ax4.set_xlabel("Month within Fiscal Year", fontsize=11)
             ax4.set_ylabel("Average Demand", fontsize=11)
             ax4.set_title("Average Monthly Demand Across All Fiscal Years", fontsize=12)
             ax4.grid(True, alpha=0.3, axis='y')
@@ -1233,65 +1323,70 @@ if st.session_state.data_loaded:
             plt.tight_layout()
             st.pyplot(fig4)
 
-            st.markdown("#### 📊 Year-over-Year Total Demand Comparison")
+            # ============================================================
+            # CHART 3: Year-over-Year Total Demand (each = 12 months)
+            # ============================================================
+            st.markdown("#### 📊 Year-over-Year Total Demand (12 months = 1 year)")
             fig2, ax2 = plt.subplots(figsize=(14, 7))
 
-            yearly_totals = df_fiscal.groupby('Fiscal_Year_Label')['Demand'].sum().sort_index(key=lambda x: x.str.extract(r'(\d+)')[0].astype(int))
-            bars = ax2.bar(yearly_totals.index, yearly_totals.values, 
-                           color=colors[:len(yearly_totals)], 
-                           edgecolor='black',
-                           alpha=0.8,
-                           width=0.6)
-
+            yearly_totals = fiscal_pivot.sum(axis=0)  # sum across the 12 rows
+            bars = ax2.bar(
+                [f"{block_short_labels[i]}\n{block_labels[i]}" for i in range(n_blocks)],
+                yearly_totals.values,
+                color=colors[:n_blocks],
+                edgecolor='black', alpha=0.8, width=0.6
+            )
             for bar, total in zip(bars, yearly_totals.values):
-                height = bar.get_height()
-                ax2.annotate(f'{total:,.0f}',
-                            xy=(bar.get_x() + bar.get_width() / 2, height),
-                            xytext=(0, 10),
-                            textcoords="offset points",
-                            ha='center',
-                            va='bottom',
-                            fontsize=9,
-                            fontweight='bold')
+                ax2.annotate(
+                    f'{total:,.0f}',
+                    xy=(bar.get_x() + bar.get_width() / 2, bar.get_height()),
+                    xytext=(0, 10), textcoords="offset points",
+                    ha='center', va='bottom', fontsize=9, fontweight='bold'
+                )
 
-            ax2.set_xlabel("Fiscal Year", fontsize=11)
+            ax2.set_xlabel("Fiscal Year (12 months each)", fontsize=11)
             ax2.set_ylabel("Total Annual Demand", fontsize=11)
-            ax2.set_title("Year-over-Year Total Demand Comparison", fontsize=12)
+            ax2.set_title("Year-over-Year Total Demand Comparison (12 months each)", fontsize=12)
             ax2.grid(True, alpha=0.3, axis='y')
             ax2.tick_params(labelsize=9)
             plt.setp(ax2.xaxis.get_majorticklabels(), rotation=45, ha='right')
             plt.tight_layout()
             st.pyplot(fig2)
 
+            # ============================================================
+            # CHART 4: Chronological Timeline (colored by fiscal block)
+            # ============================================================
             st.markdown("#### 📅 Monthly Demand Timeline (Chronological Order)")
             fig3, ax3 = plt.subplots(figsize=(14, 7))
 
-            fiscal_years_chrono = sorted(df_fiscal['Fiscal_Year_Label'].unique(), 
-                                           key=lambda x: int(x.split('/')[0].split()[-1]))
-
-            for i, fiscal_year in enumerate(fiscal_years_chrono):
-                year_data = df_fiscal[df_fiscal['Fiscal_Year_Label'] == fiscal_year]
+            for i, fy_label in enumerate(block_short_labels):
+                year_data = df_blocks[df_blocks['Block_Short'] == fy_label].sort_values('Date')
                 if len(year_data) > 0:
-                    ax3.plot(year_data['Date'], year_data['Demand'], 
-                            marker=markers[i % len(markers)],
-                            linewidth=2.5,
-                            markersize=7,
-                            color=colors[i % len(colors)],
-                            label=fiscal_year)
-
-                    for idx, row in year_data.iterrows():
+                    ax3.plot(
+                        year_data['Date'], year_data['Demand'],
+                        marker=markers[i % len(markers)],
+                        linewidth=2.5, markersize=7,
+                        color=colors[i % len(colors)],
+                        label=f"{fy_label}: {block_labels[i]}"
+                    )
+                    for _, row in year_data.iterrows():
                         if row['Demand'] > 0:
-                            ax3.annotate(f'{row["Demand"]:,.0f}',
-                                       xy=(row['Date'], row['Demand']),
-                                       xytext=(0, 10),
-                                       textcoords='offset points',
-                                       fontsize=8,
-                                       ha='center',
-                                       bbox=dict(boxstyle='round,pad=0.2', facecolor='white', alpha=0.7))
+                            ax3.annotate(
+                                f'{row["Demand"]:,.0f}',
+                                xy=(row['Date'], row['Demand']),
+                                xytext=(0, 10),
+                                textcoords='offset points',
+                                fontsize=8, ha='center',
+                                bbox=dict(boxstyle='round,pad=0.2',
+                                          facecolor='white', alpha=0.7)
+                            )
 
             ax3.set_xlabel("Date (Month-Year)", fontsize=11)
             ax3.set_ylabel("Demand Quantity", fontsize=11)
-            ax3.set_title(f"Monthly Demand with Fiscal Year Coloring (Chronological Order)\n{selected_material[:60]}", fontsize=12)
+            ax3.set_title(
+                f"Monthly Demand with Fiscal Year Coloring (Chronological)\n{selected_material[:60]}",
+                fontsize=12
+            )
             ax3.legend(loc='upper left', bbox_to_anchor=(1, 1), fontsize=9)
             ax3.grid(True, alpha=0.3)
             ax3.tick_params(labelsize=9)
@@ -1299,41 +1394,48 @@ if st.session_state.data_loaded:
             plt.tight_layout()
             st.pyplot(fig3)
 
-            st.markdown("#### 📊 Fiscal Year Summary")
+            # ============================================================
+            # Fiscal Year Summary Table (each = 12 months)
+            # ============================================================
+            st.markdown("#### 📊 Fiscal Year Summary (each fiscal year = 12 months = 1 full year)")
 
             summary_data = []
-            for year in fiscal_pivot.columns:
-                year_data = fiscal_pivot[year].dropna()
-                if len(year_data) > 0:
+            for i, lbl in enumerate(block_labels):
+                rows = df_blocks[df_blocks['Block_Num'] == i]
+                if len(rows) > 0:
+                    peak_row = rows.loc[rows['Demand'].idxmax()]
+                    low_row = rows.loc[rows['Demand'].idxmin()]
                     summary_data.append({
-                        "Fiscal Year": year,
-                        "Total Demand": f"{year_data.sum():,.0f}",
-                        "Average Monthly": f"{year_data.mean():,.0f}",
-                        "Peak Month": f"{year_data.idxmax()} ({year_data.max():,.0f})",
-                        "Lowest Month": f"{year_data.idxmin()} ({year_data.min():,.0f})",
-                        "Months of Data": len(year_data)
+                        "Fiscal Year": f"FY {i+1}",
+                        "Period": lbl,
+                        "Total Demand": f"{rows['Demand'].sum():,.0f}",
+                        "Average Monthly": f"{rows['Demand'].mean():,.0f}",
+                        "Peak Month": f"{peak_row['Month_Label']} ({peak_row['Demand']:,.0f})",
+                        "Lowest Month": f"{low_row['Month_Label']} ({low_row['Demand']:,.0f})",
+                        "Months Counted": f"{len(rows)}/12"
                     })
 
             if summary_data:
                 summary_df = pd.DataFrame(summary_data)
                 st.dataframe(summary_df, use_container_width=True, hide_index=True)
 
-            if len(fiscal_pivot.columns) >= 2:
-                st.markdown("#### 📈 Year-over-Year Growth Analysis")
-                cols = list(fiscal_pivot.columns)
+            # ============================================================
+            # Year-over-Year Growth Analysis (12-month comparison)
+            # ============================================================
+            if n_blocks >= 2:
+                st.markdown("#### 📈 Year-over-Year Growth Analysis (12-month comparison)")
                 growth_rates = []
-
-                for i in range(1, len(cols)):
-                    prev_year_total = fiscal_pivot[cols[i-1]].sum()
-                    curr_year_total = fiscal_pivot[cols[i]].sum()
-                    if prev_year_total > 0:
-                        growth = ((curr_year_total - prev_year_total) / prev_year_total) * 100
+                for i in range(1, n_blocks):
+                    prev_total = fiscal_pivot.iloc[:, i - 1].sum()
+                    curr_total = fiscal_pivot.iloc[:, i].sum()
+                    if prev_total > 0:
+                        growth = ((curr_total - prev_total) / prev_total) * 100
                         growth_rates.append({
-                            "Period": f"{cols[i-1]} → {cols[i]}",
+                            "Period": f"FY {i} ({block_labels[i-1]}) → FY {i+1} ({block_labels[i]})",
                             "Growth Rate": f"{growth:+.1f}%",
-                            "Change in Units": f"{curr_year_total - prev_year_total:+,.0f}",
-                            "Previous Year Total": f"{prev_year_total:,.0f}",
-                            "Current Year Total": f"{curr_year_total:,.0f}"
+                            "Change in Units": f"{curr_total - prev_total:+,.0f}",
+                            "Previous Year Total": f"{prev_total:,.0f}",
+                            "Current Year Total": f"{curr_total:,.0f}"
                         })
 
                 if growth_rates:
@@ -1341,40 +1443,67 @@ if st.session_state.data_loaded:
                     st.dataframe(growth_df, use_container_width=True, hide_index=True)
 
                     last_growth = growth_rates[-1]
-                    growth_value = float(last_growth['Growth Rate'].replace('%', '').replace('+', ''))
+                    growth_value = float(
+                        last_growth['Growth Rate'].replace('%', '').replace('+', '')
+                    )
                     if growth_value > 10:
-                        st.warning(f"⚠️ **High growth detected!** {last_growth['Period']}: {last_growth['Growth Rate']} growth. Ensure supply chain capacity can handle increasing demand.")
+                        st.warning(
+                            f"⚠️ **High growth detected!** {last_growth['Period']}: "
+                            f"{last_growth['Growth Rate']} growth. Ensure supply chain "
+                            "capacity can handle increasing demand."
+                        )
                     elif growth_value < -10:
-                        st.info(f"ℹ️ **Significant decrease detected:** {last_growth['Period']}: {last_growth['Growth Rate']}. Investigate potential causes.")
+                        st.info(
+                            f"ℹ️ **Significant decrease detected:** "
+                            f"{last_growth['Period']}: {last_growth['Growth Rate']}. "
+                            "Investigate potential causes."
+                        )
 
-            st.markdown("#### 📊 Monthly Pattern Analysis")
+            # ============================================================
+            # Monthly Pattern Analysis
+            # ============================================================
+            st.markdown("#### 📊 Monthly Pattern Analysis (12-month fiscal view)")
             col1, col2, col3 = st.columns(3)
 
             with col1:
                 avg_monthly = fiscal_pivot.mean(axis=1)
                 if len(avg_monthly) > 0:
                     highest_avg_month = avg_monthly.idxmax()
-                    st.metric("Highest Average Month", highest_avg_month, f"{avg_monthly.max():,.0f} units avg")
+                    st.metric(
+                        "Highest Average Month",
+                        highest_avg_month,
+                        f"{avg_monthly.max():,.0f} units avg"
+                    )
 
             with col2:
                 peak_months = {}
-                for year in fiscal_pivot.columns:
-                    year_data = fiscal_pivot[year].dropna()
-                    if len(year_data) > 0:
-                        peak_month = year_data.idxmax()
-                        peak_months[peak_month] = peak_months.get(peak_month, 0) + 1
-
+                for i in range(n_blocks):
+                    rows = df_blocks[df_blocks['Block_Num'] == i]
+                    if len(rows) > 0:
+                        peak_label = rows.loc[rows['Demand'].idxmax(), 'Month_Label'].split('-')[0]
+                        peak_months[peak_label] = peak_months.get(peak_label, 0) + 1
                 if peak_months:
                     most_common_peak = max(peak_months, key=peak_months.get)
-                    st.metric("Most Common Peak Month", most_common_peak, f"{peak_months[most_common_peak]} of {len(fiscal_pivot.columns)} years")
+                    st.metric(
+                        "Most Common Peak Month",
+                        most_common_peak,
+                        f"{peak_months[most_common_peak]} of {n_blocks} fiscal years"
+                    )
 
             with col3:
                 cv_by_month = fiscal_pivot.std(axis=1) / fiscal_pivot.mean(axis=1) * 100
                 if len(cv_by_month) > 0:
                     most_stable_month = cv_by_month.idxmin()
-                    st.metric("Most Stable Month", most_stable_month, f"CV: {cv_by_month.min():.1f}%")
+                    st.metric(
+                        "Most Stable Month",
+                        most_stable_month,
+                        f"CV: {cv_by_month.min():.1f}%"
+                    )
         else:
-            st.warning(f"Not enough data for fiscal year comparison. Need at least 12 months of data. Currently have {len(material_data_full)} months.")
+            st.warning(
+                f"Not enough data for fiscal year comparison. Need at least 12 months "
+                f"of data. Currently have {len(material_data_full)} months."
+            )
 
     # Combined Stationarity and Decomposition tab
     with tab3:
