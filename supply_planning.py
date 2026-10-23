@@ -578,7 +578,35 @@ def clean_dataframe_for_excel(df):
         df_clean[col] = df_clean[col].astype(str).str.replace(r'[\x00-\x08\x0B\x0C\x0E-\x1F]', '', regex=True)
         df_clean[col] = df_clean[col].str.replace('\x00', '')
     return df_clean
-
+def compute_usable_nmos(raw_nmos, amc_value, expiry_batches):
+    """
+    Usable NMOS = raw NMOS minus months of stock that will expire before
+    being consumed. Falls back to raw NMOS when expiry data is missing.
+    """
+    try:
+        n = float(raw_nmos) if raw_nmos is not None and pd.notna(raw_nmos) else 0.0
+    except Exception:
+        n = 0.0
+    try:
+        a = float(amc_value) if amc_value is not None and pd.notna(amc_value) else 0.0
+    except Exception:
+        a = 0.0
+    if a <= 0 or not expiry_batches:
+        return round(n, 2)
+    now = datetime.now()
+    lost = 0.0
+    for b in expiry_batches:
+        try:
+            q = float(b.get('quantity', 0) or 0)
+            e = b.get('expiry_date')
+        except Exception:
+            continue
+        if q <= 0 or e is None:
+            continue
+        rem = q / a
+        mte = max(0.0, (e.year - now.year) * 12 + (e.month - now.month) + (e.day - now.day) / 30.0)
+        lost += max(0.0, rem - mte)
+    return round(max(0.0, n - lost), 2)
 def inject_javascript():
     st.markdown("""
     <script>
@@ -2391,8 +2419,29 @@ def get_filtered_data(sheet_name, subcategory_filter):
         df['Assigned Subcategory'] = df['Material Description'].map(subcat_map)
         df = df[df['Assigned Subcategory'] == subcategory_filter]
 
-    return df
+        # ========================================================================
+    # OVERRIDE NMOS WITH USABLE NMOS — keeps the column name "NMOS" but
+    # stores the value net of expiry loss, so every downstream view inherits
+    # it without further changes.
+    # ========================================================================
+    if 'Expiry Batches' in df.columns and 'AMC' in df.columns:
+        df['NMOS'] = df.apply(
+            lambda r: compute_usable_nmos(
+                r.get('NSOH', 0) / r.get('AMC', 1) if (r.get('AMC') or 0) > 0 else 0,
+                r.get('AMC', 0),
+                r.get('Expiry Batches', []) or []
+            ),
+            axis=1
+        )
+        # Recompute Stock Status and TMOS so they stay consistent
+        if 'Stock Status' in df.columns or True:
+            df['Stock Status'] = df['NMOS'].apply(categorize_stock)
+        _mos_cols = ['NMOS', 'GIT_MOS', 'LC_MOS', 'WB_MOS', 'TMD_MOS']
+        _avail = [c for c in _mos_cols if c in df.columns]
+        if _avail:
+            df['TMOS'] = df[_avail].sum(axis=1)
 
+    return df
 @st.cache_data(ttl=CACHE_TTL, show_spinner=False)
 def compute_supply_plan(df_filtered):
     supply_plan = []
@@ -2902,6 +2951,134 @@ def render_unified_historical_table(df_filtered, issue_pivot, nsoh_pivot, consum
         use_container_width=True
     )
 
+    # ============================================================
+    # 1) AMC vs ISSUE (FIRST comparison graph)
+    # ============================================================
+    st.markdown("---")
+    st.markdown("""
+    <div class="custom-card">
+        <h4 style='font-size: 16px; font-weight: 600; margin-bottom: 5px;'>📊 AMC vs Issue Trends</h4>
+    </div>
+    """, unsafe_allow_html=True)
+
+    plot_data_amc_issue = []
+    for row in data_rows:
+        data_type = row['Data Type']
+        if data_type not in ['📊 AMC', '📤 Issue']:
+            continue
+        values = []
+        has_data = False
+        text_values = []
+        for month in all_months:
+            val_str = row.get(month, "0")
+            if val_str == "" or val_str is None:
+                values.append(None)
+                text_values.append("")
+            else:
+                val_str = str(val_str).replace(',', '')
+                try:
+                    val = float(val_str) if val_str else 0
+                    values.append(val)
+                    if val > 0:
+                        has_data = True
+                        text_values.append(f"{val:,.0f}")
+                    else:
+                        text_values.append("")
+                except:
+                    values.append(0)
+                    text_values.append("")
+
+        if has_data:
+            plot_data_amc_issue.append({
+                'Data Type': data_type,
+                'values': values,
+                'months': all_months,
+                'text_values': text_values
+            })
+
+    if plot_data_amc_issue:
+        fig_amc_issue = go.Figure()
+
+        amc_data = None
+        issue_data_ai = None
+        for data in plot_data_amc_issue:
+            if data['Data Type'] == '📊 AMC':
+                amc_data = data
+            elif data['Data Type'] == '📤 Issue':
+                issue_data_ai = data
+
+        if amc_data is not None and issue_data_ai is not None:
+            amc_vals = [v if v is not None else 0 for v in amc_data['values']]
+            issue_vals_ai = [v if v is not None else 0 for v in issue_data_ai['values']]
+
+            x_vals_ai = []
+            y_upper_ai = []
+            y_lower_ai = []
+            for i, month in enumerate(all_months):
+                a_val = amc_vals[i] if i < len(amc_vals) else 0
+                i_val = issue_vals_ai[i] if i < len(issue_vals_ai) else 0
+                if a_val > 0 or i_val > 0:
+                    x_vals_ai.append(month)
+                    y_upper_ai.append(max(a_val, i_val))
+                    y_lower_ai.append(min(a_val, i_val))
+
+            if x_vals_ai:
+                fig_amc_issue.add_trace(go.Scatter(
+                    x=x_vals_ai + x_vals_ai[::-1],
+                    y=y_upper_ai + y_lower_ai[::-1],
+                    fill='toself',
+                    fillcolor='rgba(200, 200, 200, 0.4)',
+                    line=dict(color='rgba(200, 200, 200, 0)'),
+                    showlegend=False,
+                    hoverinfo='skip',
+                    name='Gap'
+                ))
+
+        colors_amc_issue = {
+            '📊 AMC': '#CC5DE8',
+            '📤 Issue': '#4DABF7',
+        }
+
+        for data in plot_data_amc_issue:
+            fig_amc_issue.add_trace(go.Scatter(
+                x=data['months'],
+                y=data['values'],
+                name=data['Data Type'],
+                mode='lines+markers+text',
+                line=dict(color=colors_amc_issue.get(data['Data Type'], '#666'), width=3),
+                marker=dict(size=10, color=colors_amc_issue.get(data['Data Type'], '#666'),
+                            line=dict(width=2, color='white')),
+                text=data['text_values'],
+                textposition='top center' if data['Data Type'] == '📊 AMC' else 'bottom center',
+                textfont=dict(size=10, color='black'),
+                hovertemplate='<b>%{x}</b><br>%{fullData.name}: %{y:,.0f}<extra></extra>'
+            ))
+
+        fig_amc_issue.update_layout(
+            title=f"AMC vs Issue for {selected_material}",
+            xaxis_title="Month",
+            yaxis_title="Value",
+            height=450,
+            legend=dict(orientation='h', yanchor='bottom', y=1.02,
+                        xanchor='center', x=0.5),
+            hovermode='x unified',
+            xaxis=dict(showgrid=False, showline=True, tickangle=45,
+                       categoryorder='array', categoryarray=all_months),
+            yaxis=dict(showgrid=True, gridcolor='#e0e0e0', showline=True),
+            plot_bgcolor='white',
+            margin=dict(l=60, r=40, t=60, b=60)
+        )
+        st.plotly_chart(
+            fig_amc_issue,
+            use_container_width=True,
+            config={'displayModeBar': 'hover'}
+        )
+    else:
+        st.info("No AMC / Issue data available for comparison.")
+
+    # ============================================================
+    # 2) NMOS vs AMOS
+    # ============================================================
     st.markdown("---")
     st.markdown("""
     <div class="custom-card">
@@ -3019,6 +3196,9 @@ def render_unified_historical_table(df_filtered, issue_pivot, nsoh_pivot, consum
             config={'displayModeBar': 'hover'}
         )
 
+    # ============================================================
+    # 3) NSOH vs Consumption vs Issue
+    # ============================================================
     st.markdown("---")
     st.markdown("""
     <div class="custom-card">
@@ -3137,6 +3317,9 @@ def render_unified_historical_table(df_filtered, issue_pivot, nsoh_pivot, consum
             config={'displayModeBar': 'hover'}
         )
 
+    # ============================================================
+    # 4) AMC vs Consumption vs Issue
+    # ============================================================
     st.markdown("---")
     st.markdown("""
     <div class="custom-card">
@@ -5486,6 +5669,28 @@ def render_ap_progress_follow_up(sheet_name, selected_quarter, selected_year, se
 
     if 'Status' not in df.columns:
         df['Status'] = "Pending"
+        # ========================================================================
+    # Refresh the FROZEN NMOS snapshot with live usable NMOS.
+    # (The stored value was captured at save time; this recomputes it from
+    # today's expiry batches so the displayed NMOS reflects usable stock.)
+    # ========================================================================
+    try:
+        _live = get_filtered_data(
+            sheet_name if sheet_name != "All" else "All",
+            st.session_state.get('selected_subcategory', 'All')
+        )
+        if _live is not None and not _live.empty and 'NMOS' in _live.columns:
+            _live_map = {
+                str(k).strip().lower(): v
+                for k, v in zip(_live['Material Description'], _live['NMOS'])
+            }
+            def _refresh_nmos(r):
+                key = str(r.get('Material', '') or '').strip().lower()
+                v = _live_map.get(key)
+                return v if v is not None else r.get('NMOS', 0)
+            df['NMOS'] = df.apply(_refresh_nmos, axis=1)
+    except Exception:
+        pass
 
     program_name = sheet_name if sheet_name != "All" else "All Programs"
 
@@ -5975,7 +6180,7 @@ def render_ap_progress_follow_up(sheet_name, selected_quarter, selected_year, se
 
     st.markdown("---")
 
-    # ======================================================================
+        # ======================================================================
     # STATUS + TIMELINESS DISTRIBUTION (side-by-side on one row)
     # ======================================================================
     selected_program_names = program_filter if program_filter else ["All Programs"]
@@ -6311,24 +6516,39 @@ def render_ap_progress_follow_up(sheet_name, selected_quarter, selected_year, se
     org_has_data = any(_org_of(b) in ('EPSS', 'MOH', 'MSH_SCS') for b in all_bodies)
 
     if org_has_data:
-        st.markdown("### 🥧 Organization Status Distribution")
-        pie_cols = st.columns(3)
-
-        pie_colors = ['#28a745', '#2e86c1', '#ffc107']
-
-        for col, (org_name, org_key) in zip(pie_cols, org_defs):
+        # ============================================================
+        # Only render org cards that actually have action data.
+        # Organizations with total_o == 0 (e.g. MSH_SCS) are skipped
+        # entirely — no "No data" placeholder card is shown.
+        # ============================================================
+        orgs_with_data = []
+        for org_name, org_key in org_defs:
             completed_o, not_completed_o, pending_o = _compute_org_status_counts(org_key)
             total_o = completed_o + not_completed_o + pending_o
+            if total_o > 0:
+                orgs_with_data.append({
+                    'org_name': org_name,
+                    'org_key': org_key,
+                    'completed': completed_o,
+                    'not_completed': not_completed_o,
+                    'pending': pending_o,
+                    'total': total_o,
+                })
 
-            with col:
-                if total_o == 0:
-                    st.markdown(
-                        f'<div style="text-align:center; color:#888; '
-                        f'font-family: Times New Roman, Times, serif; padding: 40px 0;">'
-                        f'<strong>{org_name}</strong><br>No data</div>',
-                        unsafe_allow_html=True
-                    )
-                else:
+        if orgs_with_data:
+            st.markdown("### 🥧 Organization Status Distribution")
+            pie_cols = st.columns(len(orgs_with_data))
+
+            pie_colors = ['#28a745', '#2e86c1', '#ffc107']
+
+            for col, od in zip(pie_cols, orgs_with_data):
+                org_name = od['org_name']
+                completed_o = od['completed']
+                not_completed_o = od['not_completed']
+                pending_o = od['pending']
+                total_o = od['total']
+
+                with col:
                     org_labels = ['Completed', 'Not Completed', 'Pending']
                     org_values = [completed_o, not_completed_o, pending_o]
                     org_text_labels = [
@@ -6554,7 +6774,7 @@ def render_ap_progress_follow_up(sheet_name, selected_quarter, selected_year, se
 
     st.markdown("---")
 
-    # ======================================================================
+        # ======================================================================
     # MULTI-PROGRAM MULTI-SHEET XLSX EXPORT
     # ======================================================================
     st.markdown("### 📥 Download Action Plan by Program (Multi-Sheet XLSX)")
@@ -6973,7 +7193,38 @@ def render_ap_progress_follow_up(sheet_name, selected_quarter, selected_year, se
 
             quarter_label = f"{_to_ordinal_quarter(effective_quarter)}, {effective_year}"
 
-            for prog_key, sheet_label in SHEET_NAME_MAP.items():
+            # ============================================================
+            # DRIVE EXPORT FROM THE ACTION-PLAN TABLE PROGRAM FILTER
+            # One sheet per program selected in the table filter.
+            # e.g. ["Malaria","HIV"] -> 2 sheets: "Malaria" and "HIV"
+            # ============================================================
+            if not program_filter:
+                programs_in_scope = (
+                    sorted(filtered_df['Program'].dropna().unique().tolist())
+                    if 'Program' in filtered_df.columns
+                    else list(SHEET_NAME_MAP.keys())
+                )
+            else:
+                programs_in_scope = list(program_filter)
+
+            sheets_to_export = {}
+            for prog_key in programs_in_scope:
+                if prog_key in sheets_to_export:
+                    continue
+                sheet_label = SHEET_NAME_MAP.get(prog_key, prog_key)
+                safe_label = re.sub(r'[:\\/?*\[\]]', '-', str(sheet_label))[:31]
+                base_label = safe_label
+                counter = 2
+                while safe_label in sheets_to_export.values():
+                    suffix = f"_{counter}"
+                    safe_label = (base_label[:31 - len(suffix)]) + suffix
+                    counter += 1
+                sheets_to_export[prog_key] = safe_label
+
+            if not sheets_to_export:
+                sheets_to_export = dict(SHEET_NAME_MAP)
+
+            for prog_key, sheet_label in sheets_to_export.items():
                 prog_df = _build_program_export_df(prog_key)
                 if prog_df.empty:
                     prog_df = pd.DataFrame(columns=EXPORT_COLUMNS)
@@ -6991,13 +7242,36 @@ def render_ap_progress_follow_up(sheet_name, selected_quarter, selected_year, se
         _quarter_for_file = _to_ordinal_quarter(effective_quarter).replace(' ', '_')
         _year_for_file = str(effective_year)
         _date_stamp = datetime.now().strftime('%Y%m%d')
+
+        selected_program_keys = list(sheets_to_export.keys())
+
+        if (
+            len(selected_program_keys) == 4
+            and set(selected_program_keys) == set(SHEET_NAME_MAP.keys())
+        ):
+            programs_for_name = "Malaria_HIV_OI_and_TB"
+            button_label = "📥 Malaria, HIV, OI and TB Medicines Action Plan"
+        elif len(selected_program_keys) == 1:
+            prog_only = selected_program_keys[0]
+            programs_for_name = str(prog_only).replace(' ', '_').replace('/', '_')
+            button_label = f"📥 {prog_only} Medicines Action Plan"
+        else:
+            programs_for_name = "_".join(
+                str(p).replace(' ', '_').replace('/', '_')
+                for p in selected_program_keys
+            )
+            button_label = (
+                "📥 " + ", ".join(str(p) for p in selected_program_keys)
+                + " Medicines Action Plan"
+            )
+
         file_name = (
             f"{_quarter_for_file}_{_year_for_file}_"
-            f"Malaria_HIV_OI_and_TB_Medicines_Action_Plan_{_date_stamp}.xlsx"
+            f"{programs_for_name}_Medicines_Action_Plan_{_date_stamp}.xlsx"
         )
 
         st.download_button(
-            label="📥 Malaria, HIV, OI and TB Medicines Action Plan",
+            label=button_label,
             data=multi_excel_data,
             file_name=file_name,
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -7370,7 +7644,7 @@ def main():
                     else:
                         _not_yet_due += 1
 
-            # ---------- TIMELINESS SUMMARY SUB-HEADING ----------
+           # ---------- TIMELINESS SUMMARY SUB-HEADING ----------
             st.markdown(f"""
             <div class="progress-summary-container" style="margin-top: 10px;">
                 <h4 class="progress-summary-title" style="font-size: 16px;">⏱️ Timeliness Summary</h4>
@@ -7381,34 +7655,34 @@ def main():
 
             with tcol1:
                 st.markdown(f"""
-                <div class="progress-status-card" style="background: linear-gradient(135deg, #28a745 0%, #20c997 100%);">
+                <div class="progress-status-card" style="background: #ffffff; border: 2px solid #28a745;">
                     <div class="status-icon">🟢</div>
-                    <div class="status-number">{_on_time}</div>
-                    <div class="status-label">On Time</div>
+                    <div class="status-number" style="color: #28a745;">{_on_time}</div>
+                    <div class="status-label" style="color: #555;">On Time</div>
                 </div>
                 """, unsafe_allow_html=True)
             with tcol2:
                 st.markdown(f"""
-                <div class="progress-status-card" style="background: linear-gradient(135deg, #fcc419 0%, #ff922b 100%);">
+                <div class="progress-status-card" style="background: #ffffff; border: 2px solid #fcc419;">
                     <div class="status-icon">🟠</div>
-                    <div class="status-number">{_late}</div>
-                    <div class="status-label">Late</div>
+                    <div class="status-number" style="color: #fcc419;">{_late}</div>
+                    <div class="status-label" style="color: #555;">Late</div>
                 </div>
                 """, unsafe_allow_html=True)
             with tcol3:
                 st.markdown(f"""
-                <div class="progress-status-card" style="background: linear-gradient(135deg, #dc3545 0%, #c82333 100%);">
+                <div class="progress-status-card" style="background: #ffffff; border: 2px solid #dc3545;">
                     <div class="status-icon">🔴</div>
-                    <div class="status-number">{_overdue}</div>
-                    <div class="status-label">Overdue</div>
+                    <div class="status-number" style="color: #dc3545;">{_overdue}</div>
+                    <div class="status-label" style="color: #555;">Overdue</div>
                 </div>
                 """, unsafe_allow_html=True)
             with tcol4:
                 st.markdown(f"""
-                <div class="progress-status-card" style="background: linear-gradient(135deg, #2e86c1 0%, #4dabf7 100%);">
+                <div class="progress-status-card" style="background: #ffffff; border: 2px solid #2e86c1;">
                     <div class="status-icon">🔵</div>
-                    <div class="status-number">{_not_yet_due}</div>
-                    <div class="status-label">Not Yet Due</div>
+                    <div class="status-number" style="color: #2e86c1;">{_not_yet_due}</div>
+                    <div class="status-label" style="color: #555;">Not Yet Due</div>
                 </div>
                 """, unsafe_allow_html=True)
 
