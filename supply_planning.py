@@ -580,21 +580,25 @@ def clean_dataframe_for_excel(df):
     return df_clean
 def compute_usable_nmos(raw_nmos, amc_value, expiry_batches):
     """
-    Usable NMOS = raw NMOS minus months of stock that will expire before
-    being consumed. Falls back to raw NMOS when expiry data is missing.
+    NMOS = NMOS_raw - Lost_MOS
+    where Lost_MOS = months of stock that will expire before being consumed.
+    Guarantees: NMOS = NMOS_raw - Lost_MOS (never negative).
     """
-    try:
-        n = float(raw_nmos) if raw_nmos is not None and pd.notna(raw_nmos) else 0.0
-    except Exception:
-        n = 0.0
     try:
         a = float(amc_value) if amc_value is not None and pd.notna(amc_value) else 0.0
     except Exception:
         a = 0.0
+
+    try:
+        raw = float(raw_nmos) if raw_nmos is not None and pd.notna(raw_nmos) else 0.0
+    except Exception:
+        raw = 0.0
+
     if a <= 0 or not expiry_batches:
-        return round(n, 2)
+        return round(raw, 2)
+
     now = datetime.now()
-    lost = 0.0
+    lost_mos = 0.0
     for b in expiry_batches:
         try:
             q = float(b.get('quantity', 0) or 0)
@@ -604,9 +608,18 @@ def compute_usable_nmos(raw_nmos, amc_value, expiry_batches):
         if q <= 0 or e is None:
             continue
         rem = q / a
-        mte = max(0.0, (e.year - now.year) * 12 + (e.month - now.month) + (e.day - now.day) / 30.0)
-        lost += max(0.0, rem - mte)
-    return round(max(0.0, n - lost), 2)
+        mte = (
+            (e.year - now.year) * 12
+            + (e.month - now.month)
+            + (e.day - now.day) / 30.0
+        )
+        mte = max(0.0, mte)
+        lost_mos += max(0.0, rem - mte)
+
+    # Never lose more than what you physically have
+    lost_mos = min(lost_mos, raw)
+    usable = max(0.0, raw - lost_mos)
+    return round(usable, 2)
 def inject_javascript():
     st.markdown("""
     <script>
@@ -2419,21 +2432,30 @@ def get_filtered_data(sheet_name, subcategory_filter):
         df['Assigned Subcategory'] = df['Material Description'].map(subcat_map)
         df = df[df['Assigned Subcategory'] == subcategory_filter]
 
-        # ========================================================================
-    # OVERRIDE NMOS WITH USABLE NMOS — keeps the column name "NMOS" but
-    # stores the value net of expiry loss, so every downstream view inherits
-    # it without further changes.
+                # ========================================================================
+    # NMOS  = NMOS_raw - Lost_MOS   (usable stock)
+    # NMOS_raw = NSOH / AMC         (raw stock)
+    # TMOS  = NMOS + PMOS
     # ========================================================================
+    # Capture NMOS_raw on the first pass only (never overwrite)
+    if 'NMOS' in df.columns and 'NMOS_raw' not in df.columns:
+        df['NMOS_raw'] = df['NMOS']
+
+    # Fallback: derive NMOS_raw from NSOH / AMC if not already present
+    if 'NMOS_raw' not in df.columns and 'NSOH' in df.columns and 'AMC' in df.columns:
+        _nsoh_vals = pd.to_numeric(df['NSOH'], errors='coerce')
+        _amc_vals = pd.to_numeric(df['AMC'], errors='coerce').replace(0, np.nan)
+        df['NMOS_raw'] = (_nsoh_vals / _amc_vals).round(2)
+
     if 'Expiry Batches' in df.columns and 'AMC' in df.columns:
         df['NMOS'] = df.apply(
             lambda r: compute_usable_nmos(
-                r.get('NSOH', 0) / r.get('AMC', 1) if (r.get('AMC') or 0) > 0 else 0,
+                r.get('NMOS_raw', 0),
                 r.get('AMC', 0),
                 r.get('Expiry Batches', []) or []
             ),
             axis=1
         )
-        # Recompute Stock Status and TMOS so they stay consistent
         if 'Stock Status' in df.columns or True:
             df['Stock Status'] = df['NMOS'].apply(categorize_stock)
         _mos_cols = ['NMOS', 'GIT_MOS', 'LC_MOS', 'WB_MOS', 'TMD_MOS']
@@ -4077,8 +4099,6 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
     current_year = datetime.now().year
 
     # ------------------------------------------------------------------
-    # HELPER: latest (Year, Quarter) present in records
-    # ------------------------------------------------------------------
     def get_current_quarter_from_records(records_df):
         if records_df is None or records_df.empty:
             return None, None
@@ -4093,8 +4113,6 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
         idx = (valid['_ysort'] * 10 + valid['_qsort']).idxmax()
         return valid.loc[idx, 'Quarter'], int(valid.loc[idx, 'Year'])
 
-    # ------------------------------------------------------------------
-    # TIMELINESS HELPER
     # ------------------------------------------------------------------
     def compute_timeliness(status, due_date_val, completion_date_val):
         from datetime import date as _date
@@ -4144,8 +4162,6 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
         return "🔵", "Not Yet Due"
 
     # ------------------------------------------------------------------
-    # SESSION STATE INIT
-    # ------------------------------------------------------------------
     if 'expert_plan_records' not in st.session_state:
         st.session_state.expert_plan_records = load_expert_plan_records(
             sheet_name if sheet_name != "All" else None,
@@ -4167,8 +4183,6 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
     if 'show_custom_responsible' not in st.session_state:
         st.session_state.show_custom_responsible = False
 
-    # ------------------------------------------------------------------
-    # Small helpers
     # ------------------------------------------------------------------
     def generate_record_id():
         return int(datetime.now().timestamp() * 1000) + random.randint(1, 1000)
@@ -4268,67 +4282,92 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
         result = pattern.sub(replacer, status_str)
         return result if result != status_str else status_str
 
-    def calculate_usable_nmos(expiry_batches, amc_value, nmos_value):
+    # ------------------------------------------------------------------
+    # calculate_usable_nmos
+    # Guarantees: NMOS = NMOS_raw - Lost_MOS
+    # ------------------------------------------------------------------
+    def calculate_usable_nmos(expiry_batches, amc_value, nmos_value=None):
         try:
-            nmos_val = float(nmos_value) if nmos_value is not None and pd.notna(nmos_value) else 0.0
-        except:
-            nmos_val = 0.0
-        if not expiry_batches or not amc_value or amc_value <= 0:
-            return nmos_val, 0.0, 0.0
+            a = float(amc_value) if amc_value is not None and pd.notna(amc_value) else 0.0
+        except Exception:
+            a = 0.0
+
+        try:
+            raw = float(nmos_value) if nmos_value is not None and pd.notna(nmos_value) else 0.0
+        except Exception:
+            raw = 0.0
+
+        if not expiry_batches or a <= 0:
+            return raw, raw, 0.0
+
         now = datetime.now()
         total_expiry_mos = 0.0
         lost_mos = 0.0
-        for batch in expiry_batches:
-            qty = batch.get('quantity', 0) or 0
-            exp_date = batch.get('expiry_date')
+        for b in expiry_batches:
             try:
-                qty = float(qty)
-            except:
-                qty = 0.0
-            if qty <= 0:
+                q = float(b.get('quantity', 0) or 0)
+                e = b.get('expiry_date')
+            except Exception:
                 continue
-            remaining_mos = qty / amc_value
-            total_expiry_mos += remaining_mos
-            if exp_date is None:
+            if q <= 0 or e is None:
                 continue
-            try:
-                months_to_exp = (
-                    (exp_date.year - now.year) * 12
-                    + (exp_date.month - now.month)
-                    + (exp_date.day - now.day) / 30.0
-                )
-            except:
-                months_to_exp = 0.0
-            months_to_exp = max(0.0, months_to_exp)
-            lost_mos += max(0.0, remaining_mos - months_to_exp)
-        usable_nmos = max(0.0, nmos_val - lost_mos)
-        return usable_nmos, total_expiry_mos, lost_mos
+            rem = q / a
+            total_expiry_mos += rem
+            mte = (
+                (e.year - now.year) * 12
+                + (e.month - now.month)
+                + (e.day - now.day) / 30.0
+            )
+            mte = max(0.0, mte)
+            lost_mos += max(0.0, rem - mte)
 
+        lost_mos = min(lost_mos, raw)
+        usable = max(0.0, raw - lost_mos)
+        return usable, total_expiry_mos, lost_mos
+
+    # ------------------------------------------------------------------
+    # get_material_base_info
+    # nmos      = USABLE (NMOS_raw - Lost_MOS)
+    # nmos_raw  = RAW    (NSOH / AMC)
+    # tmos      = nmos + pmos   (recomputed from freshly calculated nmos)
+    # ------------------------------------------------------------------
     def get_material_base_info(material):
-        row = df_filtered[df_filtered['Material Description'] == material]
-        if row.empty:
+        mat_row = df_filtered[df_filtered['Material Description'] == material]
+        if mat_row.empty:
             return None
-        row = row.iloc[0]
+        row = mat_row.iloc[0]
         nsoh = row.get('NSOH', 0)
         amc = row.get('AMC', 0)
-        nmos = row.get('NMOS', 0)
-        tmos = row.get('TMOS', 0)
         status = row.get('Status', '')
         expiry = row.get('Expiry', '')
         expiry_batches = row.get('Expiry Batches', [])
         current_month_label = datetime.now().strftime('%b-%Y')
+
+        # RAW NMOS
+        if 'NMOS_raw' in mat_row.index and pd.notna(mat_row['NMOS_raw']):
+            nmos = float(mat_row['NMOS_raw'])
+        else:
+            try:
+                nsoh_f = float(nsoh) if pd.notna(nsoh) else 0.0
+                amc_f = float(amc) if pd.notna(amc) and amc else 0.0
+                nmos = (nsoh_f / amc_f) if amc_f > 0 else 0.0
+            except Exception:
+                nmos = 0.0
+
         if material in material_problems:
             pmos = material_problems[material]['PMOS']
             mos_needed = material_problems[material]['MOS Needed']
         else:
             pmos = row.get('PMOS', 0)
             if pd.isna(pmos):
-                pmos = tmos - nmos
-            mos_needed = max(0, 18 - tmos)
+                pmos = 0
+            mos_needed = max(0, 18 - (nmos + pmos))
+
         expiry_formatted = ""
         exp_mos_formatted = ""
         amc_val = float(amc) if pd.notna(amc) and amc else 0
         po_mos_formatted = compute_po_mos(status, amc_val) if amc_val > 0 else "N/A"
+
         if expiry_batches and len(expiry_batches) > 0:
             expiry_parts = []
             exp_mos_parts = []
@@ -4343,18 +4382,23 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
                     exp_mos_parts.append(f"N/A ({exp_date})")
             expiry_formatted = "; ".join(expiry_parts)
             exp_mos_formatted = "; ".join(exp_mos_parts)
+
         usable_nmos_val, total_expiry_mos_val, lost_mos_val = calculate_usable_nmos(
             expiry_batches, amc_val, nmos
         )
+
+        # TMOS = USABLE NMOS + PMOS   (computed here so it always matches the card)
+        tmos = round(usable_nmos_val + pmos, 2)
+
         return {
             'nsoh': f"{int(nsoh):,}" if nsoh > 0 else "0",
             'amc': f"{int(amc):,}" if amc > 0 else "N/A",
             'pmos': round(pmos, 2),
-            'nmos': round(nmos, 2),
-            'usable_nmos': round(usable_nmos_val, 2),
+            'nmos': round(usable_nmos_val, 2),   # USABLE
+            'nmos_raw': round(nmos, 2),          # RAW
             'total_expiry_mos': round(total_expiry_mos_val, 2),
             'lost_mos': round(lost_mos_val, 2),
-            'tmos': round(tmos, 2),
+            'tmos': tmos,
             'mos_needed': round(mos_needed, 2),
             'status': status if status else 'N/A',
             'expiry': expiry_formatted if expiry_formatted else (expiry if expiry else 'N/A'),
@@ -4379,8 +4423,6 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
             })
         return problems
 
-    # ------------------------------------------------------------------
-    # Strict program filter for material dropdown
     # ------------------------------------------------------------------
     ordered_materials = get_program_materials(sheet_name)
 
@@ -4412,7 +4454,7 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
         st.session_state.selected_material_for_expert = selected_material
 
     # =========================================================================
-    # GRAPH SECTION
+    # GRAPH
     # =========================================================================
     if selected_material and not nsoh_pivot.empty:
         st.markdown("---")
@@ -4806,7 +4848,7 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
             html += f'<div style="background: white; padding: 8px 12px; border-radius: 6px; margin-bottom: 5px;"><strong>AMC:</strong> {base_info["amc"]}</div>'
             html += f'<div style="background: white; padding: 8px 12px; border-radius: 6px; margin-bottom: 5px;"><strong>PMOS:</strong> {base_info["pmos"]:.2f}</div>'
             html += f'<div style="background: white; padding: 8px 12px; border-radius: 6px; margin-bottom: 5px;"><strong>NMOS:</strong> {base_info["nmos"]:.2f}</div>'
-            html += f'<div style="background: #fff8e1; padding: 8px 12px; border-radius: 6px; margin-bottom: 5px; border-left: 3px solid #ffc107;"><strong>Usable NMOS:</strong> {base_info["usable_nmos"]:.2f}</div>'
+            html += f'<div style="background: #f0f0f0; padding: 8px 12px; border-radius: 6px; margin-bottom: 5px;"><strong>NMOS_raw:</strong> {base_info["nmos_raw"]:.2f}</div>'
             html += f'<div style="background: #fdecea; padding: 8px 12px; border-radius: 6px; margin-bottom: 5px; border-left: 3px solid #dc3545;"><strong>Lost MOS (due to expiry):</strong> {base_info["lost_mos"]:.2f}</div>'
             html += f'<div style="background: white; padding: 8px 12px; border-radius: 6px; margin-bottom: 5px;"><strong>TMOS:</strong> {base_info["tmos"]:.2f}</div>'
             html += f'<div style="background: white; padding: 8px 12px; border-radius: 6px; margin-bottom: 5px;"><strong>Status:</strong> {base_info["status"]}</div>'
@@ -4871,7 +4913,7 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
     st.markdown("---")
 
     # =========================================================================
-    # CHANGE LIST — only latest quarter
+    # CHANGE LIST
     # =========================================================================
     if selected_material and st.session_state.show_change_list:
         material_records = [r for r in st.session_state.expert_plan_records if r['Material'] == selected_material]
@@ -5143,7 +5185,6 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
                 if status != "Completed":
                     st.markdown('<p style="font-size: 12px; color: #999; margin-top: 2px;">Enabled when Status = Completed</p>', unsafe_allow_html=True)
 
-            # ✅ FIX: send None (not "") for empty dates so Postgres accepts NULL
             if status == "Completed" and completion_date_obj is not None:
                 completion_date = completion_date_obj.strftime('%Y-%m-%d')
             else:
@@ -5177,6 +5218,7 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
                             'AMC': edit_record.get('AMC', ''),
                             'PMOS': edit_record.get('PMOS', 0),
                             'NMOS': edit_record.get('NMOS', 0),
+                            'NMOS_raw': edit_record.get('NMOS_raw', 0),
                             'TMOS': edit_record.get('TMOS', 0),
                             'Purchase Order': purchase_order,
                             'Order Quantity': order_quantity,
@@ -5210,6 +5252,7 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
                             'AMC': base_info['amc'] if base_info else "",
                             'PMOS': base_info['pmos'] if base_info else 0,
                             'NMOS': base_info['nmos'] if base_info else 0,
+                            'NMOS_raw': base_info['nmos_raw'] if base_info else 0,
                             'TMOS': base_info['tmos'] if base_info else 0,
                             'Purchase Order': purchase_order,
                             'Order Quantity': order_quantity,
@@ -5248,7 +5291,7 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
     st.markdown("---")
 
     # =========================================================================
-    # RECORDS TABLE — NaN-safe
+    # RECORDS TABLE
     # =========================================================================
     if st.session_state.expert_plan_records:
         records_df = pd.DataFrame(st.session_state.expert_plan_records)
@@ -5269,9 +5312,6 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
 
             records_df = records_df.sort_values('Material')
 
-            # ==============================================================
-            # TIMELINESS FILTER — computed once on records_df
-            # ==============================================================
             def _parse_dt_expert(v):
                 if v is None:
                     return None
@@ -5321,9 +5361,6 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
                 axis=1
             )
 
-            # ==============================================================
-            # FILTER ROW — Program | NMOS | Status | Timeliness
-            # ==============================================================
             all_programs = sorted(records_df['Program'].unique().tolist()) if 'Program' in records_df.columns else []
             default_programs = ['Malaria'] if 'Malaria' in all_programs else all_programs[:1] if all_programs else []
             all_statuses = sorted(records_df['Status'].unique().tolist()) if 'Status' in records_df.columns else []
@@ -5672,16 +5709,13 @@ def render_ap_progress_follow_up(sheet_name, selected_quarter, selected_year, se
 
     # ========================================================================
     # NMOS is intentionally NOT refreshed here.
-    # The stored df['NMOS'] is the frozen usable NMOS snapshot taken when the
-    # action point was created (base_info['usable_nmos']).
-    # Live values are provided only via Current NMOS / Current PMOS / Current TMOS
-    # further below, pulled from get_filtered_data().
+    # df['NMOS'] is the frozen usable NMOS snapshot taken at creation.
     # ========================================================================
 
     program_name = sheet_name if sheet_name != "All" else "All Programs"
 
     # ======================================================================
-    # Compute Timeliness label per row (needed for the filter dropdown)
+    # Compute Timeliness label per row
     # ======================================================================
     def _parse_date_val(v):
         if v is None:
@@ -5739,7 +5773,7 @@ def render_ap_progress_follow_up(sheet_name, selected_quarter, selected_year, se
     )
 
     # ======================================================================
-    # DETERMINE TARGET QUARTER/YEAR *BEFORE* ANY FILTERS
+    # DETERMINE TARGET QUARTER/YEAR
     # ======================================================================
     target_quarter = None
     target_year = None
@@ -5787,7 +5821,7 @@ def render_ap_progress_follow_up(sheet_name, selected_quarter, selected_year, se
         st.markdown(f"### 📋 {program_name} Action Plan Summary Table")
 
     # ======================================================================
-    # FILTER ROW — Program | Status | Responsible Body | Timeliness
+    # FILTER ROW
     # ======================================================================
     st.markdown('<div class="filter-row">', unsafe_allow_html=True)
 
@@ -5927,7 +5961,6 @@ def render_ap_progress_follow_up(sheet_name, selected_quarter, selected_year, se
 
     # ======================================================================
     # CURRENT VALUES — LIVE (Current NMOS / Current PMOS / Current TMOS)
-    # NMOS stays frozen above; only the Current* fields update.
     # ======================================================================
     sheet_name_param = sheet_name if sheet_name != "All" else "All"
     subcategory_filter = st.session_state.get('selected_subcategory', 'All')
@@ -6013,7 +6046,7 @@ def render_ap_progress_follow_up(sheet_name, selected_quarter, selected_year, se
     display_df['Current PMOS'] = display_df.apply(calculate_current_pmos, axis=1)
 
     # ======================================================================
-    # NMOS stays frozen — just format for display
+    # NMOS stays frozen — just format
     # ======================================================================
     if 'NMOS' in display_df.columns:
         display_df['NMOS'] = display_df['NMOS'].apply(
