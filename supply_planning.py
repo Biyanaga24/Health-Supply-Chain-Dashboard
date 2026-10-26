@@ -5669,28 +5669,14 @@ def render_ap_progress_follow_up(sheet_name, selected_quarter, selected_year, se
 
     if 'Status' not in df.columns:
         df['Status'] = "Pending"
-        # ========================================================================
-    # Refresh the FROZEN NMOS snapshot with live usable NMOS.
-    # (The stored value was captured at save time; this recomputes it from
-    # today's expiry batches so the displayed NMOS reflects usable stock.)
+
     # ========================================================================
-    try:
-        _live = get_filtered_data(
-            sheet_name if sheet_name != "All" else "All",
-            st.session_state.get('selected_subcategory', 'All')
-        )
-        if _live is not None and not _live.empty and 'NMOS' in _live.columns:
-            _live_map = {
-                str(k).strip().lower(): v
-                for k, v in zip(_live['Material Description'], _live['NMOS'])
-            }
-            def _refresh_nmos(r):
-                key = str(r.get('Material', '') or '').strip().lower()
-                v = _live_map.get(key)
-                return v if v is not None else r.get('NMOS', 0)
-            df['NMOS'] = df.apply(_refresh_nmos, axis=1)
-    except Exception:
-        pass
+    # NMOS is intentionally NOT refreshed here.
+    # The stored df['NMOS'] is the frozen usable NMOS snapshot taken when the
+    # action point was created (base_info['usable_nmos']).
+    # Live values are provided only via Current NMOS / Current PMOS / Current TMOS
+    # further below, pulled from get_filtered_data().
+    # ========================================================================
 
     program_name = sheet_name if sheet_name != "All" else "All Programs"
 
@@ -5754,14 +5740,6 @@ def render_ap_progress_follow_up(sheet_name, selected_quarter, selected_year, se
 
     # ======================================================================
     # DETERMINE TARGET QUARTER/YEAR *BEFORE* ANY FILTERS
-    # ----------------------------------------------------------------------
-    # Priority order:
-    #   1. Sidebar chose BOTH quarter and year  -> use them.
-    #   2. Sidebar chose only year              -> latest quarter in that year.
-    #   3. Sidebar chose only quarter           -> latest year with that quarter.
-    #   4. Sidebar chose neither ("All")        -> latest (year, quarter) in FULL df.
-    # Locking the target from the UNFILTERED df means a Status/Timeliness
-    # filter can never cause fallback into an older quarter.
     # ======================================================================
     target_quarter = None
     target_year = None
@@ -5801,7 +5779,7 @@ def render_ap_progress_follow_up(sheet_name, selected_quarter, selected_year, se
             target_year = latest_row['Year']
 
     # ======================================================================
-    # HEADER — now locked to the target quarter
+    # HEADER
     # ======================================================================
     if target_quarter and target_year:
         st.markdown(f"### 📋 {target_quarter}, {target_year} - {program_name} Action Plan Summary Table")
@@ -5872,7 +5850,7 @@ def render_ap_progress_follow_up(sheet_name, selected_quarter, selected_year, se
     st.markdown('</div>', unsafe_allow_html=True)
 
     # ======================================================================
-    # APPLY FILTERS (Program -> Status -> Responsible Body -> Timeliness)
+    # APPLY FILTERS
     # ======================================================================
     filtered_df = df.copy()
 
@@ -5906,7 +5884,7 @@ def render_ap_progress_follow_up(sheet_name, selected_quarter, selected_year, se
         filtered_df = filtered_df[filtered_df['Status'] == selected_status]
 
     # ======================================================================
-    # LOCK TO TARGET QUARTER/YEAR (computed above from UNFILTERED df)
+    # LOCK TO TARGET QUARTER/YEAR
     # ======================================================================
     if target_quarter and target_year and 'Quarter' in filtered_df.columns and 'Year' in filtered_df.columns:
         filtered_df = filtered_df[
@@ -5942,10 +5920,14 @@ def render_ap_progress_follow_up(sheet_name, selected_quarter, selected_year, se
         return f'<span class="status-badge" style="background: {color}; color: white; padding: 4px 12px; border-radius: 20px; font-size: 12px; font-weight: 600; cursor: pointer;" data-status="{status}" data-material="{material}">{status}</span>'
 
     display_df = filtered_df.copy()
-    display_df['Status Display'] = display_df.apply(lambda row: status_badge_html(row.get('Status', 'Pending'), row.get('Material', '')), axis=1)
+    display_df['Status Display'] = display_df.apply(
+        lambda row: status_badge_html(row.get('Status', 'Pending'), row.get('Material', '')),
+        axis=1
+    )
 
     # ======================================================================
-    # LOOKUP CURRENT VALUES FROM LIVE DATA
+    # CURRENT VALUES — LIVE (Current NMOS / Current PMOS / Current TMOS)
+    # NMOS stays frozen above; only the Current* fields update.
     # ======================================================================
     sheet_name_param = sheet_name if sheet_name != "All" else "All"
     subcategory_filter = st.session_state.get('selected_subcategory', 'All')
@@ -6005,7 +5987,6 @@ def render_ap_progress_follow_up(sheet_name, selected_quarter, selected_year, se
     if 'Due Date' in display_df.columns:
         display_df['Due Date'] = display_df['Due Date'].apply(_fmt_due)
 
-    # Recompute Timeliness (uses already-formatted Due Date strings)
     display_df['Timeliness'] = display_df.apply(
         lambda r: _compute_timeliness_followup(
             r.get('Status', ''),
@@ -6031,6 +6012,9 @@ def render_ap_progress_follow_up(sheet_name, selected_quarter, selected_year, se
 
     display_df['Current PMOS'] = display_df.apply(calculate_current_pmos, axis=1)
 
+    # ======================================================================
+    # NMOS stays frozen — just format for display
+    # ======================================================================
     if 'NMOS' in display_df.columns:
         display_df['NMOS'] = display_df['NMOS'].apply(
             lambda x: f"{float(x):.2f}" if pd.notna(x) and x != '' else "N/A"
@@ -6051,7 +6035,7 @@ def render_ap_progress_follow_up(sheet_name, selected_quarter, selected_year, se
     )
 
     # ======================================================================
-    # COLUMN ORDER: Status BEFORE Timeliness
+    # COLUMN ORDER
     # ======================================================================
     cols_to_display = [
         'Material',
@@ -6180,8 +6164,8 @@ def render_ap_progress_follow_up(sheet_name, selected_quarter, selected_year, se
 
     st.markdown("---")
 
-        # ======================================================================
-    # STATUS + TIMELINESS DISTRIBUTION (side-by-side on one row)
+    # ======================================================================
+    # STATUS + TIMELINESS DISTRIBUTION
     # ======================================================================
     selected_program_names = program_filter if program_filter else ["All Programs"]
     program_title = ", ".join(selected_program_names)
@@ -6311,6 +6295,9 @@ def render_ap_progress_follow_up(sheet_name, selected_quarter, selected_year, se
 
     st.markdown("---")
 
+    # ======================================================================
+    # BAR CHARTS — Program & Organization
+    # ======================================================================
     col_bar1, col_bar2 = st.columns(2)
 
     with col_bar1:
@@ -6475,6 +6462,9 @@ def render_ap_progress_follow_up(sheet_name, selected_quarter, selected_year, se
 
     st.markdown("---")
 
+    # ======================================================================
+    # ORG PIE CARDS
+    # ======================================================================
     all_bodies = []
     for body_str in filtered_df['Responsible Body'].dropna():
         bodies = [b.strip() for b in body_str.split(',') if b.strip()]
@@ -6516,11 +6506,6 @@ def render_ap_progress_follow_up(sheet_name, selected_quarter, selected_year, se
     org_has_data = any(_org_of(b) in ('EPSS', 'MOH', 'MSH_SCS') for b in all_bodies)
 
     if org_has_data:
-        # ============================================================
-        # Only render org cards that actually have action data.
-        # Organizations with total_o == 0 (e.g. MSH_SCS) are skipped
-        # entirely — no "No data" placeholder card is shown.
-        # ============================================================
         orgs_with_data = []
         for org_name, org_key in org_defs:
             completed_o, not_completed_o, pending_o = _compute_org_status_counts(org_key)
@@ -6774,7 +6759,7 @@ def render_ap_progress_follow_up(sheet_name, selected_quarter, selected_year, se
 
     st.markdown("---")
 
-        # ======================================================================
+    # ======================================================================
     # MULTI-PROGRAM MULTI-SHEET XLSX EXPORT
     # ======================================================================
     st.markdown("### 📥 Download Action Plan by Program (Multi-Sheet XLSX)")
@@ -7193,11 +7178,6 @@ def render_ap_progress_follow_up(sheet_name, selected_quarter, selected_year, se
 
             quarter_label = f"{_to_ordinal_quarter(effective_quarter)}, {effective_year}"
 
-            # ============================================================
-            # DRIVE EXPORT FROM THE ACTION-PLAN TABLE PROGRAM FILTER
-            # One sheet per program selected in the table filter.
-            # e.g. ["Malaria","HIV"] -> 2 sheets: "Malaria" and "HIV"
-            # ============================================================
             if not program_filter:
                 programs_in_scope = (
                     sorted(filtered_df['Program'].dropna().unique().tolist())
