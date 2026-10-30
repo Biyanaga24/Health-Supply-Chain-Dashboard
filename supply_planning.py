@@ -13,7 +13,7 @@ import random
 CACHE_TTL = 3600
 
 # ============================================================================
-# AUTHENTICATION IMPORTS - UPDATED WITH TAB MANAGEMENT
+# AUTHENTICATION IMPORTS
 # ============================================================================
 from sup_auth import (
     require_auth, get_current_user, get_user_role,
@@ -21,7 +21,6 @@ from sup_auth import (
     get_all_users, get_pending_users, approve_user, reject_user,
     update_user_role, toggle_user_active, update_user_program_access,
     update_user_tab_access, get_user_tab_access,
-    # NEW
     change_password, update_user_profile, refresh_current_user,
     get_password_reset_requests, approve_password_reset,
     reject_password_reset, has_approved_password_reset,
@@ -29,33 +28,34 @@ from sup_auth import (
 )
 
 # ============================================================================
+# FORECASTING CORE (integrated FSPT)
+# ============================================================================
+from forecast_core import (
+    build_monthly_forecast_input,
+    build_yearly_forecast_input,
+    run_forecast,
+)
+
+# ============================================================================
 # TAB CONSTANTS
 # ============================================================================
 TAB_OPTIONS = [
     "Historical Data",
-    "Expert Action Plan", 
+    "Expert Action Plan",
     "Action Plan Follow Up",
-    "System Generated Action Plan"
+    "System Generated Action Plan",
 ]
 
 # ============================================================================
-# CUSTOM CSS - UPDATED WITH ALL FIXES
+# CUSTOM CSS
 # ============================================================================
 def inject_custom_css():
-    # Load the Material Icons font via <link> (more reliable than @import inside <style>)
     st.markdown(
         '<link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">',
         unsafe_allow_html=True
     )
     st.markdown("""
     <style>
-        /* --- Material Icons safety net -------------------------------------
-           Streamlit's sidebar collapse/expand button, expander chevrons, and
-           several internal widgets render their icon as a ligature inside a
-           <span>. If any global font rule overrides that span's font-family,
-           the browser shows the ligature NAME as text (e.g.
-           "keyboard_double_arrow_right"). These rules force icon elements
-           back onto the Material Icons font. ------------------------------- */
         .material-icons,
         .material-icons-outlined,
         .material-icons-round,
@@ -83,35 +83,23 @@ def inject_custom_css():
         }
 
         .main { padding: 0rem 1rem; }
-        .stApp { 
-            background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
-        }
+        .stApp { background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%); }
 
-        /* Times New Roman for main content only — but never for icon fonts */
         .main p,
         .main span:not([class*="material-icons"]):not([data-testid*="Icon"]):not([data-testid*="icon"]),
-        .main div,
-        .main label,
-        .main td,
-        .main th,
-        .main li {
+        .main div, .main label, .main td, .main th, .main li {
             font-family: 'Times New Roman', Times, serif;
         }
 
-        /* (rest of your CSS unchanged from here on) */
-
-        /* Sidebar - system fonts ONLY */
         .css-1d391kg, .sidebar-content, .stSidebar, .stSidebar * { 
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif !important; 
         }
 
-        /* Expanders - system fonts ONLY */
         .streamlit-expanderHeader, .streamlit-expanderContent, 
         .streamlit-expanderHeader *, .streamlit-expanderContent * { 
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif !important; 
         }
 
-        /* Tabs - system fonts */
         .stTabs [data-baseweb="tab"], .stTabs [data-baseweb="tab-list"] button {
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif !important;
         }
@@ -209,13 +197,11 @@ def inject_custom_css():
             0% { transform: translateX(-100%); opacity: 0; }
             100% { transform: translateX(0); opacity: 1; }
         }
-
         @keyframes pulse {
             0% { transform: scale(1); }
             50% { transform: scale(1.02); }
             100% { transform: scale(1); }
         }
-
         @keyframes glow {
             0% { text-shadow: 0 0 10px rgba(255,215,0,0.3); }
             50% { text-shadow: 0 0 20px rgba(255,215,0,0.6), 0 0 30px rgba(255,215,0,0.3); }
@@ -267,27 +253,26 @@ def inject_custom_css():
             cursor: not-allowed;
         }
 
-        /* FIXED EXPANDER - NO OVERLAP (Requirement 11) */
         .streamlit-expanderHeader {
-    background-color: white;
-    border-radius: 8px;
-    font-weight: 500;
-    border-left: 4px solid #2e86c1;
-    padding: 10px 15px !important;
-    margin-bottom: 5px !important;
-    position: relative !important;
-    z-index: 1 !important;
-}
-.streamlit-expanderContent {
-    background-color: white;
-    border-radius: 8px;
-    padding: 15px !important;
-    border: 1px solid #e0e0e0;
-    border-top: none;
-    margin-top: 0 !important;
-    position: relative !important;
-    z-index: 0 !important;
-}
+            background-color: white;
+            border-radius: 8px;
+            font-weight: 500;
+            border-left: 4px solid #2e86c1;
+            padding: 10px 15px !important;
+            margin-bottom: 5px !important;
+            position: relative !important;
+            z-index: 1 !important;
+        }
+        .streamlit-expanderContent {
+            background-color: white;
+            border-radius: 8px;
+            padding: 15px !important;
+            border: 1px solid #e0e0e0;
+            border-top: none;
+            margin-top: 0 !important;
+            position: relative !important;
+            z-index: 0 !important;
+        }
 
         .stSelectbox > div > div {
             background-color: white !important;
@@ -408,16 +393,9 @@ def inject_custom_css():
             stroke-width: 1.5px !important;
         }
 
-        /* HIDE LOADING SPINNER */
-        .stSpinner {
-            display: none !important;
-        }
-        .stAlert {
-            border: none !important;
-            background: transparent !important;
-        }
+        .stSpinner { display: none !important; }
+        .stAlert { border: none !important; background: transparent !important; }
 
-        /* Sidebar section headers */
         .sidebar-section {
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif !important;
         }
@@ -425,7 +403,6 @@ def inject_custom_css():
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif !important;
         }
 
-        /* Metric cards in admin panel */
         .admin-metric {
             background: linear-gradient(135deg, #1a5276 0%, #2e86c1 100%);
             border-radius: 12px;
@@ -437,7 +414,6 @@ def inject_custom_css():
         .admin-metric .value { font-size: 28px; font-weight: 700; }
         .admin-metric .label { font-size: 14px; opacity: 0.9; }
 
-        /* Info boxes with new color scheme */
         .info-box {
             background: #eaf2f8;
             border-radius: 10px;
@@ -446,7 +422,6 @@ def inject_custom_css():
         }
         .info-box strong { color: #1a5276; }
 
-        /* CARD VIEW - Requirement 10 */
         .card-view-container {
             display: grid;
             grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
@@ -488,18 +463,9 @@ def inject_custom_css():
             gap: 4px 12px;
             font-size: 13px;
         }
-        .data-card .card-body .label {
-            color: #666;
-            font-weight: 500;
-        }
-        .data-card .card-body .value {
-            color: #1a5276;
-            font-weight: 600;
-            text-align: right;
-        }
-        .data-card .card-body .full-width {
-            grid-column: 1 / -1;
-        }
+        .data-card .card-body .label { color: #666; font-weight: 500; }
+        .data-card .card-body .value { color: #1a5276; font-weight: 600; text-align: right; }
+        .data-card .card-body .full-width { grid-column: 1 / -1; }
         .data-card .card-body .problem {
             grid-column: 1 / -1;
             background: #fff3cd;
@@ -526,7 +492,6 @@ def inject_custom_css():
             justify-content: space-between;
         }
 
-        /* ADMIN 3-COLUMN LAYOUT - Requirement 6 */
         .admin-management-row {
             display: grid;
             grid-template-columns: 1fr 1fr 1fr;
@@ -534,9 +499,7 @@ def inject_custom_css():
             margin: 10px 0;
         }
         @media (max-width: 768px) {
-            .admin-management-row {
-                grid-template-columns: 1fr;
-            }
+            .admin-management-row { grid-template-columns: 1fr; }
         }
         .admin-management-card {
             background: #f8f9fa;
@@ -550,14 +513,27 @@ def inject_custom_css():
             font-size: 14px;
             font-weight: 600;
         }
+
+        /* FSPT sidebar title */
+        .fspt-sidebar-title {
+            text-align: center;
+            font-family: 'Times New Roman', Times, serif !important;
+            font-size: 2.6rem;
+            font-weight: 900;
+            letter-spacing: 6px;
+            color: #1a5276;
+            margin: 0 0 4px 0;
+            line-height: 1;
+            padding-top: 4px;
+        }
     </style>
     """, unsafe_allow_html=True)
 
+
 # ============================================================================
-# HELPER FUNCTIONS
+# HELPERS
 # ============================================================================
 def sort_months_chronologically(month_list):
-    """Sort month strings (MMM-YYYY) chronologically"""
     def parse_month(month_str):
         try:
             return pd.to_datetime(month_str, format='%b-%Y')
@@ -571,32 +547,26 @@ def sort_months_chronologically(month_list):
                 return datetime(1900, 1, 1)
     return sorted(month_list, key=parse_month)
 
+
 def clean_dataframe_for_excel(df):
-    """Clean all string columns for Excel export."""
     df_clean = df.copy()
     for col in df_clean.select_dtypes(include=['object']).columns:
         df_clean[col] = df_clean[col].astype(str).str.replace(r'[\x00-\x08\x0B\x0C\x0E-\x1F]', '', regex=True)
         df_clean[col] = df_clean[col].str.replace('\x00', '')
     return df_clean
+
+
 def compute_usable_nmos(raw_nmos, amc_value, expiry_batches):
-    """
-    NMOS = NMOS_raw - Lost_MOS
-    where Lost_MOS = months of stock that will expire before being consumed.
-    Guarantees: NMOS = NMOS_raw - Lost_MOS (never negative).
-    """
     try:
         a = float(amc_value) if amc_value is not None and pd.notna(amc_value) else 0.0
     except Exception:
         a = 0.0
-
     try:
         raw = float(raw_nmos) if raw_nmos is not None and pd.notna(raw_nmos) else 0.0
     except Exception:
         raw = 0.0
-
     if a <= 0 or not expiry_batches:
         return round(raw, 2)
-
     now = datetime.now()
     lost_mos = 0.0
     for b in expiry_batches:
@@ -608,63 +578,50 @@ def compute_usable_nmos(raw_nmos, amc_value, expiry_batches):
         if q <= 0 or e is None:
             continue
         rem = q / a
-        mte = (
-            (e.year - now.year) * 12
-            + (e.month - now.month)
-            + (e.day - now.day) / 30.0
-        )
+        mte = ((e.year - now.year) * 12 + (e.month - now.month) + (e.day - now.day) / 30.0)
         mte = max(0.0, mte)
         lost_mos += max(0.0, rem - mte)
-
-    # Never lose more than what you physically have
     lost_mos = min(lost_mos, raw)
     usable = max(0.0, raw - lost_mos)
     return round(usable, 2)
+
+
 def inject_javascript():
     st.markdown("""
     <script>
         document.addEventListener('click', function(e) {
             const badge = e.target.closest('.status-badge');
             if (badge) {
-                const status = badge.dataset.status;
-                const material = badge.dataset.material;
                 window.parent.postMessage({
                     type: 'status_click',
-                    status: status,
-                    material: material
+                    status: badge.dataset.status,
+                    material: badge.dataset.material
                 }, '*');
             }
         });
-
         document.addEventListener('click', function(e) {
             const row = e.target.closest('.clickable-row');
             if (row) {
-                const material = row.dataset.material;
                 window.parent.postMessage({
                     type: 'row_click',
-                    material: material
+                    material: row.dataset.material
                 }, '*');
             }
         });
-
         document.addEventListener('click', function(e) {
             const card = e.target.closest('.progress-status-card');
             if (card) {
-                const status = card.dataset.status;
                 window.parent.postMessage({
                     type: 'status_filter',
-                    status: status
+                    status: card.dataset.status
                 }, '*');
             }
         });
     </script>
     """, unsafe_allow_html=True)
 
-# ============================================================================
-# VIEW TOGGLE HELPER - Requirement 10
-# ============================================================================
+
 def render_view_toggle(view_key, default_view="Table"):
-    """Render view toggle buttons and return selected view"""
     col1, col2, col3 = st.columns([1, 1, 4])
     with col1:
         if st.button("📋 Table", key=f"table_{view_key}", use_container_width=True,
@@ -678,12 +635,9 @@ def render_view_toggle(view_key, default_view="Table"):
             st.rerun()
     return st.session_state.get(view_key, default_view)
 
-# ============================================================================
-# CACHED DATA LOADING
-# ============================================================================
+
 @st.cache_data(ttl=3600, show_spinner=False)
 def load_all_data_cached():
-    """Load all data once with caching - NO SPINNER"""
     df_national = load_national_data()
     df_issue = load_issue_data()
     df_deliveries = load_new_deliveries()
@@ -692,24 +646,20 @@ def load_all_data_cached():
     google_sheets = load_google_sheets(sheet_id)
     branch_amc = load_branch_amc("12Z5xqX32QIzjoN6tNvGbjutMheXx5US1")
     dos_tracking = load_dos_tracking()
-
     return {
-        'national': df_national,
-        'issue': df_issue,
-        'deliveries': df_deliveries,
-        'ho_nsoh': df_ho_nsoh,
-        'google_sheets': google_sheets,
-        'branch_amc': branch_amc,
-        'dos_tracking': dos_tracking
+        'national': df_national, 'issue': df_issue, 'deliveries': df_deliveries,
+        'ho_nsoh': df_ho_nsoh, 'google_sheets': google_sheets,
+        'branch_amc': branch_amc, 'dos_tracking': dos_tracking
     }
 
+
 # ============================================================================
-# ADMIN PAGE - UPDATED WITH TAB MANAGEMENT + PASSWORD RESET REQUESTS
+# ADMIN PAGE
 # ============================================================================
 def render_admin_page():
     col1, col2 = st.columns([1, 4])
     with col1:
-        if st.button("← Back to Dashboard", use_container_width=True, type="primary"):
+        if st.button("← Back to Tool", use_container_width=True, type="primary"):
             st.session_state.show_admin_page = False
             st.rerun()
 
@@ -723,38 +673,26 @@ def render_admin_page():
     pending_users = get_pending_users()
     reset_requests = get_password_reset_requests()
 
-    # Count pending (not yet approved) reset requests for the badge
-    pending_reset_count = len([
-        r for r in reset_requests
-        if not r.get('password_reset_approved', False)
-    ])
+    pending_reset_count = len([r for r in reset_requests if not r.get('password_reset_approved', False)])
 
     col1, col2, col3, col4, col5 = st.columns(5)
-    with col1:
-        st.metric("👥 Total Users", len(all_users))
-    with col2:
-        st.metric("⏳ Pending Approvals", len(pending_users))
+    with col1: st.metric("👥 Total Users", len(all_users))
+    with col2: st.metric("⏳ Pending Approvals", len(pending_users))
     with col3:
         approved = len([u for u in all_users if u.get('is_approved', False)])
         st.metric("✅ Approved", approved)
     with col4:
         active = len([u for u in all_users if u.get('is_active', True)])
         st.metric("🟢 Active", active)
-    with col5:
-        st.metric("🔑 Reset Requests", pending_reset_count)
+    with col5: st.metric("🔑 Reset Requests", pending_reset_count)
 
     st.markdown("---")
 
     tab1, tab2, tab3, tab4 = st.tabs([
-        "📋 Pending Approvals",
-        "👥 All Users",
-        "📊 User Statistics",
+        "📋 Pending Approvals", "👥 All Users", "📊 User Statistics",
         f"🔑 Password Reset Requests ({pending_reset_count})"
     ])
 
-    # ================================================================
-    # TAB 1 - PENDING APPROVALS
-    # ================================================================
     with tab1:
         st.markdown("### Pending Approvals")
         if pending_users:
@@ -771,38 +709,26 @@ def render_admin_page():
                         </div>
                     </div>
                     """, unsafe_allow_html=True)
-
-                    col1, col2, col3, col4 = st.columns([1, 1, 1, 1])
-                    with col1:
-                        if st.button(f"✅ Approve", key=f"approve_{user['id']}", use_container_width=True):
+                    c1, c2, c3, c4 = st.columns([1, 1, 1, 1])
+                    with c1:
+                        if st.button("✅ Approve", key=f"approve_{user['id']}", use_container_width=True):
                             if approve_user(str(user['id'])):
-                                st.success("User approved!")
-                                st.rerun()
-                    with col2:
-                        if st.button(f"❌ Reject", key=f"reject_{user['id']}", use_container_width=True):
+                                st.success("User approved!"); st.rerun()
+                    with c2:
+                        if st.button("❌ Reject", key=f"reject_{user['id']}", use_container_width=True):
                             if reject_user(str(user['id'])):
-                                st.success("User rejected!")
-                                st.rerun()
-                    with col3:
-                        new_role = st.selectbox(
-                            "Assign Role",
-                            ['viewer', 'editor', 'admin'],
-                            index=0,
-                            key=f"role_pending_{user['id']}",
-                            label_visibility="collapsed"
-                        )
-                    with col4:
-                        if st.button(f"Assign", key=f"assign_role_{user['id']}", use_container_width=True):
+                                st.success("User rejected!"); st.rerun()
+                    with c3:
+                        new_role = st.selectbox("Assign Role", ['viewer', 'editor', 'admin'], index=0,
+                                                key=f"role_pending_{user['id']}", label_visibility="collapsed")
+                    with c4:
+                        if st.button("Assign", key=f"assign_role_{user['id']}", use_container_width=True):
                             if update_user_role(str(user['id']), new_role):
-                                st.success(f"Role set to {new_role}!")
-                                st.rerun()
+                                st.success(f"Role set to {new_role}!"); st.rerun()
                     st.divider()
         else:
             st.info("✅ No pending approvals.")
 
-    # ================================================================
-    # TAB 2 - ALL USERS
-    # ================================================================
     with tab2:
         st.markdown("### All Users")
         if all_users:
@@ -813,16 +739,13 @@ def render_admin_page():
                     tab_access = ', '.join(tab_access) if tab_access else 'All'
                 elif tab_access == '' or tab_access is None:
                     tab_access = 'All'
-
                 active_date = user.get('updated_at', user.get('created_at', ''))
                 if active_date:
                     active_date = active_date[:10] if len(active_date) >= 10 else active_date
                 else:
                     active_date = ''
-
                 user_data.append({
-                    "Name": user.get('full_name', ''),
-                    "Email": user.get('email', ''),
+                    "Name": user.get('full_name', ''), "Email": user.get('email', ''),
                     "Role": user.get('role', 'viewer'),
                     "Approved": "✅" if user.get('is_approved', False) else "❌",
                     "Active": "✅" if user.get('is_active', True) else "❌",
@@ -841,52 +764,36 @@ def render_admin_page():
             st.markdown("### Edit User")
             user_options = [f"{u.get('full_name', '')} ({u.get('email', '')})" for u in all_users]
             if user_options:
-                selected_user_idx = st.selectbox(
-                    "Select User to Edit",
-                    range(len(user_options)),
-                    format_func=lambda x: user_options[x]
-                )
+                selected_user_idx = st.selectbox("Select User to Edit", range(len(user_options)),
+                                                  format_func=lambda x: user_options[x])
                 if selected_user_idx is not None:
                     selected_user = all_users[selected_user_idx]
-
                     st.markdown("### User Management")
-
                     col_role, col_program, col_tab = st.columns(3)
-
                     with col_role:
                         st.markdown("#### 🔑 Role Management")
                         current_role = selected_user.get('role', 'viewer')
-                        new_role = st.selectbox(
-                            "Select Role",
-                            ['viewer', 'editor', 'admin'],
-                            index=['viewer', 'editor', 'admin'].index(current_role) if current_role in ['viewer', 'editor', 'admin'] else 0,
-                            key=f"edit_role_{selected_user['id']}"
-                        )
+                        new_role = st.selectbox("Select Role", ['viewer', 'editor', 'admin'],
+                                                index=['viewer', 'editor', 'admin'].index(current_role) if current_role in ['viewer', 'editor', 'admin'] else 0,
+                                                key=f"edit_role_{selected_user['id']}")
                         if st.button("🔄 Update Role", key=f"update_role_{selected_user['id']}", use_container_width=True):
                             if update_user_role(str(selected_user['id']), new_role):
-                                st.success(f"Role updated to {new_role}!")
-                                st.rerun()
+                                st.success(f"Role updated to {new_role}!"); st.rerun()
                             else:
                                 st.error("Failed to update role.")
-
                     with col_program:
                         st.markdown("#### 📋 Program Access")
                         current_programs = selected_user.get('program_access', '').split(',')
                         current_programs = [p.strip() for p in current_programs if p.strip()]
                         program_options = ["All", "Malaria", "HIV", "TB", "OI and Hepatitis","FP","CH","MH", "Nutrition","Lab Malaria", "Lab TB", "HIV Lab","Vaccine"]
-                        new_programs = st.multiselect(
-                            "Select Programs",
-                            program_options,
-                            default=current_programs if current_programs else ['All'],
-                            key=f"edit_programs_{selected_user['id']}"
-                        )
+                        new_programs = st.multiselect("Select Programs", program_options,
+                                                      default=current_programs if current_programs else ['All'],
+                                                      key=f"edit_programs_{selected_user['id']}")
                         if st.button("📋 Update Programs", key=f"update_programs_{selected_user['id']}", use_container_width=True):
                             if update_user_program_access(str(selected_user['id']), new_programs):
-                                st.success("Program access updated!")
-                                st.rerun()
+                                st.success("Program access updated!"); st.rerun()
                             else:
                                 st.error("Failed to update programs.")
-
                     with col_tab:
                         st.markdown("#### 📑 Tab Access")
                         current_tabs = selected_user.get('tab_access', '')
@@ -896,20 +803,14 @@ def render_admin_page():
                             current_tabs = current_tabs
                         else:
                             current_tabs = []
-
                         if not current_tabs:
                             current_tabs = ['All']
-
-                        new_tabs = st.multiselect(
-                            "Select Tabs",
-                            TAB_OPTIONS + ["All"],
-                            default=current_tabs,
-                            key=f"edit_tabs_{selected_user['id']}"
-                        )
+                        new_tabs = st.multiselect("Select Tabs", TAB_OPTIONS + ["All"],
+                                                  default=current_tabs,
+                                                  key=f"edit_tabs_{selected_user['id']}")
                         if st.button("📑 Update Tabs", key=f"update_tabs_{selected_user['id']}", use_container_width=True):
                             if update_user_tab_access(str(selected_user['id']), new_tabs):
-                                st.success("Tab access updated!")
-                                st.rerun()
+                                st.success("Tab access updated!"); st.rerun()
                             else:
                                 st.error("Failed to update tab access.")
 
@@ -919,19 +820,14 @@ def render_admin_page():
                         is_active = selected_user.get('is_active', True)
                         if st.button("🔴 Deactivate" if is_active else "🟢 Activate", use_container_width=True):
                             if toggle_user_active(str(selected_user['id']), not is_active):
-                                st.success(f"User {'deactivated' if is_active else 'activated'}!")
-                                st.rerun()
+                                st.success(f"User {'deactivated' if is_active else 'activated'}!"); st.rerun()
                     with col4:
                         if st.button("🗑️ Delete User", use_container_width=True, type="secondary"):
                             if reject_user(str(selected_user['id'])):
-                                st.success("User deleted!")
-                                st.rerun()
+                                st.success("User deleted!"); st.rerun()
         else:
             st.info("No users found.")
 
-    # ================================================================
-    # TAB 3 - USER STATISTICS
-    # ================================================================
     with tab3:
         st.markdown("### User Statistics")
         if all_users:
@@ -942,54 +838,36 @@ def render_admin_page():
                     role = user.get('role', 'viewer')
                     roles[role] = roles.get(role, 0) + 1
                 fig_roles = go.Figure(data=[go.Pie(
-                    labels=list(roles.keys()),
-                    values=list(roles.values()),
-                    hole=0.3,
-                    marker=dict(colors=['#4DABF7', '#FCC419', '#FF6B6B']),
-                    textinfo='label+percent'
-                )])
+                    labels=list(roles.keys()), values=list(roles.values()),
+                    hole=0.3, marker=dict(colors=['#4DABF7', '#FCC419', '#FF6B6B']),
+                    textinfo='label+percent')])
                 fig_roles.update_layout(title="Role Distribution", height=350)
                 st.plotly_chart(fig_roles, use_container_width=True)
             with col2:
                 approved_count = len([u for u in all_users if u.get('is_approved', False)])
                 pending_count = len([u for u in all_users if not u.get('is_approved', False)])
                 fig_status = go.Figure(data=[go.Pie(
-                    labels=['Approved', 'Pending'],
-                    values=[approved_count, pending_count],
-                    hole=0.3,
-                    marker=dict(colors=['#2ED573', '#FF6B6B']),
-                    textinfo='label+percent'
-                )])
+                    labels=['Approved', 'Pending'], values=[approved_count, pending_count],
+                    hole=0.3, marker=dict(colors=['#2ED573', '#FF6B6B']),
+                    textinfo='label+percent')])
                 fig_status.update_layout(title="Approval Status", height=350)
                 st.plotly_chart(fig_status, use_container_width=True)
 
-    # ================================================================
-    # TAB 4 - PASSWORD RESET REQUESTS
-    # ================================================================
     with tab4:
         st.markdown("### 🔑 Password Reset Requests")
-        st.caption(
-            "Users who forgot their password submit a request here. "
-            "Approve to let them log in and set a new password. "
-            "Reject to clear the request."
-        )
-
+        st.caption("Users who forgot their password submit a request here. Approve to let them log in and set a new password. Reject to clear the request.")
         if not reset_requests:
             st.success("✅ No password reset requests at this time.")
         else:
             pending = [r for r in reset_requests if not r.get('password_reset_approved', False)]
             approved = [r for r in reset_requests if r.get('password_reset_approved', False)]
-
-            # ---------------- Pending ----------------
             if pending:
                 st.markdown(f"#### ⏳ Pending Approval ({len(pending)})")
                 for req in pending:
                     requested_at = req.get('password_reset_requested_at', '')
                     requested_display = requested_at[:19].replace('T', ' ') if requested_at else 'Unknown'
-
                     st.markdown(f"""
-                    <div style="background: #fff8e1; padding: 15px; border-radius: 10px;
-                                margin-bottom: 10px; border-left: 4px solid #ffc107;">
+                    <div style="background: #fff8e1; padding: 15px; border-radius: 10px; margin-bottom: 10px; border-left: 4px solid #ffc107;">
                         <div style="display:flex; justify-content:space-between; align-items:center;">
                             <div>
                                 <strong style="font-size: 15px;">{req.get('full_name', 'Unknown')}</strong><br>
@@ -1000,34 +878,24 @@ def render_admin_page():
                         </div>
                     </div>
                     """, unsafe_allow_html=True)
-
                     c1, c2, c3 = st.columns([1, 1, 3])
                     with c1:
                         if st.button("✅ Approve", key=f"appr_reset_{req['id']}", use_container_width=True, type="primary"):
                             if approve_password_reset(str(req['id'])):
-                                st.success(f"Approved reset for {req.get('email', '')}.")
-                                st.rerun()
+                                st.success(f"Approved reset for {req.get('email', '')}."); st.rerun()
                     with c2:
                         if st.button("❌ Reject", key=f"rej_reset_{req['id']}", use_container_width=True):
                             if reject_password_reset(str(req['id'])):
-                                st.success(f"Rejected reset for {req.get('email', '')}.")
-                                st.rerun()
+                                st.success(f"Rejected reset for {req.get('email', '')}."); st.rerun()
                     st.divider()
-
-            # ---------------- Approved ----------------
             if approved:
                 st.markdown(f"#### ✅ Approved — Awaiting User Reset ({len(approved)})")
-                st.caption(
-                    "These users can now log in with their old password. "
-                    "On next login they will be prompted to set a new password."
-                )
+                st.caption("These users can now log in with their old password. On next login they will be prompted to set a new password.")
                 for req in approved:
                     approved_at = req.get('password_reset_approved_at', '')
                     approved_display = approved_at[:19].replace('T', ' ') if approved_at else 'Unknown'
-
                     st.markdown(f"""
-                    <div style="background: #e8f5e9; padding: 15px; border-radius: 10px;
-                                margin-bottom: 10px; border-left: 4px solid #28a745;">
+                    <div style="background: #e8f5e9; padding: 15px; border-radius: 10px; margin-bottom: 10px; border-left: 4px solid #28a745;">
                         <div style="display:flex; justify-content:space-between; align-items:center;">
                             <div>
                                 <strong style="font-size: 15px;">{req.get('full_name', 'Unknown')}</strong><br>
@@ -1038,50 +906,31 @@ def render_admin_page():
                         </div>
                     </div>
                     """, unsafe_allow_html=True)
-
-                    if st.button(
-                        "↩️ Revoke Approval",
-                        key=f"revoke_reset_{req['id']}",
-                        use_container_width=True
-                    ):
+                    if st.button("↩️ Revoke Approval", key=f"revoke_reset_{req['id']}", use_container_width=True):
                         if reject_password_reset(str(req['id'])):
-                            st.success(f"Approval revoked for {req.get('email', '')}.")
-                            st.rerun()
+                            st.success(f"Approval revoked for {req.get('email', '')}."); st.rerun()
                     st.divider()
+
+
 # ============================================================================
-# PROFILE PAGE (NEW) - full page, opened from sidebar button
+# PROFILE PAGE
 # ============================================================================
 def render_profile_page():
-    """Full-page user profile. Shows role/program/tab (read-only) and lets the
-    user edit their full name and change their password."""
-
     user = get_current_user()
     if not user:
-        st.error("No user session found.")
-        return
-
-    # ---------- Back button ----------
+        st.error("No user session found."); return
     col_back, _ = st.columns([1, 4])
     with col_back:
-        if st.button("← Back to Dashboard", use_container_width=True, type="primary"):
-            st.session_state.show_profile_page = False
-            st.rerun()
-
-    # ---------- Header ----------
+        if st.button("← Back to Tool", use_container_width=True, type="primary"):
+            st.session_state.show_profile_page = False; st.rerun()
     st.markdown("""
-    <div class="app-header fade-in">
-        <h1>👤 My Profile</h1>
-    </div>
+    <div class="app-header fade-in"><h1>👤 My Profile</h1></div>
     """, unsafe_allow_html=True)
-
-    # ---------- Profile summary card ----------
     role_icon = {"admin": "🛡️", "editor": "✏️", "viewer": "👁️"}.get(user.get('role', 'viewer'), "👤")
     status_icon = "🟢" if user.get('is_active', True) else "🔴"
     approved_icon = "✅" if user.get('is_approved', False) else "⏳"
-
     prog_display = user.get('program_access', '') or "None"
     tab_display = user.get('tab_access', 'All') or "All"
-
     st.markdown(f"""
     <div class="custom-card" style="padding: 25px; border-left: 6px solid #2e86c1;">
         <div style="display: flex; align-items: center; gap: 20px;">
@@ -1090,22 +939,15 @@ def render_profile_page():
                 <div style="font-size: 1.6rem; font-weight: 700; color: #1a5276; font-family: 'Times New Roman', Times, serif;">
                     {user.get('full_name', 'Unnamed User')}
                 </div>
-                <div style="color: #666; font-size: 1rem; margin-top: 4px;">
-                    📧 {user.get('email', '')}
-                </div>
+                <div style="color: #666; font-size: 1rem; margin-top: 4px;">📧 {user.get('email', '')}</div>
             </div>
             <div style="text-align: right;">
-                <div style="font-size: 0.9rem; color: #555;">
-                    {status_icon} Active &nbsp; | &nbsp; {approved_icon} Approved
-                </div>
+                <div style="font-size: 0.9rem; color: #555;">{status_icon} Active &nbsp; | &nbsp; {approved_icon} Approved</div>
             </div>
         </div>
     </div>
     """, unsafe_allow_html=True)
-
-    # ---------- 3 info cards ----------
     col1, col2, col3 = st.columns(3)
-
     with col1:
         st.markdown(f"""
         <div class="metric-card" style="background: linear-gradient(135deg, #1a5276 0%, #2e86c1 100%);">
@@ -1113,7 +955,6 @@ def render_profile_page():
             <div class="metric-value" style="font-size: 1.4rem;">{user.get('role', 'viewer').title()}</div>
         </div>
         """, unsafe_allow_html=True)
-
     with col2:
         st.markdown(f"""
         <div class="metric-card" style="background: linear-gradient(135deg, #1e8449 0%, #27ae60 100%);">
@@ -1121,7 +962,6 @@ def render_profile_page():
             <div class="metric-value" style="font-size: 1.1rem; word-wrap: break-word;">{prog_display}</div>
         </div>
         """, unsafe_allow_html=True)
-
     with col3:
         st.markdown(f"""
         <div class="metric-card" style="background: linear-gradient(135deg, #6f42c1 0%, #a569bd 100%);">
@@ -1129,63 +969,33 @@ def render_profile_page():
             <div class="metric-value" style="font-size: 1.1rem; word-wrap: break-word;">{tab_display}</div>
         </div>
         """, unsafe_allow_html=True)
-
     st.markdown("---")
-
-    # ---------- Two column layout: Edit Name | Change Password ----------
     col_left, col_right = st.columns(2, gap="large")
-
-    # -------- LEFT: Edit Profile --------
     with col_left:
         st.markdown("### ✏️ Edit Profile")
         st.caption("You can update your display name. Email, role, program, and tab access are managed by the admin.")
-
         with st.form("edit_profile_form"):
-            new_name = st.text_input(
-                "Full Name",
-                value=user.get('full_name', ''),
-                key="profile_name_input"
-            )
-            st.text_input(
-                "Email (read-only)",
-                value=user.get('email', ''),
-                disabled=True,
-                key="profile_email_readonly"
-            )
-            st.text_input(
-                "Role (read-only)",
-                value=user.get('role', 'viewer'),
-                disabled=True,
-                key="profile_role_readonly"
-            )
-
+            new_name = st.text_input("Full Name", value=user.get('full_name', ''), key="profile_name_input")
+            st.text_input("Email (read-only)", value=user.get('email', ''), disabled=True, key="profile_email_readonly")
+            st.text_input("Role (read-only)", value=user.get('role', 'viewer'), disabled=True, key="profile_role_readonly")
             save_profile = st.form_submit_button("💾 Save Profile", use_container_width=True, type="primary")
-
             if save_profile:
                 if not new_name or not new_name.strip():
                     st.warning("Full name cannot be empty.")
                 else:
                     ok, msg = update_user_profile(user['id'], full_name=new_name.strip())
                     if ok:
-                        refresh_current_user()
-                        st.success(msg)
-                        time.sleep(1)
-                        st.rerun()
+                        refresh_current_user(); st.success(msg); time.sleep(1); st.rerun()
                     else:
                         st.error(msg)
-
-    # -------- RIGHT: Change Password --------
     with col_right:
         st.markdown("### 🔑 Change Password")
         st.caption("You must enter your current password to set a new one.")
-
         with st.form("change_password_form", clear_on_submit=True):
             old_pw = st.text_input("Current Password", type="password", key="cp_old")
             new_pw = st.text_input("New Password", type="password", key="cp_new")
             confirm_pw = st.text_input("Confirm New Password", type="password", key="cp_confirm")
-
             change_btn = st.form_submit_button("🔒 Change Password", use_container_width=True, type="primary")
-
             if change_btn:
                 if not old_pw or not new_pw or not confirm_pw:
                     st.warning("Please fill all password fields.")
@@ -1198,15 +1008,10 @@ def render_profile_page():
                 else:
                     ok, msg = change_password(user['id'], old_pw, new_pw)
                     if ok:
-                        st.success(msg)
-                        time.sleep(1.2)
-                        logout()
+                        st.success(msg); time.sleep(1.2); logout()
                     else:
                         st.error(msg)
-
     st.markdown("---")
-
-    # ---------- Account info footer ----------
     st.markdown("### 📋 Account Information")
     info_col1, info_col2 = st.columns(2)
     with info_col1:
@@ -1215,10 +1020,7 @@ def render_profile_page():
     with info_col2:
         st.markdown(f"**User ID:** `{user.get('id', 'N/A')}`")
         st.markdown(f"**Last Updated:** {user.get('updated_at', 'Unknown')[:19] if user.get('updated_at') else 'Unknown'}")
-
     st.markdown("---")
-
-    # ---------- Logout button at bottom ----------
     col_a, col_b, col_c = st.columns([2, 1, 2])
     with col_b:
         if st.button("🚪 Logout", use_container_width=True):
@@ -1226,35 +1028,27 @@ def render_profile_page():
 
 
 # ============================================================================
-# FORCED PASSWORD RESET (NEW) - after admin approves
+# FORCED PASSWORD RESET
 # ============================================================================
 def render_forced_password_reset():
-    """Block the app until the user sets a new password (admin-approved reset)."""
     user = get_current_user()
     if not user:
         return False
-
     if not has_approved_password_reset(user['id']):
         st.session_state['force_password_reset'] = False
         return False
-
     st.markdown("""
-    <div style="max-width: 600px; margin: 40px auto; background: white; border-radius: 16px;
-                padding: 30px; box-shadow: 0 8px 30px rgba(0,0,0,0.15); border-top: 5px solid #2e86c1;">
+    <div style="max-width: 600px; margin: 40px auto; background: white; border-radius: 16px; padding: 30px; box-shadow: 0 8px 30px rgba(0,0,0,0.15); border-top: 5px solid #2e86c1;">
         <h2 style="color: #1a5276; text-align: center;">🔑 Set Your New Password</h2>
-        <p style="color: #555; text-align: center;">
-            Your password reset request has been approved. Please set a new password to continue.
-        </p>
+        <p style="color: #555; text-align: center;">Your password reset request has been approved. Please set a new password to continue.</p>
     </div>
     """, unsafe_allow_html=True)
-
     col1, col2, col3 = st.columns([1, 2, 1])
     with col2:
         with st.form("forced_reset_form", clear_on_submit=True):
             new_pw = st.text_input("New Password", type="password", key="fr_new")
             confirm_pw = st.text_input("Confirm New Password", type="password", key="fr_confirm")
             submitted = st.form_submit_button("✅ Set New Password", type="primary", use_container_width=True)
-
             if submitted:
                 if not new_pw or not confirm_pw:
                     st.warning("Please fill both fields.")
@@ -1265,78 +1059,59 @@ def render_forced_password_reset():
                 else:
                     ok, msg = complete_password_reset(user['id'], new_pw)
                     if ok:
-                        st.success(msg)
-                        time.sleep(1.2)
-                        logout()
+                        st.success(msg); time.sleep(1.2); logout()
                     else:
                         st.error(msg)
-
         if st.button("🚪 Cancel & Logout", use_container_width=True):
             logout()
     return True
 
 
-# ============================================================================
-# ADMIN PASSWORD RESET REQUESTS TAB
-# ============================================================================
 def render_admin_password_resets_tab():
     st.markdown("### 🔑 Password Reset Requests")
     requests_list = get_password_reset_requests()
-
     if not requests_list:
-        st.info("✅ No pending password reset requests.")
-        return
-
+        st.info("✅ No pending password reset requests."); return
     pending = [r for r in requests_list if not r.get('password_reset_approved', False)]
     approved = [r for r in requests_list if r.get('password_reset_approved', False)]
-
     if pending:
         st.markdown(f"#### ⏳ Pending Approval ({len(pending)})")
         for req in pending:
             st.markdown(f"""
-            <div style="background: #fff8e1; padding: 15px; border-radius: 10px;
-                        margin-bottom: 10px; border-left: 4px solid #ffc107;">
+            <div style="background: #fff8e1; padding: 15px; border-radius: 10px; margin-bottom: 10px; border-left: 4px solid #ffc107;">
                 <strong>{req.get('full_name', 'Unknown')}</strong><br>
                 <span style="color: #666;">📧 {req.get('email', '')}</span><br>
-                <span style="font-size: 12px; color: #999;">
-                    Requested: {req.get('password_reset_requested_at', '')[:19]}
-                </span>
+                <span style="font-size: 12px; color: #999;">Requested: {req.get('password_reset_requested_at', '')[:19]}</span>
             </div>
             """, unsafe_allow_html=True)
             c1, c2, c3 = st.columns([1, 1, 3])
             with c1:
                 if st.button("✅ Approve", key=f"appr_reset_{req['id']}", use_container_width=True):
                     if approve_password_reset(str(req['id'])):
-                        st.success("Approved.")
-                        st.rerun()
+                        st.success("Approved."); st.rerun()
             with c2:
                 if st.button("❌ Reject", key=f"rej_reset_{req['id']}", use_container_width=True):
                     if reject_password_reset(str(req['id'])):
-                        st.success("Rejected.")
-                        st.rerun()
+                        st.success("Rejected."); st.rerun()
             st.divider()
-
     if approved:
         st.markdown(f"#### ✅ Approved (Awaiting User Reset) ({len(approved)})")
         for req in approved:
             st.markdown(f"""
-            <div style="background: #e8f5e9; padding: 15px; border-radius: 10px;
-                        margin-bottom: 10px; border-left: 4px solid #28a745;">
+            <div style="background: #e8f5e9; padding: 15px; border-radius: 10px; margin-bottom: 10px; border-left: 4px solid #28a745;">
                 <strong>{req.get('full_name', 'Unknown')}</strong><br>
                 <span style="color: #666;">📧 {req.get('email', '')}</span><br>
-                <span style="font-size: 12px; color: #999;">
-                    Approved: {req.get('password_reset_approved_at', '')[:19]}
-                </span>
+                <span style="font-size: 12px; color: #999;">Approved: {req.get('password_reset_approved_at', '')[:19]}</span>
             </div>
             """, unsafe_allow_html=True)
             if st.button("↩️ Revoke Approval", key=f"revoke_reset_{req['id']}", use_container_width=True):
                 if reject_password_reset(str(req['id'])):
-                    st.success("Revoked.")
-                    st.rerun()
+                    st.success("Revoked."); st.rerun()
             st.divider()
 
+
 # ============================================================================
-# SUPABASE FUNCTIONS
+# SUPABASE + DATA LOADING
 # ============================================================================
 @st.cache_resource
 def init_supabase():
@@ -1356,76 +1131,48 @@ def get_supabase():
         _supabase = init_supabase()
     return _supabase
 
-# ============================================================================
-# RESPONSIBLE BODY OPTIONS
-# ============================================================================
 RESPONSIBLE_BODIES = [
     "EPSS_CMD", "EPSS_DMD", "EPSS_PMD", "EPSS_Finance",
     "MOH_PMED", "MOH_Program", "MSH_SCS", "Other"
 ]
 
-# ============================================================================
-# DATA LOADING FUNCTIONS
-# ============================================================================
+
 @st.cache_data(ttl=CACHE_TTL, show_spinner=False)
 def load_national_data_raw():
     supabase = get_supabase()
-    if supabase is None:
-        return pd.DataFrame()
+    if supabase is None: return pd.DataFrame()
     try:
-        all_data = []
-        page = 0
-        page_size = 1000
+        all_data = []; page = 0; page_size = 1000
         while True:
-            response = supabase.table("health_data") \
-                .select("*") \
-                .range(page * page_size, (page + 1) * page_size - 1) \
-                .execute()
-            if not response.data:
-                break
+            response = supabase.table("health_data").select("*").range(page * page_size, (page + 1) * page_size - 1).execute()
+            if not response.data: break
             all_data.extend(response.data)
-            if len(response.data) < page_size:
-                break
+            if len(response.data) < page_size: break
             page += 1
-        if not all_data:
-            return pd.DataFrame()
+        if not all_data: return pd.DataFrame()
         df = pd.DataFrame(all_data)
-        if 'id' in df.columns:
-            df = df.drop(columns=['id'])
+        if 'id' in df.columns: df = df.drop(columns=['id'])
         return df
     except Exception as e:
-        st.error(f"Error loading national data: {e}")
-        return pd.DataFrame()
+        st.error(f"Error loading national data: {e}"); return pd.DataFrame()
+
 
 @st.cache_data(ttl=CACHE_TTL, show_spinner=False)
 def process_national_data(df):
-    if df.empty:
-        return df
+    if df.empty: return df
     column_mapping = {
         'material_description': 'Material Description',
-        'adama_branch': 'Adama Branch',
-        'addis_ababa_branch_1': 'Addis Ababa Branch 1',
-        'addis_ababa_branch_2': 'Addis Ababa Branch 2',
-        'arba_minch_branch': 'Arba Minch Branch',
-        'assosa_branch': 'Assosa Branch',
-        'bahir_dar_branch': 'Bahir Dar Branch',
-        'dessie_branch': 'Dessie Branch',
-        'dire_dawa_branch': 'Dire Dawa Branch',
-        'gambela_branch': 'Gambela Branch',
-        'gondar_branch': 'Gondar Branch',
-        'hawassa_branch': 'Hawassa Branch',
-        'jigjiga_branch': 'Jigjiga Branch',
-        'jimma_branch': 'Jimma Branch',
-        'kebridahar_branch': 'Kebridahar Branch',
-        'mekele_branch': 'Mekele Branch',
-        'negele_borena_branch': 'Negele Borena Branch',
-        'nekemte_branch': 'Nekemte Branch',
-        'semera_branch': 'Semera Branch',
-        'shire_branch': 'Shire Branch',
-        'head_office': 'Head Office',
-        'hubs': 'Hubs',
-        'nsoh': 'NSOH',
-        'expiry': 'Expiry'
+        'adama_branch': 'Adama Branch', 'addis_ababa_branch_1': 'Addis Ababa Branch 1',
+        'addis_ababa_branch_2': 'Addis Ababa Branch 2', 'arba_minch_branch': 'Arba Minch Branch',
+        'assosa_branch': 'Assosa Branch', 'bahir_dar_branch': 'Bahir Dar Branch',
+        'dessie_branch': 'Dessie Branch', 'dire_dawa_branch': 'Dire Dawa Branch',
+        'gambela_branch': 'Gambela Branch', 'gondar_branch': 'Gondar Branch',
+        'hawassa_branch': 'Hawassa Branch', 'jigjiga_branch': 'Jigjiga Branch',
+        'jimma_branch': 'Jimma Branch', 'kebridahar_branch': 'Kebridahar Branch',
+        'mekele_branch': 'Mekele Branch', 'negele_borena_branch': 'Negele Borena Branch',
+        'nekemte_branch': 'Nekemte Branch', 'semera_branch': 'Semera Branch',
+        'shire_branch': 'Shire Branch', 'head_office': 'Head Office', 'hubs': 'Hubs',
+        'nsoh': 'NSOH', 'expiry': 'Expiry'
     }
     existing_mapping = {k: v for k, v in column_mapping.items() if k in df.columns}
     df = df.rename(columns=existing_mapping)
@@ -1436,48 +1183,38 @@ def process_national_data(df):
             df[col] = df[col].fillna("")
     return df
 
+
 @st.cache_data(ttl=CACHE_TTL, show_spinner=False)
 def load_national_data():
     df_raw = load_national_data_raw()
-    if df_raw.empty:
-        return pd.DataFrame()
+    if df_raw.empty: return pd.DataFrame()
     return process_national_data(df_raw)
+
 
 @st.cache_data(ttl=CACHE_TTL, show_spinner=False)
 def load_issue_data_raw():
     supabase = get_supabase()
-    if supabase is None:
-        return pd.DataFrame()
+    if supabase is None: return pd.DataFrame()
     try:
-        all_data = []
-        page = 0
-        page_size = 1000
+        all_data = []; page = 0; page_size = 1000
         while True:
-            response = supabase.table("issue_data") \
-                .select("material_descr, plant, delivery_date, region_descr, quantity") \
-                .range(page * page_size, (page + 1) * page_size - 1) \
-                .execute()
-            if not response.data:
-                break
+            response = supabase.table("issue_data").select("material_descr, plant, delivery_date, region_descr, quantity").range(page * page_size, (page + 1) * page_size - 1).execute()
+            if not response.data: break
             all_data.extend(response.data)
-            if len(response.data) < page_size:
-                break
+            if len(response.data) < page_size: break
             page += 1
-        if not all_data:
-            return pd.DataFrame()
+        if not all_data: return pd.DataFrame()
         return pd.DataFrame(all_data)
     except Exception:
         return pd.DataFrame()
 
+
 @st.cache_data(ttl=CACHE_TTL, show_spinner=False)
 def process_issue_data(df):
-    if df.empty:
-        return df
+    if df.empty: return df
     df = df.rename(columns={
-        'material_descr': 'Material Description',
-        'plant': 'Plant',
-        'delivery_date': 'Delivery Date',
-        'region_descr': 'Region',
+        'material_descr': 'Material Description', 'plant': 'Plant',
+        'delivery_date': 'Delivery Date', 'region_descr': 'Region',
         'quantity': 'Quantity'
     })
     df['Quantity'] = pd.to_numeric(df['Quantity'], errors='coerce').fillna(0)
@@ -1485,23 +1222,19 @@ def process_issue_data(df):
         df['Delivery Date'] = pd.to_datetime(df['Delivery Date'], errors='coerce')
     return df
 
+
 @st.cache_data(ttl=CACHE_TTL, show_spinner=False)
 def load_issue_data():
     df_raw = load_issue_data_raw()
-    if df_raw.empty:
-        return pd.DataFrame()
+    if df_raw.empty: return pd.DataFrame()
     return process_issue_data(df_raw)
 
-# ============================================================================
-# CACHED ISSUE PIVOT - Requirement 3 (Performance)
-# ============================================================================
+
 @st.cache_data(ttl=CACHE_TTL, show_spinner=False)
 def compute_issue_pivot_cached(program_materials_tuple):
-    if not program_materials_tuple:
-        return pd.DataFrame()
+    if not program_materials_tuple: return pd.DataFrame()
     issue_data = load_issue_data()
-    if issue_data.empty:
-        return pd.DataFrame()
+    if issue_data.empty: return pd.DataFrame()
     filtered = issue_data[issue_data['Material Description'].isin(program_materials_tuple)]
     filtered = filtered[~filtered['Plant'].str.contains('Head Office|HO01', case=False, na=False)]
     if 'Delivery Date' in filtered.columns and not filtered.empty:
@@ -1516,73 +1249,56 @@ def compute_issue_pivot_cached(program_materials_tuple):
             return pivot
     return pd.DataFrame()
 
+
 def compute_issue_pivot(program_materials_tuple):
     return compute_issue_pivot_cached(program_materials_tuple)
+
 
 @st.cache_data(ttl=CACHE_TTL, show_spinner=False)
 def load_new_deliveries_raw():
     supabase = get_supabase()
-    if supabase is None:
-        return pd.DataFrame()
+    if supabase is None: return pd.DataFrame()
     try:
-        all_data = []
-        page = 0
-        page_size = 1000
+        all_data = []; page = 0; page_size = 1000
         while True:
-            response = supabase.table("new_deliveries") \
-                .select("*") \
-                .range(page * page_size, (page + 1) * page_size - 1) \
-                .execute()
-            if not response.data:
-                break
+            response = supabase.table("new_deliveries").select("*").range(page * page_size, (page + 1) * page_size - 1).execute()
+            if not response.data: break
             all_data.extend(response.data)
-            if len(response.data) < page_size:
-                break
+            if len(response.data) < page_size: break
             page += 1
-        if not all_data:
-            return pd.DataFrame()
+        if not all_data: return pd.DataFrame()
         return pd.DataFrame(all_data)
     except Exception as e:
-        st.error(f"Error loading new_deliveries: {e}")
-        return pd.DataFrame()
+        st.error(f"Error loading new_deliveries: {e}"); return pd.DataFrame()
+
 
 @st.cache_data(ttl=CACHE_TTL, show_spinner=False)
 def process_new_deliveries(df):
-    if df.empty:
-        return df
+    if df.empty: return df
     possible_material = ['material_description', 'material_descr', 'material', 'item_description', 'item']
     possible_date = ['posting_date', 'postingdate', 'date', 'delivery_date', 'deliverydate']
     possible_qty = ['quantity', 'qty', 'delivered_quantity', 'delivered_qty', 'order_qty']
-    material_col = None
-    date_col = None
-    qty_col = None
+    material_col = None; date_col = None; qty_col = None
     for col in df.columns:
         col_lower = col.lower().strip()
-        if material_col is None and any(p in col_lower for p in possible_material):
-            material_col = col
-        if date_col is None and any(p in col_lower for p in possible_date):
-            date_col = col
-        if qty_col is None and any(p in col_lower for p in possible_qty):
-            qty_col = col
-    if material_col is None or date_col is None or qty_col is None:
-        return pd.DataFrame()
-    df = df.rename(columns={
-        material_col: 'Material Description',
-        date_col: 'Posting Date',
-        qty_col: 'Quantity'
-    })
+        if material_col is None and any(p in col_lower for p in possible_material): material_col = col
+        if date_col is None and any(p in col_lower for p in possible_date): date_col = col
+        if qty_col is None and any(p in col_lower for p in possible_qty): qty_col = col
+    if material_col is None or date_col is None or qty_col is None: return pd.DataFrame()
+    df = df.rename(columns={material_col: 'Material Description', date_col: 'Posting Date', qty_col: 'Quantity'})
     df['Quantity'] = pd.to_numeric(df['Quantity'], errors='coerce').fillna(0)
     df['Posting Date'] = pd.to_datetime(df['Posting Date'], errors='coerce')
     df = df.dropna(subset=['Posting Date'])
     df = df[['Material Description', 'Posting Date', 'Quantity']]
     return df
 
+
 @st.cache_data(ttl=CACHE_TTL, show_spinner=False)
 def load_new_deliveries():
     df_raw = load_new_deliveries_raw()
-    if df_raw.empty:
-        return pd.DataFrame()
+    if df_raw.empty: return pd.DataFrame()
     return process_new_deliveries(df_raw)
+
 
 @st.cache_data(ttl=CACHE_TTL, show_spinner=False)
 def load_google_sheets_raw(sheet_id):
@@ -1601,17 +1317,16 @@ def load_google_sheets_raw(sheet_id):
     except Exception:
         return None
 
+
 @st.cache_data(ttl=CACHE_TTL, show_spinner=False)
 def process_google_sheets(content):
-    if content is None:
-        return {}
+    if content is None: return {}
     try:
         sheets = pd.read_excel(BytesIO(content), sheet_name=None, header=2, engine='openpyxl')
         cleaned = {}
         for name, df in sheets.items():
             if df.empty:
-                cleaned[name] = df
-                continue
+                cleaned[name] = df; continue
             df = df.loc[:, ~df.columns.str.contains("^Unnamed")]
             df.columns = df.columns.str.strip()
             for col in df.columns:
@@ -1622,26 +1337,23 @@ def process_google_sheets(content):
     except Exception:
         return {}
 
+
 def load_google_sheets_fallback():
     return {
-        "Malaria": pd.DataFrame(),
-        "HIV": pd.DataFrame(),
-        "TB": pd.DataFrame(),
-        "OI and Hepatitis": pd.DataFrame(),
-        "Nutrition": pd.DataFrame(),
-        "Lab TB": pd.DataFrame(),
-        "HIV Lab": pd.DataFrame()
+        "Malaria": pd.DataFrame(), "HIV": pd.DataFrame(), "TB": pd.DataFrame(),
+        "OI and Hepatitis": pd.DataFrame(), "Nutrition": pd.DataFrame(),
+        "Lab TB": pd.DataFrame(), "HIV Lab": pd.DataFrame()
     }
+
 
 @st.cache_data(ttl=CACHE_TTL, show_spinner=False)
 def load_google_sheets(sheet_id):
     content = load_google_sheets_raw(sheet_id)
-    if content is None:
-        return load_google_sheets_fallback()
+    if content is None: return load_google_sheets_fallback()
     result = process_google_sheets(content)
-    if not result:
-        return load_google_sheets_fallback()
+    if not result: return load_google_sheets_fallback()
     return result
+
 
 @st.cache_data(ttl=CACHE_TTL, show_spinner=False)
 def load_branch_amc_raw(sheet_id):
@@ -1656,10 +1368,10 @@ def load_branch_amc_raw(sheet_id):
     except Exception:
         return None
 
+
 @st.cache_data(ttl=CACHE_TTL, show_spinner=False)
 def process_branch_amc(content):
-    if content is None:
-        return pd.DataFrame()
+    if content is None: return pd.DataFrame()
     try:
         df = pd.read_excel(BytesIO(content), header=0)
         df = df.loc[:, ~df.columns.str.contains("^Unnamed")]
@@ -1671,60 +1383,51 @@ def process_branch_amc(content):
     except Exception:
         return pd.DataFrame()
 
+
 @st.cache_data(ttl=CACHE_TTL, show_spinner=False)
 def load_branch_amc(sheet_id):
     content = load_branch_amc_raw(sheet_id)
-    if content is None:
-        return pd.DataFrame()
+    if content is None: return pd.DataFrame()
     return process_branch_amc(content)
+
 
 @st.cache_data(ttl=CACHE_TTL, show_spinner=False)
 def load_ho_nsoh_snapshots_raw():
     supabase = get_supabase()
-    if supabase is None:
-        return pd.DataFrame()
+    if supabase is None: return pd.DataFrame()
     try:
-        all_data = []
-        page = 0
-        page_size = 1000
+        all_data = []; page = 0; page_size = 1000
         while True:
-            response = supabase.table("ho_nsoh_snapshots") \
-                .select("*") \
-                .order("snapshot_date") \
-                .range(page * page_size, (page + 1) * page_size - 1) \
-                .execute()
-            if not response.data:
-                break
+            response = supabase.table("ho_nsoh_snapshots").select("*").order("snapshot_date").range(page * page_size, (page + 1) * page_size - 1).execute()
+            if not response.data: break
             all_data.extend(response.data)
-            if len(response.data) < page_size:
-                break
+            if len(response.data) < page_size: break
             page += 1
-        if not all_data:
-            return pd.DataFrame()
+        if not all_data: return pd.DataFrame()
         return pd.DataFrame(all_data)
     except Exception:
         return pd.DataFrame()
 
+
 @st.cache_data(ttl=CACHE_TTL, show_spinner=False)
 def process_ho_nsoh_snapshots(df):
-    if df.empty:
-        return df
+    if df.empty: return df
     if 'snapshot_date' in df.columns:
         df['snapshot_date'] = pd.to_datetime(df['snapshot_date']).dt.date
     return df
 
+
 @st.cache_data(ttl=CACHE_TTL, show_spinner=False)
 def load_ho_nsoh_snapshots():
     df_raw = load_ho_nsoh_snapshots_raw()
-    if df_raw.empty:
-        return pd.DataFrame()
+    if df_raw.empty: return pd.DataFrame()
     return process_ho_nsoh_snapshots(df_raw)
+
 
 @st.cache_data(ttl=CACHE_TTL, show_spinner=False)
 def load_dos_tracking_raw():
     supabase = get_supabase()
-    if supabase is None:
-        return {}
+    if supabase is None: return {}
     try:
         response = supabase.table("dos_tracking").select("*").execute()
         if response.data:
@@ -1740,13 +1443,14 @@ def load_dos_tracking_raw():
     except Exception:
         return {}
 
+
 def load_dos_tracking():
     return load_dos_tracking_raw()
 
+
 def save_dos_tracking(dos_tracking):
     supabase = get_supabase()
-    if supabase is None:
-        return False
+    if supabase is None: return False
     try:
         records = []
         for material, data in dos_tracking.items():
@@ -1762,66 +1466,51 @@ def save_dos_tracking(dos_tracking):
     except Exception:
         return False
 
+
 # ============================================================================
 # EXPERT PLAN RECORDS
 # ============================================================================
 @st.cache_data(ttl=300, show_spinner=False)
 def load_expert_plan_records(program=None, quarter=None, year=None):
     supabase = get_supabase()
-    if supabase is None:
-        return []
+    if supabase is None: return []
     try:
         query = supabase.table("expert_plan_records").select("*")
-        if program:
-            query = query.eq("program", program)
-        if quarter:
-            query = query.eq("quarter", quarter)
-        if year:
-            query = query.eq("year", year)
+        if program: query = query.eq("program", program)
+        if quarter: query = query.eq("quarter", quarter)
+        if year: query = query.eq("year", year)
         response = query.order("created_at", desc=True).execute()
         if response.data:
             records = []
             for rec in response.data:
                 records.append({
-                    'record_id': rec.get('record_id'),
-                    'Material': rec.get('material'),
-                    'NSOH': rec.get('nsoh'),
-                    'AMC': rec.get('amc'),
-                    'PMOS': rec.get('pmos'),
-                    'NMOS': rec.get('nmos'),
-                    'TMOS': rec.get('tmos'),
-                    'Purchase Order': rec.get('purchase_order'),
+                    'record_id': rec.get('record_id'), 'Material': rec.get('material'),
+                    'NSOH': rec.get('nsoh'), 'AMC': rec.get('amc'),
+                    'PMOS': rec.get('pmos'), 'NMOS': rec.get('nmos'),
+                    'TMOS': rec.get('tmos'), 'Purchase Order': rec.get('purchase_order'),
                     'Order Quantity': rec.get('order_quantity'),
                     'Identified Problem': rec.get('identified_problem'),
                     'Action Point': rec.get('action_point'),
                     'Responsible Body': rec.get('responsible_body'),
-                    'Due Date': rec.get('due_date'),
-                    'Completion Date': rec.get('completion_date'),
-                    'Status': rec.get('status', 'Pending'),
-                    'Quarter': rec.get('quarter'),
-                    'Year': rec.get('year'),
-                    'Program': rec.get('program'),
-                    'Updated At': rec.get('updated_at'),
-                    'Created At': rec.get('created_at'),
+                    'Due Date': rec.get('due_date'), 'Completion Date': rec.get('completion_date'),
+                    'Status': rec.get('status', 'Pending'), 'Quarter': rec.get('quarter'),
+                    'Year': rec.get('year'), 'Program': rec.get('program'),
+                    'Updated At': rec.get('updated_at'), 'Created At': rec.get('created_at'),
                 })
             return records
         return []
     except Exception:
         return []
 
+
 def save_expert_plan_record(record):
     supabase = get_supabase()
-    if supabase is None:
-        return False
+    if supabase is None: return False
     try:
         data = {
-            'record_id': record.get('record_id'),
-            'material': record.get('Material'),
-            'nsoh': record.get('NSOH'),
-            'amc': record.get('AMC'),
-            'pmos': record.get('PMOS'),
-            'nmos': record.get('NMOS'),
-            'tmos': record.get('TMOS'),
+            'record_id': record.get('record_id'), 'material': record.get('Material'),
+            'nsoh': record.get('NSOH'), 'amc': record.get('AMC'),
+            'pmos': record.get('PMOS'), 'nmos': record.get('NMOS'), 'tmos': record.get('TMOS'),
             'purchase_order': record.get('Purchase Order'),
             'order_quantity': record.get('Order Quantity'),
             'identified_problem': record.get('Identified Problem'),
@@ -1829,121 +1518,94 @@ def save_expert_plan_record(record):
             'responsible_body': record.get('Responsible Body'),
             'due_date': record.get('Due Date'),
             'completion_date': record.get('Completion Date'),
-            'status': record.get('Status', 'Pending'),
-            'quarter': record.get('Quarter'),
+            'status': record.get('Status', 'Pending'), 'quarter': record.get('Quarter'),
             'year': int(record.get('Year')) if record.get('Year') else None,
             'program': record.get('Program')
         }
-        existing = supabase.table("expert_plan_records") \
-            .select("record_id").eq("record_id", data['record_id']).execute()
-
+        existing = supabase.table("expert_plan_records").select("record_id").eq("record_id", data['record_id']).execute()
         if existing.data:
-            supabase.table("expert_plan_records").update(data) \
-                .eq("record_id", data['record_id']).execute()
+            supabase.table("expert_plan_records").update(data).eq("record_id", data['record_id']).execute()
         else:
             supabase.table("expert_plan_records").insert(data).execute()
-
         load_expert_plan_records.clear()
         return True
     except Exception as e:
-        st.error(f"Save failed: {e}")
-        return False
+        st.error(f"Save failed: {e}"); return False
+
 
 def delete_expert_plan_record(record_id):
     supabase = get_supabase()
-    if supabase is None:
-        return False
+    if supabase is None: return False
     try:
-        response = supabase.table("expert_plan_records") \
-            .delete() \
-            .eq("record_id", record_id) \
-            .execute()
+        supabase.table("expert_plan_records").delete().eq("record_id", record_id).execute()
         load_expert_plan_records.clear()
         return True
     except Exception:
         return False
 
+
 # ============================================================================
-# CALCULATION FUNCTIONS
+# CALCULATIONS
 # ============================================================================
 def calculate_dos(df):
     dos_tracking = load_dos_tracking()
     updated = {}
     for idx, row in df.iterrows():
         material = row.get('Material Description')
-        if pd.isna(material):
-            continue
+        if pd.isna(material): continue
         nmos = row.get('NMOS', 1)
-        if pd.isna(nmos):
-            nmos = 1
+        if pd.isna(nmos): nmos = 1
         is_out = nmos < 1
         if material not in dos_tracking:
-            updated[material] = {
-                'days': 1 if is_out else 0,
-                'is_out_of_stock': is_out
-            }
+            updated[material] = {'days': 1 if is_out else 0, 'is_out_of_stock': is_out}
         else:
             prev = dos_tracking[material]
             if is_out:
                 days = prev.get('days', 0) + 1
-                updated[material] = {
-                    'days': days,
-                    'is_out_of_stock': True
-                }
+                updated[material] = {'days': days, 'is_out_of_stock': True}
             else:
-                updated[material] = {
-                    'days': 0,
-                    'is_out_of_stock': False
-                }
+                updated[material] = {'days': 0, 'is_out_of_stock': False}
     save_dos_tracking(updated)
     return {material: data['days'] for material, data in updated.items()}
 
+
 def categorize_stock(nmos):
     try:
-        if pd.isna(nmos):
-            return ""
+        if pd.isna(nmos): return ""
         x = float(nmos)
-        if x < 1:
-            return "Stock Out"
-        elif x < 6:
-            return "Understock"
-        elif x <= 18:
-            return "Normal Stock"
-        else:
-            return "Overstock"
+        if x < 1: return "Stock Out"
+        elif x < 6: return "Understock"
+        elif x <= 18: return "Normal Stock"
+        else: return "Overstock"
     except:
         return ""
+
 
 def calculate_coefficient_of_variation(values):
     values = pd.to_numeric(values, errors='coerce')
     values = values[values.notna() & (values > 0)]
     if len(values) > 1:
-        mean = values.mean()
-        std = values.std()
-        if mean > 0:
-            return (std / mean) * 100
+        mean = values.mean(); std = values.std()
+        if mean > 0: return (std / mean) * 100
     return np.nan
+
 
 def calculate_risk(row):
     try:
         nmos = row.get('NMOS', np.nan)
-        if pd.isna(nmos) or nmos < 1:
-            return ""
+        if pd.isna(nmos) or nmos < 1: return ""
         git_mos = row.get('GIT_MOS', 0) or 0
         lc_mos = row.get('LC_MOS', 0) or 0
         wb_mos = row.get('WB_MOS', 0) or 0
         tmd_mos = row.get('TMD_MOS', 0) or 0
-        if 1 <= nmos < 2:
-            return "Risk of Stock out"
-        if 2 <= nmos < 4 and git_mos == 0:
-            return "Risk of Stock out"
-        if 4 <= nmos < 6 and git_mos == 0 and lc_mos == 0 and wb_mos == 0:
-            return "Risk of Stock out"
-        if 6 <= nmos < 7 and git_mos == 0 and lc_mos == 0 and wb_mos == 0 and tmd_mos == 0:
-            return "Risk of Stock out"
+        if 1 <= nmos < 2: return "Risk of Stock out"
+        if 2 <= nmos < 4 and git_mos == 0: return "Risk of Stock out"
+        if 4 <= nmos < 6 and git_mos == 0 and lc_mos == 0 and wb_mos == 0: return "Risk of Stock out"
+        if 6 <= nmos < 7 and git_mos == 0 and lc_mos == 0 and wb_mos == 0 and tmd_mos == 0: return "Risk of Stock out"
         return ""
     except:
         return ""
+
 
 def parse_multiple_expiry_batches(expiry_str, amc):
     try:
@@ -1952,8 +1614,7 @@ def parse_multiple_expiry_batches(expiry_str, amc):
         expiry_str = str(expiry_str)
         pattern = r'(\d[\d,]*)\s*\(([A-Za-z]+)-(\d{4})\)'
         matches = re.findall(pattern, expiry_str)
-        if not matches:
-            return [], amc if pd.notna(amc) else 0
+        if not matches: return [], amc if pd.notna(amc) else 0
         batches = []
         month_map = {'Jan':1, 'Feb':2, 'Mar':3, 'Apr':4, 'May':5, 'Jun':6,
                     'Jul':7, 'Aug':8, 'Sep':9, 'Oct':10, 'Nov':11, 'Dec':12}
@@ -1961,43 +1622,29 @@ def parse_multiple_expiry_batches(expiry_str, amc):
             quantity = float(quantity_str.replace(',', ''))
             month_num = month_map.get(month[:3], 1)
             expiry_date = datetime(int(year), month_num, 1)
-            if pd.notna(amc) and amc > 0:
-                remaining_mos = quantity / amc
-            else:
-                remaining_mos = 0
-            batches.append({
-                'quantity': quantity,
-                'expiry_date': expiry_date,
-                'remaining_mos': round(remaining_mos, 2)
-            })
+            remaining_mos = quantity / amc if pd.notna(amc) and amc > 0 else 0
+            batches.append({'quantity': quantity, 'expiry_date': expiry_date, 'remaining_mos': round(remaining_mos, 2)})
         batches.sort(key=lambda x: x['expiry_date'])
-        if pd.isna(amc) or amc <= 0:
-            return batches, 0
-        cumulative_stock = 0
-        has_risk = False
+        if pd.isna(amc) or amc <= 0: return batches, 0
+        cumulative_stock = 0; has_risk = False
         for batch in batches:
-            months_until_expiry = max(0, (batch['expiry_date'].year - datetime.now().year) * 12 + 
-                                      (batch['expiry_date'].month - datetime.now().month))
+            months_until_expiry = max(0, (batch['expiry_date'].year - datetime.now().year) * 12 + (batch['expiry_date'].month - datetime.now().month))
             cumulative_stock += batch['quantity']
             stock_needed = amc * months_until_expiry
             if cumulative_stock > stock_needed:
                 excess = cumulative_stock - stock_needed
                 batch_risk = min(batch['quantity'], excess)
-                if batch_risk > 0:
-                    has_risk = True
+                if batch_risk > 0: has_risk = True
         return batches, has_risk
     except Exception:
         return [], amc if pd.notna(amc) else 0
 
+
 def get_pipeline_recommendation(row):
-    git_mos = row.get('GIT_MOS', 0)
-    lc_mos = row.get('LC_MOS', 0)
-    wb_mos = row.get('WB_MOS', 0)
-    tmd_mos = row.get('TMD_MOS', 0)
-    git_po = row.get('GIT_PO', '')
-    lc_po = row.get('LC_PO', '')
-    wb_po = row.get('WB_PO', '')
-    tmd_po = row.get('TMD_PO', '')
+    git_mos = row.get('GIT_MOS', 0); lc_mos = row.get('LC_MOS', 0)
+    wb_mos = row.get('WB_MOS', 0); tmd_mos = row.get('TMD_MOS', 0)
+    git_po = row.get('GIT_PO', ''); lc_po = row.get('LC_PO', '')
+    wb_po = row.get('WB_PO', ''); tmd_po = row.get('TMD_PO', '')
     try:
         git_mos = float(git_mos) if pd.notna(git_mos) else 0
         lc_mos = float(lc_mos) if pd.notna(lc_mos) else 0
@@ -2016,16 +1663,15 @@ def get_pipeline_recommendation(row):
     else:
         return "No pipeline stock - initiate procurement", "MOH"
 
+
 def get_expiry_risk_action(row):
     cv_category = row.get('CV Category', 'Unknown')
-    hubs_pct = row.get('Hubs%', 0)
-    ho_pct = row.get('Head Office%', 0)
+    hubs_pct = row.get('Hubs%', 0); ho_pct = row.get('Head Office%', 0)
     try:
         hubs_pct = float(hubs_pct) if pd.notna(hubs_pct) else 0
         ho_pct = float(ho_pct) if pd.notna(ho_pct) else 0
     except:
-        hubs_pct = 0
-        ho_pct = 0
+        hubs_pct = 0; ho_pct = 0
     if cv_category == 'High variation':
         return "Redistribution required - high variation across hubs", "EPSS_DMD, Branch Managers"
     elif hubs_pct < ho_pct:
@@ -2033,27 +1679,23 @@ def get_expiry_risk_action(row):
     else:
         return "Explore donation options - excess stock that may expire", "EPSS_DMD, MOH"
 
+
 def get_total_pipeline_mos(row):
-    git_mos = row.get('GIT_MOS', 0)
-    lc_mos = row.get('LC_MOS', 0)
-    wb_mos = row.get('WB_MOS', 0)
-    tmd_mos = row.get('TMD_MOS', 0)
+    git_mos = row.get('GIT_MOS', 0); lc_mos = row.get('LC_MOS', 0)
+    wb_mos = row.get('WB_MOS', 0); tmd_mos = row.get('TMD_MOS', 0)
     try:
         return float(git_mos) + float(lc_mos) + float(wb_mos) + float(tmd_mos)
     except:
         return 0
 
+
 def get_end_of_month_date(year, month):
-    year = int(year)
-    month = int(month)
-    if month == 12:
-        next_month = 1
-        next_year = year + 1
-    else:
-        next_month = month + 1
-        next_year = year
+    year = int(year); month = int(month)
+    if month == 12: next_month = 1; next_year = year + 1
+    else: next_month = month + 1; next_year = year
     last_day = (datetime(next_year, next_month, 1) - timedelta(days=1)).day
     return datetime(year, month, last_day)
+
 
 def calculate_due_date_for_pipeline(tmos_value):
     current_date = datetime.now()
@@ -2071,12 +1713,14 @@ def calculate_due_date_for_pipeline(tmos_value):
             target_date = current_date + timedelta(days=int(months_until_need * 30))
             return f"By {target_date.strftime('%d %b %Y')}"
 
+
 PROGRAM_ORDER_LIST = [
     "Malaria", "HIV", "OI and Hepatitis", "Hepatitis", "STI", "TB",
     "Drug Susceptible -TB Medicine (DS-TB)", "Drug Resisitance -TB Medicine (DR-TB)",
     "Leprosy Medicines", "Nutrition", "Lab TB", "TB diagnostics& Laboratory reagent",
     "TB Lab Supplies", "HIV Lab", "HIV VL Reagents", "CD4 ,AHD &HIV RTKs"
 ]
+
 
 @st.cache_data(ttl=CACHE_TTL, show_spinner=False)
 def get_program_materials(sheet_name):
@@ -2088,39 +1732,35 @@ def get_program_materials(sheet_name):
             for prog in PROGRAM_ORDER_LIST:
                 if prog in google_sheets and 'Material Description' in google_sheets[prog].columns:
                     for mat in google_sheets[prog]['Material Description'].dropna().tolist():
-                        if mat not in ordered:
-                            ordered.append(mat)
+                        if mat not in ordered: ordered.append(mat)
             for prog in google_sheets.keys():
                 if prog not in PROGRAM_ORDER_LIST and 'Material Description' in google_sheets[prog].columns:
                     for mat in google_sheets[prog]['Material Description'].dropna().tolist():
-                        if mat not in ordered:
-                            ordered.append(mat)
+                        if mat not in ordered: ordered.append(mat)
         else:
             if sheet_name in google_sheets and 'Material Description' in google_sheets[sheet_name].columns:
                 ordered = google_sheets[sheet_name]['Material Description'].dropna().tolist()
     return tuple(ordered)
 
+
 def get_material_program(material_name, sheet_name):
-    if sheet_name != "All":
-        return sheet_name
+    if sheet_name != "All": return sheet_name
     sheet_id = "14VvZ7IyOmpM4SZrY5_ArHDgLkeFN4inW"
     google_sheets = load_google_sheets(sheet_id)
     if google_sheets:
         for prog in PROGRAM_ORDER_LIST:
             if prog in google_sheets and 'Material Description' in google_sheets[prog].columns:
-                materials = google_sheets[prog]['Material Description'].dropna().tolist()
-                if material_name in materials:
+                if material_name in google_sheets[prog]['Material Description'].dropna().tolist():
                     return prog
         for prog in google_sheets.keys():
             if prog not in PROGRAM_ORDER_LIST and 'Material Description' in google_sheets[prog].columns:
-                materials = google_sheets[prog]['Material Description'].dropna().tolist()
-                if material_name in materials:
+                if material_name in google_sheets[prog]['Material Description'].dropna().tolist():
                     return prog
     return "Multiple Programs"
 
+
 def order_df_by_program(df, ordered_materials_tuple, material_col='Material Description'):
-    if df.empty or material_col not in df.columns:
-        return df
+    if df.empty or material_col not in df.columns: return df
     order_map = {mat: idx for idx, mat in enumerate(ordered_materials_tuple)}
     df['_order'] = df[material_col].map(order_map)
     df['_order'] = df['_order'].fillna(len(ordered_materials_tuple) + 1)
@@ -2128,24 +1768,23 @@ def order_df_by_program(df, ordered_materials_tuple, material_col='Material Desc
     df = df.drop(columns=['_order'])
     return df
 
+
 @st.cache_data(ttl=CACHE_TTL, show_spinner=False)
 def compute_nsoh_pivot():
     df = load_ho_nsoh_snapshots()
-    if df.empty:
-        return pd.DataFrame()
+    if df.empty: return pd.DataFrame()
     df['month_year'] = pd.to_datetime(df['snapshot_date']).dt.strftime('%b-%Y')
     pivot = df.pivot_table(index='material_description', columns='month_year', values='nsoh', aggfunc='first')
-    month_cols = [c for c in pivot.columns]
-    month_cols_sorted = sort_months_chronologically(month_cols)
+    month_cols_sorted = sort_months_chronologically(list(pivot.columns))
     pivot = pivot[month_cols_sorted]
     pivot = pivot.reset_index().rename(columns={'material_description': 'Material Description'})
     return pivot
 
+
 @st.cache_data(ttl=CACHE_TTL, show_spinner=False)
 def compute_new_deliveries_pivot(program_materials_tuple):
     deliveries = load_new_deliveries()
-    if deliveries.empty:
-        return pd.DataFrame()
+    if deliveries.empty: return pd.DataFrame()
     if program_materials_tuple:
         filtered = deliveries[deliveries['Material Description'].isin(program_materials_tuple)]
         if 'Posting Date' in filtered.columns and not filtered.empty:
@@ -2160,12 +1799,12 @@ def compute_new_deliveries_pivot(program_materials_tuple):
                 return pivot
     return pd.DataFrame()
 
+
 @st.cache_data(ttl=CACHE_TTL, show_spinner=False)
 def compute_consumption_pivot(program_materials_tuple):
     nsoh_raw = load_ho_nsoh_snapshots()
     deliveries_raw = load_new_deliveries()
-    if nsoh_raw.empty or deliveries_raw.empty:
-        return pd.DataFrame()
+    if nsoh_raw.empty or deliveries_raw.empty: return pd.DataFrame()
     if program_materials_tuple:
         nsoh_raw = nsoh_raw[nsoh_raw['material_description'].isin(program_materials_tuple)]
         deliveries_raw = deliveries_raw[deliveries_raw['Material Description'].isin(program_materials_tuple)]
@@ -2190,8 +1829,9 @@ def compute_consumption_pivot(program_materials_tuple):
     pivot = pivot.reset_index().rename(columns={'index': 'Material Description'})
     return pivot
 
+
 # ============================================================================
-# GET FILTERED DATA - UPDATED WITH PROGRAM ACCESS (Requirement 2)
+# GET FILTERED DATA
 # ============================================================================
 @st.cache_data(ttl=CACHE_TTL, show_spinner=False)
 def get_filtered_data(sheet_name, subcategory_filter):
@@ -2199,13 +1839,9 @@ def get_filtered_data(sheet_name, subcategory_filter):
     sheet_id_amc = "14VvZ7IyOmpM4SZrY5_ArHDgLkeFN4inW"
     google_sheets = load_google_sheets(sheet_id_amc)
     branch_amc_data = load_branch_amc("12Z5xqX32QIzjoN6tNvGbjutMheXx5US1")
-
-    # Get user program access for filtering
     user_programs = get_user_program_access()
 
-    # If user has limited program access, only use those programs
     if user_programs and "All" not in user_programs:
-        # When "All" is selected, combine all accessible programs
         if sheet_name == "All":
             all_dfs = []
             for prog in user_programs:
@@ -2215,12 +1851,8 @@ def get_filtered_data(sheet_name, subcategory_filter):
                     if df_copy.columns.duplicated().any():
                         df_copy = df_copy.loc[:, ~df_copy.columns.duplicated()]
                     all_dfs.append(df_copy)
-            if all_dfs:
-                df_google = pd.concat(all_dfs, ignore_index=True, sort=False)
-            else:
-                df_google = pd.DataFrame()
+            df_google = pd.concat(all_dfs, ignore_index=True, sort=False) if all_dfs else pd.DataFrame()
         else:
-            # User selected a specific program, check if they have access
             if sheet_name not in user_programs:
                 st.warning(f"You don't have access to the {sheet_name} program.")
                 return pd.DataFrame()
@@ -2229,21 +1861,16 @@ def get_filtered_data(sheet_name, subcategory_filter):
             if df_google.columns.duplicated().any():
                 df_google = df_google.loc[:, ~df_google.columns.duplicated()]
     else:
-        # User has access to all programs or is admin
         if sheet_name == "All":
             all_dfs = []
             for name, df_prog in google_sheets.items():
-                if df_prog.empty:
-                    continue
+                if df_prog.empty: continue
                 df_copy = df_prog.copy()
                 df_copy.columns = df_copy.columns.astype(str)
                 if df_copy.columns.duplicated().any():
                     df_copy = df_copy.loc[:, ~df_copy.columns.duplicated()]
                 all_dfs.append(df_copy)
-            if all_dfs:
-                df_google = pd.concat(all_dfs, ignore_index=True, sort=False)
-            else:
-                df_google = pd.DataFrame()
+            df_google = pd.concat(all_dfs, ignore_index=True, sort=False) if all_dfs else pd.DataFrame()
         else:
             df_google = google_sheets[sheet_name].copy()
             df_google.columns = df_google.columns.astype(str)
@@ -2262,11 +1889,8 @@ def get_filtered_data(sheet_name, subcategory_filter):
         df = df.drop_duplicates(subset=['Material Description'], keep='first')
     else:
         df = df_national.copy()
+    if df.empty: return pd.DataFrame()
 
-    if df.empty:
-        return pd.DataFrame()
-
-    # Filter by user's program access - Force filtering
     if user_programs and "All" not in user_programs:
         program_materials = []
         for prog in user_programs:
@@ -2277,8 +1901,7 @@ def get_filtered_data(sheet_name, subcategory_filter):
         else:
             return pd.DataFrame()
 
-    if 'S/N' in df.columns:
-        df = df.drop(columns=['S/N'])
+    if 'S/N' in df.columns: df = df.drop(columns=['S/N'])
 
     text_columns = ['Status', 'Expiry', 'GIT_PO', 'LC_PO', 'WB_PO', 'TMD_PO']
     numeric_columns = [col for col in df.columns if col not in text_columns + ['Material Description']]
@@ -2310,10 +1933,7 @@ def get_filtered_data(sheet_name, subcategory_filter):
         if col in df.columns:
             df[col] = pd.to_numeric(df[col], errors='coerce')
             available_mos.append(col)
-    if available_mos:
-        df['TMOS'] = df[available_mos].sum(axis=1)
-    else:
-        df['TMOS'] = np.nan
+    df['TMOS'] = df[available_mos].sum(axis=1) if available_mos else np.nan
 
     if 'NMOS' in df.columns:
         df['Stock Status'] = df['NMOS'].apply(categorize_stock)
@@ -2336,16 +1956,14 @@ def get_filtered_data(sheet_name, subcategory_filter):
         df['Has Expiry Risk'] = expiry_data.apply(lambda x: x[1] if isinstance(x, tuple) and len(x) > 1 else False)
 
         def format_expiry_only(batches):
-            if not batches:
-                return ""
+            if not batches: return ""
             parts = []
             for batch in batches:
                 parts.append(f"{int(batch['quantity']):,} ({batch['expiry_date'].strftime('%b-%Y')})")
             return "; ".join(parts)
 
         def format_mos_with_expiry(batches):
-            if not batches:
-                return ""
+            if not batches: return ""
             parts = []
             for batch in batches:
                 mos_str = f"{batch['remaining_mos']:.2f}" if batch['remaining_mos'] > 0 else "0.00"
@@ -2360,14 +1978,10 @@ def get_filtered_data(sheet_name, subcategory_filter):
         for idx, row in df.iterrows():
             risk_of_stock = row.get('Risk of Stock', '') == 'Risk of Stock out'
             expiry_risk = row.get('Has Expiry Risk', False)
-            if risk_of_stock and expiry_risk:
-                risk_types.append("Critical Risk")
-            elif risk_of_stock:
-                risk_types.append("Risk of Stock out")
-            elif expiry_risk:
-                risk_types.append("Expiry Risk")
-            else:
-                risk_types.append("")
+            if risk_of_stock and expiry_risk: risk_types.append("Critical Risk")
+            elif risk_of_stock: risk_types.append("Risk of Stock out")
+            elif expiry_risk: risk_types.append("Expiry Risk")
+            else: risk_types.append("")
         df['Risk Type'] = risk_types
 
     if not branch_amc_data.empty and 'Material Description' in branch_amc_data.columns:
@@ -2380,8 +1994,7 @@ def get_filtered_data(sheet_name, subcategory_filter):
                 amc_cols = [col for col in branch_amc_data.columns if col != 'Material Description']
                 cv_calc_data = {'Material Description': merged_cv['Material Description']}
                 for i in range(min(len(branch_cols_list), len(amc_cols))):
-                    stock_col = branch_cols_list[i]
-                    amc_col = amc_cols[i]
+                    stock_col = branch_cols_list[i]; amc_col = amc_cols[i]
                     stock_vals = pd.to_numeric(merged_cv[f"{stock_col}_stock"], errors='coerce')
                     amc_vals = pd.to_numeric(merged_cv[f"{amc_col}_amc"], errors='coerce')
                     with np.errstate(divide='ignore', invalid='ignore'):
@@ -2392,14 +2005,10 @@ def get_filtered_data(sheet_name, subcategory_filter):
                 cv_df['CV (%)'] = cv_df[mos_cols_for_cv].apply(lambda row: calculate_coefficient_of_variation(row), axis=1)
                 cv_df['CV (%)'] = cv_df['CV (%)'].round(1)
                 def categorize_cv(cv_value):
-                    if pd.isna(cv_value):
-                        return "Unknown"
-                    elif cv_value < 50:
-                        return "Low variation"
-                    elif cv_value <= 100:
-                        return "Moderate variation"
-                    else:
-                        return "High variation"
+                    if pd.isna(cv_value): return "Unknown"
+                    elif cv_value < 50: return "Low variation"
+                    elif cv_value <= 100: return "Moderate variation"
+                    else: return "High variation"
                 cv_df['CV Category'] = cv_df['CV (%)'].apply(categorize_cv)
                 df = df.merge(cv_df[['Material Description', 'CV Category']], on='Material Description', how='left')
             else:
@@ -2421,27 +2030,17 @@ def get_filtered_data(sheet_name, subcategory_filter):
         df = df[mask].copy()
 
     if subcategory_filter != "All":
-        subcat_map = {}
-        current = None
+        subcat_map = {}; current = None
         for idx, row in df.iterrows():
             mat = row['Material Description']
-            if mat in subcategory_list:
-                current = mat
-            elif current is not None:
-                subcat_map[mat] = current
+            if mat in subcategory_list: current = mat
+            elif current is not None: subcat_map[mat] = current
         df['Assigned Subcategory'] = df['Material Description'].map(subcat_map)
         df = df[df['Assigned Subcategory'] == subcategory_filter]
 
-                # ========================================================================
-    # NMOS  = NMOS_raw - Lost_MOS   (usable stock)
-    # NMOS_raw = NSOH / AMC         (raw stock)
-    # TMOS  = NMOS + PMOS
-    # ========================================================================
-    # Capture NMOS_raw on the first pass only (never overwrite)
     if 'NMOS' in df.columns and 'NMOS_raw' not in df.columns:
         df['NMOS_raw'] = df['NMOS']
 
-    # Fallback: derive NMOS_raw from NSOH / AMC if not already present
     if 'NMOS_raw' not in df.columns and 'NSOH' in df.columns and 'AMC' in df.columns:
         _nsoh_vals = pd.to_numeric(df['NSOH'], errors='coerce')
         _amc_vals = pd.to_numeric(df['AMC'], errors='coerce').replace(0, np.nan)
@@ -2449,59 +2048,39 @@ def get_filtered_data(sheet_name, subcategory_filter):
 
     if 'Expiry Batches' in df.columns and 'AMC' in df.columns:
         df['NMOS'] = df.apply(
-            lambda r: compute_usable_nmos(
-                r.get('NMOS_raw', 0),
-                r.get('AMC', 0),
-                r.get('Expiry Batches', []) or []
-            ),
+            lambda r: compute_usable_nmos(r.get('NMOS_raw', 0), r.get('AMC', 0), r.get('Expiry Batches', []) or []),
             axis=1
         )
-        if 'Stock Status' in df.columns or True:
-            df['Stock Status'] = df['NMOS'].apply(categorize_stock)
+        df['Stock Status'] = df['NMOS'].apply(categorize_stock)
         _mos_cols = ['NMOS', 'GIT_MOS', 'LC_MOS', 'WB_MOS', 'TMD_MOS']
         _avail = [c for c in _mos_cols if c in df.columns]
         if _avail:
             df['TMOS'] = df[_avail].sum(axis=1)
 
     return df
+
+
 @st.cache_data(ttl=CACHE_TTL, show_spinner=False)
 def compute_supply_plan(df_filtered):
-    supply_plan = []
-    current_date = datetime.now()
-
+    supply_plan = []; current_date = datetime.now()
     def get_future_date(months_from_now):
-        target_date = current_date
-        months_int = int(months_from_now)
+        target_date = current_date; months_int = int(months_from_now)
         new_year = target_date.year + ((target_date.month + months_int - 1) // 12)
         new_month = ((target_date.month + months_int - 1) % 12) + 1
-        target_date = target_date.replace(year=new_year, month=new_month, day=1)
-        return target_date
-
+        return target_date.replace(year=new_year, month=new_month, day=1)
     def get_readable_order_by(months_until_order):
-        if months_until_order <= 0:
-            return "Now"
+        if months_until_order <= 0: return "Now"
         target_date = get_future_date(months_until_order)
-        month_name = target_date.strftime('%B')
-        year = target_date.year
-        if target_date.day <= 15:
-            period = "beginning"
-        else:
-            period = "end"
-        if target_date.year == current_date.year:
-            return f"{period} of {month_name}"
-        else:
-            return f"{period} of {month_name} {year}"
+        month_name = target_date.strftime('%B'); year = target_date.year
+        period = "beginning" if target_date.day <= 15 else "end"
+        if target_date.year == current_date.year: return f"{period} of {month_name}"
+        else: return f"{period} of {month_name} {year}"
 
     for idx, row in df_filtered.iterrows():
-        tmos = row.get('TMOS', 0)
-        amc = row.get('AMC', 0)
-        nmos = row.get('NMOS', 0)
+        tmos = row.get('TMOS', 0); amc = row.get('AMC', 0); nmos = row.get('NMOS', 0)
         material = row['Material Description']
-        git_mos = row.get('GIT_MOS', 0)
-        lc_mos = row.get('LC_MOS', 0)
-        wb_mos = row.get('WB_MOS', 0)
-        tmd_mos = row.get('TMD_MOS', 0)
-
+        git_mos = row.get('GIT_MOS', 0); lc_mos = row.get('LC_MOS', 0)
+        wb_mos = row.get('WB_MOS', 0); tmd_mos = row.get('TMD_MOS', 0)
         try:
             tmos = float(tmos) if pd.notna(tmos) else 0
             amc = float(amc) if pd.notna(amc) else 0
@@ -2512,13 +2091,10 @@ def compute_supply_plan(df_filtered):
             tmd_mos = float(tmd_mos) if pd.notna(tmd_mos) else 0
         except:
             continue
-
         pipeline_mos = git_mos + lc_mos + wb_mos + tmd_mos
         mos_needed = 18 - tmos
-
         if mos_needed > 0 and amc > 0:
             order_quantity = int(mos_needed * amc)
-
             if tmos <= 8:
                 urgency = "🔴 CRITICAL"
                 action = f"Place this {order_quantity:,} units IMMEDIATELY"
@@ -2530,71 +2106,43 @@ def compute_supply_plan(df_filtered):
                 order_by_readable = get_readable_order_by(months_until_order)
                 action = f"Place this {order_quantity:,} units by {order_by_readable}"
                 order_by = order_by_readable
-                total_months_to_delivery = months_until_order + 6
-                expected_delivery = get_future_date(total_months_to_delivery)
-
+                expected_delivery = get_future_date(months_until_order + 6)
             pipeline_parts = []
-            if git_mos > 0:
-                pipeline_parts.append(f"GIT: {round(git_mos,1)}m")
-            if lc_mos > 0:
-                pipeline_parts.append(f"LC: {round(lc_mos,1)}m")
-            if wb_mos > 0:
-                pipeline_parts.append(f"WB: {round(wb_mos,1)}m")
-            if tmd_mos > 0:
-                pipeline_parts.append(f"TMD: {round(tmd_mos,1)}m")
+            if git_mos > 0: pipeline_parts.append(f"GIT: {round(git_mos,1)}m")
+            if lc_mos > 0: pipeline_parts.append(f"LC: {round(lc_mos,1)}m")
+            if wb_mos > 0: pipeline_parts.append(f"WB: {round(wb_mos,1)}m")
+            if tmd_mos > 0: pipeline_parts.append(f"TMD: {round(tmd_mos,1)}m")
             pipeline_status = ", ".join(pipeline_parts) if pipeline_parts else "No pipeline stock"
-
             supply_plan.append({
-                'Material': material,
-                'Current TMOS': round(tmos, 2),
-                'NMOS': round(nmos, 2),
-                'Pipeline': round(pipeline_mos, 2),
-                'Pipeline Status': pipeline_status,
-                'AMC': int(amc),
-                'MOS Needed': round(mos_needed, 2),
-                'Order Quantity': f"{order_quantity:,}",
-                'Urgency': urgency,
-                'Action': action,
-                'Order By': order_by,
+                'Material': material, 'Current TMOS': round(tmos, 2),
+                'NMOS': round(nmos, 2), 'Pipeline': round(pipeline_mos, 2),
+                'Pipeline Status': pipeline_status, 'AMC': int(amc),
+                'MOS Needed': round(mos_needed, 2), 'Order Quantity': f"{order_quantity:,}",
+                'Urgency': urgency, 'Action': action, 'Order By': order_by,
                 'Expected Delivery': expected_delivery.strftime('%b %Y')
             })
-
-    if supply_plan:
-        supply_df = pd.DataFrame(supply_plan).sort_values('Current TMOS', ascending=True)
-    else:
-        supply_df = pd.DataFrame()
+    supply_df = pd.DataFrame(supply_plan).sort_values('Current TMOS', ascending=True) if supply_plan else pd.DataFrame()
     return supply_df, supply_plan
+
 
 @st.cache_data(ttl=CACHE_TTL, show_spinner=False)
 def compute_action_plan(df_filtered):
     def get_total_pipeline_mos(row):
-        git_mos = row.get('GIT_MOS', 0)
-        lc_mos = row.get('LC_MOS', 0)
-        wb_mos = row.get('WB_MOS', 0)
-        tmd_mos = row.get('TMD_MOS', 0)
+        git_mos = row.get('GIT_MOS', 0); lc_mos = row.get('LC_MOS', 0)
+        wb_mos = row.get('WB_MOS', 0); tmd_mos = row.get('TMD_MOS', 0)
         try:
-            git_mos = float(git_mos) if pd.notna(git_mos) else 0
-            lc_mos = float(lc_mos) if pd.notna(lc_mos) else 0
-            wb_mos = float(wb_mos) if pd.notna(wb_mos) else 0
-            tmd_mos = float(tmd_mos) if pd.notna(tmd_mos) else 0
+            return (float(git_mos) if pd.notna(git_mos) else 0) + (float(lc_mos) if pd.notna(lc_mos) else 0) + (float(wb_mos) if pd.notna(wb_mos) else 0) + (float(tmd_mos) if pd.notna(tmd_mos) else 0)
         except:
             return 0
-        return git_mos + lc_mos + wb_mos + tmd_mos
-
-    def has_pipeline(row):
-        return get_total_pipeline_mos(row) > 0
+    def has_pipeline(row): return get_total_pipeline_mos(row) > 0
 
     material_problems = {}
     for idx, row in df_filtered.iterrows():
         material = row['Material Description']
-        if pd.isna(material):
-            continue
-        nmos = row.get('NMOS', 0)
-        tmos = row.get('TMOS', 0)
-        nsoh = row.get('NSOH', 0)
-        amc = row.get('AMC', 0)
-        risk_type = row.get('Risk Type', '')
-        has_expiry_risk = row.get('Has Expiry Risk', False)
+        if pd.isna(material): continue
+        nmos = row.get('NMOS', 0); tmos = row.get('TMOS', 0)
+        nsoh = row.get('NSOH', 0); amc = row.get('AMC', 0)
+        risk_type = row.get('Risk Type', ''); has_expiry_risk = row.get('Has Expiry Risk', False)
         risk_of_stock = row.get('Risk of Stock', '')
         try:
             nmos = float(nmos) if pd.notna(nmos) else 0
@@ -2603,11 +2151,8 @@ def compute_action_plan(df_filtered):
             amc = float(amc) if pd.notna(amc) else 0
         except:
             continue
-        if amc == 0 and not has_expiry_risk:
-            continue
-        mos_needed_calc = 18 - tmos
-        if mos_needed_calc < 0:
-            mos_needed_calc = 0
+        if amc == 0 and not has_expiry_risk: continue
+        mos_needed_calc = max(0, 18 - tmos)
         nsoh_formatted = f"{int(nsoh):,}" if nsoh > 0 else "0"
         amc_formatted = f"{int(amc):,}" if amc > 0 else "N/A"
         pmos = round(get_total_pipeline_mos(row), 2)
@@ -2616,45 +2161,32 @@ def compute_action_plan(df_filtered):
 
         if material not in material_problems:
             material_problems[material] = {
-                'NSOH': nsoh_formatted,
-                'AMC': amc_formatted,
-                'PMOS': pmos,
-                'NMOS': round(nmos, 2),
-                'TMOS': round(tmos, 2),
-                'MOS Needed': round(mos_needed_calc, 2),
-                'problems': []
+                'NSOH': nsoh_formatted, 'AMC': amc_formatted, 'PMOS': pmos,
+                'NMOS': round(nmos, 2), 'TMOS': round(tmos, 2),
+                'MOS Needed': round(mos_needed_calc, 2), 'problems': []
             }
 
         if nmos < 1:
-            if has_pipeline(row):
-                action_point, responsible_body = get_pipeline_recommendation(row)
+            if has_pipeline(row): action_point, responsible_body = get_pipeline_recommendation(row)
             else:
-                months_needed_stock = 18 - tmos
-                if months_needed_stock < 0:
-                    months_needed_stock = 0
+                months_needed_stock = max(0, 18 - tmos)
                 order_qty = int(months_needed_stock * amc) if amc > 0 and months_needed_stock > 0 else 0
                 action_point = f"Mobilize resource and initiate purchase request for {months_needed_stock:.1f} months ({order_qty:,} units)"
                 responsible_body = "MOH"
             material_problems[material]['problems'].append({
-                'Identified Problem': '🔴 Stock Out',
-                'Action Point': action_point,
-                'Responsible Body': responsible_body,
-                'Due Date': 'IMMEDIATELY'
+                'Identified Problem': '🔴 Stock Out', 'Action Point': action_point,
+                'Responsible Body': responsible_body, 'Due Date': 'IMMEDIATELY'
             })
 
         elif nmos >= 1 and (risk_of_stock == 'Risk of Stock out' or risk_type == 'Risk of Stock out'):
-            if has_pipeline(row):
-                action_point, responsible_body = get_pipeline_recommendation(row)
+            if has_pipeline(row): action_point, responsible_body = get_pipeline_recommendation(row)
             else:
-                months_needed_stock = 18 - tmos
-                if months_needed_stock < 0:
-                    months_needed_stock = 0
+                months_needed_stock = max(0, 18 - tmos)
                 order_qty = int(months_needed_stock * amc) if amc > 0 and months_needed_stock > 0 else 0
                 action_point = f"Mobilize resource and initiate purchase request for {months_needed_stock:.1f} months ({order_qty:,} units)"
                 responsible_body = "MOH"
             material_problems[material]['problems'].append({
-                'Identified Problem': '🟡 Risk of Stock Out',
-                'Action Point': action_point,
+                'Identified Problem': '🟡 Risk of Stock Out', 'Action Point': action_point,
                 'Responsible Body': responsible_body,
                 'Due Date': end_of_month.strftime('Before %d %b %Y')
             })
@@ -2662,25 +2194,19 @@ def compute_action_plan(df_filtered):
         if nmos > 0 and (has_expiry_risk or risk_type == 'Expiry Risk'):
             action_point, responsible_body = get_expiry_risk_action(row)
             material_problems[material]['problems'].append({
-                'Identified Problem': '⚠️ Expiry Risk',
-                'Action Point': action_point,
-                'Responsible Body': responsible_body,
-                'Due Date': 'ASAP'
+                'Identified Problem': '⚠️ Expiry Risk', 'Action Point': action_point,
+                'Responsible Body': responsible_body, 'Due Date': 'ASAP'
             })
 
         if 1 <= nmos < 6:
-            if has_pipeline(row):
-                action_point, responsible_body = get_pipeline_recommendation(row)
+            if has_pipeline(row): action_point, responsible_body = get_pipeline_recommendation(row)
             else:
-                months_needed_stock = 18 - tmos
-                if months_needed_stock < 0:
-                    months_needed_stock = 0
+                months_needed_stock = max(0, 18 - tmos)
                 order_qty = int(months_needed_stock * amc) if amc > 0 and months_needed_stock > 0 else 0
                 action_point = f"Mobilize resource and initiate purchase request for {months_needed_stock:.1f} months ({order_qty:,} units)"
                 responsible_body = "MOH"
             material_problems[material]['problems'].append({
-                'Identified Problem': '📉 Below Minimum Stock Level',
-                'Action Point': action_point,
+                'Identified Problem': '📉 Below Minimum Stock Level', 'Action Point': action_point,
                 'Responsible Body': responsible_body,
                 'Due Date': end_of_month.strftime('Before %d %b %Y')
             })
@@ -2693,66 +2219,47 @@ def compute_action_plan(df_filtered):
             due_date = calculate_due_date_for_pipeline(tmos)
             material_problems[material]['problems'].append({
                 'Identified Problem': '📦 Pipeline Insufficient - Cannot Reach Max Stock',
-                'Action Point': action_point,
-                'Responsible Body': responsible_body,
-                'Due Date': due_date
+                'Action Point': action_point, 'Responsible Body': responsible_body, 'Due Date': due_date
             })
 
     for material, data in material_problems.items():
         if data['problems']:
-            has_risk_of_stock = any(p['Identified Problem'] == '🟡 Risk of Stock Out' for p in data['problems'])
-            if has_risk_of_stock:
+            if any(p['Identified Problem'] == '🟡 Risk of Stock Out' for p in data['problems']):
                 data['problems'] = [p for p in data['problems'] if p['Identified Problem'] != '📉 Below Minimum Stock Level']
     for material, data in material_problems.items():
         if data['problems']:
-            has_stock_out = any(p['Identified Problem'] == '🔴 Stock Out' for p in data['problems'])
-            if has_stock_out:
+            if any(p['Identified Problem'] == '🔴 Stock Out' for p in data['problems']):
                 data['problems'] = [p for p in data['problems'] if p['Identified Problem'] != '📉 Below Minimum Stock Level']
     for material, data in material_problems.items():
         if data['problems'] and data['PMOS'] == 0:
-            has_stock_out = any(p['Identified Problem'] == '🔴 Stock Out' for p in data['problems'])
-            has_risk_of_stock = any(p['Identified Problem'] == '🟡 Risk of Stock Out' for p in data['problems'])
-            has_below_min = any(p['Identified Problem'] == '📉 Below Minimum Stock Level' for p in data['problems'])
-            if has_stock_out or has_risk_of_stock or has_below_min:
+            if any(p['Identified Problem'] in ('🔴 Stock Out', '🟡 Risk of Stock Out', '📉 Below Minimum Stock Level') for p in data['problems']):
                 data['problems'] = [p for p in data['problems'] if p['Identified Problem'] != '📦 Pipeline Insufficient - Cannot Reach Max Stock']
 
     action_plan_rows = []
     for material, data in material_problems.items():
         if data['problems']:
             for problem in data['problems']:
-                row_data = {
-                    'Material': material,
-                    'NSOH': data['NSOH'],
-                    'AMC': data['AMC'],
-                    'PMOS': data['PMOS'],
-                    'NMOS': data['NMOS'],
-                    'TMOS': data['TMOS'],
+                action_plan_rows.append({
+                    'Material': material, 'NSOH': data['NSOH'], 'AMC': data['AMC'],
+                    'PMOS': data['PMOS'], 'NMOS': data['NMOS'], 'TMOS': data['TMOS'],
                     'MOS Needed': data['MOS Needed'],
                     'Identified Problem': problem['Identified Problem'],
                     'Action Point': problem['Action Point'],
                     'Responsible Body': problem['Responsible Body'],
                     'Due Date': problem['Due Date']
-                }
-                action_plan_rows.append(row_data)
+                })
 
     if action_plan_rows:
         action_df = pd.DataFrame(action_plan_rows)
-        action_df = action_df.drop_duplicates(
-            subset=['Material', 'Identified Problem'], 
-            keep='first'
-        )
+        action_df = action_df.drop_duplicates(subset=['Material', 'Identified Problem'], keep='first')
         return material_problems, action_df
-
     return material_problems, pd.DataFrame()
+
 
 def get_month_columns(df):
     pattern = re.compile(r'^[A-Za-z]{3}-\d{4}$')
     months = [col for col in df.columns if pattern.match(col)]
     return sort_months_chronologically(months)
-
-# ============================================================================
-# RENDER FUNCTIONS
-# ============================================================================
 def render_unified_historical_table(df_filtered, issue_pivot, nsoh_pivot, consumption_pivot, deliveries_pivot, ordered_materials_tuple, sheet_name):
     if df_filtered.empty:
         st.info("No data available.")
@@ -7293,13 +6800,671 @@ def render_ap_progress_follow_up(sheet_name, selected_quarter, selected_year, se
         )
     except Exception as _e:
         st.error(f"Could not build multi-program XLSX: {_e}")
+# ============================================================================
+# FSPT SECTION SWITCHER + FORECASTING RENDERERS
+# ============================================================================
+def _render_section_switcher():
+    """Top-of-sidebar switch between Supply Planning and Forecasting.
+    Both sections are independent — not a nested tab bar."""
+    if "active_section" not in st.session_state:
+        st.session_state.active_section = "supply_planning"
+
+    st.sidebar.markdown("### 🗂️ Section")
+    choice = st.sidebar.radio(
+        "",
+        options=["🧮 Supply Planning", "📈 Forecasting"],
+        index=0 if st.session_state.active_section == "supply_planning" else 1,
+        key="active_section_radio",
+        label_visibility="collapsed",
+    )
+    new_section = "supply_planning" if choice.startswith("🧮") else "forecasting"
+    if new_section != st.session_state.active_section:
+        st.session_state.active_section = new_section
+        st.rerun()
+    return st.session_state.active_section
+
 
 # ============================================================================
-# MAIN FUNCTION - WITH REFRESH BUTTON (Requirement 5)
+# MODEL SELECTION — SINGLE SOURCE OF TRUTH
+# ============================================================================
+def _pick_best_model_by_errors(trained: dict):
+    """Return (best_model_name, score_table_df) using a composite error score.
+
+    Composite score = mean of min-max–normalized MAE, RMSE, MAPE.
+    MAPE entries that are NaN/Inf or >= 1000% are ignored.
+    Lowest composite score wins (ties broken by raw MAE).
+    """
+    if not trained:
+        return None, pd.DataFrame()
+
+    rows = []
+    for name, v in trained.items():
+        try:
+            mae = float(v.get("mae", np.nan))
+        except Exception:
+            mae = np.nan
+        try:
+            rmse = float(v.get("rmse", np.nan))
+        except Exception:
+            rmse = np.nan
+        try:
+            mape = float(v.get("mape", np.nan))
+        except Exception:
+            mape = np.nan
+        try:
+            r2 = float(v.get("r2", np.nan))
+        except Exception:
+            r2 = np.nan
+
+        if not np.isfinite(mape) or mape >= 1000:
+            mape = np.nan
+
+        rows.append({
+            "Model": name,
+            "MAE": mae,
+            "RMSE": rmse,
+            "MAPE": mape,
+            "R2": r2,
+            "Parameters": v.get("params", "-"),
+        })
+
+    df = pd.DataFrame(rows)
+
+    def _norm(col):
+        c = df[col].astype(float)
+        mn, mx = c.min(), c.max()
+        if not np.isfinite(mn) or not np.isfinite(mx) or mx == mn:
+            return pd.Series(0.0, index=df.index)
+        return (c - mn) / (mx - mn)
+
+    df["_nMAE"] = _norm("MAE")
+    df["_nRMSE"] = _norm("RMSE")
+    df["_nMAPE"] = _norm("MAPE")
+
+    df["_score"] = df[["_nMAE", "_nRMSE", "_nMAPE"]].mean(axis=1, skipna=True)
+
+    df = df.sort_values(["_score", "MAE"], ascending=[True, True]).reset_index(drop=True)
+    best = df.iloc[0]["Model"]
+    return best, df
+
+
+def _display_error_metrics_table(score_df: pd.DataFrame):
+    if score_df.empty:
+        st.info("No test data — increase Training % or add more history.")
+        return
+
+    show = score_df.copy()
+    show["MAE"] = show["MAE"].map(lambda x: f"{x:,.1f}" if pd.notna(x) else "-")
+    show["RMSE"] = show["RMSE"].map(lambda x: f"{x:,.1f}" if pd.notna(x) else "-")
+    show["MAPE"] = show["MAPE"].map(lambda x: f"{x:.1f}%" if pd.notna(x) else "-")
+    show["R²"] = show["R2"].map(lambda x: f"{x:.3f}" if pd.notna(x) else "-")
+    show = show.drop(
+        columns=[c for c in ["R2"] + [c for c in show.columns if c.startswith("_")] if c in show.columns]
+    )
+    st.dataframe(show, use_container_width=True, hide_index=True)
+
+
+# ============================================================================
+# FORECASTING SECTION (Pattern A — per-material)
+# ============================================================================
+def render_forecasting_section(issue_pivot, sheet_name):
+    """Per-material forecasting (Pattern A). Source: issue_pivot (Supabase)."""
+    import matplotlib.pyplot as plt
+
+    program_label = sheet_name if sheet_name != "All" else "All Programs"
+    st.markdown(f"## 📈 Forecasting — {program_label}")
+
+    if issue_pivot is None or issue_pivot.empty:
+        st.warning(
+            f"No historical issue data available for **{program_label}**. "
+            "The Forecasting section requires at least some monthly issues "
+            "to have been recorded in Supabase. Please pick another program "
+            "or add issue data first."
+        )
+        return
+
+    # ---------- Build monthly inputs ----------
+    monthly_df, materials = build_monthly_forecast_input(issue_pivot)
+    if monthly_df.empty or not materials:
+        st.error(
+            "Could not build forecast input from the issue data. "
+            "Possible reasons: no monthly columns, or no materials."
+        )
+        return
+
+    # ---------- Month-range filter ----------
+    st.markdown("#### 📅 Historical Range")
+    all_months = list(monthly_df.index)
+    if len(all_months) >= 2:
+        colA, colB = st.columns(2)
+        with colA:
+            start_month = st.selectbox(
+                "Start Month",
+                options=all_months,
+                index=0,
+                format_func=lambda d: d.strftime("%b-%Y"),
+                key="fc_start_month",
+            )
+        with colB:
+            end_month = st.selectbox(
+                "End Month",
+                options=all_months,
+                index=len(all_months) - 1,
+                format_func=lambda d: d.strftime("%b-%Y"),
+                key="fc_end_month",
+            )
+        if start_month > end_month:
+            st.warning("Start month is after end month — swapping.")
+            start_month, end_month = end_month, start_month
+
+        mask = (monthly_df.index >= start_month) & (monthly_df.index <= end_month)
+        monthly_df = monthly_df.loc[mask]
+
+        if monthly_df.empty:
+            st.error("The selected month range contains no data.")
+            return
+    else:
+        start_month = end_month = all_months[0] if all_months else None
+
+    materials = [m for m in materials if m in monthly_df.columns and monthly_df[m].notna().any()]
+    if not materials:
+        st.error("No material has data within the selected month range.")
+        return
+
+    st.caption(
+        f"Using **{len(monthly_df)} months** of history "
+        f"({monthly_df.index[0].strftime('%b-%Y')} → {monthly_df.index[-1].strftime('%b-%Y')})"
+    )
+    st.markdown("---")
+
+    # ---------- Material dropdown ----------
+    selected_material = st.selectbox(
+        "🔍 Select Material",
+        options=materials,
+        key="fc_material_pick",
+    )
+
+    # ---------- Historical Issue Data chart (larger fonts, shorter height) ----------
+    st.markdown(f"### 📊 Historical Issue Data — {selected_material}")
+    hist_series = pd.to_numeric(
+        monthly_df[selected_material], errors="coerce"
+    ).fillna(0.0)
+
+    fig_hist, ax_hist = plt.subplots(figsize=(15, 6.5))         # ← shorter height
+    x_idx = np.arange(1, len(hist_series) + 1)
+    y_vals = hist_series.values.astype(float)
+
+    ax_hist.plot(
+        x_idx, y_vals, "o-",
+        linewidth=2.8, markersize=7,
+        color="#1e3c72",
+        label=f"Monthly Issue Quantity (n={len(y_vals)})",
+    )
+
+    # linear trend line
+    if len(y_vals) >= 2:
+        z = np.polyfit(x_idx, y_vals, 1)
+        p = np.poly1d(z)
+        ax_hist.plot(
+            x_idx, p(x_idx), "--",
+            linewidth=2.2, color="#e67e22",
+            label=f"Trend (slope = {z[0]:,.1f} / month)",
+        )
+
+    # value labels — larger font
+    for xi, yi in zip(x_idx, y_vals):
+        ax_hist.annotate(
+            f"{yi:,.0f}",
+            xy=(xi, yi),
+            xytext=(0, 9), textcoords="offset points",
+            ha="center", va="bottom",
+            fontsize=11, fontweight="bold", color="#1a5276",   # ← larger
+        )
+
+    # tick labels — larger font
+    if len(hist_series) > 0:
+        tick_labels = [d.strftime("%b-%Y") for d in hist_series.index]
+        step = max(1, len(tick_labels) // 14)
+        ax_hist.set_xticks(x_idx[::step])
+        ax_hist.set_xticklabels(tick_labels[::step], rotation=45, ha="right", fontsize=12)
+
+    ax_hist.set_xlabel("Month", fontsize=13)
+    ax_hist.set_ylabel("Issue Quantity", fontsize=13)
+    ax_hist.set_title(
+        f"{selected_material} — Historical Monthly Issue Quantity",
+        fontsize=15, fontweight="bold",
+    )
+    ax_hist.tick_params(axis="y", labelsize=12)
+    ax_hist.legend(loc="upper left", fontsize=11)
+    ax_hist.grid(True, alpha=0.3)
+    plt.tight_layout()
+    st.pyplot(fig_hist)
+
+    st.markdown("---")
+
+    # ---------- Forecast Parameters ----------
+    st.markdown("### ⚙️ Forecast Parameters")
+    ctrl1, ctrl2, ctrl3 = st.columns([2, 2, 3])
+    with ctrl1:
+        forecast_type = st.radio(
+            "Forecast type",
+            ["Monthly", "Yearly"],
+            horizontal=True,
+            key="fc_type",
+            help="Monthly: forecast month-by-month demand.\n"
+                 "Yearly: aggregate monthly issues into the last 3 calendar "
+                 "years and forecast future years.",
+        )
+    with ctrl2:
+        if forecast_type == "Monthly":
+            horizon = st.slider("Forecast months", 6, 36, 12, key="fc_horizon_m")
+        else:
+            horizon = st.slider("Forecast years", 1, 5, 3, key="fc_horizon_y")
+    with ctrl3:
+        train_pct = st.slider("Training data %", 50, 90, 70, key="fc_train_pct")
+
+    # ---------- Build final forecast input ----------
+    if forecast_type == "Monthly":
+        fc_df = monthly_df
+        fc_yearly_df = None
+        fc_materials = materials
+    else:
+        fc_df = monthly_df
+        fc_yearly_df, fc_materials = _yearly_from_monthly(monthly_df)
+
+    if fc_df.empty or not fc_materials:
+        st.error("Could not build forecast input — no materials or no monthly columns.")
+        return
+
+    if selected_material not in fc_materials:
+        st.warning(
+            f"Material **{selected_material}** is not available in "
+            f"{forecast_type} mode. Please pick another material."
+        )
+        return
+
+    if forecast_type == "Monthly":
+        st.caption(f"🧮 Selected: **{selected_material}** · **{fc_df.shape[0]} months** of history")
+    else:
+        st.caption(f"🧮 Selected: **{selected_material}** · **last 3 calendar years** (aggregated)")
+
+    # ---------- Run button ----------
+    run_clicked = st.button(
+        f"▶️ Run Forecast for {selected_material[:60]}",
+        use_container_width=True,
+        type="primary",
+        key="fc_run_btn",
+    )
+
+    cache_key = (sheet_name, forecast_type, train_pct, horizon, selected_material,
+                 str(start_month), str(end_month))
+    cache = st.session_state.setdefault("forecast_cache_single", {})
+
+    if run_clicked:
+        with st.spinner(f"Training models for {selected_material}…"):
+            if forecast_type == "Monthly":
+                result = run_forecast(
+                    fc_df[[selected_material]], [selected_material],
+                    "Monthly", train_pct, horizon,
+                )
+            else:
+                result = run_forecast(
+                    fc_yearly_df.loc[[selected_material]], [selected_material],
+                    "Yearly", train_pct, horizon,
+                )
+        cache[cache_key] = result
+    elif cache_key not in cache:
+        st.info("👆 Pick a material and click **Run Forecast** to generate results.")
+        return
+
+    result = cache.get(cache_key, {})
+    if not result or selected_material not in result:
+        st.warning("Forecast produced no result — try a longer history or different parameters.")
+        return
+
+    d = result[selected_material]
+    if not d or "error" in d:
+        st.error(f"⚠️ Could not forecast **{selected_material}**: {d.get('error', 'unknown error')}")
+        return
+
+    st.success(f"✅ Forecast complete for **{selected_material}**.")
+    st.markdown("---")
+
+    if forecast_type == "Monthly":
+        _render_single_monthly_detail(d, selected_material)
+    else:
+        _render_single_yearly_detail(d, selected_material)
+
+
+# ============================================================================
+# YEARLY INPUT BUILDERS — shape (n_materials, 3)
+# ============================================================================
+def _yearly_from_monthly(monthly_df):
+    """Build the (n_materials, 3) yearly frame from an already-filtered
+    monthly_df. Each cell = total issue demand in that calendar year.
+    Left-pads with zeros so we always get Year_1/Year_2/Year_3 columns."""
+    if monthly_df is None or monthly_df.empty:
+        return pd.DataFrame(), []
+
+    materials = list(monthly_df.columns)
+    yearly = monthly_df.groupby(monthly_df.index.year).sum().tail(3).T
+
+    n_years = yearly.shape[1]
+    if n_years < 3:
+        pad = 3 - n_years
+        zeros = pd.DataFrame(
+            0.0, index=yearly.index,
+            columns=[f"_pad_{i}" for i in range(pad)],
+        )
+        yearly = pd.concat([zeros, yearly], axis=1)
+
+    yearly.columns = ["Year_1", "Year_2", "Year_3"]
+    yearly.index.name = "Material Description"
+    yearly = yearly.reindex(materials).fillna(0.0)
+    return yearly, materials
+
+
+def _build_yearly_inputs(issue_pivot):
+    """Backward-compatible wrapper. Prefer `_yearly_from_monthly`."""
+    monthly_df, materials = build_monthly_forecast_input(issue_pivot)
+    if monthly_df.empty or not materials:
+        return pd.DataFrame(), pd.DataFrame(), []
+    yearly_df, mats = _yearly_from_monthly(monthly_df)
+    return monthly_df, yearly_df, mats
+
+
+# ============================================================================
+# MONTHLY DETAIL  (order: metrics → All-Models table → forecast chart → breakdown)
+# ============================================================================
+def _render_single_monthly_detail(d, material):
+    """Full per-material monthly forecast UI."""
+    import matplotlib.pyplot as plt
+
+    # ---- 1) Error metrics + single-source-of-truth model selection ----
+    st.markdown("### 📊 Model Performance Comparison (Error Metrics)")
+    trained = d.get("trained_models", {})
+    best_model, score_df = _pick_best_model_by_errors(trained)
+    _display_error_metrics_table(score_df)
+    if best_model:
+        st.success(f"🏆 **Best Performing Model (lowest composite error):** {best_model}")
+    else:
+        best_model = d.get("recommended_model_criteria", "SES")
+
+    af = d.get("all_forecasts", {})
+    hs = d.get("data_series", pd.Series())
+    hv = np.asarray(hs.values, dtype=float) if (hasattr(hs, "values") and len(hs) > 0) else np.array([])
+
+    # ---- 2) All Models Forecast Comparison (moved UP) ----
+    st.markdown("### 🔍 All Models Forecast Comparison")
+    if af:
+        rows2 = []
+        for mn, f in af.items():
+            rows2.append({
+                "Model": mn,
+                "Total Forecast": f"{f.get('total', 0):,.0f}",
+                "Monthly Avg": f"{f.get('avg', 0):,.0f}",
+                "Min Month": f"{f.get('min', 0):,.0f}",
+                "Max Month": f"{f.get('max', 0):,.0f}",
+            })
+        st.dataframe(pd.DataFrame(rows2), use_container_width=True, hide_index=True)
+    else:
+        st.info("No forecasts available.")
+
+    # ---- 3) Historical + All-models Forecast chart (shorter, larger fonts) ----
+    st.markdown("### 📈 Historical Data + All-Models Forecast")
+    hi = np.arange(1, len(hv) + 1)
+
+    fig, ax = plt.subplots(figsize=(13, 5))                    # ← shorter
+    if len(hv) > 0:
+        ax.plot(hi, hv, "o-", linewidth=2.8, markersize=6,
+                color="black", label=f"Historical (n={len(hv)})", zorder=5)
+        # value labels on historical points — larger font
+        for xi, yi in zip(hi, hv):
+            ax.annotate(f"{yi:,.0f}", xy=(xi, yi),
+                        xytext=(0, 8), textcoords="offset points",
+                        ha="center", va="bottom",
+                        fontsize=10, fontweight="bold", color="black")
+    else:
+        ax.text(0.5, 0.5, "No historical data",
+                transform=ax.transAxes, ha="center", va="center",
+                fontsize=13, color="#999")
+
+    model_colors = {
+        "SMA": "#1f77b4", "EMA": "#ff7f0e", "SES": "#2ca02c",
+        "DES": "#d62728", "TES": "#9467bd",
+        "ARIMA": "#8c564b", "SARIMA": "#e377c2",
+    }
+    for model_name, fdata in af.items():
+        fv = fdata.get("values", [])
+        if len(fv) == 0:
+            continue
+        fi = np.arange(len(hv) + 1, len(hv) + len(fv) + 1)
+        ax.plot(fi, np.asarray(fv, dtype=float),
+                "s--", linewidth=2.0, markersize=5,
+                color=model_colors.get(model_name, "#666"),
+                label=f"{model_name} (Total: {fdata.get('total', 0):,.0f})",
+                alpha=0.9)
+
+    ax.axvline(x=len(hv), linestyle="--", color="gray", alpha=0.7, label="Forecast Start")
+    ax.set_xlabel("Time Period (Months)", fontsize=13)
+    ax.set_ylabel("Demand Quantity", fontsize=13)
+    ax.set_title(f"{material} — Historical + All-Models Forecast", fontsize=15, fontweight="bold")
+    ax.tick_params(axis="both", labelsize=12)
+    ax.legend(loc="upper left", bbox_to_anchor=(1.01, 1), fontsize=10, frameon=True)
+    ax.grid(True, alpha=0.3)
+    plt.tight_layout()
+    st.pyplot(fig)
+
+    # ---- 4) Results Summary (uses SAME best_model) ----
+    st.markdown("### 📋 Forecast Results Summary")
+    rec = best_model or d.get("recommended_model_criteria", "SES")
+    avg_hist = float(np.mean(hv)) if len(hv) > 0 else 0
+    fdata = af.get(rec, {})
+    fvals = fdata.get("values", [])
+    results_table = pd.DataFrame([
+        {"Metric": "Selected Model", "Value": rec},
+        {"Metric": "Model Parameters",
+         "Value": trained.get(rec, {}).get("params", "Auto-optimized") if trained else "Auto-optimized"},
+        {"Metric": "Historical Avg Monthly", "Value": f"{avg_hist:,.0f} units"},
+        {"Metric": "Forecast Horizon", "Value": f"{len(fvals)} months"},
+        {"Metric": "Total Forecast Demand", "Value": f"{fdata.get('total', 0):,.0f} units"},
+        {"Metric": "Average Monthly Forecast", "Value": f"{fdata.get('avg', 0):,.0f} units"},
+    ])
+    st.dataframe(results_table, use_container_width=True, hide_index=True)
+
+    # ---- 5) Monthly Forecast Breakdown — models as columns ----
+    if af:
+        st.markdown("#### 📅 Monthly Forecast Breakdown (by Model)")
+        max_len = max((len(f.get("values", [])) for f in af.values()), default=0)
+        if max_len > 0:
+            breakdown = {"Month": [f"Month {i + 1}" for i in range(max_len)]}
+            for model_name, fdata in af.items():
+                fv = fdata.get("values", [])
+                col = [f"{fv[i]:,.0f}" if i < len(fv) else "" for i in range(max_len)]
+                breakdown[model_name] = col
+            br_df = pd.DataFrame(breakdown).set_index("Month")
+            st.dataframe(br_df, use_container_width=True)
+
+            # CSV export (models as columns, months as rows)
+            csv_df = br_df.reset_index()
+            st.download_button(
+                "📥 Download Monthly Forecast by Model (CSV)",
+                csv_df.to_csv(index=False),
+                f"{material}_monthly_forecast_by_model.csv",
+                "text/csv",
+                key="fc_dl_monthly",
+            )
+
+    # ---- 6) Data Characteristics ----
+    st.markdown("### 📊 Data Characteristics (Why this model was recommended)")
+    ch = d.get("characteristics", {})
+    c1, c2, c3 = st.columns(3)
+    with c1:
+        st.metric("Stationary", "✓" if ch.get("is_stationary") else "✗")
+        st.metric("Has Trend", "✓" if ch.get("has_trend") else "✗")
+        st.metric("Trend Direction", ch.get("trend_direction", "none").upper())
+    with c2:
+        st.metric("Has Seasonality", "✓" if ch.get("has_seasonality") else "✗")
+        st.metric("Seasonal Strength", f"{ch.get('seasonal_strength', 0):.2f}")
+        st.metric("Trend Strength", f"{ch.get('trend_strength', 0):.2f}")
+    with c3:
+        st.metric("Volatility", ch.get("volatility_level", "N/A"))
+        st.metric("CV", f"{ch.get('cv', 0):.3f}")
+        st.metric("ADF p-value", f"{ch.get('adf_pvalue', 1):.4f}")
+
+
+# ============================================================================
+# YEARLY DETAIL
+# ============================================================================
+def _render_single_yearly_detail(d, material):
+    """Full per-material yearly forecast UI."""
+    import matplotlib.pyplot as plt
+
+    ch = d.get("characteristics", {})
+    af = d.get("all_forecasts", {})
+    hv = d.get("historical_values", [])
+    hy = d.get("historical_years", [])
+    fy = d.get("forecast_years", [])
+    trained = d.get("trained_models", {})
+
+    # ---- Error metrics + model selection (single source of truth) ----
+    st.markdown("### 📊 Model Performance Comparison")
+    best_model, score_df = _pick_best_model_by_errors(trained)
+    _display_error_metrics_table(score_df)
+    if best_model:
+        st.success(f"🏆 **Best Performing Model (lowest composite error):** {best_model}")
+    else:
+        best_model = d.get("recommended_model", None)
+
+    # ---- Top metrics ----
+    c1, c2, c3, c4 = st.columns(4)
+    with c1:
+        st.metric("Trend", ch.get("trend_direction", "none").upper())
+        st.metric("Trend Strength", f"{ch.get('trend_strength', 0):.2f}")
+    with c2:
+        st.metric("Volatility", ch.get("volatility_level", "N/A"))
+        st.metric("CV", f"{ch.get('cv', 0):.3f}")
+    with c3:
+        st.metric("Mean", f"{ch.get('mean', 0):,.0f}")
+        st.metric("Std", f"{ch.get('std', 0):,.0f}")
+    with c4:
+        st.metric("Recommended (rules)", d.get("recommended_model", "N/A"))
+        st.metric("Best (errors)", best_model or "N/A")
+
+    # ---- All Models Forecast Comparison (moved UP) ----
+    st.markdown("### 🔍 All Models Forecast Comparison")
+    if af:
+        rows2 = []
+        for mn, f in af.items():
+            rows2.append({
+                "Model": mn,
+                "Total Forecast": f"{f.get('total', 0):,.0f}",
+                "Yearly Avg": f"{f.get('avg', 0):,.0f}",
+                "First Year": f"{f.get('first_year', 0):,.0f}",
+                "Last Year": f"{f.get('last_year', 0):,.0f}",
+                "Parameters": f.get("params", "-"),
+            })
+        st.dataframe(pd.DataFrame(rows2), use_container_width=True, hide_index=True)
+    else:
+        st.info("No forecasts available.")
+
+    # ---- Historical + All-models Forecast chart (shorter, larger fonts) ----
+    st.markdown("### 📈 Historical + All-Models Forecast")
+    hv_arr = np.asarray(hv, dtype=float) if len(hv) > 0 else np.array([])
+    hy_arr = np.asarray(hy, dtype=float) if len(hy) > 0 else np.array([])
+    fy_arr = np.asarray(fy, dtype=float) if len(fy) > 0 else np.array([])
+
+    fig, ax = plt.subplots(figsize=(11, 5))                    # ← shorter
+    if len(hv_arr) > 0:
+        ax.plot(hy_arr, hv_arr, "o-", linewidth=2.8, markersize=10,
+                color="black", label="Historical", zorder=5)
+        for xi, yi in zip(hy_arr, hv_arr):
+            ax.annotate(f"{yi:,.0f}", xy=(xi, yi),
+                        xytext=(0, 9), textcoords="offset points",
+                        ha="center", va="bottom",
+                        fontsize=11, fontweight="bold", color="black")
+    else:
+        ax.text(0.5, 0.5, "No historical data",
+                transform=ax.transAxes, ha="center", va="center",
+                fontsize=13, color="#999")
+
+    yearly_colors = {
+        "Naive Forecast": "#1f77b4",
+        "Simple Moving Average": "#ff7f0e",
+        "Weighted Moving Average": "#2ca02c",
+        "Simple Exponential Smoothing": "#d62728",
+        "Linear Trend": "#9467bd",
+        "CAGR Projection": "#8c564b",
+        "Growth Rate Forecast": "#e377c2",
+        "Holt Linear Trend": "#17becf",
+    }
+    for model_name, fdata in af.items():
+        fv = fdata.get("values", [])
+        if len(fv) == 0 or len(fy_arr) == 0:
+            continue
+        ax.plot(fy_arr, np.asarray(fv, dtype=float), "s--",
+                linewidth=2.0, markersize=7,
+                color=yearly_colors.get(model_name, "#666"),
+                label=f"{model_name} (Total: {fdata.get('total', 0):,.0f})",
+                alpha=0.9)
+
+    if len(hy_arr) > 0:
+        ax.axvline(x=hy_arr[-1], linestyle="--", color="gray", alpha=0.7)
+    ax.set_xlabel("Year", fontsize=13)
+    ax.set_ylabel("Demand", fontsize=13)
+    ax.set_title(f"{material} — Historical + All-Models Forecast", fontsize=15, fontweight="bold")
+    ax.tick_params(axis="both", labelsize=12)
+    ax.legend(loc="upper left", bbox_to_anchor=(1.01, 1), fontsize=9, frameon=True)
+    ax.grid(True, alpha=0.3)
+    plt.tight_layout()
+    st.pyplot(fig)
+
+    # ---- Year-by-Year Breakdown — models as columns ----
+    if af and len(fy_arr) > 0:
+        st.markdown("### 📅 Year-by-Year Forecast Breakdown (by Model)")
+        max_len = max((len(f.get("values", [])) for f in af.values()), default=0)
+        if max_len > 0:
+            breakdown = {"Year": [int(fy_arr[i]) if i < len(fy_arr) else f"Year {i + 1}"
+                                   for i in range(max_len)]}
+            for model_name, fdata in af.items():
+                fv = fdata.get("values", [])
+                col = [f"{fv[i]:,.0f}" if i < len(fv) else "" for i in range(max_len)]
+                breakdown[model_name] = col
+            br_df = pd.DataFrame(breakdown).set_index("Year")
+            st.dataframe(br_df, use_container_width=True)
+
+            csv_df = br_df.reset_index()
+            st.download_button(
+                "📥 Download Yearly Forecast by Model (CSV)",
+                csv_df.to_csv(index=False),
+                f"{material}_yearly_forecast_by_model.csv",
+                "text/csv",
+                key="fc_dl_yearly",
+            )
+
+    # ---- Data Characteristics ----
+    st.markdown("### 📊 Data Characteristics")
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        st.metric("Has Trend", "✓" if ch.get("has_trend") else "✗")
+        st.metric("Trend Direction", ch.get("trend_direction", "none").upper())
+        st.metric("Trend Strength", f"{ch.get('trend_strength', 0):.3f}")
+    with col2:
+        st.metric("Volatility Level", ch.get("volatility_level", "N/A"))
+        st.metric("CV", f"{ch.get('cv', 0):.3f}")
+        st.metric("Data Points", ch.get("data_points", 0))
+    with col3:
+        st.metric("Mean", f"{ch.get('mean', 0):,.0f}")
+        st.metric("Std", f"{ch.get('std', 0):,.0f}")
+        st.metric("Min / Max", f"{ch.get('min', 0):,.0f} / {ch.get('max', 0):,.0f}")
+
+
+# ============================================================================
+# MAIN
 # ============================================================================
 def main():
     st.set_page_config(
-        page_title="Supply Planning – HPC",
+        page_title="FSPT – Forecasting and Supply Planning Tool",
         layout="wide",
         initial_sidebar_state="expanded"
     )
@@ -7353,45 +7518,29 @@ def main():
     inject_custom_css()
     inject_javascript()
 
-    # ============================================================
-    # AUTHENTICATION GATE
-    # ============================================================
     if not require_auth():
         return
 
-    # ============================================================
-    # FORCED PASSWORD RESET GATE
-    # ============================================================
     current_user = st.session_state.get('user') or {}
     needs_forced_reset = (
         st.session_state.get('force_password_reset', False)
         or has_approved_password_reset(current_user.get('id'))
     )
-
     if needs_forced_reset:
         if render_forced_password_reset():
             st.stop()
 
-    # ============================================================
-    # PROFILE PAGE GATE (runs before admin gate)
-    # ============================================================
     if st.session_state.get('show_profile_page', False):
         render_profile_page()
         st.stop()
 
-    # ============================================================
-    # ADMIN PANEL GATE
-    # ============================================================
     if st.session_state.get('show_admin_page', False) and is_admin():
         render_admin_page()
         st.stop()
 
-    # ============================================================
-    # MAIN HEADER
-    # ============================================================
     st.markdown("""
     <div class="app-header fade-in">
-        <h1>📦 Supply Planning Dashboard</h1>
+        <h1>📦 SUPPLY PLANNING TOOL</h1>
     </div>
     """, unsafe_allow_html=True)
 
@@ -7399,6 +7548,15 @@ def main():
     # SIDEBAR
     # ============================================================
     with st.sidebar:
+        # FSPT title (only word at top of sidebar)
+        st.markdown('<div class="fspt-sidebar-title">FSPT</div>',
+                    unsafe_allow_html=True)
+        st.markdown("---")
+
+        # Section switcher: Supply Planning vs Forecasting
+        active_section = _render_section_switcher()
+        st.markdown("---")
+
         view_options = ["Table", "Cards"]
         current_view = st.session_state.get("sidebar_view_mode", "Table")
         selected_view = st.selectbox(
@@ -7414,7 +7572,6 @@ def main():
 
         st.markdown("---")
 
-        # ---------- PROGRAM SELECTION ----------
         sheet_id_amc = "14VvZ7IyOmpM4SZrY5_ArHDgLkeFN4inW"
         google_sheets = load_google_sheets(sheet_id_amc)
 
@@ -7469,7 +7626,6 @@ def main():
 
         st.markdown("---")
 
-        # ---------- QUARTER & YEAR FILTERS ----------
         quarter_options = ["All", "Q1", "Q2", "Q3", "Q4"]
         selected_quarter = st.selectbox(
             "Select Quarter",
@@ -7491,22 +7647,18 @@ def main():
 
         st.markdown("---")
 
-        # ---------- ADMIN PANEL BUTTON ----------
         if is_admin():
             if st.button("🔐 Admin Panel", use_container_width=True, type="primary"):
                 st.session_state.show_admin_page = True
                 st.session_state.show_profile_page = False
                 st.rerun()
-
             if st.session_state.get('show_admin_page', False):
                 st.info("📋 Admin Panel is open")
-                if st.button("← Back to Dashboard", use_container_width=True):
+                if st.button("← Back to Tool", use_container_width=True):
                     st.session_state.show_admin_page = False
                     st.rerun()
-
             st.markdown("---")
 
-        # ---------- REFRESH BUTTON ----------
         if st.button("🔄 Refresh Data", use_container_width=True, type="primary"):
             st.cache_data.clear()
             st.session_state.data_loaded = False
@@ -7514,7 +7666,6 @@ def main():
 
         st.markdown("---")
 
-        # ---------- PROFILE BUTTON (above Logout) ----------
         if st.button("👤 Profile", use_container_width=True, type="primary"):
             st.session_state.show_profile_page = True
             st.session_state.show_admin_page = False
@@ -7522,7 +7673,6 @@ def main():
 
         st.markdown("---")
 
-        # ---------- LOGOUT ----------
         if st.button("🚪 Logout", use_container_width=True):
             logout()
 
@@ -7539,8 +7689,8 @@ def main():
         st.error("No data available for the selected filters.")
         st.stop()
 
-        # ============================================================
-    # PROGRESS SUMMARY
+    # ============================================================
+    # PROGRESS SUMMARY (supply-planning only)
     # ============================================================
     records = load_expert_plan_records(
         sheet_name if sheet_name != "All" else None,
@@ -7548,7 +7698,7 @@ def main():
         selected_year if selected_year != "All" else None
     )
 
-    if records:
+    if records and active_section == "supply_planning":
         df_records = pd.DataFrame(records)
         if 'Status' in df_records.columns and 'Quarter' in df_records.columns and 'Year' in df_records.columns:
             quarter_order = {'Q1': 1, 'Q2': 2, 'Q3': 3, 'Q4': 4}
@@ -7566,14 +7716,12 @@ def main():
 
             program_display = sheet_name if sheet_name != "All" else "All Programs"
 
-            # ---------- MAIN TITLE ----------
             st.markdown(f"""
             <div class="progress-summary-container">
                 <h3 class="progress-summary-title">📊 {program_display} - {latest_quarter_val} {latest_year_val} Progress Status and Timeliness Summary</h3>
             </div>
             """, unsafe_allow_html=True)
 
-            # ---------- STATUS SUMMARY SUB-HEADING ----------
             st.markdown(f"""
             <div class="progress-summary-container" style="margin-top: 5px;">
                 <h4 class="progress-summary-title" style="font-size: 16px;">📋 Status Summary</h4>
@@ -7603,61 +7751,39 @@ def main():
             with col5:
                 st.markdown(status_card_html("Initiated", initiated, "Initiated", "card-initiated", "🚀", st.session_state.selected_status == "Initiated"), unsafe_allow_html=True)
 
-            # ============================================================
-            # TIMELINESS SUMMARY ROW
-            # ============================================================
             def _parse_dt(v):
-                if v is None:
-                    return None
+                if v is None: return None
                 try:
-                    if isinstance(v, float) and pd.isna(v):
-                        return None
-                except Exception:
-                    pass
+                    if isinstance(v, float) and pd.isna(v): return None
+                except Exception: pass
                 s = str(v).strip()
-                if not s or s.lower() in ('nan', 'none', 'nat', ''):
-                    return None
+                if not s or s.lower() in ('nan', 'none', 'nat', ''): return None
                 try:
                     if re.match(r'^\d{4}-\d{2}-\d{2}$', s):
                         return datetime.strptime(s, '%Y-%m-%d').date()
                     for fmt in ['%Y-%m-%d %H:%M:%S', '%Y-%m-%dT%H:%M:%S',
                                 '%B %d, %Y', '%b %d, %Y', '%B %d %Y', '%b %d %Y',
                                 '%d/%m/%Y', '%m/%d/%Y', '%d-%m-%Y', '%m-%d-%Y']:
-                        try:
-                            return datetime.strptime(s, fmt).date()
-                        except Exception:
-                            continue
-                except Exception:
-                    pass
+                        try: return datetime.strptime(s, fmt).date()
+                        except Exception: continue
+                except Exception: pass
                 return None
 
             _today = datetime.now().date()
-            _on_time = 0
-            _late = 0
-            _overdue = 0
-            _not_yet_due = 0
-
+            _on_time = 0; _late = 0; _overdue = 0; _not_yet_due = 0
             for _, _r in df_records.iterrows():
                 _status = str(_r.get('Status', '')).strip()
                 _due = _parse_dt(_r.get('Due Date', ''))
                 _comp = _parse_dt(_r.get('Completion Date', ''))
-
                 if _status.lower() == 'completed':
-                    if _due is None or _comp is None:
-                        _on_time += 1
-                    elif _comp <= _due:
-                        _on_time += 1
-                    else:
-                        _late += 1
+                    if _due is None or _comp is None: _on_time += 1
+                    elif _comp <= _due: _on_time += 1
+                    else: _late += 1
                 else:
-                    if _due is None:
-                        _not_yet_due += 1
-                    elif _due < _today:
-                        _overdue += 1
-                    else:
-                        _not_yet_due += 1
+                    if _due is None: _not_yet_due += 1
+                    elif _due < _today: _overdue += 1
+                    else: _not_yet_due += 1
 
-           # ---------- TIMELINESS SUMMARY SUB-HEADING ----------
             st.markdown(f"""
             <div class="progress-summary-container" style="margin-top: 10px;">
                 <h4 class="progress-summary-title" style="font-size: 16px;">⏱️ Timeliness Summary</h4>
@@ -7665,7 +7791,6 @@ def main():
             """, unsafe_allow_html=True)
 
             tcol1, tcol2, tcol3, tcol4 = st.columns(4)
-
             with tcol1:
                 st.markdown(f"""
                 <div class="progress-status-card" style="background: #ffffff; border: 2px solid #28a745;">
@@ -7737,46 +7862,60 @@ def main():
     )
 
     # ============================================================
-    # TAB ACCESS FILTERING
+    # RENDER — 2 INDEPENDENT SECTIONS
     # ============================================================
-    user_tabs = get_user_tab_access()
+    if active_section == "supply_planning":
+        user_tabs = get_user_tab_access()
 
-    all_tabs = [
-        ("📊 Historical Data", "Historical Data"),
-        ("📋 Expert Action Plan", "Expert Action Plan"),
-        ("📈 Action Plan Follow Up", "Action Plan Follow Up"),
-        ("📦 System Generated Action Plan", "System Generated Action Plan")
-    ]
+        all_tabs = [
+            ("📊 Historical Data", "Historical Data"),
+            ("📋 Expert Action Plan", "Expert Action Plan"),
+            ("📈 Action Plan Follow Up", "Action Plan Follow Up"),
+            ("📦 System Generated Action Plan", "System Generated Action Plan"),
+        ]
 
-    if user_tabs and "All" not in user_tabs:
-        available_tabs = [(label, key) for label, key in all_tabs if key in user_tabs]
+        if user_tabs and "All" not in user_tabs:
+            available_tabs = [(l, k) for l, k in all_tabs if k in user_tabs]
+        else:
+            available_tabs = all_tabs
+
+        if available_tabs:
+            tab_labels = [t[0] for t in available_tabs]
+            tab_keys = [t[1] for t in available_tabs]
+            tabs = st.tabs(tab_labels)
+
+            for tab, tab_key in zip(tabs, tab_keys):
+                with tab:
+                    if tab_key == "Historical Data":
+                        st.markdown(f"## 📊 {sheet_name if sheet_name != 'All' else 'All Programs'} Historical Data")
+                        render_unified_historical_table(
+                            df_filtered, issue_pivot, nsoh_pivot,
+                            consumption_pivot, deliveries_pivot,
+                            ordered_materials_tuple, sheet_name)
+                    elif tab_key == "Expert Action Plan":
+                        st.markdown(f"## 📋 {sheet_name if sheet_name != 'All' else 'All Programs'} Expert Action Plan")
+                        render_expert_action_plan_with_status(
+                            df_filtered, material_problems, action_df,
+                            sheet_name, nsoh_pivot,
+                            selected_quarter, selected_year)
+                    elif tab_key == "Action Plan Follow Up":
+                        render_ap_progress_follow_up(
+                            sheet_name, selected_quarter,
+                            selected_year,
+                            st.session_state.selected_status)
+                    elif tab_key == "System Generated Action Plan":
+                        render_supply_planning_exercise(
+                            df_filtered, supply_df, supply_plan,
+                            ordered_materials_tuple, sheet_name, action_df)
+                        st.markdown("---")
+                        render_system_generated_action_plan(
+                            action_df, material_problems, sheet_name)
+        else:
+            st.warning("You don't have access to any Supply Planning tabs. Please contact your administrator.")
+
     else:
-        available_tabs = all_tabs
-
-    # ============================================================
-    # RENDER TABS
-    # ============================================================
-    if available_tabs:
-        tab_labels = [t[0] for t in available_tabs]
-        tab_keys = [t[1] for t in available_tabs]
-        tabs = st.tabs(tab_labels)
-
-        for i, (tab, tab_key) in enumerate(zip(tabs, tab_keys)):
-            with tab:
-                if tab_key == "Historical Data":
-                    st.markdown(f"## 📊 {sheet_name if sheet_name != 'All' else 'All Programs'} Historical Data")
-                    render_unified_historical_table(df_filtered, issue_pivot, nsoh_pivot, consumption_pivot, deliveries_pivot, ordered_materials_tuple, sheet_name)
-                elif tab_key == "Expert Action Plan":
-                    st.markdown(f"## 📋 {sheet_name if sheet_name != 'All' else 'All Programs'} Expert Action Plan")
-                    render_expert_action_plan_with_status(df_filtered, material_problems, action_df, sheet_name, nsoh_pivot, selected_quarter, selected_year)
-                elif tab_key == "Action Plan Follow Up":
-                    render_ap_progress_follow_up(sheet_name, selected_quarter, selected_year, st.session_state.selected_status)
-                elif tab_key == "System Generated Action Plan":
-                    render_supply_planning_exercise(df_filtered, supply_df, supply_plan, ordered_materials_tuple, sheet_name, action_df)
-                    st.markdown("---")
-                    render_system_generated_action_plan(action_df, material_problems, sheet_name)
-    else:
-        st.warning("You don't have access to any tabs. Please contact your administrator.")
+        # FORECASTING SECTION (fully independent)
+        render_forecasting_section(issue_pivot, sheet_name)
 
 
 if __name__ == "__main__":
