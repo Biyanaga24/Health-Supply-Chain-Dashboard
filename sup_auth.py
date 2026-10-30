@@ -1,5 +1,5 @@
 """
-Supabase Authentication Module for Supply Planning Dashboard
+Supabase Authentication Module for Supply Planning Tool
 Provides authentication, user management, and access control functions
 Uses the 'supply_users' table in Supabase
 """
@@ -805,7 +805,7 @@ def show_login_page():
 
     st.markdown("""
     <div class="hero-section">
-        <div class="hero-title">📦 HPC Supply Planning Dashboard</div>
+        <div class="hero-title">📦 HPC Supply Planning Tool</div>
         <div class="hero-subtitle">Efficient Supply Chain Management for Health Programs</div>
     </div>
     """, unsafe_allow_html=True)
@@ -940,20 +940,20 @@ def show_login_page():
         <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px;">
             <div class="step-box"><div class="step-number">1</div><strong>Register</strong><br><span style="font-size:0.9rem;opacity:0.9;">Create your account</span></div>
             <div class="step-box"><div class="step-number">2</div><strong>Wait for Approval</strong><br><span style="font-size:0.9rem;opacity:0.9;">Admin reviews your account</span></div>
-            <div class="step-box"><div class="step-number">3</div><strong>Login</strong><br><span style="font-size:0.9rem;opacity:0.9;">Access the dashboard</span></div>
+            <div class="step-box"><div class="step-number">3</div><strong>Login</strong><br><span style="font-size:0.9rem;opacity:0.9;">Access the tool</span></div>
             <div class="step-box"><div class="step-number">4</div><strong>Start Planning</strong><br><span style="font-size:0.9rem;opacity:0.9;">Analyze and act</span></div>
         </div>
     </div>
     """, unsafe_allow_html=True)
 
     st.markdown("""
-    <div class="footer">© 2026 HPC Supply Planning Dashboard | Developed by Biyensa Negera</div>
+    <div class="footer">© 2026 HPC Supply Planning Tool| Developed by Biyensa Negera</div>
     <div class="main-content"></div>
     """, unsafe_allow_html=True)
 
 
 # ============================================================
-# FORGOT PASSWORD HELPER (used by dashboard)
+# FORGOT PASSWORD HELPER (used by Tool)
 # ============================================================
 
 def create_admin_user(email, password, full_name):
