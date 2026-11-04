@@ -14,12 +14,157 @@ import re
 from io import BytesIO
 from supabase import create_client
 from openpyxl.utils import get_column_letter
-
 # Add the current directory to path
 sys.path.append(os.path.dirname(__file__))
 
 # Import authentication functions
 from auth import show_login_page, show_profile_page, show_admin_panel
+
+
+# ---------------------------------------------------
+# Parent-page JS helpers (tab switching, clickable cards)
+# ---------------------------------------------------
+def _inject_parent_js(code):
+    """Run JS in the main Streamlit page (not inside the 0-height iframe)."""
+    import json as _json
+    payload = _json.dumps(code)
+    st.components.v1.html(
+        "<script>(function(){try{var d=window.parent.document;var s=d.createElement('script');"
+        "s.textContent=" + payload + ";d.head.appendChild(s);setTimeout(function(){s.remove();},100);}catch(e){}})();</script>",
+        height=0
+    )
+
+_TAB_JS = """
+(function(){
+  var TOKEN = __TOKEN__, IDX = __IDX__, NEED = __NEED__, CLOSE = __CLOSE__;
+  if (window.__navDone === TOKEN) { return; }
+  if (window.__navTimer) { clearInterval(window.__navTimer); }
+  var tries = 0, stable = 0, closed = false;
+  function running(){ return !!document.querySelector('[data-testid="stStatusWidget"]'); }
+  window.__navTimer = setInterval(function(){
+    tries++;
+    var tabs = document.querySelectorAll('button[data-baseweb="tab"]');
+    if (tabs.length >= NEED && tabs[IDX]) {
+      if (tabs[IDX].getAttribute('aria-selected') !== 'true') {
+        tabs[IDX].click(); stable = 0;
+      } else {
+        stable++;
+        if (CLOSE && !closed && window.innerWidth <= 768) {
+          closed = true;
+          var b = document.querySelector('[data-testid="stSidebarCollapseButton"] button')
+               || document.querySelector('[data-testid="stSidebarHeader"] button');
+          if (b) { b.click(); }
+        }
+        // done once selected for ~1.5s AND the script run has finished (tab bar can be rebuilt mid-run)
+        if (stable >= 10 && !running()) {
+          clearInterval(window.__navTimer); window.__navDone = TOKEN;
+          window.scrollTo({top: 0, behavior: 'smooth'});
+        }
+      }
+    }
+    if (tries > 600) { clearInterval(window.__navTimer); }   // ~90 s safety stop
+  }, 150);
+})();
+"""
+
+_SCROLL_JS = """
+(function(){
+  var TOKEN = __TOKEN__, IDX = __IDX__, CLOSE = __CLOSE__;
+  if (window.__navDone === TOKEN) { return; }
+  var tries = 0;
+  var timer = setInterval(function(){
+    tries++;
+    var hs = document.querySelectorAll('[data-testid="stMain"] h2, section.main h2');
+    if (hs.length > IDX) {
+      clearInterval(timer);
+      window.__navDone = TOKEN;
+      hs[IDX].scrollIntoView({behavior: 'smooth', block: 'start'});
+      if (CLOSE && window.innerWidth <= 768) {
+        var b = document.querySelector('[data-testid="stSidebarCollapseButton"] button')
+             || document.querySelector('[data-testid="stSidebarHeader"] button');
+        if (b) { b.click(); }
+      }
+    } else if (tries > 200) { clearInterval(timer); }
+  }, 100);
+})();
+"""
+
+def _apply_nav_target(page_name, n_items, mode="tabs"):
+    """Idempotent: re-injected on every run, but acts only once per sidebar click (token)."""
+    tgt = st.session_state.get('nav_target')
+    if not tgt or tgt.get('page') != page_name:
+        return
+    tpl = _TAB_JS if mode == "tabs" else _SCROLL_JS
+    code = (tpl.replace("__TOKEN__", str(tgt['token']))
+               .replace("__IDX__", str(int(tgt['idx'])))
+               .replace("__NEED__", str(int(n_items)))
+               .replace("__CLOSE__", "true"))
+    _inject_parent_js(code)
+
+_CARD_JS = """
+(function(){
+  var LABELS = __LABELS__;
+  function hideBtns(){
+    document.querySelectorAll('button').forEach(function(b){
+      var t = (b.innerText || '').trim();
+      if (t.indexOf('Show ') === 0 && LABELS.indexOf(t.slice(5)) !== -1) {
+        var c = b.closest('[data-testid="stElementContainer"]') || b.closest('.element-container') || b.parentElement;
+        if (c && c.style.display !== 'none') { c.style.display = 'none'; }
+      }
+    });
+  }
+  hideBtns();
+  if (window.__cardWired) { return; }
+  window.__cardWired = true;
+  setInterval(hideBtns, 400);
+  document.addEventListener('click', function(e){
+    var card = e.target.closest && e.target.closest('div[style*="cursor: pointer"]');
+    if (!card) { return; }
+    var p = card.querySelector('p');
+    if (!p) { return; }
+    var label = (p.innerText || '').trim();
+    if (LABELS.indexOf(label) === -1) { return; }
+    var btns = document.querySelectorAll('button');
+    for (var i = 0; i < btns.length; i++) {
+      if ((btns[i].innerText || '').trim() === 'Show ' + label) { btns[i].click(); break; }
+    }
+  }, true);
+})();
+"""
+
+# ---------------------------------------------------
+# Excel export helper (used by every download button)
+# ---------------------------------------------------
+_XL_ILLEGAL = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f]")
+
+def _xl(df, sheet_name="Data"):
+    """Convert a DataFrame to styled .xlsx bytes for st.download_button."""
+    from openpyxl.styles import Font as _F, PatternFill as _P, Alignment as _A
+    d = df.copy()
+    d.columns = [str(c) for c in d.columns]
+    for c in d.columns:
+        if d[c].dtype == "object" or pd.api.types.is_string_dtype(d[c]):
+            d[c] = d[c].apply(lambda v: _XL_ILLEGAL.sub("", v) if isinstance(v, str) else v)
+        elif str(d[c].dtype).startswith("datetime64") and getattr(d[c].dt, "tz", None) is not None:
+            d[c] = d[c].dt.tz_localize(None)
+    safe = re.sub(r"[\[\]:\*\?/\\]", "_", str(sheet_name))[:31] or "Data"
+    out = BytesIO()
+    with pd.ExcelWriter(out, engine="openpyxl") as w:
+        d.to_excel(w, sheet_name=safe, index=False)
+        ws = w.sheets[safe]
+        for cell in ws[1]:
+            cell.font = _F(bold=True, color="FFFFFF")
+            cell.fill = _P("solid", fgColor="1A5276")
+            cell.alignment = _A(horizontal="left", vertical="center", wrap_text=True)
+        for i, col in enumerate(d.columns, start=1):
+            longest = max([len(str(col))] + [len(str(v)) for v in d[col].head(200).tolist() if v is not None])
+            ws.column_dimensions[get_column_letter(i)].width = min(max(longest + 2, 10), 60)
+        ws.freeze_panes = "A2"
+        if len(d.columns) > 0:
+            ws.auto_filter.ref = ws.dimensions
+    out.seek(0)
+    return out.getvalue()
+
 
 # ---------------------------------------------------
 # Supabase Configuration - Using Streamlit Secrets
@@ -571,13 +716,204 @@ def enrich_posting_date_from_deliveries(proc_df, deliveries_df):
 # ===================================================
 if 'proc_cache_bust' not in st.session_state:
     st.session_state.proc_cache_bust = 0
+# ===================================================
+# NORMALIZERS
+# ===================================================
+def _normalize_po(po):
+    if po is None:
+        return ""
+    try:
+        if pd.isna(po):
+            return ""
+    except Exception:
+        pass
+    s = str(po).strip().upper()
+    if s.endswith(".0") and s[:-2].replace(".", "", 1).isdigit():
+        s = s[:-2]
+    return "".join(s.split())
+
+
+def _normalize_material(mat):
+    if mat is None:
+        return ""
+    try:
+        if pd.isna(mat):
+            return ""
+    except Exception:
+        pass
+    return " ".join(str(mat).strip().upper().split())
+
+
+# ===================================================
+# SIDEBAR LINKAGE
+# ===================================================
+def _link_procurement_to_sidebar(proc_df, filtered_df):
+    if proc_df is None or proc_df.empty:
+        return proc_df
+    if filtered_df is None or filtered_df.empty:
+        return proc_df.iloc[0:0].copy()
+    if 'Material Description' not in filtered_df.columns:
+        return proc_df
+
+    allowed_materials = set(
+        filtered_df['Material Description']
+        .dropna()
+        .astype(str)
+        .map(_normalize_material)
+        .tolist()
+    )
+    if not allowed_materials:
+        return proc_df.iloc[0:0].copy()
+
+    out = proc_df.copy()
+    out['_mat_key_norm'] = out['material_description'].apply(_normalize_material)
+    out = out[out['_mat_key_norm'].isin(allowed_materials)]
+    out = out.drop(columns=['_mat_key_norm'], errors='ignore')
+    return out.reset_index(drop=True)
+
+
+# ===================================================
+# HELPER: Enrich Posting Date (EARLIEST) — match on Material + PO
+# ===================================================
+def enrich_posting_date_from_deliveries(proc_df, deliveries_df):
+    """
+    When (Material Description, PO Number) match, take the
+    EARLIEST Posting Date from New Deliveries.
+    """
+    if proc_df is None or proc_df.empty:
+        return proc_df
+    if deliveries_df is None or deliveries_df.empty:
+        return proc_df
+
+    proc_df = proc_df.copy()
+    deliveries_df = deliveries_df.copy()
+
+    deliveries_df['_po_key']  = deliveries_df['PO Number'].apply(_normalize_po)
+    deliveries_df['_mat_key'] = deliveries_df['Material Description'].apply(_normalize_material)
+    deliveries_df['_post_dt'] = pd.to_datetime(deliveries_df['Posting Date'], errors='coerce')
+
+    lookup = (
+        deliveries_df
+        .dropna(subset=['_post_dt'])
+        .groupby(['_mat_key', '_po_key'])['_post_dt']
+        .min()
+        .to_dict()
+    )
+
+    proc_df['_po_key']  = proc_df['po_number'].apply(_normalize_po)
+    proc_df['_mat_key'] = proc_df['material_description'].apply(_normalize_material)
+
+    def resolve(row):
+        return lookup.get((row['_mat_key'], row['_po_key']), row.get('posting_date'))
+
+    proc_df['posting_date'] = proc_df.apply(resolve, axis=1)
+    proc_df['posting_date'] = pd.to_datetime(proc_df['posting_date'], errors='coerce')
+    proc_df = proc_df.drop(columns=['_po_key', '_mat_key'], errors='ignore')
+    return proc_df
+
+
+# ===================================================
+# HELPER: Enrich Delivered Qty (SUM) — match on Material + PO
+# ===================================================
+def enrich_delivered_qty_from_deliveries(proc_df, deliveries_df):
+    """
+    Delivered Qty = SUM of Quantity grouped by (Material, PO).
+    """
+    if proc_df is None or proc_df.empty:
+        return proc_df
+
+    proc_df = proc_df.copy()
+
+    if deliveries_df is None or deliveries_df.empty:
+        if 'Delivered Qty' not in proc_df.columns:
+            proc_df['Delivered Qty'] = None
+        return proc_df
+
+    deliveries_df = deliveries_df.copy()
+
+    deliveries_df['_po_key']  = deliveries_df['PO Number'].apply(_normalize_po)
+    deliveries_df['_mat_key'] = deliveries_df['Material Description'].apply(_normalize_material)
+
+    deliveries_df['Quantity'] = (
+        deliveries_df['Quantity']
+        .astype(str)
+        .str.replace(',', '', regex=False)
+        .str.strip()
+    )
+    deliveries_df['Quantity'] = pd.to_numeric(deliveries_df['Quantity'], errors='coerce').fillna(0)
+
+    final = deliveries_df.groupby(
+        ['_mat_key', '_po_key'], as_index=False
+    )['Quantity'].sum()
+
+    table2_lookup = dict(
+        zip(zip(final['_mat_key'], final['_po_key']), final['Quantity'])
+    )
+
+    proc_df['_po_key']  = proc_df['po_number'].apply(_normalize_po)
+    proc_df['_mat_key'] = proc_df['material_description'].apply(_normalize_material)
+
+    def _resolve(row):
+        return table2_lookup.get((row['_mat_key'], row['_po_key']), None)
+
+    proc_df['Delivered Qty'] = proc_df.apply(_resolve, axis=1)
+    proc_df['Delivered Qty'] = pd.to_numeric(proc_df['Delivered Qty'], errors='coerce')
+
+    proc_df = proc_df.drop(columns=['_po_key', '_mat_key'], errors='ignore')
+    return proc_df
+
+
+# ===================================================
+# HELPER: PO Qty Variance
+# ===================================================
+def calculate_po_qty_variance(df):
+    if df.empty:
+        return df
+    df = df.copy()
+    po_qty = pd.to_numeric(df.get('po_quantity', 0), errors='coerce').fillna(0)
+    delivered_qty = pd.to_numeric(df.get('Delivered Qty', 0), errors='coerce').fillna(0)
+    df['PO Qty Variance'] = po_qty - delivered_qty
+    return df
+
+
+
+def _compute_avg_proc_lead(base_df):
+    """Same number as the tab's 'Avg Procurement Lead' (uses the tab's filter widgets' state)."""
+    proc = load_procurement_lead_time(st.session_state.get('proc_cache_bust', 0))
+    if proc is None or proc.empty:
+        return None
+    deliveries = globals().get('df_new_deliveries')
+    if deliveries is not None and not deliveries.empty:
+        proc = enrich_posting_date_from_deliveries(proc, deliveries)
+        proc = enrich_delivered_qty_from_deliveries(proc, deliveries)
+    if base_df is not None and not base_df.empty and 'Material Description' in base_df.columns:
+        proc = _link_procurement_to_sidebar(proc, base_df)
+    if proc.empty:
+        return None
+    proc = calculate_procurement_lead_times(proc)
+    year_f = st.session_state.get('proc_lead_year_v6', 'All')
+    fund_f = st.session_state.get('proc_lead_funding_v6', 'All')
+    mat_f = st.session_state.get('proc_lead_material_v6', 'All')
+    po_f = st.session_state.get('proc_lead_search_v6', '')
+    if year_f != "All":
+        proc = proc[proc['year_of_request'].astype(str) == year_f]
+    if fund_f != "All":
+        proc = proc[proc['funding_source'].astype(str) == fund_f]
+    if mat_f != "All":
+        proc = proc[proc['material_description'] == mat_f]
+    if po_f:
+        proc = proc[proc['po_number'].astype(str).str.contains(po_f, case=False, na=False)]
+    avg = proc['Procurement Lead Time'].dropna().mean() if not proc.empty else 0
+    return int(round(avg)) if pd.notna(avg) else 0
+
+
 # ---------------------------------------------------
 # Page Setup
 # ---------------------------------------------------
 st.set_page_config(
     page_title="HPC STOCK MANAGEMENT DASHBORD", 
     layout="wide", 
-    initial_sidebar_state="expanded"
+    initial_sidebar_state="auto"
 )
 
 # ---------------------------------------------------
@@ -827,6 +1163,42 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
+
+# ---------------------------------------------------
+# MOBILE LAYER (phones & small tablets)
+# ---------------------------------------------------
+st.markdown("""
+<style>
+@media only screen and (max-width: 768px) {
+    .block-container { padding: 1rem 0.75rem 3rem 0.75rem !important; max-width: 100% !important; }
+    /* two cards per row on phones instead of one very long stack */
+    [data-testid="stHorizontalBlock"] { flex-wrap: wrap !important; gap: 0.5rem !important; }
+    [data-testid="stHorizontalBlock"] > [data-testid="stColumn"],
+    [data-testid="stHorizontalBlock"] > [data-testid="column"] {
+        min-width: calc(50% - 0.5rem) !important;
+        flex: 1 1 calc(50% - 0.5rem) !important;
+    }
+    .animated-header, .animated-subtitle { animation: none !important; display: block !important; }
+    .stButton button, .stDownloadButton button { min-height: 44px; width: 100%; }
+    [data-testid="stDataFrame"], [data-testid="stTable"] { overflow-x: auto !important; }
+    [data-testid="stMarkdownContainer"] table { display: block; overflow-x: auto; }
+    .js-plotly-plot, .plotly, .stPlotlyChart { max-width: 100% !important; }
+    div[data-testid="stMetricValue"] { font-size: 18px !important; }
+    div[data-testid="stMetricLabel"] p { font-size: 11px !important; }
+    div[data-testid="stSelectbox"], div[data-testid="stMultiSelect"], div[data-testid="stTextInput"] { min-width: 0 !important; }
+    [data-testid="stSidebar"] { min-width: 260px !important; }
+}
+@media only screen and (max-width: 480px) {
+    [data-testid="stHorizontalBlock"] > [data-testid="stColumn"],
+    [data-testid="stHorizontalBlock"] > [data-testid="column"] {
+        min-width: 100% !important; flex: 1 1 100% !important;
+    }
+    h3 { font-size: 16px !important; }
+    h5 { font-size: 14px !important; }
+}
+</style>
+""", unsafe_allow_html=True)
+
 # ---------------------------------------------------
 # Initialize session state (CORRECT ORDER)
 # ---------------------------------------------------
@@ -887,12 +1259,6 @@ if 'previous_data_hash' not in st.session_state:
     st.session_state.previous_data_hash = None
 if 'action_plan_tab' not in st.session_state:
     st.session_state.action_plan_tab = "📋 All Issues"
-if 'go_to_dashboard_tab' not in st.session_state:
-    st.session_state.go_to_dashboard_tab = None
-if 'go_to_analytics_tab' not in st.session_state:
-    st.session_state.go_to_analytics_tab = None
-if 'go_to_summary_section' not in st.session_state:
-    st.session_state.go_to_summary_section = None
 if 'last_dashboard_tab' not in st.session_state:
     st.session_state.last_dashboard_tab = None
 if 'last_analytics_tab' not in st.session_state:
@@ -2393,12 +2759,6 @@ if 'Material Description' in df.columns:
     if not show_all_programs and selected_programs_list:
         active_filters.append(f"Programs: {len(selected_programs_list)} selected")
 
-    if active_filters:
-        st.sidebar.markdown("---")
-        st.sidebar.markdown("### 🔍 Active Filters")
-        for filter_text in active_filters:
-            st.sidebar.markdown(f"- {filter_text}")
-
     # ========== CLEAR FILTERS BUTTON ==========
     if st.sidebar.button("🗑️ Clear All Filters", use_container_width=True):
         st.session_state.risk_type_filter = ["All"]
@@ -2410,204 +2770,117 @@ else:
     df_filtered = pd.DataFrame()
     display_df_filtered = pd.DataFrame()
 
-# ---------------------------------------------------
-# Update the navigation radio buttons to include Issue Data
-if st.session_state['user']['role'] == 'admin':
-    page = st.sidebar.radio("Navigation", ["Dashboard", "Advanced Analytics", "Executive Summary", "Issue Data", "Admin Panel", "Profile"])
-else:
-    page = st.sidebar.radio("Navigation", ["Dashboard", "Advanced Analytics", "Executive Summary", "Issue Data", "Profile"])
-
 # ===================================================
-# TAB NAVIGATION DROPDOWNS FOR ALL PAGES (Auto-navigate)
+# NAVIGATION (expandable: pages -> tabs/sections)
 # ===================================================
-st.sidebar.markdown("---")
-st.sidebar.markdown("### 🗂️ Quick Tab Navigation")
+_is_admin = st.session_state['user']['role'] == 'admin'
+NAV_TREE = {
+    "Dashboard": [
+        "📋 Stock Status Table", "📈 KPIs & Analytics", "💡 Decision Briefs",
+        "📍 Hubs Distribution", "📦 Supply Planning", "📋 Procurement Lead Time", "🚚 New Deliveries"
+    ],
+    "Advanced Analytics": [
+        "🏆 Branch Ranking", "🔄 Redistribution", "📧 Critical Alerts", "⏰ Expiry Notifications",
+        "📊 Program Comparison", "🗺️ Regional Map", "👁️ Popular Materials", "👥 User Analytics",
+        "📅 Report Scheduling"
+    ],
+    "Executive Summary": [
+        "🎯 Performance Metrics", "📊 Stock Status", "⚠️ Risk Summary",
+        "📍 Hubs Distribution", "🏆 Branch Ranking", "📊 Program Performance"
+    ],
+    "Issue Data": [],
+}
+if _is_admin:
+    NAV_TREE["Admin Panel"] = []
+NAV_TREE["Profile"] = []
 
-# Dashboard Tabs Dropdown
-if page == "Dashboard":
-    st.sidebar.markdown("#### 📊 Dashboard Tabs")
-    dashboard_tabs = {
-        "📋 Stock Status Table": 0,
-        "📈 KPIs & Analytics": 1,
-        "💡 Decision Briefs": 2,
-        "📍 Hubs Distribution": 3,
-        "📦 Supply Planning": 4,
-        "📋 Purchase Order Status": 5,
-        "🚚 New Deliveries": 6
-    }
+if st.session_state.get('nav_page') not in NAV_TREE:
+    st.session_state.nav_page = "Dashboard"
+if 'nav_sub' not in st.session_state:
+    st.session_state.nav_sub = {}
+if 'nav_token' not in st.session_state:
+    st.session_state.nav_token = 0
 
-    selected_dashboard_tab = st.sidebar.selectbox(
-        "Select tab to navigate:",
-        list(dashboard_tabs.keys()),
-        key="dashboard_tab_nav"
-    )
+if 'nav_expanded' not in st.session_state:
+    st.session_state.nav_expanded = set()      # nothing expanded by default
 
-    if selected_dashboard_tab:
-        target_index = dashboard_tabs[selected_dashboard_tab]
-        if st.session_state.get('last_dashboard_tab') != target_index:
-            st.session_state.last_dashboard_tab = target_index
-            st.session_state.go_to_dashboard_tab = target_index
-            st.rerun()
+def _go_nav(page_name, idx=None):
+    st.session_state.nav_page = page_name
+    if idx is not None:
+        st.session_state.nav_sub[page_name] = idx
+    st.session_state.nav_token += 1
+    st.session_state.nav_target = {"page": page_name, "idx": idx if idx is not None else 0,
+                                   "token": st.session_state.nav_token}
 
-# Advanced Analytics Tabs Dropdown
-elif page == "Advanced Analytics":
-    st.sidebar.markdown("#### 📊 Advanced Analytics Tabs")
-    analytics_tabs = {
-        "🏆 Branch Ranking": 0,
-        "🔄 Redistribution": 1,
-        "📧 Critical Alerts": 2,
-        "⏰ Expiry Notifications": 3,
-        "📊 Program Comparison": 4,
-        "🗺️ Regional Map": 5,
-        "👁️ Popular Materials": 6,
-        "👥 User Analytics": 7,
-        "📅 Report Scheduling": 8
-    }
-
-    selected_analytics_tab = st.sidebar.selectbox(
-        "Select tab to navigate:",
-        list(analytics_tabs.keys()),
-        key="analytics_tab_nav"
-    )
-
-    if selected_analytics_tab:
-        target_index = analytics_tabs[selected_analytics_tab]
-        if st.session_state.get('last_analytics_tab') != target_index:
-            st.session_state.last_analytics_tab = target_index
-            st.session_state.go_to_analytics_tab = target_index
-            st.rerun()
-
-# Executive Summary Sections Dropdown
-elif page == "Executive Summary":
-    st.sidebar.markdown("#### 📑 Executive Summary Sections")
-    summary_sections = {
-        "🎯 Performance Metrics": 0,
-        "📊 Stock Status": 1,
-        "⚠️ Risk Summary": 2,
-        "📍 Hubs Distribution": 3,
-        "🏆 Branch Ranking": 4,
-        "📊 Program Performance": 5
-    }
-
-    selected_summary_section = st.sidebar.selectbox(
-        "Select section to navigate:",
-        list(summary_sections.keys()),
-        key="summary_tab_nav"
-    )
-
-    if selected_summary_section:
-        target_index = summary_sections[selected_summary_section]
-        if st.session_state.get('last_summary_section') != target_index:
-            st.session_state.last_summary_section = target_index
-            st.session_state.go_to_summary_section = target_index
-            st.rerun()
+st.sidebar.markdown("""
+<style>
+/* ---- Sidebar navigation: aligned, subtle motion ---- */
+section[data-testid="stSidebar"] div[class*="st-key-nav_"] button {
+    justify-content: flex-start !important;
+    text-align: left !important;
+    border-radius: 8px !important;
+    padding: 0.4rem 0.75rem !important;
+    box-shadow: none !important;
+    animation: none !important;
+    transition: background-color .18s ease, transform .18s ease, border-color .18s ease !important;
+}
+section[data-testid="stSidebar"] div[class*="st-key-nav_"] button > div,
+section[data-testid="stSidebar"] div[class*="st-key-nav_"] button p {
+    justify-content: flex-start !important;
+    text-align: left !important;
+    width: 100%;
+    margin: 0 !important;
+}
+section[data-testid="stSidebar"] div[class*="st-key-nav_"] button:hover {
+    transform: translateX(3px) !important;
+    animation: none !important;
+}
+section[data-testid="stSidebar"] div[class*="st-key-nav_"] button:active { transform: none !important; }
+section[data-testid="stSidebar"] div[class*="st-key-nav_sub_"] {
+    width: calc(100% - 16px) !important;
+    margin-left: 16px !important;
+    border-left: 2px solid #c9d6e2;
+    padding-left: 6px;
+}
+section[data-testid="stSidebar"] div[class*="st-key-nav_sub_"] button { font-size: 13px !important; padding: 0.3rem 0.6rem !important; }
+section[data-testid="stSidebar"] [data-testid="stVerticalBlock"] { gap: 0.35rem; }
+</style>
+""", unsafe_allow_html=True)
 
 st.sidebar.markdown("---")
-
-# ---------------------------------------------------
-# Data Refresh Controls
-# ---------------------------------------------------
-st.sidebar.divider()
-st.sidebar.markdown("### 🔄 Data Updates")
-st.sidebar.caption(f"📅 Data as of: {st.session_state.data_timestamp.strftime('%Y-%m-%d %H:%M:%S')}")
-
-if st.session_state['user']['role'] == 'admin':
-    st.sidebar.info("📊 Data Sources:\n- Supabase: Real-time\n- Google Sheets (AMC/Pipeline): Cached 5 min\n- Google Sheets (Branch AMC): Cached 5 min")
-
-auto_refresh = st.sidebar.checkbox("Auto-refresh every 5 minutes", value=st.session_state.auto_refresh)
-if auto_refresh != st.session_state.auto_refresh:
-    st.session_state.auto_refresh = auto_refresh
-
-if st.session_state.auto_refresh:
-    time_since_refresh = (datetime.now() - st.session_state.data_timestamp).total_seconds()
-    if time_since_refresh > 300:
-        st.cache_data.clear()
-        st.session_state.data_timestamp = datetime.now()
+st.sidebar.markdown("#### Navigation")
+for _pg, _subs in NAV_TREE.items():
+    _active = (st.session_state.nav_page == _pg)
+    _open = _pg in st.session_state.nav_expanded
+    _arrow = ("▾" if _open else "▸") if _subs else "•"
+    if st.sidebar.button(f"{_arrow}  {_pg}", key=f"nav_pg_{_pg}",
+                         use_container_width=True, type="primary" if _active else "secondary"):
+        if _subs:
+            if _open:
+                st.session_state.nav_expanded.discard(_pg)      # collapse
+            else:
+                st.session_state.nav_expanded.add(_pg)          # expand
+        if not _active:
+            _go_nav(_pg)                                        # also open that page
         st.rerun()
-
-if st.sidebar.button("🔄 Refresh Now", use_container_width=True, type="primary"):
-    st.cache_data.clear()
-    st.session_state.data_timestamp = datetime.now()
-    st.rerun()
-
-if st.session_state['user']['role'] == 'admin':
-    if st.sidebar.button("🗑️ Clear All Caches", use_container_width=True):
-        st.cache_data.clear()
-        st.cache_resource.clear()
-        st.session_state.data_timestamp = datetime.now()
-        st.success("All caches cleared! Refreshing...")
-        time.sleep(1)
-        st.rerun()
-
-# ---------------------------------------------------
-# Admin Panel - Supabase Management
-# ---------------------------------------------------
-if st.session_state['user']['role'] == 'admin':
-    with st.sidebar.expander("📁 Supabase Management"):
-        st.caption("Manage data in Supabase")
-        table_info = get_table_info()
-        if table_info:
-            st.info(f"Current data: {table_info['rows']} rows, {table_info['columns']} columns")
-
-        st.markdown("#### Upload New Data")
-        st.caption("Upload Excel or CSV file with your data")
-
-        uploaded_file = st.file_uploader("Choose Excel or CSV file", type=['xlsx', 'csv', 'xls'], key='data_upload')
-
-        if uploaded_file:
-            try:
-                if uploaded_file.name.endswith('.csv'):
-                    df_upload = pd.read_csv(uploaded_file)
-                else:
-                    df_upload = pd.read_excel(uploaded_file)
-
-                st.write(f"Preview of data to upload ({len(df_upload)} rows):")
-                st.dataframe(df_upload.head())
-
-                col1, col2 = st.columns(2)
-                with col1:
-                    if st.button("📤 Upload to Supabase", use_container_width=True, type="primary"):
-                        with st.spinner("Validating and uploading..."):
-                            if validate_upload_data(df_upload):
-                                if upload_to_supabase(df_upload):
-                                    st.cache_data.clear()
-                                    st.session_state.data_timestamp = datetime.now()
-                                    st.success("Upload successful! Refreshing...")
-                                    time.sleep(1)
-                                    st.rerun()
-                with col2:
-                    if st.button("⚠️ Clear All Data", use_container_width=True):
-                        with st.spinner("Clearing Supabase data..."):
-                            if clear_supabase_table():
-                                st.cache_data.clear()
-                                st.session_state.data_timestamp = datetime.now()
-                                st.success("Data cleared! Refreshing...")
-                                time.sleep(1)
-                                st.rerun()
-            except Exception as e:
-                st.error(f"Error reading file: {e}")
-
-        st.markdown("---")
-        st.caption("Data stored in Supabase table: `health_data`")
-
-    # DOS TRACKING MANAGEMENT - Separate expander
-    with st.sidebar.expander("📊 DOS Tracking Management"):
-        st.caption("Manage Days Out of Stock tracking data")
-
-        # Get DOS stats
-        dos_tracking = load_dos_tracking_from_supabase()
-        active_dos = sum(1 for t in dos_tracking.values() if t.get('is_out_of_stock', False))
-        total_tracked = len(dos_tracking)
-
-        col1, col2 = st.columns(2)
-        with col1:
-            st.metric("📊 Materials Tracked", total_tracked)
-        with col2:
-            st.metric("🔴 Currently Out of Stock", active_dos)
-
-        if st.button("🗑️ Reset All DOS Tracking Data", use_container_width=True, type="secondary"):
-            if reset_dos_tracking():
+    if _open and _subs:
+        for _i, _sub in enumerate(_subs):
+            _is_sub_active = _active and (st.session_state.nav_sub.get(_pg, 0) == _i)
+            if st.sidebar.button(_sub, key=f"nav_sub_{_pg}_{_i}", use_container_width=True,
+                                 type="primary" if _is_sub_active else "secondary"):
+                _go_nav(_pg, _i)
+                st.session_state.nav_close_sb = True
                 st.rerun()
+
+if st.session_state.pop('nav_close_sb', False):
+    _inject_parent_js("""(function(){ if (window.innerWidth <= 768) {
+        var b = document.querySelector('[data-testid="stSidebarCollapseButton"] button')
+             || document.querySelector('[data-testid="stSidebarHeader"] button');
+        if (b) { b.click(); } } })();""")
+
+page = st.session_state.nav_page
+st.sidebar.markdown("---")
+
 # ===================================================
 # NSOH SNAPSHOT MANAGEMENT - Sidebar (ADMIN ONLY)
 # ===================================================
@@ -2843,30 +3116,38 @@ elif page == "Issue Data":
 
     st.markdown("---")
 
-    # ========== CALCULATE A_AMC (Overall and by Plant) ==========
+    # ========== CALCULATE A_AMC (Overall and by Plant) — EXACT LAST 12 CALENDAR MONTHS ==========
     a_amc_overall = pd.DataFrame()
     plant_a_amc = pd.DataFrame()
     plant_amos_pivot = pd.DataFrame()
 
     if 'Delivery Date' in display_issue_df.columns and display_issue_df['Delivery Date'].notna().any():
+        # Find the absolute latest delivery date in the whole dataset
         latest_date = display_issue_df['Delivery Date'].max()
-        three_months_before = latest_date - timedelta(days=90)
-        last_3_months = display_issue_df[display_issue_df['Delivery Date'] >= three_months_before]
 
-        if not last_3_months.empty:
-            # Overall A_AMC
-            last_3_months['YearMonth'] = last_3_months['Delivery Date'].dt.strftime('%Y-%m')
-            monthly_totals = last_3_months.groupby(['Material Description', 'YearMonth'])['Quantity'].sum().reset_index()
+        # Get the first day of that latest month
+        latest_month_start = latest_date.replace(day=1)
+
+        # Go back exactly 11 months to get the start of the 12-month window
+        twelve_month_start = latest_month_start - pd.DateOffset(months=11)
+
+        # Filter exactly to those 12 calendar months
+        last_12_months = display_issue_df[display_issue_df['Delivery Date'] >= twelve_month_start].copy()
+
+        if not last_12_months.empty:
+            # Overall A_AMC (Average over the 12 months)
+            last_12_months['YearMonth'] = last_12_months['Delivery Date'].dt.strftime('%Y-%m')
+            monthly_totals = last_12_months.groupby(['Material Description', 'YearMonth'])['Quantity'].sum().reset_index()
             a_amc_calc = monthly_totals.groupby('Material Description')['Quantity'].mean().round(2)
             a_amc_overall = pd.DataFrame({
                 'Material Description': a_amc_calc.index,
                 'A_AMC': a_amc_calc.values.round(2)
             })
 
-            # Calculate Plant A_AMC
-            plant_last_3_months = last_3_months.groupby(['Material Description', 'Plant'])['Quantity'].sum().reset_index()
-            plant_last_3_months['A_AMC'] = (plant_last_3_months['Quantity'] / 3).round(2)
-            plant_a_amc = plant_last_3_months[['Material Description', 'Plant', 'A_AMC']]
+            # Calculate Plant A_AMC (Total over 12 months divided by 12)
+            plant_last_12_months = last_12_months.groupby(['Material Description', 'Plant'])['Quantity'].sum().reset_index()
+            plant_last_12_months['A_AMC'] = (plant_last_12_months['Quantity'] / 12).round(2)
+            plant_a_amc = plant_last_12_months[['Material Description', 'Plant', 'A_AMC']]
 
             # ========== CALCULATE PLANT AMOS USING HSOH FROM HEALTH_DATA ==========
             if not plant_a_amc.empty and not df.empty:
@@ -2993,9 +3274,9 @@ elif page == "Issue Data":
 
             st.download_button(
                 label="📥 Download Material vs Month Data",
-                data=monthly_table.reset_index().to_csv(index=False),
-                file_name=f"issue_data_monthly_{datetime.now().strftime('%Y%m%d')}.csv",
-                mime="text/csv"
+                data=monthly_table.reset_index().pipe(_xl),
+                file_name=f"issue_data_monthly_{datetime.now().strftime('%Y%m%d')}.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
             )
 
     with detail_tab2:
@@ -3009,14 +3290,14 @@ elif page == "Issue Data":
 
         st.download_button(
             label="📥 Download Material vs Plant Data",
-            data=plant_pivot_table.reset_index().to_csv(index=False),
-            file_name=f"issue_data_plant_{datetime.now().strftime('%Y%m%d')}.csv",
-            mime="text/csv"
+            data=plant_pivot_table.reset_index().pipe(_xl),
+            file_name=f"issue_data_plant_{datetime.now().strftime('%Y%m%d')}.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )
 
     with detail_tab3:
         st.markdown("#### Plant A_AMC (Average Monthly Consumption)")
-        st.caption("A_AMC by Plant = Total issue quantity from the last 3 months of data divided by 3 months")
+        st.caption("A_AMC by Plant = Total issue quantity from the last 12 calendar months of data divided by 12 months")
 
         if not plant_a_amc.empty:
             a_amc_pivot = plant_a_amc.pivot_table(
@@ -3031,26 +3312,25 @@ elif page == "Issue Data":
 
             st.download_button(
                 label="📥 Download Plant A_AMC Data",
-                data=a_amc_pivot.reset_index().to_csv(index=False),
-                file_name=f"plant_a_amc_{datetime.now().strftime('%Y%m%d')}.csv",
-                mime="text/csv"
+                data=a_amc_pivot.reset_index().pipe(_xl),
+                file_name=f"plant_a_amc_{datetime.now().strftime('%Y%m%d')}.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
             )
         else:
-            st.info("No data available for A_AMC calculation. Need at least 3 months of delivery data.")
+            st.info("No data available for A_AMC calculation. Need at least 12 months of delivery data.")
 
     with detail_tab4:
         st.markdown("#### Plant AMOS (Actual Month of Stock)")
         st.caption("AMOS = HSOH (from health_data) ÷ Plant A_AMC (from issue_data)")
 
         if not plant_amos_pivot.empty:
-            # Clean white table with 2 decimal places
             st.dataframe(plant_amos_pivot, use_container_width=True, height=500)
 
             st.download_button(
                 label="📥 Download Plant AMOS Data",
-                data=plant_amos_pivot.reset_index().to_csv(index=False),
-                file_name=f"plant_amos_{datetime.now().strftime('%Y%m%d')}.csv",
-                mime="text/csv"
+                data=plant_amos_pivot.reset_index().pipe(_xl),
+                file_name=f"plant_amos_{datetime.now().strftime('%Y%m%d')}.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
             )
         else:
             st.info("No AMOS data available. Need both HSOH (from health_data) and Plant A_AMC (from issue_data).")
@@ -3066,9 +3346,9 @@ elif page == "Issue Data":
 
         st.download_button(
             label="📥 Download Material vs Region Data",
-            data=region_pivot_table.reset_index().to_csv(index=False),
-            file_name=f"issue_data_region_{datetime.now().strftime('%Y%m%d')}.csv",
-            mime="text/csv"
+            data=region_pivot_table.reset_index().pipe(_xl),
+            file_name=f"issue_data_region_{datetime.now().strftime('%Y%m%d')}.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )
 
     st.markdown("---")
@@ -3226,7 +3506,6 @@ elif page == "Issue Data":
         st.caption("AMOS = HSOH (from health_data) ÷ Plant A_AMC (from issue_data)")
 
         if not plant_amos_pivot.empty:
-            # Transpose: Materials become columns, Plants become rows
             amos_pivot_transposed = plant_amos_pivot.T
 
             if 'page_materials' in dir() and page_materials:
@@ -3238,14 +3517,9 @@ elif page == "Issue Data":
             else:
                 amos_pivot_page = amos_pivot_transposed.iloc[:, :min(10, len(amos_pivot_transposed.columns))]
 
-            # ============================================================
-            # CORRECTED COLOR SCALE FOR AMOS HEATMAP
-            # <0.5 red, 0.5-1 orange, 1-2 yellow, 2-4 green, 4-6 blue, >6 skyblue
-            # ============================================================
             max_amos = amos_pivot_page.max().max() if not amos_pivot_page.empty else 12
             z_max = max(6, max_amos) if max_amos > 0 else 6
 
-            # Calculate positions based on z_max
             pos_0_5 = 0.5 / z_max
             pos_1 = 1.0 / z_max
             pos_2 = 2.0 / z_max
@@ -3253,18 +3527,18 @@ elif page == "Issue Data":
             pos_6 = 6.0 / z_max
 
             amos_colorscale = [
-                [0.0, '#ff0000'],           # Red - 0
-                [pos_0_5, '#ff0000'],       # Red - <0.5
-                [pos_0_5 + 0.001, '#ff6600'], # Orange - 0.5
-                [pos_1, '#ff6600'],         # Orange - 0.5-1
-                [pos_1 + 0.001, '#ffff00'], # Yellow - 1
-                [pos_2, '#ffff00'],         # Yellow - 1-2
-                [pos_2 + 0.001, '#33cc33'], # Green - 2
-                [pos_4, '#33cc33'],         # Green - 2-4
-                [pos_4 + 0.001, '#3366ff'], # Blue - 4
-                [pos_6, '#3366ff'],         # Blue - 4-6
-                [pos_6 + 0.001, '#66ccff'], # Skyblue - 6
-                [1.0, '#66ccff']            # Skyblue - >6
+                [0.0, '#ff0000'],
+                [pos_0_5, '#ff0000'],
+                [pos_0_5 + 0.001, '#ff6600'],
+                [pos_1, '#ff6600'],
+                [pos_1 + 0.001, '#ffff00'],
+                [pos_2, '#ffff00'],
+                [pos_2 + 0.001, '#33cc33'],
+                [pos_4, '#33cc33'],
+                [pos_4 + 0.001, '#3366ff'],
+                [pos_6, '#3366ff'],
+                [pos_6 + 0.001, '#66ccff'],
+                [1.0, '#66ccff']
             ]
 
             fig_amos_heatmap = go.Figure(data=go.Heatmap(
@@ -3293,7 +3567,6 @@ elif page == "Issue Data":
             )
             st.plotly_chart(fig_amos_heatmap, use_container_width=True)
 
-            # AMOS Legend
             st.markdown("""
             <div style='background: #f8f9fa; padding: 10px; border-radius: 5px; margin-top: 10px;'>
                 <p style='margin: 0; font-weight: bold;'>📊 AMOS Legend:</p>
@@ -3385,10 +3658,10 @@ elif page == "Issue Data":
     st.markdown("<h3 style='font-size: 20px; font-weight: bold;'>📥 Export All Filtered Data</h3>", unsafe_allow_html=True)
 
     st.download_button(
-        label="📊 Download Full Issue Data (CSV)",
-        data=display_issue_df.to_csv(index=False),
-        file_name=f"issue_data_full_{datetime.now().strftime('%Y%m%d')}.csv",
-        mime="text/csv",
+        label="📊 Download Full Issue Data (Excel)",
+        data=display_issue_df.pipe(_xl),
+        file_name=f"issue_data_full_{datetime.now().strftime('%Y%m%d')}.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         use_container_width=True
     )
 
@@ -3399,27 +3672,9 @@ elif page == "Advanced Analytics":
     # ===================================================
     st.markdown("<h1 style='font-size: 32px; font-weight: bold; font-family: Times New Roman;' class='gradient-text'>Advanced Analytics Dashboard</h1>", unsafe_allow_html=True)
 
-    # Auto-navigate to selected analytics tab
-    if st.session_state.go_to_analytics_tab is not None:
-        tab_index = st.session_state.go_to_analytics_tab
-        st.session_state.go_to_analytics_tab = None
-        st.components.v1.html(f"""
-        <script>
-            setTimeout(function() {{
-                var tabs = window.parent.document.querySelectorAll('button[data-baseweb="tab"]');
-                if (tabs && tabs[{tab_index}]) {{
-                    tabs[{tab_index}].click();
-                }}
-            }}, 100);
-        </script>
-        """, height=0)
-
-    # Create 9 sub-tabs
-    aa_tab1, aa_tab2, aa_tab3, aa_tab4, aa_tab5, aa_tab6, aa_tab7, aa_tab8, aa_tab9 = st.tabs([
-        "🏆 Branch Ranking", "🔄 Redistribution", "📧 Critical Alerts", "⏰ Expiry Notifications",
-        "📊 Program Comparison", "🗺️ Regional Map", "👁️ Popular Materials", "👥 User Analytics", 
-        "📅 Report Scheduling"
-    ])
+    # Section selector (linked to the sidebar) - only the selected section is rendered
+    _apply_nav_target("Advanced Analytics", 9, "tabs")
+    aa_tab1, aa_tab2, aa_tab3, aa_tab4, aa_tab5, aa_tab6, aa_tab7, aa_tab8, aa_tab9 = st.tabs(NAV_TREE["Advanced Analytics"])
 
     # ========== TAB 1: Branch Ranking ==========
     with aa_tab1:
@@ -3563,10 +3818,10 @@ elif page == "Advanced Analytics":
                     - 0-10 stock-outs = 3 points | 10-20 stock-outs = 2 points | >20 stock-outs = 0 points
                     """)
 
-                st.download_button("📥 Download Branch Ranking Data (CSV)", 
-                                  data=rankings_df.to_csv(index=False),
-                                  file_name=f"branch_ranking_{datetime.now().strftime('%Y%m%d')}.csv",
-                                  mime="text/csv", use_container_width=True)
+                st.download_button("📥 Download Branch Ranking Data (Excel)", 
+                                  data=rankings_df.pipe(_xl),
+                                  file_name=f"branch_ranking_{datetime.now().strftime('%Y%m%d')}.xlsx",
+                                  mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", use_container_width=True)
             else:
                 st.info("No branch data available for ranking")
         else:
@@ -3675,8 +3930,8 @@ elif page == "Advanced Analytics":
                     urgent = len([r for r in recommendations if r['Priority'] == 'URGENT'])
                     st.metric("⚠️ Urgent Transfers", urgent)
                 st.download_button("📥 Download Redistribution Plan", 
-                                  pd.DataFrame(recommendations).to_csv(index=False), 
-                                  "redistribution_plan.csv")
+                                  pd.DataFrame(recommendations).pipe(_xl), 
+                                  "redistribution_plan.xlsx")
             else:
                 st.success("✅ No redistribution opportunities identified.")
         else:
@@ -4051,10 +4306,10 @@ elif page == "Advanced Analytics":
 
                 # Download button
                 st.download_button(
-                    label="📥 Download Regional Map Data (CSV)",
-                    data=map_df.to_csv(index=False),
-                    file_name=f"regional_map_{datetime.now().strftime('%Y%m%d')}.csv",
-                    mime="text/csv",
+                    label="📥 Download Regional Map Data (Excel)",
+                    data=map_df.pipe(_xl),
+                    file_name=f"regional_map_{datetime.now().strftime('%Y%m%d')}.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                     use_container_width=True
                 )
             else:
@@ -4140,7 +4395,7 @@ elif page == "Advanced Analytics":
             st.markdown("### 📄 Report Preview")
             preview_df = df_filtered.head(10)[['Material Description', 'NMOS', 'Stock Status', 'Risk Type']].copy()
             st.dataframe(preview_df, use_container_width=True)
-            st.download_button("📥 Download Sample Report", preview_df.to_csv(index=False), f"{report_type.replace(' ', '_')}_sample.csv", "text/csv")
+            st.download_button("📥 Download Sample Report", preview_df.pipe(_xl), f"{report_type.replace(' ', '_')}_sample.xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 
         st.markdown("---")
         st.markdown("### 📧 Email Configuration (Admin Only)")
@@ -4162,6 +4417,9 @@ elif page == "Executive Summary":
     # ===================================================
     st.markdown("<h1 style='font-size: 36px; font-weight: bold; font-family: Times New Roman;' class='gradient-text'>📊 Executive Summary Dashboard</h1>", unsafe_allow_html=True)
     st.caption(f"Report Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} | Program: {', '.join(selected_programs_list) if selected_programs_list else 'All Programs'}")
+
+    # Sidebar -> section navigation
+    _apply_nav_target("Executive Summary", 6, "scroll")
 
     # Check if we have data
     if df_filtered.empty:
@@ -4610,47 +4868,13 @@ else:
         else:
             avg_avail_gap = 0
 
-        # Calculate Average Lead Time (PROGRAM-SPECIFIC)
-        avg_lead_time_display = "N/A"
-        if not df_new_deliveries.empty:
-            # Get materials for the selected program
-            if not show_all_programs and len(selected_programs_list) == 1 and selected_programs_list[0] in google_sheets:
-                program_materials = google_sheets[selected_programs_list[0]]['Material Description'].dropna().tolist()
-                # Filter deliveries by program materials
-                filtered_lead_df = df_new_deliveries[df_new_deliveries['Material Description'].isin(program_materials)].copy()
-            else:
-                filtered_lead_df = df_new_deliveries.copy()
-
-            if not filtered_lead_df.empty:
-                filtered_lead_df['Posting Date'] = pd.to_datetime(filtered_lead_df['Posting Date'], errors='coerce')
-                filtered_lead_df['PO Number'] = filtered_lead_df['PO Number'].astype(str)
-
-                filtered_lead_df['Requested Date'] = filtered_lead_df.apply(
-                    lambda row: st.session_state.requested_dates.get(f"{row['PO Number']}_{row['Material Description']}", None) if 'requested_dates' in st.session_state else None,
-                    axis=1
-                )
-
-                def calc_lead_val(row):
-                    req_date = row['Requested Date']
-                    posting = row['Posting Date']
-                    if req_date and pd.notna(posting):
-                        try:
-                            if hasattr(req_date, 'date'):
-                                req_date = req_date.date()
-                            if hasattr(posting, 'date'):
-                                posting = posting.date()
-                            days = (posting - req_date).days
-                            return days if days >= 0 else None
-                        except:
-                            return None
-                    return None
-
-                filtered_lead_df['Lead Time Value'] = filtered_lead_df.apply(calc_lead_val, axis=1)
-                lead_values = filtered_lead_df['Lead Time Value'].dropna().tolist()
-
-                if lead_values:
-                    avg_lead = sum(lead_values) / len(lead_values)
-                    avg_lead_time_display = f"{avg_lead:.0f} days"
+        # Avg. Lead Time = Avg Procurement Lead (synced from the Procurement Lead Time tab)
+        try:
+            _kpi_lead = _compute_avg_proc_lead(df)
+        except Exception:
+            _kpi_lead = None
+        st.session_state['kpi_avg_proc_lead'] = _kpi_lead
+        avg_lead_time_display = f"{_kpi_lead} days" if _kpi_lead is not None else "N/A"
 
         # Calculate stock status counts
         total_items = len(df_filtered)
@@ -4706,69 +4930,103 @@ else:
             </div>
             """, unsafe_allow_html=True)
 
-        # ========== ROW 2: Stock Status (White Background, Black Text) ==========
+        # ========== ROW 2: Stock Status (White Background, Black Text) - CLICKABLE ==========
         st.markdown("<p style='font-size: 14px; font-weight: bold; color: #1a5276; margin: 15px 0 5px 0;'>📊 Stock Status</p>", unsafe_allow_html=True)
-        col_t1, col_t2, col_t3, col_t4 = st.columns(4)
-        with col_t1:
-            st.markdown(f"""
-            <div style='text-align: center; padding: 10px; background: white; border-radius: 10px; margin: 5px; transition: all 0.3s ease; box-shadow: 0 2px 4px rgba(0,0,0,0.1); cursor: pointer;'>
-                <p style='margin: 0; font-size: 14px; color: #e74c3c; font-weight: bold;'>Stock Out</p>
-                <p style='margin: 0; font-size: 24px; font-weight: bold; color: #333;'>{stock_out}</p>
-            </div>
-            """, unsafe_allow_html=True)
-        with col_t2:
-            st.markdown(f"""
-            <div style='text-align: center; padding: 10px; background: white; border-radius: 10px; margin: 5px; transition: all 0.3s ease; box-shadow: 0 2px 4px rgba(0,0,0,0.1); cursor: pointer;'>
-                <p style='margin: 0; font-size: 14px; color: #f39c12; font-weight: bold;'>Understock</p>
-                <p style='margin: 0; font-size: 24px; font-weight: bold; color: #333;'>{understock}</p>
-            </div>
-            """, unsafe_allow_html=True)
-        with col_t3:
-            st.markdown(f"""
-            <div style='text-align: center; padding: 10px; background: white; border-radius: 10px; margin: 5px; transition: all 0.3s ease; box-shadow: 0 2px 4px rgba(0,0,0,0.1); cursor: pointer;'>
-                <p style='margin: 0; font-size: 14px; color: #27ae60; font-weight: bold;'>Normal Stock</p>
-                <p style='margin: 0; font-size: 24px; font-weight: bold; color: #333;'>{normal}</p>
-            </div>
-            """, unsafe_allow_html=True)
-        with col_t4:
-            st.markdown(f"""
-            <div style='text-align: center; padding: 10px; background: white; border-radius: 10px; margin: 5px; transition: all 0.3s ease; box-shadow: 0 2px 4px rgba(0,0,0,0.1); cursor: pointer;'>
-                <p style='margin: 0; font-size: 14px; color: #2980b9; font-weight: bold;'>Overstock</p>
-                <p style='margin: 0; font-size: 24px; font-weight: bold; color: #333;'>{overstock}</p>
-            </div>
-            """, unsafe_allow_html=True)
+        _stock_cards = [
+            ("so", "Stock Out", "#e74c3c", stock_out),
+            ("us", "Understock", "#f39c12", understock),
+            ("ns", "Normal Stock", "#27ae60", normal),
+            ("os", "Overstock", "#2980b9", overstock),
+        ]
+        for _col, (_k, _lbl, _clr, _val) in zip(st.columns(4), _stock_cards):
+            with _col:
+                if True:
+                    st.markdown(f"""
+                    <div style='text-align: center; padding: 10px; background: white; border-radius: 10px; margin: 5px; transition: all 0.3s ease; box-shadow: 0 2px 4px rgba(0,0,0,0.1); cursor: pointer;'>
+                        <p style='margin: 0; font-size: 14px; color: {_clr}; font-weight: bold;'>{_lbl}</p>
+                        <p style='margin: 0; font-size: 24px; font-weight: bold; color: #333;'>{_val}</p>
+                    </div>
+                    """, unsafe_allow_html=True)
+                    if st.button(f"Show {_lbl}", key=f"cardbtn_{_k}", use_container_width=True):
+                        st.session_state.card_filter = None if st.session_state.get('card_filter') == _k else _k
+                        st.rerun()
 
-        # ========== ROW 3: Items with Problems (Black Background, White Text, Rounded Box) ==========
+        # ========== ROW 3: Items with Problems (Black Background, White Text, Rounded Box) - CLICKABLE ==========
         st.markdown("<p style='font-size: 14px; font-weight: bold; color: #1a5276; margin: 15px 0 5px 0;'>⚠️ Items with Problems</p>", unsafe_allow_html=True)
-        col_p1, col_p2, col_p3, col_p4 = st.columns(4)
-        with col_p1:
-            st.markdown(f"""
-            <div style='text-align: center; padding: 12px; background: #1a1a2e; border-radius: 25px; margin: 5px; border: 1px solid #333; transition: all 0.3s ease; cursor: pointer;'>
-                <p style='margin: 0; font-size: 13px; color: #9b59b6; font-weight: bold;'>Items with Problems</p>
-                <p style='margin: 5px 0 0 0; font-size: 26px; font-weight: bold; color: white;'>{items_with_problems}</p>
-            </div>
-            """, unsafe_allow_html=True)
-        with col_p2:
-            st.markdown(f"""
-            <div style='text-align: center; padding: 12px; background: #1a1a2e; border-radius: 25px; margin: 5px; border: 1px solid #333; transition: all 0.3s ease; cursor: pointer;'>
-                <p style='margin: 0; font-size: 13px; color: #e74c3c; font-weight: bold;'>Stock Out Items</p>
-                <p style='margin: 5px 0 0 0; font-size: 26px; font-weight: bold; color: white;'>{stock_out_items}</p>
-            </div>
-            """, unsafe_allow_html=True)
-        with col_p3:
-            st.markdown(f"""
-            <div style='text-align: center; padding: 12px; background: #1a1a2e; border-radius: 25px; margin: 5px; border: 1px solid #333; transition: all 0.3s ease; cursor: pointer;'>
-                <p style='margin: 0; font-size: 13px; color: #f39c12; font-weight: bold;'>At Risk of Stock Out</p>
-                <p style='margin: 5px 0 0 0; font-size: 26px; font-weight: bold; color: white;'>{at_risk_stock_out}</p>
-            </div>
-            """, unsafe_allow_html=True)
-        with col_p4:
-            st.markdown(f"""
-            <div style='text-align: center; padding: 12px; background: #1a1a2e; border-radius: 25px; margin: 5px; border: 1px solid #333; transition: all 0.3s ease; cursor: pointer;'>
-                <p style='margin: 0; font-size: 13px; color: #e67e22; font-weight: bold;'>At Risk of Expiry</p>
-                <p style='margin: 5px 0 0 0; font-size: 26px; font-weight: bold; color: white;'>{at_risk_expiry}</p>
-            </div>
-            """, unsafe_allow_html=True)
+        _problem_cards = [
+            ("pr", "Items with Problems", "#9b59b6", items_with_problems, "13px", "12px"),
+            ("po", "Stock Out Items", "#e74c3c", stock_out_items, "13px", "12px"),
+            ("pk", "At Risk of Stock Out", "#f39c12", at_risk_stock_out, "13px", "12px"),
+            ("pe", "At Risk of Expiry", "#e67e22", at_risk_expiry, "13px", "12px"),
+        ]
+        for _col, (_k, _lbl, _clr, _val, _fs, _pad) in zip(st.columns(4), _problem_cards):
+            with _col:
+                if True:
+                    st.markdown(f"""
+                    <div style='text-align: center; padding: 12px; background: #1a1a2e; border-radius: 25px; margin: 5px; border: 1px solid #333; transition: all 0.3s ease; cursor: pointer;'>
+                        <p style='margin: 0; font-size: 13px; color: {_clr}; font-weight: bold;'>{_lbl}</p>
+                        <p style='margin: 5px 0 0 0; font-size: 26px; font-weight: bold; color: white;'>{_val}</p>
+                    </div>
+                    """, unsafe_allow_html=True)
+                    if st.button(f"Show {_lbl}", key=f"cardbtn_{_k}", use_container_width=True):
+                        st.session_state.card_filter = None if st.session_state.get('card_filter') == _k else _k
+                        st.rerun()
+
+        # Cards stay exactly as designed; the click is forwarded to a hidden Streamlit button.
+        st.markdown("""
+        <style>
+        div[class*="st-key-cardbtn_"] { display: none !important; }
+        </style>
+        """, unsafe_allow_html=True)
+        _card_labels = [c[1] for c in _stock_cards] + [c[1] for c in _problem_cards]
+        _inject_parent_js(_CARD_JS.replace("__LABELS__", __import__("json").dumps(_card_labels)))
+
+        # ----- Detail table for the clicked card -----
+        _CARD_DEFS = {
+            "so": ("🔴 Stock Out", lambda d: d['Stock Status'] == 'Stock Out'),
+            "us": ("🟡 Understock", lambda d: d['Stock Status'] == 'Understock'),
+            "ns": ("🟢 Normal Stock", lambda d: d['Stock Status'] == 'Normal Stock'),
+            "os": ("🔵 Overstock", lambda d: d['Stock Status'] == 'Overstock'),
+            "pr": ("⚠️ Items with Problems", lambda d: (d['Stock Status'] == 'Stock Out') | (d['Risk Type'].fillna('') != '')),
+            "po": ("🔴 Stock Out Items", lambda d: d['Stock Status'] == 'Stock Out'),
+            "pk": ("🟡 At Risk of Stock Out", lambda d: d['Risk Type'] == 'Risk of Stock out'),
+            "pe": ("🟠 At Risk of Expiry", lambda d: d['Risk Type'].isin(['Expiry Risk', 'Critical Risk'])),
+        }
+        _sel = st.session_state.get('card_filter')
+        if _sel in _CARD_DEFS:
+            _title, _fn = _CARD_DEFS[_sel]
+            _want = ['Material Description', 'Head Office', 'Hubs', 'NSOH', 'Expiry', 'AMC', 'NMOS', 'Status']
+            _cols = [c for c in _want if c in df_filtered.columns]
+            _detail = df_filtered[_fn(df_filtered)][_cols].copy()
+            if 'NMOS' in _detail.columns:
+                _detail = _detail.sort_values('NMOS', ascending=True, na_position='last')
+            _detail = _detail.reset_index(drop=True)
+
+            st.markdown(f"<h4 style='color:#1a5276; margin: 10px 0 0 0;'>{_title} — {len(_detail)} material(s)</h4>", unsafe_allow_html=True)
+            _shown = _detail.copy()
+            for _c in ['Head Office', 'Hubs', 'NSOH', 'AMC']:
+                if _c in _shown.columns:
+                    _shown[_c] = _shown[_c].apply(format_number_with_commas)
+            if 'NMOS' in _shown.columns:
+                _shown['NMOS'] = _shown['NMOS'].apply(format_mos_with_decimals)
+            st.dataframe(
+                _shown, use_container_width=True, hide_index=True,
+                height=min(500, (len(_shown) + 1) * 35 + 3),
+                column_config={"Material Description": st.column_config.TextColumn("Material Description", width=300)}
+            )
+            _c1, _c2 = st.columns(2)
+            with _c1:
+                st.download_button(
+                    "📥 Download this table (Excel)",
+                    data=_xl(_detail, _title[2:].strip()),
+                    file_name=f"{re.sub(r'[^A-Za-z0-9]+', '_', _title[2:].strip())}_{datetime.now().strftime('%Y%m%d')}.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    use_container_width=True, type="primary", key=f"dl_card_{_sel}"
+                )
+            with _c2:
+                if st.button("✖ Close table", use_container_width=True, key="close_card_table"):
+                    st.session_state.card_filter = None
+                    st.rerun()
 
         # Add CSS for shake animation on all rows
         st.markdown("""
@@ -4788,31 +5046,10 @@ else:
 
         st.markdown("---")
 
-    # Auto-navigate to selected dashboard tab
-    if st.session_state.get('go_to_dashboard_tab') is not None:
-        tab_index = st.session_state.go_to_dashboard_tab
-        st.session_state.go_to_dashboard_tab = None
+    # Section selector (linked to the sidebar) - only the selected section is rendered
+    _apply_nav_target("Dashboard", 7, "tabs")
+    tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs(NAV_TREE["Dashboard"])
 
-        st.components.v1.html(f"""
-        <script>
-            setTimeout(function() {{
-                var tabs = window.parent.document.querySelectorAll('button[data-baseweb="tab"]');
-                if (tabs && tabs[{tab_index}]) {{
-                    tabs[{tab_index}].click();
-                }}
-            }}, 200);
-        </script>
-        """, height=0)
-
-    tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
-        "📋 Stock Status Table", 
-        "📈 KPIs & Analytics", 
-        "💡 Decision Briefs", 
-        "📍 Hubs Distribution",
-        "📦 Supply Planning",
-        "📋 Procurement Lead Time",
-        "🚚 New Deliveries"
-    ])
 
    # ---------------------------------------------------
 # TAB 1 - Stock Status Table
@@ -5725,10 +5962,10 @@ with tab1:
 
                     # Download button for pivot table
                     st.download_button(
-                        label="📥 Download NSOH Trend Data (CSV)",
-                        data=pivot_df_filtered.reset_index().to_csv(index=False),
-                        file_name=f"nsoh_trend_{datetime.now().strftime('%Y%m%d')}.csv",
-                        mime="text/csv",
+                        label="📥 Download NSOH Trend Data (Excel)",
+                        data=pivot_df_filtered.reset_index().pipe(_xl),
+                        file_name=f"nsoh_trend_{datetime.now().strftime('%Y%m%d')}.xlsx",
+                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                         use_container_width=True,
                         key="download_nsoh_trend"
                     )
@@ -6177,18 +6414,18 @@ with tab3:
             col_download1, col_download2 = st.columns(2)
             with col_download1:
                 st.download_button(
-                    label="📥 Download Current View (CSV)", 
-                    data=edited_result.to_csv(index=False), 
-                    file_name=f"{program_display.replace(' ', '_')}_decision_briefs_{datetime.now().strftime('%Y%m%d')}.csv".replace(" ", "_"), 
-                    mime="text/csv",
+                    label="📥 Download Current View (Excel)", 
+                    data=edited_result.pipe(_xl), 
+                    file_name=f"{program_display.replace(' ', '_')}_decision_briefs_{datetime.now().strftime('%Y%m%d')}.xlsx".replace(" ", "_"), 
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                     use_container_width=True
                 )
             with col_download2:
                 st.download_button(
-                    label="📊 Download Full Data (CSV)", 
-                    data=decision_df.to_csv(index=False), 
-                    file_name=f"{program_display.replace(' ', '_')}_decision_briefs_full_{datetime.now().strftime('%Y%m%d')}.csv".replace(" ", "_"), 
-                    mime="text/csv",
+                    label="📊 Download Full Data (Excel)", 
+                    data=decision_df.pipe(_xl), 
+                    file_name=f"{program_display.replace(' ', '_')}_decision_briefs_full_{datetime.now().strftime('%Y%m%d')}.xlsx".replace(" ", "_"), 
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                     use_container_width=True
                 )
 
@@ -6647,7 +6884,7 @@ with tab4:
                             display_division_df = division_df.copy()
                             display_division_df['CV (%)'] = display_division_df['CV (%)'].apply(lambda x: f"{x:.1f}%" if pd.notna(x) else "")
                             st.dataframe(display_division_df, use_container_width=True, height=400, hide_index=True)
-                            st.download_button(label="Download Hubs MOS with CV", data=division_df.to_csv(index=False), file_name="hubs_mos_distribution_with_cv.csv", mime="text/csv")
+                            st.download_button(label="Download Hubs MOS with CV", data=division_df.pipe(_xl), file_name="hubs_mos_distribution_with_cv.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 
                             st.markdown("---")
                             st.markdown("<h5 style='font-size: 20px; font-weight: bold;'>EPSS Hubs SOH</h5>", unsafe_allow_html=True)
@@ -6818,10 +7055,10 @@ with tab5:
             )
 
             st.download_button(
-                label="📥 Download Order Quantity Plan (CSV)",
-                data=supply_df.to_csv(index=False),
-                file_name=f"order_quantity_plan_{datetime.now().strftime('%Y%m%d')}.csv",
-                mime="text/csv",
+                label="📥 Download Order Quantity Plan (Excel)",
+                data=supply_df.pipe(_xl),
+                file_name=f"order_quantity_plan_{datetime.now().strftime('%Y%m%d')}.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                 use_container_width=True
             )
 
@@ -7253,18 +7490,18 @@ with tab5:
                 col_download1, col_download2 = st.columns(2)
                 with col_download1:
                     st.download_button(
-                        label="📥 Download Filtered View (CSV)",
-                        data=filtered_df.to_csv(index=False),
-                        file_name=f"action_plan_filtered_{datetime.now().strftime('%Y%m%d')}.csv",
-                        mime="text/csv",
+                        label="📥 Download Filtered View (Excel)",
+                        data=filtered_df.pipe(_xl),
+                        file_name=f"action_plan_filtered_{datetime.now().strftime('%Y%m%d')}.xlsx",
+                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                         use_container_width=True
                     )
                 with col_download2:
                     st.download_button(
-                        label="📊 Download Full Action Plan (CSV)",
-                        data=action_df.to_csv(index=False),
-                        file_name=f"action_plan_full_{datetime.now().strftime('%Y%m%d')}.csv",
-                        mime="text/csv",
+                        label="📊 Download Full Action Plan (Excel)",
+                        data=action_df.pipe(_xl),
+                        file_name=f"action_plan_full_{datetime.now().strftime('%Y%m%d')}.xlsx",
+                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                         use_container_width=True
                     )
             else:
@@ -7453,166 +7690,6 @@ with tab5:
 # TAB 6 - Procurement Lead Time (FULLY REVISED)
 # Linked to sidebar via the globally-filtered `df`
 # ---------------------------------------------------
-
-# ===================================================
-# NORMALIZERS
-# ===================================================
-def _normalize_po(po):
-    if po is None:
-        return ""
-    try:
-        if pd.isna(po):
-            return ""
-    except Exception:
-        pass
-    s = str(po).strip().upper()
-    if s.endswith(".0") and s[:-2].replace(".", "", 1).isdigit():
-        s = s[:-2]
-    return "".join(s.split())
-
-
-def _normalize_material(mat):
-    if mat is None:
-        return ""
-    try:
-        if pd.isna(mat):
-            return ""
-    except Exception:
-        pass
-    return " ".join(str(mat).strip().upper().split())
-
-
-# ===================================================
-# SIDEBAR LINKAGE
-# ===================================================
-def _link_procurement_to_sidebar(proc_df, filtered_df):
-    if proc_df is None or proc_df.empty:
-        return proc_df
-    if filtered_df is None or filtered_df.empty:
-        return proc_df.iloc[0:0].copy()
-    if 'Material Description' not in filtered_df.columns:
-        return proc_df
-
-    allowed_materials = set(
-        filtered_df['Material Description']
-        .dropna()
-        .astype(str)
-        .map(_normalize_material)
-        .tolist()
-    )
-    if not allowed_materials:
-        return proc_df.iloc[0:0].copy()
-
-    out = proc_df.copy()
-    out['_mat_key_norm'] = out['material_description'].apply(_normalize_material)
-    out = out[out['_mat_key_norm'].isin(allowed_materials)]
-    out = out.drop(columns=['_mat_key_norm'], errors='ignore')
-    return out.reset_index(drop=True)
-
-
-# ===================================================
-# HELPER: Enrich Posting Date (EARLIEST) — match on Material + PO
-# ===================================================
-def enrich_posting_date_from_deliveries(proc_df, deliveries_df):
-    """
-    When (Material Description, PO Number) match, take the
-    EARLIEST Posting Date from New Deliveries.
-    """
-    if proc_df is None or proc_df.empty:
-        return proc_df
-    if deliveries_df is None or deliveries_df.empty:
-        return proc_df
-
-    proc_df = proc_df.copy()
-    deliveries_df = deliveries_df.copy()
-
-    deliveries_df['_po_key']  = deliveries_df['PO Number'].apply(_normalize_po)
-    deliveries_df['_mat_key'] = deliveries_df['Material Description'].apply(_normalize_material)
-    deliveries_df['_post_dt'] = pd.to_datetime(deliveries_df['Posting Date'], errors='coerce')
-
-    lookup = (
-        deliveries_df
-        .dropna(subset=['_post_dt'])
-        .groupby(['_mat_key', '_po_key'])['_post_dt']
-        .min()
-        .to_dict()
-    )
-
-    proc_df['_po_key']  = proc_df['po_number'].apply(_normalize_po)
-    proc_df['_mat_key'] = proc_df['material_description'].apply(_normalize_material)
-
-    def resolve(row):
-        return lookup.get((row['_mat_key'], row['_po_key']), row.get('posting_date'))
-
-    proc_df['posting_date'] = proc_df.apply(resolve, axis=1)
-    proc_df['posting_date'] = pd.to_datetime(proc_df['posting_date'], errors='coerce')
-    proc_df = proc_df.drop(columns=['_po_key', '_mat_key'], errors='ignore')
-    return proc_df
-
-
-# ===================================================
-# HELPER: Enrich Delivered Qty (SUM) — match on Material + PO
-# ===================================================
-def enrich_delivered_qty_from_deliveries(proc_df, deliveries_df):
-    """
-    Delivered Qty = SUM of Quantity grouped by (Material, PO).
-    """
-    if proc_df is None or proc_df.empty:
-        return proc_df
-
-    proc_df = proc_df.copy()
-
-    if deliveries_df is None or deliveries_df.empty:
-        if 'Delivered Qty' not in proc_df.columns:
-            proc_df['Delivered Qty'] = None
-        return proc_df
-
-    deliveries_df = deliveries_df.copy()
-
-    deliveries_df['_po_key']  = deliveries_df['PO Number'].apply(_normalize_po)
-    deliveries_df['_mat_key'] = deliveries_df['Material Description'].apply(_normalize_material)
-
-    deliveries_df['Quantity'] = (
-        deliveries_df['Quantity']
-        .astype(str)
-        .str.replace(',', '', regex=False)
-        .str.strip()
-    )
-    deliveries_df['Quantity'] = pd.to_numeric(deliveries_df['Quantity'], errors='coerce').fillna(0)
-
-    final = deliveries_df.groupby(
-        ['_mat_key', '_po_key'], as_index=False
-    )['Quantity'].sum()
-
-    table2_lookup = dict(
-        zip(zip(final['_mat_key'], final['_po_key']), final['Quantity'])
-    )
-
-    proc_df['_po_key']  = proc_df['po_number'].apply(_normalize_po)
-    proc_df['_mat_key'] = proc_df['material_description'].apply(_normalize_material)
-
-    def _resolve(row):
-        return table2_lookup.get((row['_mat_key'], row['_po_key']), None)
-
-    proc_df['Delivered Qty'] = proc_df.apply(_resolve, axis=1)
-    proc_df['Delivered Qty'] = pd.to_numeric(proc_df['Delivered Qty'], errors='coerce')
-
-    proc_df = proc_df.drop(columns=['_po_key', '_mat_key'], errors='ignore')
-    return proc_df
-
-
-# ===================================================
-# HELPER: PO Qty Variance
-# ===================================================
-def calculate_po_qty_variance(df):
-    if df.empty:
-        return df
-    df = df.copy()
-    po_qty = pd.to_numeric(df.get('po_quantity', 0), errors='coerce').fillna(0)
-    delivered_qty = pd.to_numeric(df.get('Delivered Qty', 0), errors='coerce').fillna(0)
-    df['PO Qty Variance'] = po_qty - delivered_qty
-    return df
-
 
 # ===================================================
 # HELPER: Build Smart Table
@@ -7902,6 +7979,14 @@ def _compute_html_column_widths(display_df, header_labels, cap=280, floor=100):
     return widths
 
 
+
+def _sync_kpi_avg_proc_lead(value):
+    """Keep the KPI 'Avg. Lead Time' equal to the tab's 'Avg Procurement Lead'."""
+    if st.session_state.get('kpi_avg_proc_lead', '__unset__') != value:
+        st.session_state['kpi_avg_proc_lead'] = value
+        st.rerun(scope="app")
+
+
 # ===================================================
 # FRAGMENT: Tab renderer
 # ===================================================
@@ -7935,6 +8020,7 @@ def render_procurement_lead_time_tab():
     proc_df = load_procurement_lead_time(st.session_state.get('proc_cache_bust', 0))
 
     if proc_df.empty:
+        _sync_kpi_avg_proc_lead(None)
         st.info("📭 No procurement lead time records yet. Use '➕ Quick Add New Procurement Record' below.")
         fallback_materials = []
         if base_df is not None and not base_df.empty and 'Material Description' in base_df.columns:
@@ -7969,6 +8055,7 @@ def render_procurement_lead_time_tab():
         material_options = []
 
     if proc_df.empty:
+        _sync_kpi_avg_proc_lead(None)
         st.info("📭 No procurement lead time records match the current sidebar filters.")
         _render_quick_add_form(material_options)
         return
@@ -8020,6 +8107,7 @@ def render_procurement_lead_time_tab():
     avg_dmd_proc = filtered['DMD Processing Days'].dropna().mean() if not filtered.empty else 0
     avg_proc_lead = filtered['Procurement Lead Time'].dropna().mean() if not filtered.empty else 0
     avg_proc_process = filtered['Procurement Process Time'].dropna().mean() if not filtered.empty else 0
+    _sync_kpi_avg_proc_lead(int(round(avg_proc_lead)) if pd.notna(avg_proc_lead) else 0)
 
     k1, k2, k3 = st.columns(3)
     with k1:
@@ -9079,18 +9167,18 @@ with tab6:
                     export_cols = ['Material Description', 'Posting Date_display', 'PO Number', 'Quantity_display', 'Requested Date Display', 'Lead Time']
                     export_cols = [col for col in export_cols if col in display_df.columns]
                     st.download_button(
-                        label="📥 Download Detailed View (CSV)",
-                        data=display_df[export_cols].rename(columns=display_rename).to_csv(index=False),
-                        file_name=f"new_deliveries_detailed_{start_date}_{end_date}.csv",
-                        mime="text/csv",
+                        label="📥 Download Detailed View (Excel)",
+                        data=display_df[export_cols].rename(columns=display_rename).pipe(_xl),
+                        file_name=f"new_deliveries_detailed_{start_date}_{end_date}.xlsx",
+                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                         use_container_width=True
                     )
                 with col_dl2:
                     st.download_button(
-                        label="📥 Download Summarized View (CSV)",
-                        data=grouped_summary.to_csv(index=False),
-                        file_name=f"new_deliveries_summarized_{start_date}_{end_date}.csv",
-                        mime="text/csv",
+                        label="📥 Download Summarized View (Excel)",
+                        data=grouped_summary.pipe(_xl),
+                        file_name=f"new_deliveries_summarized_{start_date}_{end_date}.xlsx",
+                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                         use_container_width=True
                     )
 
@@ -9133,25 +9221,11 @@ with tab6:
         else:
             st.info("No new deliveries data available. Please upload data to the New_deliveries table in Supabase.")
             st.caption("Expected columns: material_description, posting_date, purchase_order, quantity")
-import streamlit as st
-
-st.sidebar.markdown("## 🔗 Navigation")
-st.sidebar.markdown(
-    """
-    <a href="https://forecastpy-msmop6gp2g8mbxikad63af.streamlit.app/" target="_blank">
-        <button style="background-color:#4CAF50; color:white; padding:10px; border:none; border-radius:5px; cursor:pointer;">
-            📊 Open Forecast Dashboard
-        </button>
-    </a>
-    """,
-    unsafe_allow_html=True
-)
-
 # ---------------------------------------------------
 # Download Filtered Data
 # ---------------------------------------------------
 if not display_df_filtered.empty and 'Material Description' in display_df_filtered.columns and page != "Advanced Analytics" and page != "Executive Summary":
     st.divider()
-    st.download_button(label="📥 Download Full Data (CSV)", data=display_df_filtered.to_csv(index=False), 
-                      file_name=f"full_stock_dashboard_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv", 
-                      mime="text/csv", use_container_width=True)
+    st.download_button(label="📥 Download Full Data (Excel)", data=display_df_filtered.pipe(_xl), 
+                      file_name=f"full_stock_dashboard_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx", 
+                      mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", use_container_width=True)
