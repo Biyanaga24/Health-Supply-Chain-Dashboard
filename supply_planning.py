@@ -9,6 +9,7 @@ import re
 from supabase import create_client
 import time
 import random
+import html as _html
 
 CACHE_TTL = 3600
 
@@ -142,6 +143,7 @@ def inject_custom_css():
         .status-badge:hover { transform: scale(1.05); box-shadow: 0 2px 8px rgba(0,0,0,0.2); }
         .status-badge.completed { background: #28a745; color: white; }
         .status-badge.ongoing { background: #2e86c1; color: white; }
+        .status-badge.partially-completed { background: #17a2b8; color: white; }
         .status-badge.pending { background: #ffc107; color: #333; }
         .status-badge.initiated { background: #6f42c1; color: white; }
 
@@ -337,6 +339,7 @@ def inject_custom_css():
         .progress-status-card.card-total { background: linear-gradient(135deg, #1a5276 0%, #2e86c1 100%); }
         .progress-status-card.card-completed { background: linear-gradient(135deg, #28a745 0%, #20c997 100%); }
         .progress-status-card.card-ongoing { background: linear-gradient(135deg, #2e86c1 0%, #4dabf7 100%); }
+        .progress-status-card.card-partial { background: linear-gradient(135deg, #17a2b8 0%, #3bc9db 100%); }
         .progress-status-card.card-pending { background: linear-gradient(135deg, #fcc419 0%, #ff922b 100%); }
         .progress-status-card.card-initiated { background: linear-gradient(135deg, #6f42c1 0%, #cc5de8 100%); }
 
@@ -514,6 +517,26 @@ def inject_custom_css():
             font-weight: 600;
         }
 
+        /* Sidebar groups */
+        [data-testid="stSidebar"] [data-testid="stVerticalBlockBorderWrapper"] {
+            border: 1px solid #d6e4f0 !important;
+            border-radius: 12px !important;
+            background: #ffffff !important;
+            box-shadow: 0 2px 8px rgba(26, 82, 118, 0.08);
+            padding: 4px 6px 6px 6px;
+            margin-bottom: 10px;
+        }
+        .sb-group-title {
+            font-size: 0.78rem;
+            font-weight: 700;
+            letter-spacing: 1.2px;
+            text-transform: uppercase;
+            color: #1a5276;
+            padding: 2px 0 6px 0;
+            margin-bottom: 6px;
+            border-bottom: 2px solid #2e86c1;
+        }
+
         /* FSPT sidebar title */
         .fspt-sidebar-title {
             text-align: center;
@@ -525,6 +548,55 @@ def inject_custom_css():
             margin: 0 0 4px 0;
             line-height: 1;
             padding-top: 4px;
+        }
+
+        /* Clickable summary cards: an invisible button is stretched over the
+           (unchanged) card so a click toggles the table below it. */
+        [class*="st-key-sumcard_"] { position: relative; }
+        [class*="st-key-sumcard_"] [data-testid="stElementContainer"]:has(button),
+        [class*="st-key-sumcard_"] .element-container:has(button) {
+            position: absolute !important;
+            inset: 0;
+            z-index: 5;
+            margin: 0 !important;
+            width: 100% !important;
+        }
+        [class*="st-key-sumcard_"] .stButton,
+        [class*="st-key-sumcard_"] .stButton > button {
+            width: 100%;
+            height: 100%;
+        }
+        [class*="st-key-sumcard_"] .stButton > button {
+            opacity: 0;
+            background: transparent !important;
+            border: none !important;
+            padding: 0 !important;
+            min-height: 0 !important;
+            cursor: pointer;
+        }
+        /* Floating chatbot: fixed bottom-right bubble that opens a chat panel */
+        .st-key-fspt_chat_float {
+            position: fixed !important;
+            bottom: 24px;
+            right: 24px;
+            z-index: 99999;
+            width: auto !important;
+        }
+        .st-key-fspt_chat_float button {
+            border-radius: 30px !important;
+            padding: 12px 22px !important;
+            font-weight: 700 !important;
+            background: linear-gradient(135deg, #1a5276 0%, #2e86c1 100%) !important;
+            color: #ffffff !important;
+            border: none !important;
+            box-shadow: 0 6px 20px rgba(26, 82, 118, 0.45);
+        }
+        .st-key-fspt_chat_float button * { color: #ffffff !important; }
+        [data-testid="stPopoverBody"] { width: min(440px, 92vw); max-height: 80vh; }
+
+        [class*="st-key-sumcard_"]:hover .progress-status-card {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 20px rgba(0,0,0,0.15);
         }
     </style>
     """, unsafe_allow_html=True)
@@ -2606,19 +2678,19 @@ def render_unified_historical_table(df_filtered, issue_pivot, nsoh_pivot, consum
         st.info("No AMC / Issue data available for comparison.")
 
     # ============================================================
-    # 2) NMOS vs AMOS
+    # 2) A_AMC (3m avg) vs AMC
     # ============================================================
     st.markdown("---")
     st.markdown("""
     <div class="custom-card">
-        <h4 style='font-size: 16px; font-weight: 600; margin-bottom: 5px;'>📊 NMOS vs AMOS Trends</h4>
+        <h4 style='font-size: 16px; font-weight: 600; margin-bottom: 5px;'>📊 A_AMC (3m avg) vs AMC</h4>
     </div>
     """, unsafe_allow_html=True)
 
-    plot_data_nmos_amos = []
+    plot_data_aamc = []
     for row in data_rows:
         data_type = row['Data Type']
-        if data_type not in ['📈 NMOS', '📈 AMOS']:
+        if data_type not in ['📊 A_AMC (3m avg)', '📊 AMC']:
             continue
         values = []
         has_data = False
@@ -2635,7 +2707,7 @@ def render_unified_historical_table(df_filtered, issue_pivot, nsoh_pivot, consum
                     values.append(val)
                     if val > 0:
                         has_data = True
-                        text_values.append(f"{val:.2f}")
+                        text_values.append(f"{val:,.0f}")
                     else:
                         text_values.append("")
                 except:
@@ -2643,43 +2715,43 @@ def render_unified_historical_table(df_filtered, issue_pivot, nsoh_pivot, consum
                     text_values.append("")
 
         if has_data:
-            plot_data_nmos_amos.append({
-                'Data Type': data_type, 
-                'values': values, 
+            plot_data_aamc.append({
+                'Data Type': data_type,
+                'values': values,
                 'months': all_months,
                 'text_values': text_values
             })
 
-    if plot_data_nmos_amos:
-        fig_nmos_amos = go.Figure()
+    if plot_data_aamc:
+        fig_aamc = go.Figure()
 
-        nmos_data = None
-        amos_data = None
-        for data in plot_data_nmos_amos:
-            if data['Data Type'] == '📈 NMOS':
-                nmos_data = data
-            elif data['Data Type'] == '📈 AMOS':
-                amos_data = data
+        aamc_data = None
+        amc_data_2 = None
+        for data in plot_data_aamc:
+            if data['Data Type'] == '📊 A_AMC (3m avg)':
+                aamc_data = data
+            elif data['Data Type'] == '📊 AMC':
+                amc_data_2 = data
 
-        if nmos_data is not None and amos_data is not None:
-            nmos_vals = [v if v is not None else 0 for v in nmos_data['values']]
-            amos_vals = [v if v is not None else 0 for v in amos_data['values']]
+        if aamc_data is not None and amc_data_2 is not None:
+            aamc_vals = [v if v is not None else 0 for v in aamc_data['values']]
+            amc_vals_2 = [v if v is not None else 0 for v in amc_data_2['values']]
 
-            x_vals_nmos_amos = []
-            y_upper_nmos_amos = []
-            y_lower_nmos_amos = []
+            x_vals_aamc = []
+            y_upper_aamc = []
+            y_lower_aamc = []
             for i, month in enumerate(all_months):
-                n_val = nmos_vals[i] if i < len(nmos_vals) else 0
-                a_val = amos_vals[i] if i < len(amos_vals) else 0
-                if n_val > 0 and a_val > 0:
-                    x_vals_nmos_amos.append(month)
-                    y_upper_nmos_amos.append(max(n_val, a_val))
-                    y_lower_nmos_amos.append(min(n_val, a_val))
+                a_val = aamc_vals[i] if i < len(aamc_vals) else 0
+                m_val = amc_vals_2[i] if i < len(amc_vals_2) else 0
+                if a_val > 0 and m_val > 0:
+                    x_vals_aamc.append(month)
+                    y_upper_aamc.append(max(a_val, m_val))
+                    y_lower_aamc.append(min(a_val, m_val))
 
-            if x_vals_nmos_amos:
-                fig_nmos_amos.add_trace(go.Scatter(
-                    x=x_vals_nmos_amos + x_vals_nmos_amos[::-1],
-                    y=y_upper_nmos_amos + y_lower_nmos_amos[::-1],
+            if x_vals_aamc:
+                fig_aamc.add_trace(go.Scatter(
+                    x=x_vals_aamc + x_vals_aamc[::-1],
+                    y=y_upper_aamc + y_lower_aamc[::-1],
                     fill='toself',
                     fillcolor='rgba(200, 200, 200, 0.4)',
                     line=dict(color='rgba(200, 200, 200, 0)'),
@@ -2688,29 +2760,29 @@ def render_unified_historical_table(df_filtered, issue_pivot, nsoh_pivot, consum
                     name='Gap'
                 ))
 
-        colors_nmos_amos = {
-            '📈 NMOS': '#4DABF7',
-            '📈 AMOS': '#FF922B'
+        colors_aamc = {
+            '📊 A_AMC (3m avg)': '#FF922B',
+            '📊 AMC': '#CC5DE8'
         }
 
-        for data in plot_data_nmos_amos:
-            fig_nmos_amos.add_trace(go.Scatter(
+        for data in plot_data_aamc:
+            fig_aamc.add_trace(go.Scatter(
                 x=data['months'],
                 y=data['values'],
                 name=data['Data Type'],
                 mode='lines+markers+text',
-                line=dict(color=colors_nmos_amos.get(data['Data Type'], '#666'), width=3),
-                marker=dict(size=10, color=colors_nmos_amos.get(data['Data Type'], '#666'), line=dict(width=2, color='white')),
+                line=dict(color=colors_aamc.get(data['Data Type'], '#666'), width=3),
+                marker=dict(size=10, color=colors_aamc.get(data['Data Type'], '#666'), line=dict(width=2, color='white')),
                 text=data['text_values'],
-                textposition='top center',
+                textposition='top center' if data['Data Type'] == '📊 AMC' else 'bottom center',
                 textfont=dict(size=10, color='black'),
-                hovertemplate='<b>%{x}</b><br>%{fullData.name}: %{y:.2f}<extra></extra>'
+                hovertemplate='<b>%{x}</b><br>%{fullData.name}: %{y:,.1f}<extra></extra>'
             ))
 
-        fig_nmos_amos.update_layout(
-            title=f"NMOS vs AMOS for {selected_material}",
+        fig_aamc.update_layout(
+            title=f"A_AMC (3m avg) vs AMC for {selected_material}",
             xaxis_title="Month",
-            yaxis_title="Months of Stock",
+            yaxis_title="Value",
             height=400,
             legend=dict(orientation='h', yanchor='bottom', y=1.02, xanchor='center', x=0.5),
             hovermode='x unified',
@@ -2720,10 +2792,12 @@ def render_unified_historical_table(df_filtered, issue_pivot, nsoh_pivot, consum
             margin=dict(l=60, r=40, t=60, b=60)
         )
         st.plotly_chart(
-            fig_nmos_amos,
+            fig_aamc,
             use_container_width=True,
             config={'displayModeBar': 'hover'}
         )
+    else:
+        st.info("No A_AMC / AMC data available for comparison.")
 
     # ============================================================
     # 3) NSOH vs Consumption vs Issue
@@ -4673,7 +4747,7 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
 
             with col_st:
                 st.markdown('<p style="font-weight: bold; color: black; font-size: 15px; margin-bottom: 5px;">Status</p>', unsafe_allow_html=True)
-                status_options = ["Select Status", "Initiated", "Ongoing", "Pending", "Completed"]
+                status_options = ["Select Status"] + STATUS_ORDER_REVERSE
                 status_index = status_options.index(status_val) if status_val in status_options else 0
                 status = st.selectbox("", status_options, index=status_index,
                                       key="ap_status_in_form", label_visibility="collapsed")
@@ -4686,13 +4760,13 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
                     key=f"ap_completion_date_{locked_material}_{'edit' if is_editing else 'add'}",
                     label_visibility="collapsed",
                     format="YYYY-MM-DD",
-                    disabled=(status != "Completed"),
-                    help="Enabled only when Status = 'Completed'"
+                    disabled=(status not in ("Completed", "Partially Completed")),
+                    help="Required when Status = 'Completed' or 'Partially Completed'"
                 )
-                if status != "Completed":
-                    st.markdown('<p style="font-size: 12px; color: #999; margin-top: 2px;">Enabled when Status = Completed</p>', unsafe_allow_html=True)
+                if status not in ("Completed", "Partially Completed"):
+                    st.markdown('<p style="font-size: 12px; color: #999; margin-top: 2px;">Required when Status = Completed or Partially Completed</p>', unsafe_allow_html=True)
 
-            if status == "Completed" and completion_date_obj is not None:
+            if status in ("Completed", "Partially Completed") and completion_date_obj is not None:
                 completion_date = completion_date_obj.strftime('%Y-%m-%d')
             else:
                 completion_date = None
@@ -4713,8 +4787,8 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
                     st.warning("Please select a Status.")
                 elif not due_date:
                     st.warning("Please select a Due Date.")
-                elif status == "Completed" and not completion_date:
-                    st.warning("Please select a Completion Date (required when Status = Completed).")
+                elif status in ("Completed", "Partially Completed") and not completion_date:
+                    st.warning("Please select a Completion Date (required when Status = Completed or Partially Completed).")
                 elif identified_problem and action_point and due_date:
                     if is_editing and edit_record:
                         updated_record = {
@@ -4870,7 +4944,7 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
 
             all_programs = sorted(records_df['Program'].unique().tolist()) if 'Program' in records_df.columns else []
             default_programs = ['Malaria'] if 'Malaria' in all_programs else all_programs[:1] if all_programs else []
-            all_statuses = sorted(records_df['Status'].unique().tolist()) if 'Status' in records_df.columns else []
+            all_statuses = _sort_statuses_reverse(records_df['Status'].unique().tolist()) if 'Status' in records_df.columns else []
 
             col_filter1, col_filter2, col_filter3, col_filter4 = st.columns(4)
             with col_filter1:
@@ -5067,7 +5141,7 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
                             st.markdown('<div class="card-view-container">', unsafe_allow_html=True)
                             for _, row in quarter_df.iterrows():
                                 status = row.get('Status', 'Pending')
-                                status_class = status.lower() if status else 'pending'
+                                status_class = status.lower().replace(' ', '-') if status else 'pending'
                                 due_display = format_due_date_display(row.get('Due Date', ''))
                                 completion_display = format_due_date_display(row.get('Completion Date', ''))
                                 t_icon, t_label = compute_timeliness(
@@ -5116,7 +5190,7 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
                         st.markdown('<div class="card-view-container">', unsafe_allow_html=True)
                         for _, row in filtered_df.iterrows():
                             status = row.get('Status', 'Pending')
-                            status_class = status.lower() if status else 'pending'
+                            status_class = status.lower().replace(' ', '-') if status else 'pending'
                             due_display = format_due_date_display(row.get('Due Date', ''))
                             completion_display = format_due_date_display(row.get('Completion Date', ''))
                             t_icon, t_label = compute_timeliness(
@@ -5332,7 +5406,7 @@ def render_ap_progress_follow_up(sheet_name, selected_quarter, selected_year, se
     # ======================================================================
     st.markdown('<div class="filter-row">', unsafe_allow_html=True)
 
-    col_filter0, col_filter1, col_filter2, col_filter3 = st.columns(4)
+    col_filter0, col_filter_mat, col_filter1, col_filter2, col_filter3 = st.columns(5)
 
     with col_filter0:
         all_programs = sorted(df['Program'].unique().tolist()) if 'Program' in df.columns else []
@@ -5345,8 +5419,19 @@ def render_ap_progress_follow_up(sheet_name, selected_quarter, selected_year, se
             key="ap_program_filter"
         )
 
+    with col_filter_mat:
+        _mat_df = df
+        if program_filter and 'Program' in _mat_df.columns:
+            _mat_df = _mat_df[_mat_df['Program'].isin(program_filter)]
+        if target_quarter and target_year and 'Quarter' in _mat_df.columns and 'Year' in _mat_df.columns:
+            _mat_df = _mat_df[(_mat_df['Quarter'] == target_quarter)
+                              & (_mat_df['Year'].astype(str) == str(target_year))]
+        material_options = ["All"] + sorted(_mat_df['Material'].dropna().astype(str).unique().tolist()) \
+            if 'Material' in _mat_df.columns else ["All"]
+        material_filter = st.selectbox("Material", material_options, key="ap_material_filter")
+
     with col_filter1:
-        status_options = ["All"] + sorted(df['Status'].unique().tolist()) if 'Status' in df.columns else ["All"]
+        status_options = ["All"] + _sort_statuses_reverse(df['Status'].unique().tolist()) if 'Status' in df.columns else ["All"]
         status_filter = st.selectbox("Status", status_options, key="status_filter_dropdown_ap")
 
     with col_filter2:
@@ -5398,6 +5483,9 @@ def render_ap_progress_follow_up(sheet_name, selected_quarter, selected_year, se
     if program_filter:
         filtered_df = filtered_df[filtered_df['Program'].isin(program_filter)]
 
+    if material_filter != "All" and 'Material' in filtered_df.columns:
+        filtered_df = filtered_df[filtered_df['Material'].astype(str) == material_filter]
+
     if status_filter != "All" and 'Status' in filtered_df.columns:
         filtered_df = filtered_df[filtered_df['Status'] == status_filter]
 
@@ -5445,6 +5533,7 @@ def render_ap_progress_follow_up(sheet_name, selected_quarter, selected_year, se
     total = len(filtered_df)
     completed = len(filtered_df[filtered_df['Status'] == 'Completed'])
     ongoing = len(filtered_df[filtered_df['Status'] == 'Ongoing'])
+    partial = len(filtered_df[filtered_df['Status'] == 'Partially Completed'])
     pending = len(filtered_df[filtered_df['Status'] == 'Pending'])
     initiated = len(filtered_df[filtered_df['Status'] == 'Initiated'])
 
@@ -5454,6 +5543,7 @@ def render_ap_progress_follow_up(sheet_name, selected_quarter, selected_year, se
         colors = {
             'Completed': '#28a745',
             'Ongoing': '#2e86c1',
+            'Partially Completed': '#17a2b8',
             'Pending': '#ffc107',
             'Initiated': '#6f42c1'
         }
@@ -5657,7 +5747,7 @@ def render_ap_progress_follow_up(sheet_name, selected_quarter, selected_year, se
         st.markdown('<div class="card-view-container">', unsafe_allow_html=True)
         for _, row in display_df.iterrows():
             status = row.get('Status', 'Pending')
-            status_class = status.lower() if status else 'pending'
+            status_class = status.lower().replace(' ', '-') if status else 'pending'
             st.markdown(f"""
             <div class="data-card">
                 <div class="card-header">
@@ -5712,9 +5802,9 @@ def render_ap_progress_follow_up(sheet_name, selected_quarter, selected_year, se
 
     st.markdown(f"### 📊 {program_title} Action Plan Status and Timeliness Distribution")
 
-    status_labels = ['Completed', 'Not Completed', 'Pending']
-    status_values = [completed, not_completed, pending]
-    status_colors_pie = ['#28a745', '#2e86c1', '#ffc107']
+    status_labels = ['Pending', 'Not Completed', 'Partially Completed', 'Completed']
+    status_values = [pending, not_completed, partial, completed]
+    status_colors_pie = ['#ffc107', '#2e86c1', '#17a2b8', '#28a745']
 
     timeliness_series = display_df.get('Timeliness', pd.Series([], dtype=str))
     timeliness_order = ['On Time', 'Late', 'Overdue', 'Not Yet Due']
@@ -5759,14 +5849,14 @@ def render_ap_progress_follow_up(sheet_name, selected_quarter, selected_year, se
             plot_bgcolor='white',
             paper_bgcolor='white',
             legend=dict(
-                orientation='v',
+                orientation='h',
                 yanchor='top',
-                y=1.0,
-                xanchor='right',
-                x=1.0,
+                y=-0.05,
+                xanchor='center',
+                x=0.5,
                 font=dict(size=12, family='Times New Roman, Times, serif')
             ),
-            margin=dict(l=40, r=160, t=60, b=40)
+            margin=dict(l=40, r=40, t=60, b=90)
         )
         st.plotly_chart(
             fig_pie,
@@ -5810,14 +5900,14 @@ def render_ap_progress_follow_up(sheet_name, selected_quarter, selected_year, se
                 plot_bgcolor='white',
                 paper_bgcolor='white',
                 legend=dict(
-                    orientation='v',
+                    orientation='h',
                     yanchor='top',
-                    y=1.15,
-                    xanchor='right',
-                    x=1.0,
+                    y=-0.05,
+                    xanchor='center',
+                    x=0.5,
                     font=dict(size=12, family='Times New Roman, Times, serif')
                 ),
-                margin=dict(l=40, r=160, t=90, b=40)
+                margin=dict(l=40, r=40, t=60, b=90)
             )
             st.plotly_chart(
                 fig_t,
@@ -6031,7 +6121,7 @@ def render_ap_progress_follow_up(sheet_name, selected_quarter, selected_year, se
                 status = row.get('Status', 'Pending')
                 if status == 'Completed':
                     completed_c += 1
-                elif status in ('Initiated', 'Ongoing'):
+                elif status in ('Initiated', 'Ongoing', 'Partially Completed'):
                     not_completed_c += 1
                 elif status == 'Pending':
                     pending_c += 1
@@ -6138,7 +6228,7 @@ def render_ap_progress_follow_up(sheet_name, selected_quarter, selected_year, se
                         body_status_counts[status] = body_status_counts.get(status, 0) + 1
 
                 completed_body = body_status_counts.get('Completed', 0)
-                not_completed_body = body_status_counts.get('Initiated', 0) + body_status_counts.get('Ongoing', 0)
+                not_completed_body = body_status_counts.get('Initiated', 0) + body_status_counts.get('Ongoing', 0) + body_status_counts.get('Partially Completed', 0)
                 pending_body = body_status_counts.get('Pending', 0)
 
                 epss_detail_data.append({
@@ -6269,7 +6359,7 @@ def render_ap_progress_follow_up(sheet_name, selected_quarter, selected_year, se
                     status = row.get('Status', 'Pending')
                     if status == 'Completed':
                         completed_c += 1
-                    elif status in ('Initiated', 'Ongoing'):
+                    elif status in ('Initiated', 'Ongoing', 'Partially Completed'):
                         not_completed_c += 1
                     elif status == 'Pending':
                         pending_c += 1
@@ -6803,14 +6893,36 @@ def render_ap_progress_follow_up(sheet_name, selected_quarter, selected_year, se
 # ============================================================================
 # FSPT SECTION SWITCHER + FORECASTING RENDERERS
 # ============================================================================
+# Order used in Expert Action Plan and Action Plan Follow-up (Status Summary uses the opposite order)
+STATUS_ORDER_REVERSE = ["Initiated", "Pending", "Ongoing", "Partially Completed", "Completed"]
+
+
+def _sort_statuses_reverse(values):
+    """Sort status values as Initiated, Pending, Ongoing, Partially Completed, Completed (unknowns last)."""
+    vals = [v for v in values if v is not None and str(v).strip() != '']
+    known = [v for v in STATUS_ORDER_REVERSE if v in vals]
+    other = sorted(v for v in set(vals) if v not in STATUS_ORDER_REVERSE)
+    return known + other
+
+
+def _sb_group(icon, title):
+    """Bordered sidebar group with a small title. Use as: with _sb_group('🗂️', 'Section'):"""
+    try:
+        box = st.container(border=True)
+    except TypeError:  # older Streamlit without border support
+        box = st.container()
+    with box:
+        st.markdown(f'<div class="sb-group-title">{icon} {title}</div>', unsafe_allow_html=True)
+    return box
+
+
 def _render_section_switcher():
     """Top-of-sidebar switch between Supply Planning and Forecasting.
     Both sections are independent — not a nested tab bar."""
     if "active_section" not in st.session_state:
         st.session_state.active_section = "supply_planning"
 
-    st.sidebar.markdown("### 🗂️ Section")
-    choice = st.sidebar.radio(
+    choice = st.radio(
         "",
         options=["🧮 Supply Planning", "📈 Forecasting"],
         index=0 if st.session_state.active_section == "supply_planning" else 1,
@@ -7462,6 +7574,999 @@ def _render_single_yearly_detail(d, material):
 # ============================================================================
 # MAIN
 # ============================================================================
+# ============================================================================
+# SUMMARY CARDS (clickable) + CHATBOT HELPERS
+# ============================================================================
+_SUMMARY_STATUS_COLORS = {
+    'Completed': '#28a745', 'Ongoing': '#2e86c1', 'Partially Completed': '#17a2b8',
+    'Pending': '#ffc107', 'Initiated': '#6f42c1'
+}
+_SUMMARY_TIMELINESS_ICONS = {'On Time': '🟢', 'Late': '🟠', 'Overdue': '🔴', 'Not Yet Due': '🔵'}
+
+
+def _parse_any_date(v):
+    if v is None:
+        return None
+    try:
+        if isinstance(v, float) and pd.isna(v):
+            return None
+    except Exception:
+        pass
+    s = str(v).strip()
+    if not s or s.lower() in ('nan', 'none', 'nat', 'null'):
+        return None
+    try:
+        if re.match(r'^\d{4}-\d{2}-\d{2}$', s):
+            return datetime.strptime(s, '%Y-%m-%d').date()
+        for fmt in ['%Y-%m-%d %H:%M:%S', '%Y-%m-%dT%H:%M:%S', '%B %d, %Y', '%b %d, %Y',
+                    '%B %d %Y', '%b %d %Y', '%d/%m/%Y', '%m/%d/%Y', '%d-%m-%Y', '%m-%d-%Y']:
+            try:
+                return datetime.strptime(s, fmt).date()
+            except Exception:
+                continue
+    except Exception:
+        pass
+    return None
+
+
+def _fmt_date_pretty(v):
+    d = _parse_any_date(v)
+    return d.strftime('%b %d, %Y') if d else ''
+
+
+def _timeliness_label(status, due_val, comp_val):
+    """Same rules as the Expert Action Plan / Follow Up tabs."""
+    today = datetime.now().date()
+    due = _parse_any_date(due_val)
+    comp = _parse_any_date(comp_val)
+    if (str(status).strip() if status else '').lower() == 'completed':
+        if due is None or comp is None:
+            return "On Time"
+        return "On Time" if comp <= due else "Late"
+    if due is None:
+        return "Not Yet Due"
+    return "Overdue" if due < today else "Not Yet Due"
+
+
+def _toggle_summary_card(kind, value):
+    cur = st.session_state.get('summary_card_sel')
+    st.session_state.summary_card_sel = None if cur == (kind, value) else (kind, value)
+
+
+def _close_summary_card():
+    st.session_state.summary_card_sel = None
+
+
+def _clickable_card(key, card_html, kind, value):
+    """Renders the card exactly as before; an invisible button over it toggles the table."""
+    try:
+        box = st.container(key=f"sumcard_{key}")
+    except TypeError:  # very old Streamlit without keyed containers
+        box = st.container()
+    with box:
+        st.markdown(card_html, unsafe_allow_html=True)
+        st.button(" ", key=f"sumcard_btn_{key}", use_container_width=True,
+                  on_click=_toggle_summary_card, args=(kind, value))
+
+
+def render_summary_card_table(df_records, kind, value):
+    """Table (or cards, following the sidebar view) for the clicked summary card."""
+    if kind == 'status':
+        sub = df_records[df_records['Status'] == value]
+        label = f"{value} Action Points"
+    else:
+        sub = df_records[df_records['_Timeliness'] == value]
+        label = f"{_SUMMARY_TIMELINESS_ICONS.get(value, '')} {value} Action Points"
+    sub = sub.sort_values('Material')
+
+    c_title, c_close = st.columns([6, 1])
+    with c_title:
+        st.markdown(f"### 📋 {label} ({len(sub)})")
+    with c_close:
+        st.button("✖ Close", key="summary_card_close", use_container_width=True,
+                  on_click=_close_summary_card)
+
+    if sub.empty:
+        st.info("No action points in this category.")
+        return
+
+    esc = lambda x: _html.escape('' if x is None or (isinstance(x, float) and pd.isna(x)) else str(x))
+    f = "font-family: Times New Roman, Times, serif !important; font-size: 14px;"
+
+    def _badge(status):
+        color = _SUMMARY_STATUS_COLORS.get(status, '#6c757d')
+        return (f'<span style="background:{color}; color:white; padding:4px 12px; border-radius:20px; '
+                f'font-size:12px; font-weight:600;">{esc(status)}</span>')
+
+    if st.session_state.get("sidebar_view_mode", "Table") == "Cards":
+        st.markdown('<div class="card-view-container">', unsafe_allow_html=True)
+        for _, r in sub.iterrows():
+            t = r['_Timeliness']
+            st.markdown(f"""
+            <div class="data-card">
+                <div class="card-header">
+                    <span class="card-title">{esc(r.get('Material'))}</span>
+                    {_badge(r.get('Status'))}
+                </div>
+                <div class="card-body">
+                    <span class="label">Program</span><span class="value">{esc(r.get('Program'))}</span>
+                    <span class="label">NMOS</span><span class="value">{esc(r.get('NMOS'))}</span>
+                    <span class="label">Purchase Order</span><span class="value">{esc(r.get('Purchase Order'))}</span>
+                    <span class="label">Order Quantity</span><span class="value">{esc(r.get('Order Quantity'))}</span>
+                    <div class="problem full-width"><strong>⚠️ Problem:</strong> {esc(r.get('Identified Problem'))}</div>
+                    <div class="action full-width"><strong>📌 Action:</strong> {esc(r.get('Action Point'))}</div>
+                    <div class="responsible full-width">
+                        <span><strong>👤 Responsible:</strong> {esc(r.get('Responsible Body'))}</span>
+                        <span><strong>📅 Due:</strong> {esc(_fmt_date_pretty(r.get('Due Date')))}</span>
+                        <span><strong>⏱️ Timeliness:</strong> {_SUMMARY_TIMELINESS_ICONS.get(t, '')} {esc(t)}</span>
+                    </div>
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
+        st.markdown('</div>', unsafe_allow_html=True)
+    else:
+        cols = ['Material', 'Program', 'NMOS', 'Purchase Order', 'Order Quantity', 'Identified Problem',
+                'Action Point', 'Responsible Body', 'Due Date', 'Completion Date', 'Status', 'Timeliness']
+        head = ''.join(f'<th style="{f} font-size:15px;">{c}</th>' for c in cols)
+        body = []
+        for _, r in sub.iterrows():
+            nmos = r.get('NMOS')
+            try:
+                nmos = f"{float(nmos):.2f}"
+            except Exception:
+                nmos = esc(nmos)
+            t = r['_Timeliness']
+            cells = [
+                f'<td style="{f} font-weight:500;">{esc(r.get("Material"))}</td>',
+                f'<td style="{f}">{esc(r.get("Program"))}</td>',
+                f'<td style="{f} text-align:center;">{nmos}</td>',
+                f'<td style="{f} text-align:center;">{esc(r.get("Purchase Order"))}</td>',
+                f'<td style="{f} text-align:center;">{esc(r.get("Order Quantity"))}</td>',
+                f'<td style="{f} min-width:200px;">{esc(r.get("Identified Problem"))}</td>',
+                f'<td style="{f} min-width:200px;">{esc(r.get("Action Point"))}</td>',
+                f'<td style="{f}">{esc(r.get("Responsible Body"))}</td>',
+                f'<td style="{f} text-align:center; white-space:nowrap;">{esc(_fmt_date_pretty(r.get("Due Date")))}</td>',
+                f'<td style="{f} text-align:center; white-space:nowrap;">{esc(_fmt_date_pretty(r.get("Completion Date")))}</td>',
+                f'<td style="{f} text-align:center;">{_badge(r.get("Status"))}</td>',
+                f'<td style="{f} text-align:center; white-space:nowrap;">{_SUMMARY_TIMELINESS_ICONS.get(t, "")} {esc(t)}</td>',
+            ]
+            body.append('<tr>' + ''.join(cells) + '</tr>')
+        st.markdown(
+            '<div class="dataframe-container"><table class="styled-table" style="width:100%;">'
+            f'<thead><tr>{head}</tr></thead><tbody>{"".join(body)}</tbody></table></div>',
+            unsafe_allow_html=True
+        )
+
+    export_cols = ['Material', 'Program', 'NMOS', 'Purchase Order', 'Order Quantity', 'Identified Problem',
+                   'Action Point', 'Responsible Body', 'Due Date', 'Completion Date', 'Status', '_Timeliness']
+    export_df = sub[[c for c in export_cols if c in sub.columns]].rename(columns={'_Timeliness': 'Timeliness'}).copy()
+    for dc in ('Due Date', 'Completion Date'):
+        if dc in export_df.columns:
+            export_df[dc] = export_df[dc].apply(_fmt_date_pretty)
+    buf = BytesIO()
+    with pd.ExcelWriter(buf, engine='openpyxl') as writer:
+        clean_dataframe_for_excel(export_df).to_excel(writer, index=False, sheet_name='Action Points')
+    st.download_button(
+        label=f"📥 Download {value} Action Points (XLSX)",
+        data=buf.getvalue(),
+        file_name=f"{kind}_{value.replace(' ', '_')}_{datetime.now().strftime('%Y%m%d')}.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        use_container_width=True,
+        key=f"dl_summary_card_{kind}_{value}"
+    )
+
+
+# ----------------------------------------------------------------------------
+# CHATBOT
+# ----------------------------------------------------------------------------
+_CHAT_STOPWORDS = {
+    'summary', 'summarize', 'summarise', 'status', 'action', 'actions', 'plan', 'points', 'point', 'about', 'what',
+    'show', 'tell', 'give', 'overall', 'overdue', 'late', 'completed', 'complete', 'completion', 'pending', 'ongoing',
+    'initiated', 'partially', 'timeliness', 'time', 'rate', 'program', 'programs', 'which', 'there', 'their', 'with',
+    'from', 'that', 'this', 'have', 'many', 'much', 'please', 'stock', 'expiry', 'risk', 'responsible', 'body',
+    'bodies', 'material', 'materials', 'items', 'list', 'quarter', 'most', 'least', 'highest', 'lowest', 'best',
+    'worst', 'number', 'count', 'total', 'each', 'every', 'across', 'compare', 'comparison', 'percent', 'percentage',
+    'trend', 'need', 'needs', 'should', 'priority', 'prioritize', 'urgent', 'critical', 'focus', 'attention',
+    'details', 'detail', 'info', 'information', 'does', 'been', 'were', 'where', 'when', 'while', 'would', 'could',
+    'than', 'then', 'them', 'these', 'those', 'your', 'into', 'over', 'under', 'also', 'whats', 'soon', 'upcoming',
+    'done', 'finished', 'track', 'behind', 'ahead', 'progress', 'performing', 'performance', 'team', 'unit', 'owner',
+    'understock', 'overstock', 'stocked', 'normal', 'nmos', 'tmos', 'nsoh', 'month', 'months', 'lowest', 'help',
+    'hello', 'thanks', 'thank', 'problem', 'problems', 'issue', 'issues', 'system', 'generated', 'quarterly',
+}
+
+_STATUS_PATTERNS = [
+    ('Partially Completed', r'partially completed|\bpartial(ly)?\b'),
+    ('Completed', r'\b(completed|done|finished)\b'),
+    ('Ongoing', r'\b(ongoing|in progress)\b'),
+    ('Pending', r'\bpending\b'),
+    ('Initiated', r'\binitiated\b'),
+]
+_TIME_PATTERNS = [
+    ('Overdue', r'\boverdue\b|\bdelayed\b|\bbehind schedule\b|\bpast due\b'),
+    ('Late', r'\bcompleted late\b|\bdone late\b|\bfinished late\b|\blate\b'),
+    ('On Time', r'\bon[- ]?time\b|\bin time\b'),
+    ('Not Yet Due', r'not yet due|\bupcoming\b|\bdue soon\b|\bnot due\b'),
+]
+_NEGATIVE_FILTERS = {'Overdue', 'Late', 'Pending', 'Initiated'}
+_STOCK_RE = (r'stock ?out|stocked out|out of stock|under ?stock|over ?stock|normal stock|\bnmos\b|\btmos\b|'
+             r'months of stock|\bamc\b|expir|stock (level|status|position)|\bnsoh\b|risk of stock|well stocked')
+
+
+def _org_of(body):
+    b = (body or '').strip()
+    if b.startswith('EPSS_'):
+        return 'EPSS'
+    if b.startswith('MOH_'):
+        return 'MOH'
+    if b.startswith('MSH_'):
+        return 'MSH_SCS'
+    return 'Other'
+
+
+def _split_bodies(s):
+    if s is None or (isinstance(s, float) and pd.isna(s)):
+        return []
+    return [b.strip() for b in str(s).split(',') if b.strip() and b.strip().lower() != 'nan']
+
+
+def _explode_bodies(df):
+    rows = []
+    for _, r in df.iterrows():
+        for b in (_split_bodies(r.get('Responsible Body')) or ['(none)']):
+            d = r.copy()
+            d['Body'] = b
+            d['Org'] = _org_of(b)
+            rows.append(d)
+    return pd.DataFrame(rows) if rows else df.assign(Body='', Org='')
+
+
+def _md_table(headers, rows):
+    out = ["| " + " | ".join(headers) + " |", "|" + "|".join("---" for _ in headers) + "|"]
+    for r in rows:
+        out.append("| " + " | ".join(str(c) for c in r) + " |")
+    return "\n".join(out)
+
+
+def _pct(n, d):
+    return f"{(n / d * 100):.0f}%" if d else "0%"
+
+
+def _quarter_progress(label):
+    m = re.match(r'Q([1-4])\s+(\d{4})', label or '')
+    if not m:
+        return None
+    qn, yr = int(m.group(1)), int(m.group(2))
+    start = datetime(yr, 3 * (qn - 1) + 1, 1)
+    end = datetime(yr + 1, 1, 1) if qn == 4 else datetime(yr, 3 * qn + 1, 1)
+    frac = (datetime.now() - start).total_seconds() / (end - start).total_seconds()
+    return min(max(frac, 0.0), 1.0), start, end
+
+
+def _chat_prepare_data(sheet_name, selected_quarter, selected_year, action_df, df_filtered=None):
+    """Everything the chatbot answers from: action-plan records + live stock data + system plan."""
+    records = load_expert_plan_records(
+        sheet_name if sheet_name != "All" else None,
+        selected_quarter if selected_quarter != "All" else None,
+        selected_year if selected_year != "All" else None
+    ) or []
+    data = {'df': pd.DataFrame(), 'all_df': pd.DataFrame(), 'stock': pd.DataFrame(),
+            'scope': sheet_name if sheet_name != "All" else "All Programs",
+            'quarter_label': '', 'system': {}}
+
+    if records:
+        all_df = pd.DataFrame(records)
+        all_df['_Timeliness'] = all_df.apply(
+            lambda r: _timeliness_label(r.get('Status'), r.get('Due Date'), r.get('Completion Date')), axis=1)
+        df = all_df
+        if 'Quarter' in all_df.columns and 'Year' in all_df.columns:
+            qo = {'Q1': 1, 'Q2': 2, 'Q3': 3, 'Q4': 4}
+            key = pd.to_numeric(all_df['Year'], errors='coerce').fillna(0) * 10 + all_df['Quarter'].map(qo).fillna(0)
+            best = key.idxmax()
+            lq, ly = all_df.loc[best, 'Quarter'], all_df.loc[best, 'Year']
+            df = all_df[(all_df['Quarter'] == lq) & (all_df['Year'] == ly)].copy()
+            data['quarter_label'] = f"{lq} {ly}"
+            all_df['QLabel'] = all_df['Year'].astype(str) + " " + all_df['Quarter'].astype(str)
+        data['df'] = df
+        data['all_df'] = all_df
+
+    if df_filtered is not None and not df_filtered.empty and 'Material Description' in df_filtered.columns:
+        cols = [c for c in ['Material Description', 'NSOH', 'AMC', 'NMOS', 'TMOS', 'Stock Status', 'Risk Type']
+                if c in df_filtered.columns]
+        st_df = df_filtered[cols].copy().rename(columns={'Material Description': 'Material'})
+        for c in ('NSOH', 'AMC', 'NMOS', 'TMOS'):
+            if c in st_df.columns:
+                st_df[c] = pd.to_numeric(st_df[c], errors='coerce')
+        data['stock'] = st_df
+
+    if action_df is not None and not action_df.empty:
+        data['system'] = {
+            'materials_with_issues': int(action_df['Material'].nunique()),
+            'by_problem': action_df['Identified Problem'].value_counts().to_dict(),
+        }
+    return data
+
+
+# ----------------------------------------------------------------------------
+# LLM context (used when ANTHROPIC_API_KEY is configured)
+# ----------------------------------------------------------------------------
+def _chat_context_text(data, max_rows=250):
+    df, all_df, stock = data['df'], data['all_df'], data['stock']
+    cut = lambda x, n=110: ('' if x is None or (isinstance(x, float) and pd.isna(x)) else str(x))[:n]
+    L = [f"Scope: {data['scope']} | Latest quarter in records: {data['quarter_label'] or 'n/a'} | "
+         f"Today: {datetime.now().strftime('%Y-%m-%d')}"]
+    prog = _quarter_progress(data['quarter_label'])
+    if prog:
+        L.append(f"Share of the quarter elapsed: {prog[0] * 100:.0f}%")
+
+    if df.empty:
+        L.append("ACTION PLAN: no expert action plan records for this selection.")
+    else:
+        total = len(df)
+        done = int((df['Status'] == 'Completed').sum())
+        ontime = int((df['_Timeliness'] == 'On Time').sum())
+        L.append(f"ACTION PLAN (latest quarter): total={total}; completion rate={done / total * 100:.1f}% ({done}/{total}); "
+                 f"on-time rate={ontime / total * 100:.1f}% ({ontime}/{total})")
+        L.append("Status counts: " + ", ".join(f"{k}={v}" for k, v in df['Status'].value_counts().items()))
+        L.append("Timeliness counts: " + ", ".join(f"{k}={v}" for k, v in df['_Timeliness'].value_counts().items()))
+        if 'Program' in df.columns:
+            g = df.groupby('Program').agg(
+                total=('Status', 'size'), done=('Status', lambda s: int((s == 'Completed').sum())),
+                overdue=('_Timeliness', lambda s: int((s == 'Overdue').sum())),
+                ontime=('_Timeliness', lambda s: int((s == 'On Time').sum())))
+            L.append("By program: " + "; ".join(
+                f"{p}: total {r.total}, completed {r.done}, on-time {r.ontime}, overdue {r.overdue}" for p, r in g.iterrows()))
+        ex = _explode_bodies(df)
+        g = ex.groupby('Body').agg(
+            total=('Status', 'size'), done=('Status', lambda s: int((s == 'Completed').sum())),
+            overdue=('_Timeliness', lambda s: int((s == 'Overdue').sum())))
+        L.append("By responsible body: " + "; ".join(
+            f"{b}: total {r.total}, completed {r.done}, overdue {r.overdue}" for b, r in g.iterrows()))
+        if not all_df.empty and 'QLabel' in all_df.columns:
+            g = all_df.groupby('QLabel').agg(total=('Status', 'size'),
+                                             done=('Status', lambda s: int((s == 'Completed').sum())))
+            L.append("Quarterly trend (all quarters in selection): " + "; ".join(
+                f"{q}: {r.done}/{r.total} completed" for q, r in g.iterrows()))
+        L.append("RECORDS (Material | Program | Status | Timeliness | Responsible | Due | Completed on | Problem | Action):")
+        for _, r in df.head(max_rows).iterrows():
+            L.append(" | ".join([cut(r.get('Material'), 60), cut(r.get('Program'), 25), cut(r.get('Status'), 20),
+                                 r['_Timeliness'], cut(r.get('Responsible Body'), 40),
+                                 _fmt_date_pretty(r.get('Due Date')), _fmt_date_pretty(r.get('Completion Date')),
+                                 cut(r.get('Identified Problem')), cut(r.get('Action Point'))]))
+        if len(df) > max_rows:
+            L.append(f"(+{len(df) - max_rows} more records not shown)")
+
+    if not stock.empty and 'Stock Status' in stock.columns:
+        L.append("STOCK (live): " + ", ".join(f"{k}={v}" for k, v in stock['Stock Status'].value_counts().items()))
+        prob = stock[stock['Stock Status'].isin(['Stock Out', 'Understock']) |
+                     stock.get('Risk Type', pd.Series('', index=stock.index)).fillna('').ne('')]
+        L.append("Stock problem materials (Material | NSOH | AMC | NMOS | TMOS | Status | Risk):")
+        for _, r in prob.sort_values('NMOS').head(100).iterrows():
+            f = lambda v: '' if pd.isna(v) else f"{v:,.2f}"
+            L.append(" | ".join([cut(r.get('Material'), 60), f(r.get('NSOH')), f(r.get('AMC')), f(r.get('NMOS')),
+                                 f(r.get('TMOS')), cut(r.get('Stock Status'), 15), cut(r.get('Risk Type'), 25)]))
+    if data['system']:
+        L.append(f"SYSTEM-GENERATED PLAN: {data['system']['materials_with_issues']} materials with issues. "
+                 + ", ".join(f"{k}={v}" for k, v in data['system']['by_problem'].items()))
+    return "\n".join(L)
+
+
+_CHAT_SYSTEM = (
+    "You are the analyst assistant inside the FSPT Supply Planning Tool used by Ethiopia's pharmaceutical supply chain "
+    "team. Answer questions about the Expert Action Plan, its follow-up and the stock position using ONLY the DATA "
+    "below. Think step by step, do the arithmetic (counts, percentages, rankings, comparisons) and give a direct answer "
+    "first, then brief supporting evidence. You may reason about causes, risks and priorities, and recommend next "
+    "steps, but label inferences as such. Never invent materials, dates or numbers; if the data cannot answer, say what "
+    "is missing.\n"
+    "Definitions: completion rate = Completed / total action points. On-time rate = action points with timeliness "
+    "'On Time' / total. Timeliness: On Time = completed on/before due date; Late = completed after due date; Overdue = "
+    "not completed and past due; Not Yet Due = not completed, due in the future. Stock: NMOS<1 Stock Out, 1-6 Understock, "
+    "6-18 Normal, >18 Overstock; min 6 months, max 18, reorder point 8.\n"
+    "Format: concise Markdown (short paragraphs, bullets, a small table when comparing).\n\nDATA:\n"
+)
+
+
+def _chat_llm_answer(question, history, context_text):
+    """Answer from Claude, or None if there is no API key / library / the call failed."""
+    try:
+        api_key = st.secrets["ANTHROPIC_API_KEY"]
+    except Exception:
+        return None
+    try:
+        import anthropic
+        try:
+            model = st.secrets["CHATBOT_MODEL"]
+        except Exception:
+            model = "claude-sonnet-5-5"
+        client = anthropic.Anthropic(api_key=api_key)
+        msgs = [{"role": m["role"], "content": m["content"]} for m in history[-10:]
+                if m["role"] in ("user", "assistant")]
+        while msgs and msgs[0]["role"] != "user":
+            msgs.pop(0)
+        msgs.append({"role": "user", "content": question})
+        resp = client.messages.create(model=model, max_tokens=1500,
+                                      system=_CHAT_SYSTEM + context_text, messages=msgs)
+        return "".join(b.text for b in resp.content if getattr(b, "type", "") == "text").strip() or None
+    except Exception:
+        return None
+
+
+# ----------------------------------------------------------------------------
+# Built-in reasoning engine (used when there is no API key)
+# ----------------------------------------------------------------------------
+def _chat_help():
+    return (
+        "I can answer questions about the action plan and stock for the current selection. Try:\n"
+        "- **Counts & rates:** “How many action points are overdue?”, “What is the on-time rate?”, "
+        "“What percentage is completed for Malaria?”\n"
+        "- **Rankings & comparisons:** “Which program has the most overdue?”, “Which body is performing best?”, "
+        "“Compare EPSS and MOH”\n"
+        "- **Lists:** “List pending action points for EPSS_CMD”, “Show late items”\n"
+        "- **Material look-up:** “Tell me about Rapid Diagnostic Test”\n"
+        "- **Stock:** “Which materials are stocked out?”, “Lowest NMOS”, “Expiry risk materials”\n"
+        "- **Judgement:** “Are we on track?”, “What should we prioritize?”, “Summarize the overall status”"
+    )
+
+
+def _chat_material_detail(mats, df, stock):
+    out = []
+    for m in mats[:3]:
+        lines = [f"**{m}**"]
+        if not stock.empty:
+            s = stock[stock['Material'] == m]
+            if not s.empty:
+                r = s.iloc[0]
+                f = lambda v: 'n/a' if pd.isna(v) else f"{v:,.2f}"
+                risk = f" — ⚠️ {r.get('Risk Type')}" if str(r.get('Risk Type') or '').strip() else ""
+                lines.append(f"- Stock: NSOH {f(r.get('NSOH'))}, AMC {f(r.get('AMC'))}, NMOS {f(r.get('NMOS'))}, "
+                             f"TMOS {f(r.get('TMOS'))} → **{r.get('Stock Status', 'n/a')}**{risk}")
+        recs = df[df['Material'] == m] if not df.empty else pd.DataFrame()
+        if recs.empty:
+            lines.append("- No action points recorded for it this quarter.")
+        else:
+            for _, r in recs.iterrows():
+                lines.append(f"- {r.get('Identified Problem', '')} → {r.get('Action Point', '')} "
+                             f"({r.get('Responsible Body', '')}; due {_fmt_date_pretty(r.get('Due Date'))}; "
+                             f"{r.get('Status', '')} / {r['_Timeliness']})")
+        out.append("\n".join(lines))
+    return "\n\n".join(out)
+
+
+def _chat_stock_answer(q, stock, want_count):
+    if stock.empty or 'Stock Status' not in stock.columns:
+        return "Stock data isn't available for the current selection."
+    s = stock.copy()
+    risk = s.get('Risk Type', pd.Series('', index=s.index)).fillna('')
+    f = lambda v: 'n/a' if pd.isna(v) else f"{v:,.2f}"
+    title = None
+    if re.search(r'risk of stock', q):
+        s = s[risk.isin(['Risk of Stock out', 'Critical Risk'])]; title = "at risk of stock-out"
+    elif re.search(r'expir', q):
+        s = s[risk.isin(['Expiry Risk', 'Critical Risk'])]; title = "with expiry risk"
+    else:
+        wanted = [n for n, p in [('Stock Out', r'stock ?out|stocked out|out of stock'), ('Understock', r'under ?stock'),
+                                 ('Overstock', r'over ?stock'), ('Normal Stock', r'normal stock|well stocked')]
+                  if re.search(p, q)]
+        if wanted:
+            s = s[s['Stock Status'].isin(wanted)]; title = "in " + " / ".join(wanted)
+    if title is None and re.search(r'\b(lowest|least|highest|most|top|worst|best)\b', q):
+        desc = bool(re.search(r'\b(highest|most|best)\b', q))
+        s = s.sort_values('NMOS', ascending=not desc).head(10)
+        rows = [[r['Material'], f(r.get('NMOS')), f(r.get('TMOS')), f(r.get('AMC')), r.get('Stock Status', '')]
+                for _, r in s.iterrows()]
+        return (f"**{'Highest' if desc else 'Lowest'} NMOS — top {len(rows)} materials**\n\n" +
+                _md_table(["Material", "NMOS", "TMOS", "AMC", "Status"], rows))
+    if title is None:
+        dist = stock['Stock Status'].value_counts()
+        text = (f"**Stock position — {len(stock)} materials**\n" +
+                "\n".join(f"- {k}: {v} ({_pct(v, len(stock))})" for k, v in dist.items()))
+        low = stock.sort_values('NMOS').head(5)
+        text += "\n\nLowest NMOS:\n" + "\n".join(f"- {r['Material']}: {f(r['NMOS'])} months" for _, r in low.iterrows())
+        return text
+    n = len(s)
+    if n == 0:
+        return f"No materials are {title} right now. ✅"
+    desc = bool(re.search(r'\b(highest|most|largest)\b', q))
+    s = s.sort_values('NMOS', ascending=not desc)
+    head = f"**{n} material(s) {title}** ({_pct(n, len(stock))} of {len(stock)})."
+    if want_count:
+        return head
+    rows = [[r['Material'], f(r.get('NMOS')), f(r.get('TMOS')), f(r.get('AMC')), r.get('Stock Status', '')]
+            for _, r in s.head(15).iterrows()]
+    more = f"\n\n…and {n - 15} more." if n > 15 else ""
+    return head + "\n\n" + _md_table(["Material", "NMOS", "TMOS", "AMC", "Status"], rows) + more
+
+
+def _chat_priority(df, stock):
+    out = []
+    if not df.empty:
+        open_ = df[df['Status'] != 'Completed'].copy()
+        open_['_due'] = open_['Due Date'].apply(_parse_any_date)
+        od = open_[open_['_Timeliness'] == 'Overdue'].sort_values('_due')
+        today = datetime.now().date()
+        soon = open_[(open_['_Timeliness'] == 'Not Yet Due') & open_['_due'].apply(
+            lambda d: d is not None and (d - today).days <= 14)].sort_values('_due')
+        if len(od):
+            out.append(f"**1. Clear the {len(od)} overdue action point(s)** (oldest first):\n" + "\n".join(
+                f"- {r['Material']} — {r.get('Identified Problem', '')} (Responsible: {r.get('Responsible Body', '')}; "
+                f"was due {_fmt_date_pretty(r['Due Date'])}, {(today - r['_due']).days} days ago)"
+                for _, r in od.head(8).iterrows()) + (f"\n- …and {len(od) - 8} more." if len(od) > 8 else ""))
+        if len(soon):
+            out.append(f"**2. Due within 14 days ({len(soon)}):**\n" + "\n".join(
+                f"- {r['Material']} — due {_fmt_date_pretty(r['Due Date'])} ({r.get('Responsible Body', '')})"
+                for _, r in soon.head(6).iterrows()))
+        stuck = open_[open_['Status'].isin(['Pending', 'Initiated']) & (open_['_Timeliness'] != 'Overdue')]
+        if len(stuck):
+            out.append(f"**3. {len(stuck)} action point(s) not yet moving** (Pending/Initiated) — worth a follow-up "
+                       "before they become overdue.")
+    if not stock.empty and 'Stock Status' in stock.columns:
+        so = stock[stock['Stock Status'] == 'Stock Out']
+        if len(so):
+            out.append(f"**4. {len(so)} stocked-out material(s):** " + ", ".join(so['Material'].head(6)) +
+                       ("…" if len(so) > 6 else ""))
+    return "\n\n".join(out) if out else "Nothing urgent: no overdue items, nothing due in the next 14 days and no stock-outs. ✅"
+
+
+def _chat_on_track(df, data):
+    total = len(df)
+    done = int((df['Status'] == 'Completed').sum())
+    rate = done / total * 100
+    ontime = int((df['_Timeliness'] == 'On Time').sum())
+    od = int((df['_Timeliness'] == 'Overdue').sum())
+    prog = _quarter_progress(data['quarter_label'])
+    lines = []
+    if prog:
+        exp = prog[0] * 100
+        gap = rate - exp
+        verdict = ("✅ **On track**" if gap >= -5 else "🟡 **Slightly behind**" if gap >= -20 else "🔴 **Behind schedule**")
+        if gap >= -5 and total and od / total >= 0.2:
+            verdict = "🟡 **Mixed signals**"
+        lines.append(f"{verdict} — {data['quarter_label']} is {exp:.0f}% elapsed and {rate:.0f}% of action points "
+                     f"({done}/{total}) are completed ({gap:+.0f} pts vs. a straight-line pace).")
+    else:
+        lines.append(f"{rate:.0f}% of action points ({done}/{total}) are completed.")
+    lines.append(f"- On-time rate: {_pct(ontime, total)} ({ontime}/{total})")
+    lines.append(f"- Overdue: {od}" + (" — these are what is pulling the plan behind." if od else " — none."))
+    return "\n".join(lines)
+
+
+def _chat_group_answer(q, scope, data, group, statuses, times, is_rate, sup, scope_desc):
+    """Breakdown by program / body / organization / status / timeliness / quarter / material."""
+    if group == 'Quarter':
+        d = scope(data['all_df']); key = 'QLabel'
+    else:
+        d = scope(data['df'])
+        key = {'Program': 'Program', 'Material': 'Material', 'Status': 'Status', 'Timeliness': '_Timeliness'}.get(group)
+        if group in ('Body', 'Org'):
+            d = _explode_bodies(d); key = group
+    if d.empty:
+        return "No action points match that scope."
+
+    if group in ('Status', 'Timeliness'):
+        vc = d[key].value_counts()
+        return (f"**{group} breakdown{scope_desc}** — {len(d)} action points\n" +
+                "\n".join(f"- {k}: {v} ({_pct(v, len(d))})" for k, v in vc.items()))
+
+    match = pd.Series(True, index=d.index)
+    if statuses:
+        match &= d['Status'].isin(statuses)
+    if times:
+        match &= d['_Timeliness'].isin(times)
+    d = d.assign(_match=match)
+    g = d.groupby(key).agg(
+        Total=('Status', 'size'), Matching=('_match', 'sum'),
+        Completed=('Status', lambda s: int((s == 'Completed').sum())),
+        OnTime=('_Timeliness', lambda s: int((s == 'On Time').sum())),
+        Overdue=('_Timeliness', lambda s: int((s == 'Overdue').sum()))).reset_index()
+    g['Completion'] = g['Completed'] / g['Total'] * 100
+    g['OnTimeRate'] = g['OnTime'] / g['Total'] * 100
+    g['Share'] = g['Matching'] / g['Total'] * 100
+
+    timey = bool(re.search(r'on[- ]?time|timel', q))
+    if statuses or times:
+        sort_col, label = ('Share', "share") if is_rate else ('Matching', "count")
+    elif is_rate or sup:
+        sort_col, label = ('OnTimeRate', "on-time rate") if timey else ('Completion', "completion rate")
+    else:
+        sort_col, label = 'Total', "total"
+
+    negative = bool((set(statuses) | set(times)) & _NEGATIVE_FILTERS)
+    ascending = False
+    if sup == 'min':
+        ascending = True
+    elif sup == 'worst':
+        ascending = not negative
+    elif sup == 'best':
+        ascending = negative
+    g = g.sort_values([sort_col, 'Total'], ascending=[ascending, False]).reset_index(drop=True)
+
+    if group == 'Quarter':
+        g = g.sort_values(key)
+
+    filt = " ".join(list(statuses) + list(times)).strip()
+    head = f"**{group} breakdown{scope_desc}**"
+    if sup and len(g):
+        top = g.iloc[0]
+        val = (f"{top[sort_col]:.0f}%" if sort_col in ('Share', 'Completion', 'OnTimeRate') else f"{int(top[sort_col])}")
+        kind = {"max": "highest", "min": "lowest", "best": "best", "worst": "worst"}[sup]
+        if statuses or times:
+            num = int(top['Matching'])
+        elif sort_col == 'OnTimeRate':
+            num = int(top['OnTime'])
+        elif sort_col == 'Completion':
+            num = int(top['Completed'])
+        else:
+            num = int(top['Total'])
+        head = (f"**{top[key]}** has the {kind} {filt.lower() + ' ' if filt else ''}{label} ({val}) "
+                f"— {num} of {int(top['Total'])} action points{scope_desc}.")
+
+    cols = ["Total"] + (["Matching"] if (statuses or times) else []) + ["Completed", "Completion", "On-time", "Overdue"]
+    headers = [group] + [c if c != 'Matching' else f"Match: {filt}" for c in cols]
+    rows = []
+    for _, r in g.head(15).iterrows():
+        row = [r[key], int(r['Total'])]
+        if statuses or times:
+            row.append(int(r['Matching']))
+        row += [int(r['Completed']), f"{r['Completion']:.0f}%", f"{r['OnTimeRate']:.0f}%", int(r['Overdue'])]
+        rows.append(row)
+    return head + "\n\n" + _md_table(headers, rows)
+
+
+def _chat_rule_based_answer(question, data, prev_question=None):
+    """Understands filters (status, timeliness, program, body, material), intents (count, rate, list, rank,
+    compare, stock, priority, on-track, material look-up) and follow-ups such as “and for MOH?”."""
+    df, stock = data['df'], data['stock']
+    q = question.lower().strip()
+    if prev_question and re.match(r'^(and|also|what about|how about|then)\b', q):
+        q = prev_question.lower() + ' ' + q
+
+    if re.search(r'^(hi|hello|hey|good (morning|afternoon|evening))\b', q) and len(q.split()) <= 4:
+        return "Hello! Ask me anything about the action plan or stock — for example *“Which program has the most overdue?”* or *“Are we on track?”*"
+    if re.search(r'\bthank', q):
+        return "You're welcome! Anything else you'd like to know?"
+    if re.search(r'\bhelp\b|what can you (do|answer)|how (do|can) i (use|ask)', q):
+        return _chat_help()
+
+    # ---- stock questions (work even when there are no action-plan records)
+    material_names = sorted(set(df['Material'].dropna()) | set(stock['Material'].dropna() if not stock.empty else []))
+    is_count = bool(re.search(r'how many|number of|\bcount\b', q))
+    stock_intent = bool(re.search(_STOCK_RE, q))
+
+    # ---- filters
+    statuses, tmp = [], q
+    for name, pat in _STATUS_PATTERNS:
+        if re.search(pat, tmp):
+            statuses.append(name)
+            tmp = re.sub(pat, ' ', tmp)
+    times = [name for name, pat in _TIME_PATTERNS if re.search(pat, q)]
+    if 'Late' in times and 'Overdue' in times:
+        times.remove('Late')
+
+    programs = []
+    if not df.empty:
+        programs = [p for p in df['Program'].dropna().unique() if re.search(r'\b' + re.escape(p.lower()) + r'\b', q)]
+        programs = [p for p in programs if not any(p != o and p.lower() in o.lower() for o in programs)]
+    all_bodies = sorted({b for s in (df['Responsible Body'].dropna() if not df.empty else []) for b in _split_bodies(s)})
+    body_hits = [b for b in all_bodies if b.lower() in q or b.lower().replace('_', ' ') in q]
+    org_hits = [] if body_hits else [o for o, pat in (('EPSS', r'\bepss\b'), ('MOH', r'\bmoh\b'),
+                                                        ('MSH_SCS', r'\bmsh\b')) if re.search(pat, q)]
+    extra_stop = {w for p in (df['Program'].dropna().unique() if not df.empty else []) for w in re.findall(r'[a-z]{4,}', p.lower())}
+    extra_stop |= {w for b in all_bodies for w in re.findall(r'[a-z]{4,}', b.lower())}
+    toks = [t for t in re.findall(r'[a-z0-9][a-z0-9\-/]{3,}', q) if t not in _CHAT_STOPWORDS and t not in extra_stop]
+    mats = [m for m in material_names if toks and any(t in m.lower() for t in toks)]
+    if len(mats) == len(material_names):
+        mats = []
+
+    wants_detail = bool(re.search(r'\b(about|detail|details|info|tell me|status of|what is|what\'s|how is|show me)\b', q)) or stock_intent
+
+    if mats and len(mats) <= 3 and (wants_detail or not (statuses or times)) and not is_count:
+        return _chat_material_detail(mats, df, stock)
+    if stock_intent and not (statuses or times):
+        return _chat_stock_answer(q, stock, is_count)
+
+    if df.empty:
+        return "There are no Expert Action Plan records for the current selection yet."
+
+    # ---- scope
+    def scope(d):
+        d = d.copy()
+        if programs:
+            d = d[d['Program'].isin(programs)]
+        if mats:
+            d = d[d['Material'].isin(mats)]
+        if body_hits:
+            d = d[d['Responsible Body'].apply(lambda s: any(b in _split_bodies(s) for b in body_hits))]
+        elif org_hits:
+            d = d[d['Responsible Body'].apply(lambda s: any(_org_of(b) in org_hits for b in _split_bodies(s)))]
+        return d
+
+    scope_bits = programs + body_hits + org_hits + [f"“{m}”" if len(mats) == 1 else f"{len(mats)} matching materials" for m in mats[:1]]
+    scope_desc = (" for " + ", ".join(scope_bits)) if scope_bits else ""
+    base = scope(df)
+    if base.empty:
+        return f"No action points found{scope_desc}."
+    match = pd.Series(True, index=base.index)
+    if statuses:
+        match &= base['Status'].isin(statuses)
+    if times:
+        match &= base['_Timeliness'].isin(times)
+    sub = base[match]
+    filt_txt = " & ".join(statuses + times)
+    n_all, n_sub = len(base), len(sub)
+
+    sup = None
+    if re.search(r'\b(most|highest|largest|biggest|top|maximum|max|more)\b', q): sup = 'max'
+    if re.search(r'\b(least|lowest|fewest|smallest|minimum|min|less)\b', q): sup = 'min'
+    if re.search(r'\bbest\b', q): sup = 'best'
+    if re.search(r'\bworst\b|\bweakest\b|\bstruggling\b', q): sup = 'worst'
+    is_rate = bool(re.search(r'\brate\b|percent|percentage|proportion|share|how much|%|how well|performing|performance', q))
+
+    group = None
+    if re.search(r'\b(by|per|each|every|across|which|what)\s+(program|programme)s?\b|\bprograms?\b.*\b(compare|comparison|breakdown)\b', q) or \
+            (sup and re.search(r'\bprograms?\b', q) and not programs):
+        group = 'Program'
+    elif re.search(r'\b(by|per|each|every|across|which|what)\s+(organi[sz]ation|org|institution|agency)s?\b', q):
+        group = 'Org'
+    elif re.search(r'\b(by|per|each|every|across|which|what)\s+(responsible|body|bodies|team|unit|owner)\b|\bwho\b.*\b(most|least|best|worst|highest|lowest|more|less)\b|\bresponsible bod', q) \
+            and not re.search(r'\blist|show\b', q):
+        group = 'Body'
+    elif re.search(r'\b(compare|comparison|versus|vs)\b', q) and (len(body_hits) + len(org_hits) >= 2):
+        group = 'Org' if org_hits else 'Body'
+    elif re.search(r'\b(by|per)\s+status\b|status (breakdown|distribution)|breakdown of status', q):
+        group = 'Status'
+    elif re.search(r'\b(by|per)\s+timeliness\b|timeliness (breakdown|distribution)', q):
+        group = 'Timeliness'
+    elif re.search(r'\b(by|per|each|across)\s+quarter|\btrend\b|over time|quarter on quarter|previous quarters?', q):
+        group = 'Quarter'
+    elif re.search(r'\b(by|per|each|which|what)\s+materials?\b', q) and (sup or is_count):
+        group = 'Material'
+
+    # compare two named groups explicitly -> restrict to those groups
+    if group in ('Org', 'Body') and (body_hits or org_hits) and re.search(r'\b(compare|versus|vs)\b', q):
+        def scope(d, _b=body_hits, _o=org_hits):  # noqa: F811 - show every named group, not only intersection
+            d = d.copy()
+            if programs:
+                d = d[d['Program'].isin(programs)]
+            return d
+        scope_desc = (" for " + ", ".join(programs)) if programs else ""
+        res = _chat_group_answer(q, scope, data, group, statuses, times, is_rate, sup, scope_desc)
+        keep = set(body_hits or org_hits)
+        lines = [ln for i, ln in enumerate(res.split("\n")) if i < 4 or any(ln.startswith(f"| {k} ") for k in keep) or not ln.startswith("|")]
+        return "\n".join(lines)
+
+    # ---- judgement intents
+    if re.search(r'on track|are we (behind|ahead|doing)|how are we doing|behind schedule|will we (finish|complete)|on schedule', q) and not group:
+        return _chat_on_track(base, data)
+    if re.search(r'priorit|urgent|most important|where (should|do) (we|i) (focus|start)|focus on|escalat|attention|what (should|needs?) (we|i|to)', q):
+        return _chat_priority(base, stock)
+    if group:
+        return _chat_group_answer(q, scope, data, group, statuses, times, is_rate, sup, scope_desc)
+
+    # ---- counts / rates / lists on the filtered set
+    if (is_rate or is_count) and not (statuses or times):
+        done = int((base['Status'] == 'Completed').sum())
+        ontime = int((base['_Timeliness'] == 'On Time').sum())
+        od = int((base['_Timeliness'] == 'Overdue').sum())
+        if is_count and not is_rate:
+            return f"There are **{n_all}** action points{scope_desc} in {data['quarter_label']}."
+        if re.search(r'on[- ]?time|timel', q):
+            return (f"**On-time rate{scope_desc}: {_pct(ontime, n_all)}** ({ontime} of {n_all}). "
+                    f"{od} overdue, {int((base['_Timeliness'] == 'Late').sum())} completed late.")
+        return (f"**Completion rate{scope_desc}: {_pct(done, n_all)}** ({done} of {n_all}). "
+                f"On-time rate: {_pct(ontime, n_all)}; overdue: {od}.")
+
+    if statuses or times:
+        if is_rate:
+            return f"**{_pct(n_sub, n_all)}** of action points{scope_desc} are {filt_txt} ({n_sub} of {n_all})."
+        head = f"**{n_sub}** of {n_all} action point(s){scope_desc} are **{filt_txt}** ({_pct(n_sub, n_all)})."
+        if is_count or n_sub == 0:
+            return head if n_sub else f"No action points{scope_desc} are {filt_txt}. ✅"
+        rows = [[r['Material'], r.get('Responsible Body', ''), _fmt_date_pretty(r.get('Due Date')),
+                 r.get('Status', ''), r['_Timeliness']] for _, r in sub.head(12).iterrows()]
+        more = f"\n\n…and {n_sub - 12} more." if n_sub > 12 else ""
+        return head + "\n\n" + _md_table(["Material", "Responsible", "Due", "Status", "Timeliness"], rows) + more
+
+    if re.search(r'\b(list|show|display|give me|which|what are|name)\b', q) and (programs or body_hits or org_hits or mats):
+        rows = [[r['Material'], r.get('Identified Problem', ''), r.get('Responsible Body', ''),
+                 _fmt_date_pretty(r.get('Due Date')), r.get('Status', '')] for _, r in base.head(12).iterrows()]
+        more = f"\n\n…and {n_all - 12} more." if n_all > 12 else ""
+        return f"**{n_all} action point(s){scope_desc}**\n\n" + _md_table(
+            ["Material", "Problem", "Responsible", "Due", "Status"], rows) + more
+
+    # ---- default: overall summary of the (scoped) data
+    done = int((base['Status'] == 'Completed').sum())
+    ontime = int((base['_Timeliness'] == 'On Time').sum())
+    od = int((base['_Timeliness'] == 'Overdue').sum())
+    out = (f"**{data['scope']}{scope_desc if scope_desc and scope_desc != ' for ' + data['scope'] else ''} — "
+           f"{data['quarter_label']} summary**\n"
+           f"- Total action points: **{n_all}**\n"
+           f"- Completion rate: **{_pct(done, n_all)}** ({done}/{n_all})\n"
+           f"- On-time rate: **{_pct(ontime, n_all)}** ({ontime}/{n_all})\n"
+           "- Status: " + ", ".join(f"{k} {v}" for k, v in base['Status'].value_counts().items()) + "\n"
+           "- Timeliness: " + ", ".join(f"{k} {v}" for k, v in base['_Timeliness'].value_counts().items()))
+    if od:
+        out += f"\n\n⚠️ {od} action point(s) are overdue. Ask *“What should we prioritize?”* for the plan of attack."
+    if data['system']:
+        out += (f"\n\n**System-generated plan:** {data['system']['materials_with_issues']} materials with issues.")
+    if not re.search(r'summar|overview|overall|big picture', q):
+        out += "\n\n*I wasn't sure what you meant, so here is the overall picture. Type “help” to see what I can answer.*"
+    return out
+
+
+def _chat_queue_prompt(text):
+    st.session_state.chat_pending = text
+
+
+def render_chatbot(sheet_name, selected_quarter, selected_year, action_df, df_filtered=None):
+    if 'chat_messages' not in st.session_state:
+        st.session_state.chat_messages = [{
+            "role": "assistant",
+            "content": "Hi! Ask me anything about the action plan or stock for the current selection — counts, "
+                       "rates, rankings, comparisons, a material's status, or what to prioritize. "
+                       "Try *“Which program has the most overdue?”* or *“Are we on track?”* (type **help** for more)."
+        }]
+
+    has_key = False
+    try:
+        has_key = bool(st.secrets["ANTHROPIC_API_KEY"])
+    except Exception:
+        pass
+
+    try:
+        float_box = st.container(key="fspt_chat_float")
+    except TypeError:  # old Streamlit without keyed containers: falls back to inline
+        float_box = st.container()
+    with float_box, st.popover("💬 Chatbot"):
+        st.markdown("**💬 FSPT Assistant** — ask a question, get an answer")
+        st.caption("AI mode on — answers any question about your data." if has_key else
+                   "Built-in analyst mode (add ANTHROPIC_API_KEY to secrets for free-form AI answers).")
+
+        q1, q2 = st.columns(2)
+        with q1:
+            st.button("📊 Overall summary", key="chat_q1", use_container_width=True,
+                      on_click=_chat_queue_prompt, args=("Summarize the overall status",))
+        with q2:
+            st.button("🎯 What to prioritize?", key="chat_q2", use_container_width=True,
+                      on_click=_chat_queue_prompt, args=("What should we prioritize?",))
+        q3, q4 = st.columns(2)
+        with q3:
+            st.button("⏱️ Are we on track?", key="chat_q3", use_container_width=True,
+                      on_click=_chat_queue_prompt, args=("Are we on track?",))
+        with q4:
+            if st.button("🗑️ Clear chat", key="chat_clear", use_container_width=True):
+                st.session_state.pop('chat_messages', None)
+                st.rerun()
+
+        with st.form("fspt_chat_form", clear_on_submit=True):
+            typed_text = st.text_input("Request", key="fspt_chat_text", label_visibility="collapsed",
+                                       placeholder="Type your request here…")
+            sent = st.form_submit_button("Send ➤", use_container_width=True, type="primary")
+        typed = typed_text.strip() if (sent and typed_text) else None
+        prompt = st.session_state.pop('chat_pending', None) or typed
+
+        if prompt:
+            data = _chat_prepare_data(sheet_name, selected_quarter, selected_year, action_df, df_filtered)
+            history = list(st.session_state.chat_messages)
+            prev_user = next((m["content"] for m in reversed(history) if m["role"] == "user"), None)
+            st.session_state.chat_messages.append({"role": "user", "content": prompt})
+            answer = _chat_llm_answer(prompt, history, _chat_context_text(data)) if has_key else None
+            if not answer:
+                answer = _chat_rule_based_answer(prompt, data, prev_user)
+            st.session_state.chat_messages.append({"role": "assistant", "content": answer})
+
+        with st.container(height=360):
+            for m in st.session_state.chat_messages:
+                with st.chat_message(m["role"]):
+                    st.markdown(m["content"])
+
+
+# ============================================================================
+# SELECTION PANEL (main panel, above the progress summary)
+# ============================================================================
+def _render_selection_panel():
+    sheet_id_amc = "14VvZ7IyOmpM4SZrY5_ArHDgLkeFN4inW"
+    google_sheets = load_google_sheets(sheet_id_amc)
+
+    has_data = False
+    if google_sheets:
+        for key, df in google_sheets.items():
+            if not df.empty:
+                has_data = True
+                break
+
+    if not has_data:
+        st.warning("⚠️ Could not load program data. Using fallback.")
+        program_list = ["All", "Malaria", "HIV", "TB", "OI and Hepatitis", "Nutrition", "Lab TB", "HIV Lab"]
+    else:
+        program_list = ["All"] + list(google_sheets.keys()) if google_sheets else ["All"]
+
+    if not is_admin():
+        user_programs = get_user_program_access()
+        if user_programs and "All" not in user_programs:
+            program_list = [p for p in program_list if p in user_programs]
+            if not program_list:
+                st.warning("You don't have access to any programs.")
+                st.stop()
+
+    PROGRAM_HIERARCHY = {
+        "OI and Hepatitis": {"subcategories": ["AHD", "Hepatitis", "OI", "STI"], "is_parent": True},
+        "TB": {"subcategories": ["Drug Susceptible -TB Medicine (DS-TB)", "Drug Resisitance -TB Medicine (DR-TB)", "Leprosy Medicines", "Nutrition"], "is_parent": True},
+        "Lab TB": {"subcategories": ["TB diagnostics& Laboratory reagent", "TB Lab Supplies"], "is_parent": True},
+        "HIV Lab": {"subcategories": ["HIV VL Reagents", "CD4 ,AHD &HIV RTKs"], "is_parent": True}
+    }
+
+    with st.container(border=True):
+        st.markdown('<div class="sb-group-title">🎯 Selection</div>', unsafe_allow_html=True)
+        cols = st.columns(5)
+
+        with cols[0]:
+            sheet_name = st.selectbox(
+                "Select Program",
+                program_list,
+                index=program_list.index(st.session_state.selected_program)
+                      if st.session_state.selected_program in program_list else 0,
+                key="main_sel_program"
+            )
+        st.session_state.selected_program = sheet_name
+
+        col_idx = 1
+        if sheet_name in PROGRAM_HIERARCHY and PROGRAM_HIERARCHY[sheet_name]["is_parent"]:
+            subcategory_options = ["All"] + PROGRAM_HIERARCHY[sheet_name]["subcategories"]
+            with cols[col_idx]:
+                subcategory_filter = st.selectbox(
+                    "Subcategory",
+                    subcategory_options,
+                    index=subcategory_options.index(st.session_state.selected_subcategory)
+                          if st.session_state.selected_subcategory in subcategory_options else 0,
+                    key="main_sel_subcategory"
+                )
+            col_idx += 1
+            st.session_state.selected_subcategory = subcategory_filter
+        else:
+            subcategory_filter = "All"
+            st.session_state.selected_subcategory = "All"
+
+        quarter_options = ["All", "Q1", "Q2", "Q3", "Q4"]
+        with cols[col_idx]:
+            selected_quarter = st.selectbox(
+                "Select Quarter",
+                quarter_options,
+                index=quarter_options.index(st.session_state.selected_quarter)
+                      if st.session_state.selected_quarter in quarter_options else 0,
+                key="main_sel_quarter"
+            )
+        st.session_state.selected_quarter = selected_quarter
+        col_idx += 1
+
+        current_year = datetime.now().year
+        year_options = ["All"] + list(range(current_year - 5, current_year + 2))
+        with cols[col_idx]:
+            selected_year = st.selectbox(
+                "Select Year",
+                year_options,
+                index=year_options.index(st.session_state.selected_year)
+                      if st.session_state.selected_year in year_options else 0,
+                key="main_sel_year"
+            )
+        st.session_state.selected_year = selected_year
+        col_idx += 1
+
+        view_options = ["Table", "Cards"]
+        current_view = st.session_state.get("sidebar_view_mode", "Table")
+        with cols[col_idx]:
+            selected_view = st.selectbox(
+                "Select View",
+                view_options,
+                index=view_options.index(current_view) if current_view in view_options else 0,
+                key="main_sel_view"
+            )
+        if selected_view != current_view:
+            st.session_state.sidebar_view_mode = selected_view
+            st.session_state.view_system_action = selected_view
+            st.rerun()
+
+    return sheet_name, subcategory_filter, selected_quarter, selected_year
+
+
 def main():
     st.set_page_config(
         page_title="FSPT – Forecasting and Supply Planning Tool",
@@ -7514,6 +8619,8 @@ def main():
         st.session_state.view_system_action = "Table"
     if 'force_password_reset' not in st.session_state:
         st.session_state.force_password_reset = False
+    if 'summary_card_sel' not in st.session_state:
+        st.session_state.summary_card_sel = None
 
     inject_custom_css()
     inject_javascript()
@@ -7553,128 +8660,43 @@ def main():
                     unsafe_allow_html=True)
         st.markdown("---")
 
-        # Section switcher: Supply Planning vs Forecasting
-        active_section = _render_section_switcher()
-        st.markdown("---")
+        # ---------------- GROUP 1: SECTION ----------------
+        with _sb_group("🗂️", "Section"):
+            active_section = _render_section_switcher()
 
-        view_options = ["Table", "Cards"]
-        current_view = st.session_state.get("sidebar_view_mode", "Table")
-        selected_view = st.selectbox(
-            "Select View",
-            view_options,
-            index=view_options.index(current_view) if current_view in view_options else 0,
-            key="sidebar_view_selector"
-        )
-        if selected_view != current_view:
-            st.session_state.sidebar_view_mode = selected_view
-            st.session_state.view_system_action = selected_view
-            st.rerun()
+        # Spacer pushes Admin & Account toward the bottom of the sidebar
+        st.markdown('<div style="height: max(40px, calc(100vh - 560px));"></div>', unsafe_allow_html=True)
 
-        st.markdown("---")
-
-        sheet_id_amc = "14VvZ7IyOmpM4SZrY5_ArHDgLkeFN4inW"
-        google_sheets = load_google_sheets(sheet_id_amc)
-
-        has_data = False
-        if google_sheets:
-            for key, df in google_sheets.items():
-                if not df.empty:
-                    has_data = True
-                    break
-
-        if not has_data:
-            st.warning("⚠️ Could not load program data. Using fallback.")
-            program_list = ["All", "Malaria", "HIV", "TB", "OI and Hepatitis", "Nutrition", "Lab TB", "HIV Lab"]
-        else:
-            program_list = ["All"] + list(google_sheets.keys()) if google_sheets else ["All"]
-
-        if not is_admin():
-            user_programs = get_user_program_access()
-            if user_programs and "All" not in user_programs:
-                program_list = [p for p in program_list if p in user_programs]
-                if not program_list:
-                    st.warning("You don't have access to any programs.")
-                    st.stop()
-
-        sheet_name = st.selectbox(
-            "Select Program",
-            program_list,
-            index=program_list.index(st.session_state.selected_program)
-                  if st.session_state.selected_program in program_list else 0
-        )
-        st.session_state.selected_program = sheet_name
-
-        PROGRAM_HIERARCHY = {
-            "OI and Hepatitis": {"subcategories": ["AHD", "Hepatitis", "OI", "STI"], "is_parent": True},
-            "TB": {"subcategories": ["Drug Susceptible -TB Medicine (DS-TB)", "Drug Resisitance -TB Medicine (DR-TB)", "Leprosy Medicines", "Nutrition"], "is_parent": True},
-            "Lab TB": {"subcategories": ["TB diagnostics& Laboratory reagent", "TB Lab Supplies"], "is_parent": True},
-            "HIV Lab": {"subcategories": ["HIV VL Reagents", "CD4 ,AHD &HIV RTKs"], "is_parent": True}
-        }
-        subcategory_options = ["All"]
-        if sheet_name in PROGRAM_HIERARCHY and PROGRAM_HIERARCHY[sheet_name]["is_parent"]:
-            subcategory_options = ["All"] + PROGRAM_HIERARCHY[sheet_name]["subcategories"]
-            subcategory_filter = st.selectbox(
-                "Subcategory",
-                subcategory_options,
-                index=subcategory_options.index(st.session_state.selected_subcategory)
-                      if st.session_state.selected_subcategory in subcategory_options else 0
-            )
-            st.session_state.selected_subcategory = subcategory_filter
-        else:
-            subcategory_filter = "All"
-            st.session_state.selected_subcategory = "All"
-
-        st.markdown("---")
-
-        quarter_options = ["All", "Q1", "Q2", "Q3", "Q4"]
-        selected_quarter = st.selectbox(
-            "Select Quarter",
-            quarter_options,
-            index=quarter_options.index(st.session_state.selected_quarter)
-                  if st.session_state.selected_quarter in quarter_options else 0
-        )
-        st.session_state.selected_quarter = selected_quarter
-
-        current_year = datetime.now().year
-        year_options = ["All"] + list(range(current_year - 5, current_year + 2))
-        selected_year = st.selectbox(
-            "Select Year",
-            year_options,
-            index=year_options.index(st.session_state.selected_year)
-                  if st.session_state.selected_year in year_options else 0
-        )
-        st.session_state.selected_year = selected_year
-
-        st.markdown("---")
-
-        if is_admin():
-            if st.button("🔐 Admin Panel", use_container_width=True, type="primary"):
-                st.session_state.show_admin_page = True
-                st.session_state.show_profile_page = False
-                st.rerun()
-            if st.session_state.get('show_admin_page', False):
-                st.info("📋 Admin Panel is open")
-                if st.button("← Back to Tool", use_container_width=True):
-                    st.session_state.show_admin_page = False
+        # ---------------- GROUP 2: ADMIN & ACCOUNT ----------------
+        with _sb_group("⚙️", "Admin & Account"):
+            if is_admin():
+                if st.button("🔐 Admin Panel", use_container_width=True, type="primary"):
+                    st.session_state.show_admin_page = True
+                    st.session_state.show_profile_page = False
                     st.rerun()
-            st.markdown("---")
+                if st.session_state.get('show_admin_page', False):
+                    st.info("📋 Admin Panel is open")
+                    if st.button("← Back to Tool", use_container_width=True):
+                        st.session_state.show_admin_page = False
+                        st.rerun()
 
-        if st.button("🔄 Refresh Data", use_container_width=True, type="primary"):
-            st.cache_data.clear()
-            st.session_state.data_loaded = False
-            st.rerun()
+            if st.button("🔄 Refresh Data", use_container_width=True, type="primary"):
+                st.cache_data.clear()
+                st.session_state.data_loaded = False
+                st.rerun()
 
-        st.markdown("---")
+            if st.button("👤 Profile", use_container_width=True, type="primary"):
+                st.session_state.show_profile_page = True
+                st.session_state.show_admin_page = False
+                st.rerun()
 
-        if st.button("👤 Profile", use_container_width=True, type="primary"):
-            st.session_state.show_profile_page = True
-            st.session_state.show_admin_page = False
-            st.rerun()
+            if st.button("🚪 Logout", use_container_width=True):
+                logout()
 
-        st.markdown("---")
-
-        if st.button("🚪 Logout", use_container_width=True):
-            logout()
+    # ============================================================
+    # SELECTION (main panel — sits just above the progress summary)
+    # ============================================================
+    sheet_name, subcategory_filter, selected_quarter, selected_year = _render_selection_panel()
 
     # ============================================================
     # DATA LOADING
@@ -7708,11 +8730,24 @@ def main():
 
             df_records = df_records[(df_records['Quarter'] == latest_quarter_val) & (df_records['Year'] == latest_year_val)]
 
+            df_records = df_records.copy()
+            df_records['_Timeliness'] = df_records.apply(
+                lambda r: _timeliness_label(r.get('Status'), r.get('Due Date'), r.get('Completion Date')), axis=1)
+
             total = len(df_records)
             completed = len(df_records[df_records['Status'] == 'Completed'])
             ongoing = len(df_records[df_records['Status'] == 'Ongoing'])
+            partial = len(df_records[df_records['Status'] == 'Partially Completed'])
             pending = len(df_records[df_records['Status'] == 'Pending'])
             initiated = len(df_records[df_records['Status'] == 'Initiated'])
+            completion_rate = (completed / total * 100) if total else 0
+
+            _on_time = int((df_records['_Timeliness'] == 'On Time').sum())
+            _late = int((df_records['_Timeliness'] == 'Late').sum())
+            _overdue = int((df_records['_Timeliness'] == 'Overdue').sum())
+            _not_yet_due = int((df_records['_Timeliness'] == 'Not Yet Due').sum())
+
+            on_time_rate = (_on_time / total * 100) if total else 0
 
             program_display = sheet_name if sheet_name != "All" else "All Programs"
 
@@ -7721,14 +8756,6 @@ def main():
                 <h3 class="progress-summary-title">📊 {program_display} - {latest_quarter_val} {latest_year_val} Progress Status and Timeliness Summary</h3>
             </div>
             """, unsafe_allow_html=True)
-
-            st.markdown(f"""
-            <div class="progress-summary-container" style="margin-top: 5px;">
-                <h4 class="progress-summary-title" style="font-size: 16px;">📋 Status Summary</h4>
-            </div>
-            """, unsafe_allow_html=True)
-
-            col1, col2, col3, col4, col5 = st.columns(5)
 
             def status_card_html(label, count, status, card_class, icon, is_active=False):
                 active_class = "active" if is_active else ""
@@ -7740,89 +8767,74 @@ def main():
                 </div>
                 """
 
-            with col1:
-                st.markdown(status_card_html("Total", total, "All", "card-total", "📋", st.session_state.selected_status == "All"), unsafe_allow_html=True)
-            with col2:
-                st.markdown(status_card_html("Completed", completed, "Completed", "card-completed", "✅", st.session_state.selected_status == "Completed"), unsafe_allow_html=True)
-            with col3:
-                st.markdown(status_card_html("Ongoing", ongoing, "Ongoing", "card-ongoing", "🔄", st.session_state.selected_status == "Ongoing"), unsafe_allow_html=True)
-            with col4:
-                st.markdown(status_card_html("Pending", pending, "Pending", "card-pending", "⏳", st.session_state.selected_status == "Pending"), unsafe_allow_html=True)
-            with col5:
-                st.markdown(status_card_html("Initiated", initiated, "Initiated", "card-initiated", "🚀", st.session_state.selected_status == "Initiated"), unsafe_allow_html=True)
+            _sel = st.session_state.get('summary_card_sel')
 
-            def _parse_dt(v):
-                if v is None: return None
-                try:
-                    if isinstance(v, float) and pd.isna(v): return None
-                except Exception: pass
-                s = str(v).strip()
-                if not s or s.lower() in ('nan', 'none', 'nat', ''): return None
-                try:
-                    if re.match(r'^\d{4}-\d{2}-\d{2}$', s):
-                        return datetime.strptime(s, '%Y-%m-%d').date()
-                    for fmt in ['%Y-%m-%d %H:%M:%S', '%Y-%m-%dT%H:%M:%S',
-                                '%B %d, %Y', '%b %d, %Y', '%B %d %Y', '%b %d %Y',
-                                '%d/%m/%Y', '%m/%d/%Y', '%d-%m-%Y', '%m-%d-%Y']:
-                        try: return datetime.strptime(s, fmt).date()
-                        except Exception: continue
-                except Exception: pass
-                return None
-
-            _today = datetime.now().date()
-            _on_time = 0; _late = 0; _overdue = 0; _not_yet_due = 0
-            for _, _r in df_records.iterrows():
-                _status = str(_r.get('Status', '')).strip()
-                _due = _parse_dt(_r.get('Due Date', ''))
-                _comp = _parse_dt(_r.get('Completion Date', ''))
-                if _status.lower() == 'completed':
-                    if _due is None or _comp is None: _on_time += 1
-                    elif _comp <= _due: _on_time += 1
-                    else: _late += 1
-                else:
-                    if _due is None: _not_yet_due += 1
-                    elif _due < _today: _overdue += 1
-                    else: _not_yet_due += 1
-
+            # Status Summary — total + completion rate as plain text (no Total card)
             st.markdown(f"""
-            <div class="progress-summary-container" style="margin-top: 10px;">
-                <h4 class="progress-summary-title" style="font-size: 16px;">⏱️ Timeliness Summary</h4>
+            <div class="progress-summary-container" style="margin-top: 5px;">
+                <h4 class="progress-summary-title" style="font-size: 16px;">📋 Status Summary
+                    <span style="font-size: 14px; font-weight: 500; color: #555;">
+                        — Total Action Points: <b style="color: #1a5276;">{total}</b>
+                        &nbsp;|&nbsp; ✅ Completion Rate: <b style="color: #28a745;">{completion_rate:.0f}%</b> ({completed}/{total})
+                    </span>
+                </h4>
             </div>
             """, unsafe_allow_html=True)
 
+            col1, col2, col3, col4, col5 = st.columns(5)
+            _status_cards = [
+                (col1, "Completed", completed, "card-completed", "✅"),
+                (col2, "Partially Completed", partial, "card-partial", "🔶"),
+                (col3, "Ongoing", ongoing, "card-ongoing", "🔄"),
+                (col4, "Pending", pending, "card-pending", "⏳"),
+                (col5, "Initiated", initiated, "card-initiated", "🚀"),
+            ]
+            for _col, _label, _count, _cls, _icon in _status_cards:
+                with _col:
+                    _clickable_card(
+                        f"status_{_label.replace(' ', '_').lower()}",
+                        status_card_html(_label, _count, _label, _cls, _icon, _sel == ('status', _label)),
+                        'status', _label)
+
+            st.markdown(f"""
+            <div class="progress-summary-container" style="margin-top: 10px;">
+                <h4 class="progress-summary-title" style="font-size: 16px;">⏱️ Timeliness Summary
+                    <span style="font-size: 14px; font-weight: 500; color: #555;">
+                        — Total Action Points: <b style="color: #1a5276;">{total}</b>
+                        &nbsp;|&nbsp; 🟢 On-Time Rate: <b style="color: #28a745;">{on_time_rate:.0f}%</b> ({_on_time}/{total})
+                    </span>
+                </h4>
+            </div>
+            """, unsafe_allow_html=True)
+
+            def timeliness_card_html(icon, count, label, color, is_active=False):
+                glow = " box-shadow: 0 4px 20px rgba(255,215,0,0.45);" if is_active else ""
+                return f"""
+                <div class="progress-status-card" style="background: #ffffff; border: 2px solid {color};{glow}">
+                    <div class="status-icon">{icon}</div>
+                    <div class="status-number" style="color: {color};">{count}</div>
+                    <div class="status-label" style="color: #555;">{label}</div>
+                </div>
+                """
+
             tcol1, tcol2, tcol3, tcol4 = st.columns(4)
-            with tcol1:
-                st.markdown(f"""
-                <div class="progress-status-card" style="background: #ffffff; border: 2px solid #28a745;">
-                    <div class="status-icon">🟢</div>
-                    <div class="status-number" style="color: #28a745;">{_on_time}</div>
-                    <div class="status-label" style="color: #555;">On Time</div>
-                </div>
-                """, unsafe_allow_html=True)
-            with tcol2:
-                st.markdown(f"""
-                <div class="progress-status-card" style="background: #ffffff; border: 2px solid #fcc419;">
-                    <div class="status-icon">🟠</div>
-                    <div class="status-number" style="color: #fcc419;">{_late}</div>
-                    <div class="status-label" style="color: #555;">Late</div>
-                </div>
-                """, unsafe_allow_html=True)
-            with tcol3:
-                st.markdown(f"""
-                <div class="progress-status-card" style="background: #ffffff; border: 2px solid #dc3545;">
-                    <div class="status-icon">🔴</div>
-                    <div class="status-number" style="color: #dc3545;">{_overdue}</div>
-                    <div class="status-label" style="color: #555;">Overdue</div>
-                </div>
-                """, unsafe_allow_html=True)
-            with tcol4:
-                st.markdown(f"""
-                <div class="progress-status-card" style="background: #ffffff; border: 2px solid #2e86c1;">
-                    <div class="status-icon">🔵</div>
-                    <div class="status-number" style="color: #2e86c1;">{_not_yet_due}</div>
-                    <div class="status-label" style="color: #555;">Not Yet Due</div>
-                </div>
-                """, unsafe_allow_html=True)
+            _time_cards = [
+                (tcol1, "On Time", _on_time, "🟢", "#28a745"),
+                (tcol2, "Late", _late, "🟠", "#fcc419"),
+                (tcol3, "Overdue", _overdue, "🔴", "#dc3545"),
+                (tcol4, "Not Yet Due", _not_yet_due, "🔵", "#2e86c1"),
+            ]
+            for _col, _label, _count, _icon, _color in _time_cards:
+                with _col:
+                    _clickable_card(
+                        f"time_{_label.replace(' ', '_').lower()}",
+                        timeliness_card_html(_icon, _count, _label, _color, _sel == ('timeliness', _label)),
+                        'timeliness', _label)
+
+            # Table for the clicked card (same columns as the Action Plan Follow Up table)
+            if _sel:
+                st.markdown("---")
+                render_summary_card_table(df_records, _sel[0], _sel[1])
 
             st.markdown("---")
 
@@ -7860,6 +8872,11 @@ def main():
         selected_quarter if selected_quarter != "All" else None,
         selected_year if selected_year != "All" else None
     )
+
+    # ============================================================
+    # CHATBOT
+    # ============================================================
+    render_chatbot(sheet_name, selected_quarter, selected_year, action_df, df_filtered)
 
     # ============================================================
     # RENDER — 2 INDEPENDENT SECTIONS
