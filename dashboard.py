@@ -6,6 +6,7 @@ import plotly.graph_objects as go
 from datetime import datetime
 from datetime import timedelta
 from datetime import date
+from datetime import timezone
 import sys
 import os
 import time
@@ -720,6 +721,7 @@ def _proc_autosave(editor_key):
         _bust_proc_cache()
         st.session_state['proc_editor_ver'] = st.session_state.get('proc_editor_ver', 0) + 1
         if ok:
+            log_dashboard_update("Edited procurement records", f"{ok} change(s) saved", ok)
             st.session_state['_proc_flash'] = f"✅ Saved automatically ({ok} change{'s' if ok != 1 else ''})."
 
 
@@ -1054,6 +1056,27 @@ def _compute_avg_proc_lead_raw(base_df):
     return int(round(avg)) if pd.notna(avg) else 0
 
 
+def _compute_avg_proc_lead(base_df):
+    """Memoized wrapper: recompute only when records, filters or materials change."""
+    try:
+        deliveries = globals().get('df_new_deliveries')
+        mat_sig = 0
+        if base_df is not None and not base_df.empty and 'Material Description' in base_df.columns:
+            mat_sig = int(pd.util.hash_pandas_object(base_df['Material Description'].astype(str), index=False).sum())
+        key = (st.session_state.get('proc_cache_bust', 0),
+               st.session_state.get('proc_lead_year_v6', 'All'), st.session_state.get('proc_lead_funding_v6', 'All'),
+               st.session_state.get('proc_lead_material_v6', 'All'), st.session_state.get('proc_lead_search_v6', ''),
+               mat_sig, 0 if deliveries is None else len(deliveries), date.today().isoformat())
+    except Exception:
+        return _compute_avg_proc_lead_raw(base_df)
+    memo = st.session_state.get('_kpi_lead_memo')
+    if memo and memo[0] == key:
+        return memo[1]
+    val = _compute_avg_proc_lead_raw(base_df)
+    st.session_state['_kpi_lead_memo'] = (key, val)
+    return val
+
+
 # ---------------------------------------------------
 # Page Setup
 # ---------------------------------------------------
@@ -1312,12 +1335,39 @@ st.markdown("""
 
 
 # ---------------------------------------------------
+# Narrower gap between the sidebar and the main panel (desktop)
+# ---------------------------------------------------
+st.markdown("""
+<style>
+@media only screen and (min-width: 769px) {
+    [data-testid="stMainBlockContainer"], [data-testid="stAppViewBlockContainer"],
+    section.main > div.block-container, .block-container {
+        padding-left: 1rem !important;
+        padding-right: 1.5rem !important;
+        padding-top: 4rem !important;   /* clears Streamlit's fixed top bar (about 3.75rem) */
+        max-width: 100% !important;
+    }
+}
+/* helper elements that draw nothing (<style> blocks, 0-height script frames) must not add blank gaps */
+[data-testid="stElementContainer"]:has(> [data-testid="stMarkdown"] [data-testid="stMarkdownContainer"] > style:only-child),
+[data-testid="stElementContainer"]:has(> [data-testid="stMarkdown"] [data-testid="stMarkdownContainer"] > p > style:only-child),
+.element-container:has(> [data-testid="stMarkdown"] [data-testid="stMarkdownContainer"] > style:only-child) {
+    display: none !important;
+}
+[data-testid="stElementContainer"]:has(iframe[height="0"]), .element-container:has(iframe[height="0"]) {
+    position: absolute !important; height: 0 !important; overflow: hidden !important; margin: 0 !important;
+}
+[data-testid="stMainBlockContainer"] h1.animated-header { margin: 0 !important; padding: 0 !important; }
+</style>
+""", unsafe_allow_html=True)
+
+# ---------------------------------------------------
 # MOBILE LAYER (phones & small tablets)
 # ---------------------------------------------------
 st.markdown("""
 <style>
 @media only screen and (max-width: 768px) {
-    .block-container { padding: 1rem 0.75rem 3rem 0.75rem !important; max-width: 100% !important; }
+    .block-container { padding: 3.75rem 0.75rem 3rem 0.75rem !important; max-width: 100% !important; }
     /* two cards per row on phones instead of one very long stack */
     [data-testid="stHorizontalBlock"] { flex-wrap: wrap !important; gap: 0.5rem !important; }
     [data-testid="stHorizontalBlock"] > [data-testid="stColumn"],
@@ -1691,96 +1741,107 @@ def load_new_deliveries():
         st.error(f"Error loading New_deliveries data: {e}")
         return pd.DataFrame()
 
+# ---------------------------------------------------
+# Google Sheets loaders: retry, never cache a failure, fall back to the last good copy
+# ---------------------------------------------------
+@st.cache_resource
+def _last_good_store():
+    """Survives reruns and is shared by all sessions: last successfully loaded sheets + retry timers."""
+    return {}
+
+
+def _download_sheet_xlsx(sheet_id, attempts=2):
+    url = f"https://docs.google.com/spreadsheets/d/{sheet_id}/export?format=xlsx"
+    last_error = None
+    for i in range(attempts):
+        try:
+            session = requests.Session()
+            session.headers.update({'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'})
+            session.trust_env = False
+            response = session.get(url, timeout=(15, 90))      # (connect, read) seconds
+            response.raise_for_status()
+            return response.content
+        except Exception as e:
+            last_error = e
+            if i < attempts - 1:
+                time.sleep(2)
+    raise last_error
+
+
 @st.cache_data(ttl=300, show_spinner=False)
+def _fetch_branch_amc(sheet_id):
+    """Raises on failure, so a failed download is never cached."""
+    df = pd.read_excel(BytesIO(_download_sheet_xlsx(sheet_id)), header=0)
+    df = df.loc[:, ~df.columns.str.contains("^Unnamed")]
+    df.columns = df.columns.str.strip()
+    for col in df.columns:
+        if df[col].dtype == 'object':
+            df[col] = df[col].fillna("")
+    for col in df.columns:
+        if df[col].dtype == 'object':
+            df[col] = df[col].astype(str).str.replace(',', '', regex=False)
+    return df
+
+
+@st.cache_data(ttl=300, show_spinner=False)
+def _fetch_google_sheets(sheet_id):
+    """Raises on failure, so a failed download is never cached."""
+    sheets = pd.read_excel(BytesIO(_download_sheet_xlsx(sheet_id)), sheet_name=None, header=2)
+    cleaned_sheets = {}
+    for name, df in sheets.items():
+        if df.empty:
+            cleaned_sheets[name] = df
+            continue
+        df = df.loc[:, ~df.columns.str.contains("^Unnamed")]
+        df.columns = df.columns.str.strip()
+        for col in df.columns:
+            try:
+                if col in df.columns and len(df) > 0 and (pd.api.types.is_object_dtype(df[col]) or df[col].dtype == 'object'):
+                    df[col] = df[col].fillna("")
+            except Exception:
+                continue
+        cleaned_sheets[name] = df
+    return cleaned_sheets
+
+
+def _load_with_fallback(key, fetch_fn, sheet_id, session_attr, empty_value, label):
+    store = _last_good_store()
+    now = time.time()
+    fallback = store.get(key)
+    if fallback is None:
+        fallback = st.session_state.get(session_attr)
+    # After a failure, don't hammer Google on every click: reuse the last good copy for a minute
+    if fallback is not None and now < store.get(key + "_retry_at", 0):
+        st.warning(f"Showing the last loaded {label}. Google Sheets could not be reached a moment ago; retrying shortly.")
+        return fallback
+    try:
+        data = fetch_fn(sheet_id)
+        store[key] = data
+        store[key + "_retry_at"] = 0
+        st.session_state[session_attr] = data
+        return data
+    except Exception as e:
+        store[key + "_retry_at"] = now + 60
+        reason = f"{type(e).__name__}: {str(e)[:120]}"
+        if fallback is not None:
+            st.warning(f"Showing the last loaded {label}. Google Sheets could not be reached just now ({reason}).")
+            return fallback
+        st.error(f"Could not load {label} from Google Sheets ({reason}). "
+                 f"Check the internet connection of the server running the dashboard, then refresh.")
+        return empty_value
+
+
 def load_branch_amc_from_google_sheets(sheet_id):
     """Load branch AMC data from Google Sheets"""
-    url = f"https://docs.google.com/spreadsheets/d/{sheet_id}/export?format=xlsx"
+    return _load_with_fallback("branch_amc", _fetch_branch_amc, sheet_id, "branch_amc_data",
+                               pd.DataFrame(columns=['Material Description']), "branch AMC data")
 
-    for attempt in range(1):
-        try:
-            session = requests.Session()
-            session.headers.update({'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'})
-            session.trust_env = False
 
-            response = session.get(url, timeout=45)
-            response.raise_for_status()
-
-            content = response.content
-            df = pd.read_excel(BytesIO(content), header=0)
-
-            df = df.loc[:, ~df.columns.str.contains("^Unnamed")]
-            df.columns = df.columns.str.strip()
-
-            for col in df.columns:
-                if df[col].dtype == 'object':
-                    df[col] = df[col].fillna("")
-
-            # ===== FIX: STRIP COMMAS =====
-            for col in df.columns:
-                if df[col].dtype == 'object':
-                    df[col] = df[col].astype(str).str.replace(',', '', regex=False)
-            # =============================
-
-            st.session_state.branch_amc_data = df
-            return df
-        except Exception as e:
-            if st.session_state.branch_amc_data is not None:
-                st.warning(f"Using cached branch AMC data. New data unavailable: {str(e)}")
-                return st.session_state.branch_amc_data
-            st.warning(f"Could not load branch AMC data: {str(e)}")
-            return pd.DataFrame(columns=['Material Description'])
-    return pd.DataFrame()
-
-@st.cache_data(ttl=300, show_spinner=False)
 def load_google_sheets(sheet_id):
     """Load Google Sheets data (AMC and pipeline data)"""
-    url = f"https://docs.google.com/spreadsheets/d/{sheet_id}/export?format=xlsx"
+    return _load_with_fallback("google_sheets", _fetch_google_sheets, sheet_id, "google_sheets_data",
+                               {}, "program (AMC and pipeline) data")
 
-    for attempt in range(3):
-        try:
-            session = requests.Session()
-            session.headers.update({'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'})
-            session.trust_env = False
-
-            response = session.get(url, timeout=45)
-            response.raise_for_status()
-
-            content = response.content
-            sheets = pd.read_excel(BytesIO(content), sheet_name=None, header=2)
-
-            cleaned_sheets = {}
-            for name, df in sheets.items():
-                if df.empty:
-                    cleaned_sheets[name] = df
-                    continue
-
-                df = df.loc[:, ~df.columns.str.contains("^Unnamed")]
-                df.columns = df.columns.str.strip()
-
-                for col in df.columns:
-                    try:
-                        if col in df.columns and len(df) > 0:
-                            if pd.api.types.is_object_dtype(df[col]):
-                                df[col] = df[col].fillna("")
-                            elif df[col].dtype == 'object':
-                                df[col] = df[col].fillna("")
-                    except Exception:
-                        continue
-
-                cleaned_sheets[name] = df
-
-            st.session_state.google_sheets_data = cleaned_sheets
-            return cleaned_sheets
-        except Exception as e:
-            if attempt < 2:
-                time.sleep(2)
-            else:
-                if st.session_state.google_sheets_data:
-                    st.warning(f"Using cached Google Sheets data. New data unavailable: {str(e)}")
-                    return st.session_state.google_sheets_data
-                st.error(f"Error loading Google Sheets: {str(e)}")
-                return {}
-    return {}
 
 def validate_upload_data(df):
     """Validate data before uploading to Supabase"""
@@ -1973,6 +2034,793 @@ def get_table_info():
     except Exception as e:
         st.error(f"Error getting table info: {e}")
         return None
+
+# ===================================================
+# DATA UPLOAD: Health Program SOH + Posting Date  ->  Supabase
+# ---------------------------------------------------
+# Users upload the raw SAP exports (Materials.xlsx / Posting.xlsx).
+# Each file is checked and processed IN MEMORY first (same rules as the
+# Health_Program_SOH_-Final and Posting_Date notebooks). Only a file that
+# passes every check can be saved. A wrong / incomplete file only produces an
+# error message on the upload page - the dashboard data is never touched.
+# ===================================================
+MAPPING_SHEET_CSV_URL = (
+    "https://docs.google.com/spreadsheets/d/12Z5xqX32QIzjoN6tNvGbjutMheXx5US1/export?format=csv&gid=593796364"
+)
+
+# Who may upload. None = every logged-in user. To restrict, e.g.: ("admin",)
+UPLOAD_ALLOWED_ROLES = None
+
+SOH_STOCK_COLUMNS = [
+    'Unrestricted Stock', 'Stock in Quality Inspection', 'Blocked Stock', 'Stock in Transit'
+]
+SOH_REQUIRED_COLUMNS = [
+    'Special Stock Type Description', 'Material Description', 'Storage Location',
+    'Plant Name', 'Shelf Life Expiration Date'
+] + SOH_STOCK_COLUMNS
+SOH_EXCLUDED_STORAGE_LOCATIONS = ['DPWM', 'JPWM', 'APWM', 'BPWM', 'HPWM', 'MPWM', 'NPWM', 'JJPW']
+SOH_BRANCHES = [
+    'Adama Branch', 'Addis Ababa Branch 1', 'Addis Ababa Branch 2', 'Arba Minch Branch',
+    'Assosa Branch', 'Bahir Dar Branch', 'Dessie Branch', 'Dire Dawa Branch', 'Gambela Branch',
+    'Gondar Branch', 'Hawassa Branch', 'Jigjiga Branch', 'Jimma Branch', 'Kebridahar Branch',
+    'Mekele Branch', 'Negele Borena Branch', 'Nekemte Branch', 'Semera Branch', 'Shire Branch'
+]
+SOH_EXPECTED_PLANTS = SOH_BRANCHES + ['Head Office']
+
+POSTING_REQUIRED_COLUMNS = [
+    'Valuation Type', 'Material Description', 'Purchase order', 'Posting Date', 'Quantity'
+]
+
+# Items export (Issue Data): Items.xlsx -> issue_data
+ISSUE_REQUIRED_COLUMNS = [
+    'Plant', 'Material Descr', 'Quantity', 'Net Value', 'Delivery Date', 'Region Descr'
+]
+
+
+class UploadValidationError(Exception):
+    """Raised when an uploaded file is wrong / incomplete. Carries a list of readable problems."""
+    def __init__(self, problems):
+        if isinstance(problems, str):
+            problems = [problems]
+        self.problems = list(problems)
+        super().__init__("; ".join(self.problems))
+
+
+def _can_upload_data():
+    user = st.session_state.get('user') or {}
+    if UPLOAD_ALLOWED_ROLES is None:
+        return bool(user)
+    return user.get('role') in UPLOAD_ALLOWED_ROLES
+
+
+# ---------- generic helpers (pure functions - no Streamlit calls) ----------
+def _norm_header(c):
+    return re.sub(r"\s+", " ", str(c)).strip().lower()
+
+
+def _row_list(index_values, limit=8):
+    """'rows 5, 9, 12 (and 3 more)' - the index is the 0-based pandas index, row 1 of the sheet is the header."""
+    nums = [int(i) + 2 for i in list(index_values)]
+    shown = ", ".join(str(n) for n in nums[:limit])
+    more = f" (and {len(nums) - limit} more)" if len(nums) > limit else ""
+    return f"row{'s' if len(nums) > 1 else ''} {shown}{more}"
+
+
+def _read_uploaded_table(uploaded_file):
+    """Read the first sheet of an .xlsx/.xlsm file or a .csv file into a DataFrame."""
+    name = (getattr(uploaded_file, "name", "") or "").lower()
+    if not name.endswith((".xlsx", ".xlsm", ".csv")):
+        raise UploadValidationError("Unsupported file type. Please upload an Excel (.xlsx) or CSV (.csv) file.")
+    try:
+        uploaded_file.seek(0)
+        if name.endswith(".csv"):
+            try:
+                df = pd.read_csv(uploaded_file)
+            except UnicodeDecodeError:
+                uploaded_file.seek(0)
+                df = pd.read_csv(uploaded_file, encoding="latin-1")
+        else:
+            df = pd.read_excel(uploaded_file, engine="openpyxl")
+    except Exception as e:
+        raise UploadValidationError(
+            f"The file could not be opened ({type(e).__name__}). Make sure it is a valid, "
+            f"un-protected Excel/CSV file exported from SAP."
+        )
+    if df.empty:
+        raise UploadValidationError("The file is empty - no data rows were found.")
+    return df
+
+
+def _standardise_headers(df):
+    """Trim / case-fold headers so 'plant name ' still matches 'Plant Name'."""
+    canon = {_norm_header(c): c for c in SOH_REQUIRED_COLUMNS + POSTING_REQUIRED_COLUMNS + ISSUE_REQUIRED_COLUMNS}
+    df = df.rename(columns={c: canon[_norm_header(c)] for c in df.columns if _norm_header(c) in canon})
+    return df.loc[:, ~df.columns.duplicated()]
+
+
+def _require_columns(df, required, this_label, other_required, other_label):
+    missing = [c for c in required if c not in df.columns]
+    if not missing:
+        return
+    problems = []
+    if all(c in df.columns for c in other_required):
+        problems.append(
+            f"This looks like a **{other_label}** file, not a **{this_label}** file. "
+            f"Please upload it in the {other_label} tab instead."
+        )
+    problems.append(
+        f"The file is not a valid {this_label} file. Missing required column(s): "
+        + ", ".join(f"**{c}**" for c in missing) + "."
+    )
+    raise UploadValidationError(problems)
+
+
+def _blank_mask(series):
+    return series.isna() | series.astype(str).str.strip().isin(["", "nan", "None", "NaT"])
+
+
+def _to_number(series):
+    """Numeric cleaning identical to the notebook. Returns (values, mask of non-blank cells that are not numbers)."""
+    if pd.api.types.is_numeric_dtype(series) and not pd.api.types.is_bool_dtype(series):
+        return pd.to_numeric(series, errors='coerce').fillna(0.0).astype(float), pd.Series(False, index=series.index)
+    s = series.astype(str).str.replace(',', '', regex=False)
+    s = s.str.replace(r'[^\d\.\-]', '', regex=True)
+    num = pd.to_numeric(s, errors='coerce')
+    bad = num.isna() & ~_blank_mask(series)
+    return num.fillna(0.0).astype(float), bad
+
+
+def _mapping_table(mapping_df, need_factor):
+    needed = ['Original', 'Mapped'] + (['Conversion Factor'] if need_factor else [])
+    missing = [c for c in needed if mapping_df is None or c not in mapping_df.columns]
+    if missing:
+        raise UploadValidationError(
+            "The material mapping Google Sheet is missing column(s): " + ", ".join(missing)
+            + ". Nothing was saved - please contact the administrator."
+        )
+    m = mapping_df.dropna(subset=['Original', 'Mapped']).drop_duplicates(subset='Original', keep='last')
+    return m
+
+
+def _clean_records(df, whole_number_columns=()):
+    """DataFrame -> list of JSON-safe dicts (no NaN / inf / numpy types)."""
+    out = []
+    for rec in df.to_dict(orient="records"):
+        row = {}
+        for k, v in rec.items():
+            if isinstance(v, (np.integer,)):
+                v = int(v)
+            elif isinstance(v, (float, np.floating)):
+                if pd.isna(v) or np.isinf(v):
+                    v = None
+                elif k in whole_number_columns and float(v).is_integer():
+                    v = int(v)
+                else:
+                    v = float(v)
+            elif v is pd.NaT or (not isinstance(v, str) and v is not None and pd.isna(v)):
+                v = None
+            row[k] = v
+        out.append(row)
+    return out
+
+
+# ---------- 1) Health Program SOH ----------
+def process_soh_upload(raw, mapping_df):
+    """Port of Health_Program_SOH_-Final.ipynb. Returns dict(records, preview, warnings, summary)
+    or raises UploadValidationError."""
+    warnings, problems = [], []
+    mapping = _mapping_table(mapping_df, need_factor=True)
+
+    df = raw.dropna(how="all").copy()
+    rows_read = len(df)
+
+    # Only project stock
+    stock_type = df['Special Stock Type Description'].astype(str).str.strip()
+    df = df[stock_type == 'Project Stock'].copy()
+    if df.empty:
+        found = raw['Special Stock Type Description'].dropna().astype(str).str.strip().unique()[:5]
+        raise UploadValidationError([
+            "No rows with Special Stock Type Description = 'Project Stock' were found, so there is nothing to load.",
+            "Values found in that column: " + (", ".join(f"'{v}'" for v in found) if len(found) else "(all empty)")
+            + ". Please check that you exported the correct report."
+        ])
+
+    # Missing data elements
+    miss = _blank_mask(df['Material Description'])
+    if miss.any():
+        problems.append(f"**Material Description** is empty in {int(miss.sum())} row(s) ({_row_list(df.index[miss])}).")
+    miss = _blank_mask(df['Plant Name'])
+    if miss.any():
+        problems.append(f"**Plant Name** is empty in {int(miss.sum())} row(s) ({_row_list(df.index[miss])}).")
+
+    for col in SOH_STOCK_COLUMNS:
+        values, bad = _to_number(df[col])
+        if bad.any():
+            problems.append(
+                f"**{col}** contains non-numeric values in {int(bad.sum())} row(s) ({_row_list(df.index[bad])})."
+            )
+        df[col] = values
+
+    plants = df['Plant Name'].astype(str).str.strip()
+    df['Plant Name'] = plants
+    present = set(plants[~_blank_mask(df['Plant Name'])])
+    unknown = sorted(present - set(SOH_EXPECTED_PLANTS))
+    if unknown:
+        problems.append(
+            "Unrecognised **Plant Name** value(s): " + ", ".join(f"'{p}'" for p in unknown[:10])
+            + ". This is either the wrong file or a new branch that must be added to the dashboard first."
+        )
+    elif len(present & set(SOH_EXPECTED_PLANTS)) < len(SOH_EXPECTED_PLANTS) / 2:
+        problems.append(
+            f"Only {len(present & set(SOH_EXPECTED_PLANTS))} of the {len(SOH_EXPECTED_PLANTS)} expected plants "
+            f"are in this file - it does not look like the national stock-on-hand export."
+        )
+
+    if problems:
+        raise UploadValidationError(problems)
+
+    missing_plants = [p for p in SOH_EXPECTED_PLANTS if p not in present]
+    if missing_plants:
+        warnings.append(
+            "No project stock rows for: " + ", ".join(missing_plants) + " - their stock is recorded as 0."
+        )
+
+    # Material mapping: conversion factors (applied to ORIGINAL names) then rename
+    df['Material Description'] = df['Material Description'].astype(str)
+    factor_map = dict(zip(mapping['Original'], pd.to_numeric(mapping['Conversion Factor'], errors='coerce')))
+    factors = df['Material Description'].map(factor_map)
+    factors = factors.where(factors.notna(), 1.0).astype(float)
+    df[SOH_STOCK_COLUMNS] = df[SOH_STOCK_COLUMNS].mul(factors, axis=0)
+    rename_map = dict(zip(mapping['Original'], mapping['Mapped'].astype(str)))
+    df['Material Description'] = df['Material Description'].map(lambda x: rename_map.get(x, x))
+
+    # Drop excluded storage locations
+    df = df[~df['Storage Location'].isin(SOH_EXCLUDED_STORAGE_LOCATIONS)].copy()
+    if df.empty:
+        raise UploadValidationError("After removing the excluded storage locations no stock rows remain.")
+
+    df['Plant_SOH'] = df['Unrestricted Stock'] + df['Stock in Quality Inspection'] + df['Stock in Transit']
+
+    # Expiry text: "qty(Mon-YYYY), qty(Mon-YYYY)" per material (blocked stock excluded, as in the notebook)
+    shelf = df[df['Plant_SOH'] != 0].copy()
+    shelf['_expiry'] = pd.to_datetime(shelf['Shelf Life Expiration Date'], errors='coerce')
+    non_blank = ~_blank_mask(shelf['Shelf Life Expiration Date'])
+    unparsed = non_blank & shelf['_expiry'].isna()
+    if non_blank.any() and int((non_blank & shelf['_expiry'].notna()).sum()) == 0:
+        raise UploadValidationError(
+            "None of the values in **Shelf Life Expiration Date** could be read as dates. "
+            "Please check the column in the file."
+        )
+    if unparsed.any():
+        warnings.append(
+            f"{int(unparsed.sum())} stock row(s) have an unreadable Shelf Life Expiration Date and were left out "
+            f"of the expiry column ({_row_list(shelf.index[unparsed], 5)})."
+        )
+    shelf = shelf.dropna(subset=['_expiry'])
+    shelf['_month'] = shelf['_expiry'].dt.to_period('M')
+    by_month = (
+        shelf.groupby(['Material Description', '_month'], as_index=False)['Plant_SOH'].sum()
+        .sort_values(['Material Description', '_month'])
+    )
+    by_month['_txt'] = [
+        f"{int(round(q))}({p.strftime('%b-%Y')})" for q, p in zip(by_month['Plant_SOH'], by_month['_month'])
+    ]
+    expiry = by_month.groupby('Material Description')['_txt'].apply(lambda x: ', '.join(x)).rename('Expiry')
+
+    # Plant pivot -> Hubs / NSOH
+    pivot = pd.pivot_table(df, values='Plant_SOH', index='Material Description',
+                           columns='Plant Name', aggfunc='sum', fill_value=0)
+    for p in SOH_EXPECTED_PLANTS:
+        if p not in pivot.columns:
+            pivot[p] = 0.0
+    pivot = pivot[SOH_EXPECTED_PLANTS].astype(float)
+    pivot['NSOH'] = pivot.sum(axis=1)
+    pivot['Hubs'] = pivot.drop(columns=['Head Office', 'NSOH']).sum(axis=1)
+
+    final = pivot[SOH_EXPECTED_PLANTS + ['Hubs', 'NSOH']].join(expiry, how='left')
+    final['Expiry'] = final['Expiry'].fillna("")
+    final = final.reset_index().rename(columns={'index': 'Material Description'})
+    final = final[['Material Description'] + SOH_EXPECTED_PLANTS + ['Hubs', 'NSOH', 'Expiry']]
+
+    db = final.copy()
+    db.columns = [c.strip().lower().replace(" ", "_") for c in db.columns]
+    records = _clean_records(db)
+
+    summary = {
+        "Rows read": f"{rows_read:,}",
+        "Materials": f"{len(final):,}",
+        "Total NSOH": f"{final['NSOH'].sum():,.0f}",
+        "Materials with expiry info": f"{int((final['Expiry'] != '').sum()):,}",
+    }
+    return {"records": records, "preview": final, "warnings": warnings, "summary": summary}
+
+
+# ---------- 2) Posting Date ----------
+def process_posting_upload(raw, mapping_df):
+    """Port of Posting_Date.ipynb. Returns dict(records, preview, warnings, summary)
+    or raises UploadValidationError."""
+    warnings, problems = [], []
+    mapping = _mapping_table(mapping_df, need_factor=False)
+
+    df = raw.dropna(how="all").copy()
+    rows_read = len(df)
+
+    # Exclusions from the notebook
+    df = df[~df['Valuation Type'].astype('string').str.contains('ZMS|ZMD', na=False)]
+    df = df[~df['Purchase order'].astype(str).str.startswith("60")].copy()
+    if df.empty:
+        raise UploadValidationError("No rows are left after removing ZMS/ZMD valuation types and POs starting with 60.")
+
+    # Missing data elements (checked before the Quantity > 0 filter so nothing disappears silently)
+    miss = _blank_mask(df['Material Description'])
+    if miss.any():
+        problems.append(f"**Material Description** is empty in {int(miss.sum())} row(s) ({_row_list(df.index[miss])}).")
+
+    dates = pd.to_datetime(df['Posting Date'], errors='coerce')
+    bad = dates.isna()
+    if bad.any():
+        problems.append(
+            f"**Posting Date** is empty or not a valid date in {int(bad.sum())} row(s) ({_row_list(df.index[bad])})."
+        )
+    else:
+        out_of_range = (dates < pd.Timestamp("2000-01-01")) | (dates > pd.Timestamp.today() + pd.Timedelta(days=366))
+        if out_of_range.any():
+            problems.append(
+                f"**Posting Date** has implausible dates (before 2000 or more than a year ahead) in "
+                f"{int(out_of_range.sum())} row(s) ({_row_list(df.index[out_of_range])})."
+            )
+
+    qty = pd.to_numeric(df['Quantity'], errors='coerce')
+    bad = qty.isna()
+    if bad.any():
+        problems.append(
+            f"**Quantity** is empty or not a number in {int(bad.sum())} row(s) ({_row_list(df.index[bad])})."
+        )
+
+    if problems:
+        raise UploadValidationError(problems)
+
+    df['Posting Date'] = dates.dt.strftime('%Y-%m-%d')
+    df['Quantity'] = qty
+
+    # Material mapping (rename only)
+    rename_map = dict(zip(mapping['Original'], mapping['Mapped'].astype(str)))
+    df['Material Description'] = df['Material Description'].map(lambda x: rename_map.get(x, x))
+
+    # Purchase order text
+    po_blank = _blank_mask(df['Purchase order'])
+    po = (df['Purchase order'].astype(str).str.replace(r"\.0$", "", regex=True).str.strip())
+    df['Purchase order'] = po.where(~po_blank, "NO_PO")
+    if po_blank.any():
+        warnings.append(f"{int(po_blank.sum())} row(s) have no Purchase order and are saved as 'NO_PO'.")
+
+    # Quantity > 0 only
+    non_positive = int((df['Quantity'] <= 0).sum())
+    df = df[df['Quantity'] > 0]
+    if non_positive:
+        warnings.append(f"{non_positive} row(s) with zero or negative Quantity were skipped.")
+    if df.empty:
+        raise UploadValidationError("No rows with a Quantity greater than 0 were found.")
+
+    final = (
+        df.groupby(['Material Description', 'Purchase order', 'Posting Date'], as_index=False)
+        .agg({'Quantity': 'sum'})
+    )
+    db = final.rename(columns={
+        'Material Description': 'material_description', 'Purchase order': 'purchase_order',
+        'Posting Date': 'posting_date', 'Quantity': 'quantity'
+    })
+    records = _clean_records(db, whole_number_columns=('quantity',))
+
+    summary = {
+        "Rows read": f"{rows_read:,}",
+        "Delivery lines": f"{len(final):,}",
+        "Purchase orders": f"{final['Purchase order'].nunique():,}",
+        "Materials": f"{final['Material Description'].nunique():,}",
+        "Posting dates": f"{final['Posting Date'].min()} to {final['Posting Date'].max()}",
+        "Total quantity": f"{final['Quantity'].sum():,.0f}",
+    }
+    return {"records": records, "preview": final, "warnings": warnings, "summary": summary}
+
+
+# ---------- 3) Items (Issue Data) ----------
+def process_issue_upload(raw, mapping_df):
+    """Port of Health_Program_Issue_Data.ipynb. Returns dict(records, preview, warnings, summary)
+    or raises UploadValidationError."""
+    warnings, problems = [], []
+    mapping = _mapping_table(mapping_df, need_factor=True)
+
+    df = raw.dropna(how="all").copy()
+    rows_read = len(df)
+
+    # Net Value > 0 only (same as the notebook)
+    net, _ = _to_number(df['Net Value'])
+    not_issued = int((net <= 0).sum())
+    df = df[net > 0].copy()
+    if not_issued:
+        warnings.append(f"{not_issued:,} row(s) with a Net Value of 0 or less (or empty) were skipped.")
+    if df.empty:
+        raise UploadValidationError("No rows with a Net Value greater than 0 were found.")
+
+    # Missing / invalid data elements
+    for col in ('Material Descr', 'Plant'):
+        miss = _blank_mask(df[col])
+        if miss.any():
+            problems.append(f"**{col}** is empty in {int(miss.sum())} row(s) ({_row_list(df.index[miss])}).")
+
+    dates = pd.to_datetime(df['Delivery Date'], errors='coerce')
+    bad = dates.isna()
+    if bad.any():
+        problems.append(
+            f"**Delivery Date** is empty or not a valid date in {int(bad.sum())} row(s) ({_row_list(df.index[bad])})."
+        )
+    else:
+        out_of_range = (dates < pd.Timestamp("2000-01-01")) | (dates > pd.Timestamp.today() + pd.Timedelta(days=366))
+        if out_of_range.any():
+            problems.append(
+                f"**Delivery Date** has implausible dates (before 2000 or more than a year ahead) in "
+                f"{int(out_of_range.sum())} row(s) ({_row_list(df.index[out_of_range])})."
+            )
+
+    qty, bad_qty = _to_number(df['Quantity'])
+    if bad_qty.any():
+        problems.append(f"**Quantity** is not a number in {int(bad_qty.sum())} row(s) ({_row_list(df.index[bad_qty])}).")
+
+    if problems:
+        raise UploadValidationError(problems)
+
+    df['Delivery Date'] = dates.dt.strftime('%Y-%m-%d')
+    df['Quantity'] = qty
+
+    # Conversion factor (by the ORIGINAL name), then rename - same order as the notebook
+    factors = pd.to_numeric(mapping.set_index('Original')['Conversion Factor'], errors='coerce')
+    df['Quantity'] = df['Quantity'] * df['Material Descr'].map(factors).fillna(1)
+    rename_map = dict(zip(mapping['Original'], mapping['Mapped'].astype(str)))
+    df['Material Descr'] = df['Material Descr'].map(lambda x: rename_map.get(x, x))
+
+    # Region is needed for the regional views; rows without one cannot be keyed (the notebook dropped them too)
+    no_region = _blank_mask(df['Region Descr'])
+    if no_region.any():
+        warnings.append(f"{int(no_region.sum())} row(s) have no Region Descr and were skipped.")
+        df = df[~no_region]
+    if df.empty:
+        raise UploadValidationError("No rows are left after removing rows without a Region Descr.")
+
+    final = (
+        df.groupby(['Material Descr', 'Plant', 'Delivery Date', 'Region Descr'], as_index=False)['Quantity'].sum()
+    )
+    db = final.rename(columns={
+        'Material Descr': 'material_descr', 'Plant': 'plant', 'Delivery Date': 'delivery_date',
+        'Region Descr': 'region_descr', 'Quantity': 'quantity'
+    })
+    records = _clean_records(db)
+
+    summary = {
+        "Rows read": f"{rows_read:,}",
+        "Issue lines": f"{len(final):,}",
+        "Materials": f"{final['Material Descr'].nunique():,}",
+        "Plants": f"{final['Plant'].nunique():,}",
+        "Delivery dates": f"{final['Delivery Date'].min()} to {final['Delivery Date'].max()}",
+        "Total quantity": f"{final['Quantity'].sum():,.0f}",
+    }
+    return {"records": records, "preview": final, "warnings": warnings, "summary": summary}
+
+
+# ---------- Saving (only reachable after a file passed validation) ----------
+def save_soh_to_supabase(records):
+    """Replace health_data with the new records. New rows are inserted FIRST and the old rows are removed
+    only after that succeeded, so a failure never leaves the dashboard without data."""
+    client = st.session_state.get('supabase_client')
+    if client is None:
+        raise RuntimeError("Supabase client is not initialised.")
+
+    last = client.table("health_data").select("id").order("id", desc=True).limit(1).execute()
+    old_max = last.data[0]["id"] if last.data else 0
+    try:
+        for i in range(0, len(records), 500):
+            client.table("health_data").insert(records[i:i + 500]).execute()
+    except Exception:
+        try:   # roll back the partial insert; the previous data is still intact
+            client.table("health_data").delete().gt("id", old_max).execute()
+        except Exception:
+            pass
+        raise
+    if old_max:
+        client.table("health_data").delete().lte("id", old_max).execute()
+    return len(records)
+
+
+def save_posting_to_supabase(records):
+    """Upsert deliveries (same key as the notebook), so re-uploading the same file never creates duplicates."""
+    client = st.session_state.get('supabase_client')
+    if client is None:
+        raise RuntimeError("Supabase client is not initialised.")
+    for i in range(0, len(records), 500):
+        client.table("new_deliveries").upsert(
+            records[i:i + 500], on_conflict="purchase_order,posting_date,material_description"
+        ).execute()
+    return len(records)
+
+
+# ===================================================
+# UPDATE LOG - who updated the dashboard, and when
+# ---------------------------------------------------
+# Every data update (uploads, NSOH snapshots, procurement records, requested dates) is written to the
+# Supabase table below. Times are stored in UTC and shown in East Africa Time (UTC+3, no daylight saving).
+# ===================================================
+UPDATE_LOG_TABLE = "dashboard_update_log"
+UPDATE_LOG_ENABLED = False   # update history is switched off for now; set True (and create the table) to bring it back
+UPDATE_LOG_SQL = """create table if not exists public.dashboard_update_log (
+    id            bigint generated always as identity primary key,
+    created_at    timestamptz not null default now(),
+    updated_by    text,
+    username      text,
+    role          text,
+    action        text,
+    details       text,
+    rows_affected integer
+);
+-- if Row Level Security is on for your other tables, allow this one the same way, for example:
+alter table public.dashboard_update_log disable row level security;"""
+
+
+def _can_view_update_log():
+    user = st.session_state.get('user') or {}
+    return user.get('role') in UPDATE_LOG_VIEW_ROLES
+
+
+def log_dashboard_update(action, details="", rows=None):
+    """Record who changed what. Never raises: a logging problem must not break the update itself."""
+    if not UPDATE_LOG_ENABLED:
+        return False
+    try:
+        client = st.session_state.get('supabase_client')
+        user = st.session_state.get('user') or {}
+        if client is None or not user:
+            return False
+        client.table(UPDATE_LOG_TABLE).insert({
+            "created_at": datetime.now(timezone.utc).isoformat(),
+            "updated_by": str(user.get('full_name') or user.get('username') or user.get('email') or 'Unknown'),
+            "username": str(user.get('username') or user.get('email') or ''),
+            "role": str(user.get('role') or ''),
+            "action": str(action)[:120],
+            "details": str(details)[:500],
+            "rows_affected": int(rows) if rows is not None else None,
+        }).execute()
+        st.session_state.pop('_update_log_err', None)
+        try:
+            load_update_log.clear()
+        except Exception:
+            pass
+        return True
+    except Exception as e:
+        st.session_state['_update_log_err'] = str(e)[:300]
+        return False
+
+
+@st.cache_data(ttl=60, show_spinner=False)
+def load_update_log(limit=1000):
+    """Returns (DataFrame, error_text). Newest first, with Date and Time (East Africa Time)."""
+    cols = ['Date', 'Time (EAT)', 'User', 'Username', 'Role', 'Action', 'Details', 'Records', '_ts']
+    try:
+        client = st.session_state.get('supabase_client')
+        if client is None:
+            return pd.DataFrame(columns=cols), "Supabase client is not initialised."
+        rows = client.table(UPDATE_LOG_TABLE).select("*").order("created_at", desc=True).limit(limit).execute().data
+        if not rows:
+            return pd.DataFrame(columns=cols), None
+        raw = pd.DataFrame(rows)
+        ts = pd.to_datetime(raw['created_at'], utc=True, errors='coerce') + pd.Timedelta(hours=3)
+        out = pd.DataFrame({
+            'Date': ts.dt.strftime('%d %b %Y'),
+            'Time (EAT)': ts.dt.strftime('%H:%M'),
+            'User': raw.get('updated_by'),
+            'Username': raw.get('username'),
+            'Role': raw.get('role'),
+            'Action': raw.get('action'),
+            'Details': raw.get('details'),
+            'Records': raw.get('rows_affected'),
+            '_ts': ts.dt.tz_localize(None),
+        })
+        return out, None
+    except Exception as e:
+        return pd.DataFrame(columns=cols), str(e)
+
+
+def _render_update_history():
+    """Update history for the Upload Data page: only date & time (East Africa Time) and who updated."""
+    st.markdown("#### 🕒 Update history")
+    log_df, err = load_update_log()
+    if log_df.empty:
+        if err:
+            if (st.session_state.get('user') or {}).get('role') == 'admin':
+                st.error("The update history could not be read. If this is the first time, create the table once "
+                         "in the Supabase SQL editor, then refresh this page:")
+                st.code(UPDATE_LOG_SQL, language="sql")
+                st.caption(f"Details: {err}")
+            else:
+                st.info("Update history is not available yet. Please ask an admin to set it up.")
+        else:
+            st.info("No updates have been recorded yet.")
+        return
+    shown = pd.DataFrame({
+        "Date & time (EAT)": log_df['Date'] + "  " + log_df['Time (EAT)'],
+        "Updated by": log_df['User'],
+    }).head(100)
+    st.dataframe(shown, use_container_width=True, hide_index=True, height=min(420, (len(shown) + 1) * 35 + 3))
+
+
+def save_issue_to_supabase(records):
+    """Upsert issue lines (same key as the notebook), so re-uploading the same file never creates duplicates."""
+    client = st.session_state.get('supabase_client')
+    if client is None:
+        raise RuntimeError("Supabase client is not initialised.")
+    for i in range(0, len(records), 1000):
+        client.table("issue_data").upsert(
+            records[i:i + 1000], on_conflict="material_descr,delivery_date,plant,region_descr"
+        ).execute()
+    return len(records)
+
+
+# ---------- Upload page ----------
+@st.cache_data(ttl=300, show_spinner=False)
+def _fetch_mapping_table():
+    r = requests.get(MAPPING_SHEET_CSV_URL, timeout=30)
+    r.raise_for_status()
+    return pd.read_csv(BytesIO(r.content))
+
+
+UPLOAD_KINDS = {
+    "soh": {
+        "tab": "📦 Health Program SOH",
+        "label": "Stock on Hand",
+        "uploader": "Upload the Materials / stock-on-hand export (.xlsx or .csv)",
+        "required": SOH_REQUIRED_COLUMNS,
+        "other_required": POSTING_REQUIRED_COLUMNS, "other_label": "Posting Date",
+        "process": process_soh_upload, "save": save_soh_to_supabase,
+        "save_note": "Saving **replaces all current stock-on-hand data** shown on the dashboard.",
+        "help": "Special Stock Type Description is filtered to 'Project Stock'; storage locations "
+                + ", ".join(SOH_EXCLUDED_STORAGE_LOCATIONS) + " are excluded.",
+    },
+    "posting": {
+        "tab": "🚚 Posting Date",
+        "label": "Posting Date",
+        "uploader": "Upload the Posting export (.xlsx or .csv)",
+        "required": POSTING_REQUIRED_COLUMNS,
+        "other_required": SOH_REQUIRED_COLUMNS, "other_label": "Health Program SOH",
+        "process": process_posting_upload, "save": save_posting_to_supabase,
+        "save_note": "Saving **adds new deliveries and updates matching ones** "
+                     "(same PO + posting date + material); nothing else is deleted.",
+        "help": "Valuation types ZMS/ZMD and POs starting with 60 are skipped; only quantities above 0 are kept.",
+    },
+    "issue": {
+        "tab": "🧾 Items (Issue Data)",
+        "label": "Items (Issue Data)",
+        "uploader": "Upload the Items export (.xlsx or .csv)",
+        "required": ISSUE_REQUIRED_COLUMNS,
+        "other_required": SOH_REQUIRED_COLUMNS, "other_label": "Health Program SOH",
+        "process": process_issue_upload, "save": save_issue_to_supabase,
+        "save_note": "Saving **adds new issue lines and updates matching ones** "
+                     "(same material + plant + region + delivery date); nothing is deleted.",
+        "help": "Only rows with a Net Value above 0 are used. Quantities are multiplied by the conversion factor and "
+                "materials are renamed using the material mapping Google Sheet, then summed per material, plant, "
+                "delivery date and region.",
+    },
+}
+
+
+def _check_uploaded_file(kind, uploaded_file):
+    """Read + validate + process. Raises UploadValidationError for anything wrong with the file."""
+    cfg = UPLOAD_KINDS[kind]
+    raw = _standardise_headers(_read_uploaded_table(uploaded_file))
+    _require_columns(raw, cfg["required"], cfg["label"], cfg["other_required"], cfg["other_label"])
+    try:
+        mapping_df = _fetch_mapping_table()
+    except Exception as e:
+        raise UploadValidationError(
+            f"The material mapping Google Sheet could not be loaded ({type(e).__name__}). "
+            f"Nothing was saved - please try again in a moment."
+        )
+    return cfg["process"](raw, mapping_df)
+
+
+def _render_upload_panel(kind):
+    cfg = UPLOAD_KINDS[kind]
+    ctr_key, state_key = f"upl_{kind}_ctr", f"upl_{kind}_state"
+    st.session_state.setdefault(ctr_key, 0)
+
+    with st.expander("Required columns", expanded=False):
+        st.write(", ".join(f"`{c}`" for c in cfg["required"]))
+        st.caption(cfg["help"])
+
+    uploaded = st.file_uploader(cfg["uploader"], type=["xlsx", "xlsm", "csv"],
+                                key=f"upl_{kind}_file_{st.session_state[ctr_key]}")
+    if uploaded is None:
+        st.session_state.pop(state_key, None)
+        return
+
+    sig = (uploaded.name, uploaded.size)
+    state = st.session_state.get(state_key)
+    if not state or state.get("sig") != sig:
+        with st.spinner("Checking file..."):
+            try:
+                state = {"sig": sig, "result": _check_uploaded_file(kind, uploaded), "errors": None}
+            except UploadValidationError as e:
+                state = {"sig": sig, "result": None, "errors": e.problems}
+            except Exception as e:   # never let a bad file crash the page
+                state = {"sig": sig, "result": None,
+                         "errors": [f"The file could not be processed ({type(e).__name__}: {e}). "
+                                    f"Please check that it is the correct, unmodified export."]}
+        st.session_state[state_key] = state
+
+    if state["errors"]:
+        st.error("❌ This file was **not saved**. The dashboard data is unchanged. Please fix the following and upload again:")
+        for p in state["errors"]:
+            st.markdown(f"- {p}")
+        return
+
+    result = state["result"]
+    st.success(f"✅ **{uploaded.name}** passed all checks and is ready to save.")
+    for w in result["warnings"]:
+        st.warning(w)
+    cols = st.columns(len(result["summary"]))
+    for c, (k, v) in zip(cols, result["summary"].items()):
+        c.metric(k, v)
+    with st.expander("Preview of the data that will be saved", expanded=False):
+        st.dataframe(result["preview"].head(100), hide_index=True)
+    st.info(cfg["save_note"])
+
+    if st.button("💾 Confirm and save to Supabase", type="primary", key=f"upl_{kind}_save"):
+        with st.spinner("Saving to Supabase..."):
+            try:
+                n = cfg["save"](result["records"])
+            except Exception as e:
+                st.error(f"❌ Saving to Supabase failed: {e}. "
+                         + ("The previous data is still in place." if kind == "soh"
+                            else "You can safely upload the same file again."))
+                return
+        st.cache_data.clear()
+        st.session_state.data_timestamp = datetime.now()
+        log_dashboard_update(f"Uploaded {cfg['label']}", uploaded.name, n)
+        st.session_state[ctr_key] += 1
+        st.session_state.pop(state_key, None)
+        st.session_state["upl_flash"] = f"✅ {cfg['label']}: {n:,} records saved to Supabase. The dashboard now shows the new data."
+        st.rerun()
+
+
+def show_upload_data_page():
+    st.markdown("<h1 style='font-size: 32px; font-weight: bold; font-family: Times New Roman;' "
+                "class='gradient-text'>📤 Upload Data</h1>", unsafe_allow_html=True)
+    flash = st.session_state.pop("upl_flash", None)
+    if flash:
+        st.success(flash)
+    st.caption("Files are checked before anything is saved. If a file is wrong or has missing data, "
+               "you will see what to fix and the dashboard stays exactly as it is.")
+
+    try:
+        stock_rows = st.session_state.supabase_client.table("health_data") \
+            .select("id", count="exact").limit(1).execute().count
+        deliv = load_new_deliveries()
+        c1, c2, c3 = st.columns(3)
+        c1.metric("Materials in stock data", f"{stock_rows:,}")
+        c2.metric("Delivery lines", f"{len(deliv):,}")
+        latest = deliv['Posting Date'].max() if not deliv.empty and 'Posting Date' in deliv.columns else None
+        c3.metric("Latest posting date", latest.strftime('%Y-%m-%d') if pd.notna(latest) else "-")
+    except Exception:
+        pass
+
+    tabs = st.tabs([UPLOAD_KINDS[k]["tab"] for k in UPLOAD_KINDS])
+    for tab, kind in zip(tabs, UPLOAD_KINDS):
+        with tab:
+            _render_upload_panel(kind)
+
+    if UPDATE_LOG_ENABLED:
+        if st.session_state.get('_update_log_err'):
+            st.warning("⚠️ The last update was saved, but it could not be added to the update history. "
+                       "An admin needs to create the update-log table (see Update history below).")
+        st.markdown("---")
+        _render_update_history()
+
 
 # ---------------------------------------------------
 # calculate_stock_changes FUNCTION
@@ -2370,16 +3218,66 @@ def format_mos_with_decimals(x):
     except:
         return str(x) if x else ""
 
-def categorize_stock(nmos):
+# ---------------------------------------------------
+# Stock level rules (months of stock). Vaccines use their own min / max.
+# ---------------------------------------------------
+DEFAULT_MIN_MOS, DEFAULT_MAX_MOS = 6, 18
+VACCINE_MIN_MOS, VACCINE_MAX_MOS = 4, 10
+# A program (sheet) name or a material description containing one of these words is treated as a vaccine.
+VACCINE_KEYWORDS = ("vaccin",)
+VACCINE_MATERIALS = set()
+
+
+def _is_vaccine_text(text):
+    t = str(text).lower()
+    return any(k in t for k in VACCINE_KEYWORDS)
+
+
+def compute_vaccine_materials(sheets):
+    """Materials that belong to a vaccine program sheet."""
+    out = set()
+    for name, sdf in (sheets or {}).items():
+        if _is_vaccine_text(name) and sdf is not None and 'Material Description' in getattr(sdf, 'columns', []):
+            out.update(sdf['Material Description'].dropna().astype(str).str.strip())
+    return out
+
+
+def levels_for(materials):
+    """(min_levels, max_levels) numpy arrays for a list/array of material descriptions."""
+    mats = pd.Series(list(materials), dtype="object").astype(str).str.strip()
+    is_v = mats.isin(VACCINE_MATERIALS) | mats.apply(_is_vaccine_text)
+    return (np.where(is_v, VACCINE_MIN_MOS, DEFAULT_MIN_MOS).astype(float),
+            np.where(is_v, VACCINE_MAX_MOS, DEFAULT_MAX_MOS).astype(float))
+
+
+def program_levels(program_name):
+    return (VACCINE_MIN_MOS, VACCINE_MAX_MOS) if _is_vaccine_text(program_name) else (DEFAULT_MIN_MOS, DEFAULT_MAX_MOS)
+
+
+def nmos_range_stats(frame):
+    """(% of materials within min-max, % overstocked) using each material's own min / max."""
+    try:
+        nm = pd.to_numeric(frame['NMOS'], errors='coerce').to_numpy(dtype=float)
+        ok = ~np.isnan(nm)
+        if not ok.any():
+            return 0.0, 0.0
+        lo, hi = levels_for(frame['Material Description'].to_numpy()[ok])
+        v = nm[ok]
+        return float(((v >= lo) & (v <= hi)).mean() * 100), float((v > hi).mean() * 100)
+    except Exception:
+        return 0.0, 0.0
+
+
+def categorize_stock(nmos, min_level=DEFAULT_MIN_MOS, max_level=DEFAULT_MAX_MOS):
     try:
         if pd.isna(nmos) or nmos == "" or nmos is None:
             return ""
         x = float(nmos) if not isinstance(nmos, (int, float)) else nmos
         if x < 1:
             return "Stock Out"
-        elif x < 6:
+        elif x < min_level:
             return "Understock"
-        elif x <= 18:
+        elif x <= max_level:
             return "Normal Stock"
         else:
             return "Overstock"
@@ -2465,9 +3363,14 @@ if df_external.empty:
     st.stop()
 
 # ---------------------------------------------------
+# Main-panel slots: [title] then [filters]. Filled later, but they keep this position on screen.
+# ---------------------------------------------------
+# ---------------------------------------------------
 # User Info in Sidebar
 # ---------------------------------------------------
 with st.sidebar:
+    st.markdown("<div style='background:#1a5276;border-radius:15px;padding:10px;text-align:center;width:60px'>"
+                "<p style='color:white;font-weight:bold;margin:0'>EPSS</p></div>", unsafe_allow_html=True)
     st.title(f"Welcome, {st.session_state['user']['full_name']}!")
     st.caption(f"Role: {st.session_state['user']['role'].title()}")
 
@@ -2478,6 +3381,17 @@ with st.sidebar:
         st.markdown(f"### 🔔 Notifications ({len(st.session_state.notifications)})")
         for notif in st.session_state.notifications[:3]:
             st.warning(notif)
+
+_title_slot = st.container()
+_FILTER_PAGES = ("Dashboard", "Advanced Analytics", "Executive Summary")
+_filters_visible = st.session_state.get('nav_page', 'Dashboard') in _FILTER_PAGES
+_sb_flt = st.sidebar.container()   # filters live in the sidebar, right above Navigation
+_fc = [_sb_flt] * 5 if _filters_visible else None
+if _filters_visible:
+    with _fc[4]:
+        view_mode = st.selectbox("🎨 Display Settings", ["Table View", "Card View"],
+                                 index=0 if st.session_state.view_mode == "table" else 1)
+        st.session_state.view_mode = "table" if view_mode == "Table View" else "card"
 
 # ---------------------------------------------------
 # Program Selection - MULTI-SELECT (UPDATED)
@@ -2523,12 +3437,16 @@ else:
     program_list = ["All"]
 
 # Multi-select for programs
-selected_programs = st.sidebar.multiselect(
-    "Program(s)",
-    program_list,
-    default=st.session_state.selected_programs if st.session_state.selected_programs else ["All"],
-    key="program_multiselect"
-)
+if _filters_visible:
+    with _fc[0]:
+        selected_programs = st.multiselect(
+            "Program(s)",
+            program_list,
+            default=st.session_state.selected_programs if st.session_state.selected_programs else ["All"],
+            key="program_multiselect"
+        )
+else:
+    selected_programs = st.session_state.selected_programs if st.session_state.selected_programs else ["All"]
 
 # Update session state
 st.session_state.selected_programs = selected_programs
@@ -2553,7 +3471,13 @@ if len(selected_programs_list) == 1:
         show_subcategory_filter = True
 
 if show_subcategory_filter:
-    subcategory_filter = st.sidebar.selectbox("Subcategory", subcategory_options, key="subcategory_filter")
+    if _filters_visible:
+        with _fc[0]:
+            subcategory_filter = st.selectbox("Subcategory", subcategory_options, key="subcategory_filter")
+    else:
+        subcategory_filter = st.session_state.get("subcategory_filter", "All")
+        if subcategory_filter not in subcategory_options:
+            subcategory_filter = "All"
 else:
     subcategory_filter = "All"
     st.session_state.subcategory_filter = "All"
@@ -2561,6 +3485,9 @@ else:
 # ---------------------------------------------------
 # Data loading based on selected programs
 # ---------------------------------------------------
+VACCINE_MATERIALS = compute_vaccine_materials(google_sheets)
+
+
 def _frame_sig(obj):
     """Cheap content signature for a DataFrame or a dict of DataFrames."""
     try:
@@ -2717,7 +3644,8 @@ else:
             df['TMOS'] = np.nan
 
         if 'NMOS' in df.columns:
-            df['Stock Status'] = df['NMOS'].apply(categorize_stock)
+            _lo_lv, _hi_lv = levels_for(df['Material Description'])
+            df['Stock Status'] = [categorize_stock(n_, a_, b_) for n_, a_, b_ in zip(df['NMOS'], _lo_lv, _hi_lv)]
         else:
             df['Stock Status'] = ""
 
@@ -2862,24 +3790,24 @@ if 'Material Description' in df.columns:
     risk_type_options = ["All", "Risk of Stock out", "Expiry Risk", "Critical Risk"]
 
     # MULTI-SELECT FILTERS
-    risk_type_filter = st.sidebar.multiselect(
-        "Risk Type", 
-        risk_type_options, 
-        default=st.session_state.risk_type_filter if isinstance(st.session_state.risk_type_filter, list) else ["All"]
-    )
-    st.session_state.risk_type_filter = risk_type_filter
+    _risk_default = st.session_state.risk_type_filter if isinstance(st.session_state.risk_type_filter, list) else ["All"]
+    # keyed widgets: drop stored selections that are not in the current options, and keep them alive on pages
+    # where the filter bar is not shown (assigning the key every run stops Streamlit from clearing it)
+    st.session_state["flt_material"] = [m for m in st.session_state.get("flt_material", []) if m in materials]
+    st.session_state["flt_status"] = [x for x in st.session_state.get("flt_status", []) if x in statuses]
 
-    material_filter = st.sidebar.multiselect(
-        "Material Description", 
-        materials, 
-        default=[]
-    )
-
-    status_filter = st.sidebar.multiselect(
-        "Stock Status", 
-        statuses, 
-        default=[]
-    )
+    if _filters_visible:
+        with _fc[1]:
+            material_filter = st.multiselect("Material Description", materials, key="flt_material")
+        with _fc[2]:
+            status_filter = st.multiselect("Stock Status", statuses, key="flt_status")
+        with _fc[3]:
+            risk_type_filter = st.multiselect("Risk Type", risk_type_options, default=_risk_default)
+        st.session_state.risk_type_filter = risk_type_filter
+    else:
+        material_filter = st.session_state["flt_material"]
+        status_filter = st.session_state["flt_status"]
+        risk_type_filter = _risk_default
 
     df_filtered = df.copy()
     display_df_filtered = display_df.copy()
@@ -2933,11 +3861,6 @@ if 'Material Description' in df.columns:
     if not show_all_programs and selected_programs_list:
         active_filters.append(f"Programs: {len(selected_programs_list)} selected")
 
-    # ========== CLEAR FILTERS BUTTON ==========
-    if st.sidebar.button("🗑️ Clear All Filters", use_container_width=True):
-        st.session_state.risk_type_filter = ["All"]
-        st.session_state.search_query = ""
-        st.rerun()
 
 else:
     st.error("Material Description column not found in the data")
@@ -2955,8 +3878,7 @@ NAV_TREE = {
     ],
     "Advanced Analytics": [
         "🏆 Branch Ranking", "🔄 Redistribution", "📧 Critical Alerts", "⏰ Expiry Notifications",
-        "📊 Program Comparison", "🗺️ Regional Map", "👁️ Popular Materials", "👥 User Analytics",
-        "📅 Report Scheduling"
+        "📊 Program Comparison", "🗺️ Regional Map", "📅 Report Scheduling"
     ],
     "Executive Summary": [
         "🎯 Performance Metrics", "📊 Stock Status", "⚠️ Risk Summary",
@@ -2964,11 +3886,14 @@ NAV_TREE = {
     ],
     "Issue Data": [],
 }
+if _can_upload_data():
+    NAV_TREE["Upload Data"] = []
+# Profile / Admin Panel live in the "Users Control" group next to Logout
+USER_PAGES = ["Profile"]
 if _is_admin:
-    NAV_TREE["Admin Panel"] = []
-NAV_TREE["Profile"] = []
+    USER_PAGES.append("Admin Panel")
 
-if st.session_state.get('nav_page') not in NAV_TREE:
+if st.session_state.get('nav_page') not in NAV_TREE and st.session_state.get('nav_page') not in USER_PAGES:
     st.session_state.nav_page = "Dashboard"
 if 'nav_sub' not in st.session_state:
     st.session_state.nav_sub = {}
@@ -3032,6 +3957,19 @@ section[data-testid="stSidebar"] div[class*="st-key-nav_sub_"] {
     padding-left: 6px;
 }
 section[data-testid="stSidebar"] div[class*="st-key-nav_sub_"] button { font-size: 13px !important; padding: 0.3rem 0.6rem !important; }
+/* active tab inside a page = blue (page stays green) */
+section[data-testid="stSidebar"] div[class*="st-key-nav_sub_"] button[kind="primary"],
+section[data-testid="stSidebar"] div[class*="st-key-nav_sub_"] button[data-testid="stBaseButton-primary"] {
+    background-color: #2e86c1 !important; border-color: #2e86c1 !important; color: #ffffff !important;
+}
+section[data-testid="stSidebar"] div[class*="st-key-nav_sub_"] button[kind="primary"]:hover,
+section[data-testid="stSidebar"] div[class*="st-key-nav_sub_"] button[data-testid="stBaseButton-primary"]:hover {
+    background-color: #1f618d !important; border-color: #1f618d !important;
+}
+section[data-testid="stSidebar"] div[class*="st-key-nav_sub_"] button[kind="primary"]:focus:not(:active),
+section[data-testid="stSidebar"] div[class*="st-key-nav_sub_"] button[data-testid="stBaseButton-primary"]:focus:not(:active) {
+    border-color: #1f618d !important; box-shadow: 0 0 0 0.15rem rgba(46,134,193,.35) !important;
+}
 section[data-testid="stSidebar"] [data-testid="stVerticalBlock"] { gap: 0.35rem; }
 </style>
 """, unsafe_allow_html=True)
@@ -3142,6 +4080,7 @@ if st.session_state['user']['role'] == 'admin':
                         # Clear cache to refresh snapshot data
                         st.cache_data.clear()
                         st.session_state.nsoh_snapshots = load_nsoh_snapshots()
+                        log_dashboard_update("Saved NSOH snapshot", selected_month_label, saved_count)
                         st.success(f"✅ Saved {saved_count} materials for {selected_month_label}")
                         time.sleep(1)
                         st.rerun()
@@ -3151,7 +4090,25 @@ if st.session_state['user']['role'] == 'admin':
 # Logout
 # ---------------------------------------------------
 st.sidebar.divider()
-if st.sidebar.button("🚪 Logout", use_container_width=True):
+_USER_ICONS = {"Profile": "👤", "Admin Panel": "🛠️"}
+if st.sidebar.button("🔄 Refresh", key="nav_refresh", use_container_width=True,
+                     help="Reload the latest data from Supabase / Google Sheets"):
+    try:
+        st.cache_data.clear()
+    except Exception:
+        pass
+    for _k in ('_main_frames_memo', '_kpi_lead_memo'):
+        st.session_state.pop(_k, None)
+    st.session_state['proc_cache_bust'] = st.session_state.get('proc_cache_bust', 0) + 1
+    st.rerun()
+st.sidebar.markdown("#### 👥 Users Control")
+for _up in USER_PAGES:
+    if st.sidebar.button(f"{_USER_ICONS.get(_up, '')}  {_up}", key="nav_user_" + _up.replace(" ", "_"),
+                         use_container_width=True, type="primary" if page == _up else "secondary"):
+        _go_nav(_up)
+        st.session_state.nav_close_sb = True
+        st.rerun()
+if st.sidebar.button("🚪 Logout", key="nav_user_logout", use_container_width=True):
     st.session_state['auth'] = False
     st.session_state['user'] = None
     st.rerun()
@@ -3164,6 +4121,9 @@ if page == "Profile":
     st.stop()
 elif page == "Admin Panel" and st.session_state['user']['role'] == 'admin':
     show_admin_panel()
+    st.stop()
+elif page == "Upload Data" and _can_upload_data():
+    show_upload_data_page()
     st.stop()
 elif page == "Issue Data":
     # ===================================================
@@ -3862,8 +4822,8 @@ elif page == "Advanced Analytics":
     st.markdown("<h1 style='font-size: 32px; font-weight: bold; font-family: Times New Roman;' class='gradient-text'>Advanced Analytics Dashboard</h1>", unsafe_allow_html=True)
 
     # Section selector (linked to the sidebar) - only the selected section is rendered
-    _apply_nav_target("Advanced Analytics", 9, "tabs")
-    aa_tab1, aa_tab2, aa_tab3, aa_tab4, aa_tab5, aa_tab6, aa_tab7, aa_tab8, aa_tab9 = _tabs_for("Advanced Analytics")
+    _apply_nav_target("Advanced Analytics", 7, "tabs")
+    aa_tab1, aa_tab2, aa_tab3, aa_tab4, aa_tab5, aa_tab6, aa_tab9 = _tabs_for("Advanced Analytics")
 
     # ========== TAB 1: Branch Ranking ==========
     with aa_tab1:
@@ -4048,7 +5008,7 @@ elif page == "Advanced Analytics":
                     if pd.isna(national_nmos):
                         national_nmos = 10
 
-                    is_understock = national_nmos < 6
+                    is_understock = national_nmos < levels_for([material])[0][0]
                     trigger = has_expiry_risk or is_understock
 
                     if not trigger:
@@ -4263,7 +5223,7 @@ elif page == "Advanced Analytics":
     with aa_tab5:
         if _tab_open(aa_tab5):
             st.markdown("<h3 style='font-size: 24px; font-weight: bold;'>Program Performance Comparison</h3>", unsafe_allow_html=True)
-            st.caption("Ranking based on: Availability (100%=1), SAP (≥65%=1), Stock-out Rate (0%=1), Overstock Rate (0%=1), Avg NMOS (6-18 months=1)")
+            st.caption("Ranking based on: Availability (100%=1), SAP (≥65%=1), Stock-out Rate (0%=1), Overstock Rate (0%=1), Avg NMOS (6-18 months; vaccines 4-10 = 1)")
 
             if google_sheets and len(google_sheets) > 0:
                 program_metrics = []
@@ -4280,9 +5240,8 @@ elif page == "Advanced Analytics":
 
                         if len(nmos_values) > 0:
                             Availability = (nmos_values > 1).mean() * 100
-                            sap = ((nmos_values >= 6) & (nmos_values <= 18)).mean() * 100
+                            sap, overstock_rate = nmos_range_stats(merged)
                             stock_out_rate = (nmos_values < 1).mean() * 100
-                            overstock_rate = (nmos_values > 18).mean() * 100
                             avg_nmos = nmos_values.mean()
                         else:
                             Availability = sap = stock_out_rate = overstock_rate = 0
@@ -4309,7 +5268,8 @@ elif page == "Advanced Analytics":
                             composite_score += 1
                         if item['Overstock Rate (%)'] == 0:
                             composite_score += 1
-                        if 6 <= item['Avg NMOS'] <= 18:
+                        _lo_p, _hi_p = program_levels(item['Program'])
+                        if _lo_p <= item['Avg NMOS'] <= _hi_p:
                             composite_score += 1
                         item['Composite Score'] = composite_score
 
@@ -4512,60 +5472,6 @@ elif page == "Advanced Analytics":
             else:
                 st.info("Branch AMC data not available for map")
 
-    # ========== TAB 7: Popular Materials ==========
-    with aa_tab7:
-        if _tab_open(aa_tab7):
-            st.markdown("<h3 style='font-size: 24px; font-weight: bold;'>Most Viewed Materials</h3>", unsafe_allow_html=True)
-            st.caption("Tracks materials that users search for and view most frequently")
-
-            if st.session_state.material_views:
-                popular_df = pd.DataFrame([{'Material': k, 'Views': v} for k, v in st.session_state.material_views.items()]).sort_values('Views', ascending=False).head(10)
-                if not popular_df.empty:
-                    col1, col2 = st.columns(2)
-                    with col1:
-                        st.metric("👁️ Total Material Views", popular_df['Views'].sum())
-                    with col2:
-                        st.metric("⭐ Most Viewed", popular_df.iloc[0]['Material'])
-                    fig = px.bar(popular_df, x='Material', y='Views', color='Views', title='Top 10 Most Viewed Materials')
-                    fig.update_layout(height=500, xaxis_tickangle=-45)
-                    st.plotly_chart(fig, use_container_width=True)
-                    st.dataframe(popular_df, use_container_width=True, hide_index=True)
-                    if st.button("🗑️ Reset View Tracking"):
-                        st.session_state.material_views = {}
-                        st.rerun()
-                else:
-                    st.info("No material view data yet")
-            else:
-                st.info("No material view data yet. Start searching and viewing materials to see popularity analytics.")
-
-    # ========== TAB 8: User Analytics ==========
-    with aa_tab8:
-        if _tab_open(aa_tab8):
-            st.markdown("<h3 style='font-size: 24px; font-weight: bold;'>User Role Analytics</h3>", unsafe_allow_html=True)
-
-            if st.session_state['user']['role'] == 'admin':
-                if st.session_state.user_activity:
-                    activity_df = pd.DataFrame(st.session_state.user_activity)
-                    if not activity_df.empty:
-                        role_summary = activity_df.groupby('role').agg({'user': 'nunique', 'action': 'count'}).rename(columns={'user': 'Unique Users', 'action': 'Total Actions'})
-                        st.dataframe(role_summary, use_container_width=True)
-                        top_users = activity_df.groupby('user').size().sort_values(ascending=False).head(5).reset_index()
-                        top_users.columns = ['User', 'Activity Count']
-                        st.subheader("👥 Most Active Users")
-                        st.dataframe(top_users, use_container_width=True, hide_index=True)
-                        if st.button("🗑️ Clear Activity Log"):
-                            st.session_state.user_activity = []
-                            st.rerun()
-                    else:
-                        st.info("No user activity data yet")
-                else:
-                    st.info("No user activity data yet. User actions will be tracked as they use the dashboard.")
-            else:
-                st.info("User analytics are only available to administrators.")
-                if st.session_state.user_activity:
-                    my_activity = [a for a in st.session_state.user_activity if a.get('user') == st.session_state['user']['email']]
-                    st.metric("Your Activity Count", len(my_activity))
-
     # ========== TAB 9: Report Scheduling ==========
     with aa_tab9:
         if _tab_open(aa_tab9):
@@ -4633,7 +5539,7 @@ elif page == "Executive Summary":
         nmos_values = pd.to_numeric(df_filtered['NMOS'], errors='coerce').dropna()
         if len(nmos_values) > 0:
             Availability = (nmos_values > 1).mean() * 100
-            sap_achievement = ((nmos_values >= 6) & (nmos_values <= 18)).mean() * 100
+            sap_achievement = nmos_range_stats(df_filtered)[0]
 
         if 'Distr. Gap' in df_filtered.columns:
             avail_gap_values = pd.to_numeric(df_filtered['Distr. Gap'], errors='coerce').dropna()
@@ -4876,7 +5782,7 @@ elif page == "Executive Summary":
     # SECTION 6: PROGRAM PERFORMANCE
     st.markdown("---")
     st.markdown("<h2 style='font-size: 28px; font-weight: bold;'>📊 6. Program Performance</h2>", unsafe_allow_html=True)
-    st.caption("Ranking based on: Availability (100%=1), SAP (≥65%=1), Stock-out Rate (0%=1), Overstock Rate (0%=1), Avg NMOS (6-18 months=1) = Max 5 points")
+    st.caption("Ranking based on: Availability (100%=1), SAP (≥65%=1), Stock-out Rate (0%=1), Overstock Rate (0%=1), Avg NMOS (6-18 months; vaccines 4-10 = 1) = Max 5 points")
 
     if google_sheets and len(google_sheets) > 0 and not df.empty:
         program_metrics = []
@@ -4894,17 +5800,18 @@ elif page == "Executive Summary":
                 Availability_prog = (nmos_values > 1).mean() * 100
                 if Availability_prog == 100:
                     composite_score += 1
-                sap_prog = ((nmos_values >= 6) & (nmos_values <= 18)).mean() * 100
+                sap_prog = nmos_range_stats(merged)[0]
                 if sap_prog >= 65:
                     composite_score += 1
                 stock_out_rate = (nmos_values < 1).mean() * 100
                 if stock_out_rate == 0:
                     composite_score += 1
-                overstock_rate = (nmos_values > 18).mean() * 100
+                overstock_rate = nmos_range_stats(merged)[1]
                 if overstock_rate == 0:
                     composite_score += 1
                 avg_nmos_prog = nmos_values.mean()
-                if 6 <= avg_nmos_prog <= 18:
+                _lo_p, _hi_p = program_levels(program_name)
+                if _lo_p <= avg_nmos_prog <= _hi_p:
                     composite_score += 1
 
                 program_metrics.append({
@@ -5018,28 +5925,11 @@ else:
     if subcategory_filter != "All" and len(selected_programs_list) == 1:
         program_display = f"{selected_programs_list[0]} - {subcategory_filter}"
 
-    # Header Row with Animated Text
-    col_logo, col_title, col_settings = st.columns([1, 3, 1])
-
-    with col_logo:
-        st.markdown("<div style='background:#1a5276;border-radius:15px;padding:10px;text-align:center;width:60px'><p style='color:white;font-weight:bold;margin:0'>EPSS</p></div>", unsafe_allow_html=True)
-
-    with col_title:
+    # Header: title only (EPSS badge is in the sidebar, filters + display settings sit right below this title)
+    with _title_slot:
         st.markdown("""
-        <div>
-            <p class='animated-subtitle' style='font-size: 18px; color: #1a5276; margin: 0; font-weight: bold;'>ETHIOPIAN PHARMACEUTICAL SUPPLY SERVICE</p>
-            <h1 class='animated-header' style='font-size: 32px; font-weight: bold; font-family: Times New Roman; margin: 0;' class='gradient-text'>HPC STOCK MANAGEMENT DASHBOARD</h1>
-        </div>
+        <h1 class='animated-header' style='font-size: 32px; font-weight: bold; font-family: Times New Roman; margin: 0; padding: 0; line-height: 1.2; text-align: center; display: block; width: 100%;'>HPC STOCK MANAGEMENT DASHBOARD</h1>
         """, unsafe_allow_html=True)
-
-    with col_settings:
-        st.markdown("""
-        <div style='background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%); border-radius: 15px; padding: 10px; border: 1px solid #dee2e6;'>
-            <p style='margin: 0 0 5px 0; font-size: 12px; font-weight: bold; color: #1a5276; text-align: center;'>🎨 DISPLAY SETTINGS</p>
-        </div>
-        """, unsafe_allow_html=True)
-        view_mode = st.selectbox("View Mode", ["Table View", "Card View"], index=0 if st.session_state.view_mode == "table" else 1, label_visibility="collapsed")
-        st.session_state.view_mode = "table" if view_mode == "Table View" else "card"
 
     st.markdown("---")
 
@@ -5058,7 +5948,7 @@ else:
     if not df_filtered.empty and 'NMOS' in df_filtered.columns:
         nmos_values = pd.to_numeric(df_filtered['NMOS'], errors='coerce').dropna()
         Availability = (nmos_values > 1).mean() * 100 if len(nmos_values) > 0 else 0
-        sap = ((nmos_values >= 6) & (nmos_values <= 18)).mean() * 100 if len(nmos_values) > 0 else 0
+        sap = nmos_range_stats(df_filtered)[0] if len(nmos_values) > 0 else 0
 
         if 'Distr. Gap' in df_filtered.columns:
             avail_gap_values = pd.to_numeric(df_filtered['Distr. Gap'], errors='coerce').dropna()
@@ -5068,9 +5958,10 @@ else:
 
         # Avg. Lead Time = Avg Procurement Lead (synced from the Procurement Lead Time tab)
         try:
-            _kpi_lead = _compute_avg_proc_lead(df_filtered)
+            # same base as the Procurement Lead Time tab (global df), so the numbers match
+            _kpi_lead = _compute_avg_proc_lead(df)
         except Exception:
-            _kpi_lead = None
+            _kpi_lead = st.session_state.get('kpi_avg_proc_lead')
         st.session_state['kpi_avg_proc_lead'] = _kpi_lead
         avg_lead_time_display = f"{_kpi_lead} days" if _kpi_lead is not None else "N/A"
 
@@ -5414,9 +6305,9 @@ with tab1:
                 <h5 class="legend-title">📊 Color Legend - Stock Status:</h5>
                 <div style="display: flex; gap: 20px; flex-wrap: wrap;">
                     <div class="legend-item"><div class="legend-color" style="background-color: red;"></div><span><strong>Red</strong> = Stock Out (NMOS &lt; 1)</span></div>
-                    <div class="legend-item"><div class="legend-color" style="background-color: yellow;"></div><span><strong>Yellow</strong> = Understock (1 ≤ NMOS &lt; 6)</span></div>
-                    <div class="legend-item"><div class="legend-color" style="background-color: green;"></div><span><strong>Green</strong> = Normal Stock (6 ≤ NMOS ≤ 18)</span></div>
-                    <div class="legend-item"><div class="legend-color" style="background-color: skyblue;"></div><span><strong>Blue</strong> = Overstock (NMOS > 18)</span></div>
+                    <div class="legend-item"><div class="legend-color" style="background-color: yellow;"></div><span><strong>Yellow</strong> = Understock (1 ≤ NMOS &lt; 6; vaccines &lt; 4)</span></div>
+                    <div class="legend-item"><div class="legend-color" style="background-color: green;"></div><span><strong>Green</strong> = Normal Stock (6 ≤ NMOS ≤ 18; vaccines 4 ≤ NMOS ≤ 10)</span></div>
+                    <div class="legend-item"><div class="legend-color" style="background-color: skyblue;"></div><span><strong>Blue</strong> = Overstock (NMOS > 18; vaccines > 10)</span></div>
                     <div class="legend-item"><div class="legend-color" style="background-color: #9b59b6;"></div><span><strong>Purple</strong> = Critical Risk</span></div>
                     <div class="legend-item"><div class="legend-color" style="background-color: #ffa500;"></div><span><strong>Orange</strong> = Risk of Stock out or Expiry Risk</span></div>
                     <div class="legend-item"><div class="legend-color" style="background-color: #ff4444;"></div><span><strong>Red DOS</strong> = Days Out of Stock (>0 days)</span></div>
@@ -6259,13 +7150,6 @@ with tab1:
                                 )
 
                                 st.plotly_chart(fig_trend, use_container_width=True)
-
-                                # Show the data as a table
-                                trend_df = pd.DataFrame({
-                                    'Month': material_data.index,
-                                    'NSOH': material_data.values
-                                })
-                                st.dataframe(trend_df, use_container_width=True, hide_index=True)
                             else:
                                 st.info("Select a material to view its NSOH trend.")
                     else:
@@ -6297,7 +7181,7 @@ with tab2:
         if not df_filtered.empty and 'NMOS' in df_filtered.columns:
             nmos_values = pd.to_numeric(df_filtered['NMOS'], errors='coerce').dropna()
             Availability = (nmos_values > 1).mean() * 100 if len(nmos_values) > 0 else 0
-            sap = ((nmos_values >= 6) & (nmos_values <= 18)).mean() * 100 if len(nmos_values) > 0 else 0
+            sap = nmos_range_stats(df_filtered)[0] if len(nmos_values) > 0 else 0
 
             if 'Distr. Gap' in df_filtered.columns:
                 avail_gap_values = pd.to_numeric(df_filtered['Distr. Gap'], errors='coerce').dropna()
@@ -6390,7 +7274,9 @@ with tab2:
                         mos_df = mos_df.sort_values('NMOS', ascending=True).reset_index(drop=True)
                         split_len = 40
                         mos_df['Material_split'] = mos_df['Material Description'].apply(lambda x: '<br>'.join([str(x)[i:i + split_len] for i in range(0, len(str(x)), split_len)]))
-                        mos_df['NMOS_color'] = mos_df['NMOS'].apply(lambda x: "red" if x < 1 else "yellow" if x < 6 else "green" if x <= 18 else "skyblue")
+                        _lo_c, _hi_c = levels_for(mos_df['Material Description'])
+                        mos_df['NMOS_color'] = ["red" if x < 1 else "yellow" if x < lo_ else "green" if x <= hi_ else "skyblue"
+                                                for x, lo_, hi_ in zip(mos_df['NMOS'], _lo_c, _hi_c)]
 
                         split_size = 10
                         for i in range(0, len(mos_df), split_size):
@@ -7394,6 +8280,7 @@ def _render_quick_add_form(material_options):
                     }
                     if save_procurement_record(record):
                         _bust_proc_cache()
+                        log_dashboard_update("Added procurement record", str(f_mat)[:200], 1)
                         st.success(f"✅ Saved record for {f_mat[:50]}")
                         st.rerun()
 
@@ -7416,27 +8303,6 @@ def _compute_html_column_widths(display_df, header_labels, cap=280, floor=100):
         widths.append(px)
     return widths
 
-
-
-def _compute_avg_proc_lead(base_df):
-    """Memoized wrapper: recompute only when records, filters or materials change."""
-    try:
-        deliveries = globals().get('df_new_deliveries')
-        mat_sig = 0
-        if base_df is not None and not base_df.empty and 'Material Description' in base_df.columns:
-            mat_sig = int(pd.util.hash_pandas_object(base_df['Material Description'].astype(str), index=False).sum())
-        key = (st.session_state.get('proc_cache_bust', 0),
-               st.session_state.get('proc_lead_year_v6', 'All'), st.session_state.get('proc_lead_funding_v6', 'All'),
-               st.session_state.get('proc_lead_material_v6', 'All'), st.session_state.get('proc_lead_search_v6', ''),
-               mat_sig, 0 if deliveries is None else len(deliveries), date.today().isoformat())
-    except Exception:
-        return _compute_avg_proc_lead_raw(base_df)
-    memo = st.session_state.get('_kpi_lead_memo')
-    if memo and memo[0] == key:
-        return memo[1]
-    val = _compute_avg_proc_lead_raw(base_df)
-    st.session_state['_kpi_lead_memo'] = (key, val)
-    return val
 
 
 def _sync_kpi_avg_proc_lead(value):
@@ -7992,6 +8858,7 @@ def render_procurement_lead_time_tab():
                 if to_delete in delete_map:
                     if delete_procurement_record(delete_map[to_delete]):
                         _bust_proc_cache()
+                        log_dashboard_update("Deleted procurement record", str(to_delete)[:200], 1)
                         st.success("✅ Record deleted")
                         st.rerun()
     else:
@@ -8269,6 +9136,7 @@ with tab7:
                                 if 'requested_dates' not in st.session_state:
                                     st.session_state.requested_dates = {}
                                 st.session_state.requested_dates[key] = new_date
+                                log_dashboard_update("Updated requested date", f"{material_name} | PO {po_number} | {new_date}", 1)
                                 st.success(f"✅ Saved for {material_name}")
                                 st.rerun()
                             else:
