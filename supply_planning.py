@@ -212,14 +212,6 @@ def inject_custom_css():
             cursor: not-allowed;
         }
 
-        /* Narrow gap between sidebar and main panel */
-        [data-testid="stMainBlockContainer"], .block-container {
-            padding-left: 1rem !important;
-            padding-right: 1rem !important;
-            max-width: 100% !important;
-        }
-        [data-testid="stSidebar"] [data-testid="stSidebarContent"] { padding-right: 0 !important; }
-
         /* Main-panel tab bar */
         [class*="st-key-main_tabbar"] [role="radiogroup"] {
             gap: 0 !important;
@@ -8794,6 +8786,18 @@ def main():
     if st.session_state.get('show_admin_page', False) and is_admin():
         render_admin_page()
         st.stop()
+
+    # Narrow gap between sidebar and main panel — main tool only
+    # (login, profile and admin pages keep their normal margins)
+    st.markdown("""
+    <style>
+    [data-testid="stMainBlockContainer"], .block-container {
+        padding-left: 1rem !important;
+        padding-right: 1rem !important;
+    }
+    [data-testid="stSidebar"] [data-testid="stSidebarContent"] { padding-right: 0 !important; }
+    </style>
+    """, unsafe_allow_html=True)
 
     st.markdown("""
     <div class="app-header fade-in">
