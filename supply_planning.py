@@ -1560,7 +1560,10 @@ def load_expert_plan_records(program=None, quarter=None, year=None):
     if supabase is None: return []
     try:
         query = supabase.table("expert_plan_records").select("*")
-        if program: query = query.eq("program", program)
+        if program:
+            _pl = _prog_list(program)
+            if _pl and len(_pl) > 1: query = query.in_("program", _pl)
+            elif _pl: query = query.eq("program", _pl[0])
         if quarter: query = query.eq("quarter", quarter)
         if year: query = query.eq("year", year)
         response = query.order("created_at", desc=True).execute()
@@ -1798,6 +1801,16 @@ def calculate_due_date_for_pipeline(tmos_value):
             return f"By {target_date.strftime('%d %b %Y')}"
 
 
+MULTI_SEP = " + "
+
+
+def _prog_list(sheet_name):
+    """None means 'All programs'; otherwise the list of selected program names."""
+    if sheet_name in (None, "All", ""):
+        return None
+    return [p for p in str(sheet_name).split(MULTI_SEP) if p]
+
+
 PROGRAM_ORDER_LIST = [
     "Malaria", "HIV", "OI and Hepatitis", "Hepatitis", "STI", "TB",
     "Drug Susceptible -TB Medicine (DS-TB)", "Drug Resisitance -TB Medicine (DR-TB)",
@@ -1822,15 +1835,23 @@ def get_program_materials(sheet_name):
                     for mat in google_sheets[prog]['Material Description'].dropna().tolist():
                         if mat not in ordered: ordered.append(mat)
         else:
-            if sheet_name in google_sheets and 'Material Description' in google_sheets[sheet_name].columns:
-                ordered = google_sheets[sheet_name]['Material Description'].dropna().tolist()
+            for prog in _prog_list(sheet_name):
+                if prog in google_sheets and 'Material Description' in google_sheets[prog].columns:
+                    for mat in google_sheets[prog]['Material Description'].dropna().tolist():
+                        if mat not in ordered: ordered.append(mat)
     return tuple(ordered)
 
 
 def get_material_program(material_name, sheet_name):
-    if sheet_name != "All": return sheet_name
+    _sel = _prog_list(sheet_name)
+    if _sel is not None and len(_sel) == 1: return _sel[0]
     sheet_id = "14VvZ7IyOmpM4SZrY5_ArHDgLkeFN4inW"
     google_sheets = load_google_sheets(sheet_id)
+    if google_sheets and _sel is not None:
+        for prog in _sel:
+            if prog in google_sheets and 'Material Description' in google_sheets[prog].columns:
+                if material_name in google_sheets[prog]['Material Description'].dropna().tolist():
+                    return prog
     if google_sheets:
         for prog in PROGRAM_ORDER_LIST:
             if prog in google_sheets and 'Material Description' in google_sheets[prog].columns:
@@ -1925,41 +1946,24 @@ def get_filtered_data(sheet_name, subcategory_filter):
     branch_amc_data = load_branch_amc("12Z5xqX32QIzjoN6tNvGbjutMheXx5US1")
     user_programs = get_user_program_access()
 
-    if user_programs and "All" not in user_programs:
-        if sheet_name == "All":
-            all_dfs = []
-            for prog in user_programs:
-                if prog in google_sheets and not google_sheets[prog].empty:
-                    df_copy = google_sheets[prog].copy()
-                    df_copy.columns = df_copy.columns.astype(str)
-                    if df_copy.columns.duplicated().any():
-                        df_copy = df_copy.loc[:, ~df_copy.columns.duplicated()]
-                    all_dfs.append(df_copy)
-            df_google = pd.concat(all_dfs, ignore_index=True, sort=False) if all_dfs else pd.DataFrame()
-        else:
-            if sheet_name not in user_programs:
-                st.warning(f"You don't have access to the {sheet_name} program.")
-                return pd.DataFrame()
-            df_google = google_sheets[sheet_name].copy()
-            df_google.columns = df_google.columns.astype(str)
-            if df_google.columns.duplicated().any():
-                df_google = df_google.loc[:, ~df_google.columns.duplicated()]
-    else:
-        if sheet_name == "All":
-            all_dfs = []
-            for name, df_prog in google_sheets.items():
-                if df_prog.empty: continue
-                df_copy = df_prog.copy()
-                df_copy.columns = df_copy.columns.astype(str)
-                if df_copy.columns.duplicated().any():
-                    df_copy = df_copy.loc[:, ~df_copy.columns.duplicated()]
-                all_dfs.append(df_copy)
-            df_google = pd.concat(all_dfs, ignore_index=True, sort=False) if all_dfs else pd.DataFrame()
-        else:
-            df_google = google_sheets[sheet_name].copy()
-            df_google.columns = df_google.columns.astype(str)
-            if df_google.columns.duplicated().any():
-                df_google = df_google.loc[:, ~df_google.columns.duplicated()]
+    _restricted = bool(user_programs and "All" not in user_programs)
+    _progs = _prog_list(sheet_name)
+    if _progs is None:
+        _progs = list(user_programs) if _restricted else list(google_sheets.keys())
+    elif _restricted:
+        _denied = [p for p in _progs if p not in user_programs]
+        if _denied:
+            st.warning(f"You don't have access to the {', '.join(_denied)} program.")
+        _progs = [p for p in _progs if p in user_programs]
+    all_dfs = []
+    for prog in _progs:
+        if prog in google_sheets and not google_sheets[prog].empty:
+            df_copy = google_sheets[prog].copy()
+            df_copy.columns = df_copy.columns.astype(str)
+            if df_copy.columns.duplicated().any():
+                df_copy = df_copy.loc[:, ~df_copy.columns.duplicated()]
+            all_dfs.append(df_copy)
+    df_google = pd.concat(all_dfs, ignore_index=True, sort=False) if all_dfs else pd.DataFrame()
 
     if not df_google.empty and not df_national.empty:
         required_cols = ['Material Description', 'AMC', 'GIT_PO', 'GIT_Qty', 'GIT_MOS',
@@ -2108,19 +2112,24 @@ def get_filtered_data(sheet_name, subcategory_filter):
         "Lab TB": {"subcategories": ["TB diagnostics& Laboratory reagent", "TB Lab Supplies"], "is_parent": True},
         "HIV Lab": {"subcategories": ["HIV VL Reagents", "CD4 ,AHD &HIV RTKs"], "is_parent": True}
     }
-    if sheet_name in PROGRAM_HIERARCHY:
-        subcategory_list = PROGRAM_HIERARCHY[sheet_name]["subcategories"]
-        mask = ~df['Material Description'].astype(str).str.strip().isin(subcategory_list)
-        df = df[mask].copy()
+    subcategory_list = []
+    for _p in (_prog_list(sheet_name) or []):
+        if _p in PROGRAM_HIERARCHY:
+            subcategory_list += PROGRAM_HIERARCHY[_p]["subcategories"]
 
-    if subcategory_filter != "All":
-        subcat_map = {}; current = None
-        for idx, row in df.iterrows():
-            mat = row['Material Description']
-            if mat in subcategory_list: current = mat
-            elif current is not None: subcat_map[mat] = current
-        df['Assigned Subcategory'] = df['Material Description'].map(subcat_map)
-        df = df[df['Assigned Subcategory'] == subcategory_filter]
+    if subcategory_list:
+        _names = df['Material Description'].astype(str).str.strip()
+        # Header rows (AHD, OI, ...) group the materials listed under them.
+        # Assign every material to its header BEFORE the header rows are removed.
+        if subcategory_filter != "All" and len(_prog_list(sheet_name)) == 1:
+            subcat_map = {}; current = None
+            for raw, name in zip(df['Material Description'], _names):
+                if name in subcategory_list: current = name
+                elif current is not None: subcat_map[raw] = current
+            df['Assigned Subcategory'] = df['Material Description'].map(subcat_map)
+            df = df[df['Assigned Subcategory'] == subcategory_filter].copy()
+            _names = df['Material Description'].astype(str).str.strip()
+        df = df[~_names.isin(subcategory_list)].copy()
 
     if 'NMOS' in df.columns and 'NMOS_raw' not in df.columns:
         df['NMOS_raw'] = df['NMOS']
@@ -4042,8 +4051,11 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
     if sheet_name != "All":
         _sheet_id = "14VvZ7IyOmpM4SZrY5_ArHDgLkeFN4inW"
         _gs = load_google_sheets(_sheet_id)
-        if sheet_name in _gs and 'Material Description' in _gs[sheet_name].columns:
-            _allowed = set(_gs[sheet_name]['Material Description'].dropna().tolist())
+        _allowed = set()
+        for _p in _prog_list(sheet_name):
+            if _p in _gs and 'Material Description' in _gs[_p].columns:
+                _allowed |= set(_gs[_p]['Material Description'].dropna().tolist())
+        if _allowed:
             material_list = [m for m in df_filtered['Material Description'].dropna().unique().tolist()
                              if m in _allowed]
         else:
@@ -4572,7 +4584,7 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
         if material_records:
             all_filtered = pd.DataFrame(st.session_state.expert_plan_records)
             if sheet_name != "All":
-                all_filtered = all_filtered[all_filtered['Program'] == sheet_name]
+                all_filtered = all_filtered[all_filtered['Program'].isin(_prog_list(sheet_name))]
             if selected_quarter != "All":
                 all_filtered = all_filtered[all_filtered['Quarter'] == selected_quarter]
             if selected_year != "All":
@@ -4670,10 +4682,10 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
             locked_program = edit_record.get('Program', '')
         else:
             locked_material = selected_material
-            if sheet_name != "All":
+            if _prog_list(sheet_name) is not None and len(_prog_list(sheet_name)) == 1:
                 locked_program = sheet_name
             else:
-                locked_program = get_material_program(selected_material, "All") if selected_material else ""
+                locked_program = get_material_program(selected_material, sheet_name) if selected_material else ""
 
         base_info = get_material_base_info(locked_material)
         material_program = locked_program
@@ -4902,7 +4914,7 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
                             'Status': status,
                             'Quarter': quarter,
                             'Year': int(year),
-                            'Program': material_program if material_program != "Multiple Programs" else sheet_name if sheet_name != "All" else "Multiple Programs"
+                            'Program': material_program if material_program != "Multiple Programs" else (sheet_name if _prog_list(sheet_name) is not None and len(_prog_list(sheet_name)) == 1 else "Multiple Programs")
                         }
                         if save_expert_plan_record(new_record):
                             st.session_state.expert_plan_records = load_expert_plan_records(
@@ -4935,7 +4947,7 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
         records_df = pd.DataFrame(st.session_state.expert_plan_records)
 
         if sheet_name != "All":
-            records_df = records_df[records_df['Program'] == sheet_name]
+            records_df = records_df[records_df['Program'].isin(_prog_list(sheet_name))]
         if selected_quarter != "All":
             records_df = records_df[records_df['Quarter'] == selected_quarter]
         if selected_year != "All":
@@ -5175,7 +5187,7 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
                         quarter_df = filtered_df[(filtered_df['Quarter'] == quarter) & (filtered_df['Year'] == year)]
 
                         if sheet_name != "All":
-                            program_display = sheet_name
+                            program_display = sheet_name.replace(MULTI_SEP, ", ")
                         else:
                             if 'Program' in filtered_df.columns and not filtered_df.empty:
                                 unique_programs = filtered_df['Program'].unique().tolist()
@@ -8552,19 +8564,25 @@ def _render_selection_panel():
         st.markdown('<div class="sb-group-title">🎯 Selection</div>', unsafe_allow_html=True)
         cols = st.columns(5)
 
+        _prog_choices = [p for p in program_list if p != "All"]
+        _prev = [p for p in (_prog_list(st.session_state.selected_program) or []) if p in _prog_choices]
         with cols[0]:
-            sheet_name = st.selectbox(
-                "Select Program",
-                program_list,
-                index=program_list.index(st.session_state.selected_program)
-                      if st.session_state.selected_program in program_list else 0,
-                key="main_sel_program"
+            _chosen = st.multiselect(
+                "Select Program(s)",
+                _prog_choices,
+                default=_prev,
+                placeholder="All programs",
+                key="main_sel_program_multi",
             )
+        if not _chosen or len(_chosen) == len(_prog_choices) and len(_prog_choices) > 1:
+            sheet_name = "All"
+        else:
+            sheet_name = MULTI_SEP.join([p for p in _prog_choices if p in _chosen])
         st.session_state.selected_program = sheet_name
 
         col_idx = 1
-        if sheet_name in PROGRAM_HIERARCHY and PROGRAM_HIERARCHY[sheet_name]["is_parent"]:
-            subcategory_options = ["All"] + PROGRAM_HIERARCHY[sheet_name]["subcategories"]
+        if len(_chosen) == 1 and _chosen[0] in PROGRAM_HIERARCHY and PROGRAM_HIERARCHY[_chosen[0]]["is_parent"]:
+            subcategory_options = ["All"] + PROGRAM_HIERARCHY[_chosen[0]]["subcategories"]
             with cols[col_idx]:
                 subcategory_filter = st.selectbox(
                     "Subcategory",
