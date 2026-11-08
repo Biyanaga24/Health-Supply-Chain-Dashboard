@@ -48,7 +48,7 @@ TAB_OPTIONS = [
 ]
 
 # ============================================================================
-# CUSTOM CSS
+# CUSTOM CSS (Sidebar & Tabs styling removed for standard buttons)
 # ============================================================================
 def inject_custom_css():
     st.markdown(
@@ -150,40 +150,6 @@ def inject_custom_css():
         .clickable-row { cursor: pointer; transition: background-color 0.2s; }
         .clickable-row:hover { background-color: #eaf2f8; }
 
-        .stTabs [data-baseweb="tab-list"] {
-            gap: 8px;
-            background-color: transparent;
-            padding: 4px 0px;
-            border-radius: 0px;
-            box-shadow: none;
-            border: none;
-            border-bottom: 3px solid #e0e0e0;
-        }
-        .stTabs [data-baseweb="tab"] {
-            border-radius: 8px 8px 0 0;
-            padding: 14px 28px;
-            font-weight: 700 !important;
-            font-size: 20px !important;
-            transition: all 0.3s;
-            color: #777 !important;
-            border: none;
-            border-bottom: 4px solid transparent;
-            letter-spacing: 0.5px;
-            background-color: transparent !important;
-        }
-        .stTabs [data-baseweb="tab"]:hover {
-            background-color: #f5f5f5 !important;
-            color: #1a5276 !important;
-        }
-        .stTabs [aria-selected="true"] {
-            background-color: transparent !important;
-            color: #1a5276 !important;
-            font-weight: 700 !important;
-            font-size: 20px !important;
-            border-bottom: 4px solid #2e86c1;
-            box-shadow: none;
-        }
-
         .app-header {
             background: linear-gradient(135deg, #1a5276 0%, #2e86c1 50%, #1a5276 100%);
             padding: 20px 30px;
@@ -199,22 +165,11 @@ def inject_custom_css():
             0% { transform: translateX(-100%); opacity: 0; }
             100% { transform: translateX(0); opacity: 1; }
         }
-        @keyframes pulse {
-            0% { transform: scale(1); }
-            50% { transform: scale(1.02); }
-            100% { transform: scale(1); }
-        }
-        @keyframes glow {
-            0% { text-shadow: 0 0 10px rgba(255,215,0,0.3); }
-            50% { text-shadow: 0 0 20px rgba(255,215,0,0.6), 0 0 30px rgba(255,215,0,0.3); }
-            100% { text-shadow: 0 0 10px rgba(255,215,0,0.3); }
-        }
 
         .app-header h1 { 
             margin: 0; 
             font-weight: 700; 
             color: #ffd700;
-            animation: pulse 3s ease-in-out infinite, glow 2s ease-in-out infinite;
             font-family: 'Times New Roman', Times, serif !important;
             font-size: 2.2rem !important;
         }
@@ -237,6 +192,7 @@ def inject_custom_css():
             font-size: 14px;
         }
 
+        /* Standard Buttons */
         .stButton > button {
             background: linear-gradient(135deg, #1a5276 0%, #2e86c1 100%);
             color: white;
@@ -245,6 +201,7 @@ def inject_custom_css():
             font-weight: 500;
             transition: all 0.3s;
             font-family: 'Times New Roman', Times, serif !important;
+            width: 100%;
         }
         .stButton > button:hover {
             transform: translateY(-2px);
@@ -253,6 +210,100 @@ def inject_custom_css():
         .stButton > button:disabled {
             background: #b0b0b0;
             cursor: not-allowed;
+        }
+
+        /* Narrow gap between sidebar and main panel */
+        [data-testid="stMainBlockContainer"], .block-container {
+            padding-left: 1rem !important;
+            padding-right: 1rem !important;
+            max-width: 100% !important;
+        }
+        [data-testid="stSidebar"] [data-testid="stSidebarContent"] { padding-right: 0 !important; }
+
+        /* Main-panel tab bar */
+        [class*="st-key-main_tabbar"] [role="radiogroup"] {
+            gap: 0 !important;
+            border-bottom: 2px solid #c9d6e2;
+            flex-wrap: wrap;
+        }
+        [class*="st-key-main_tabbar"] [role="radiogroup"] > label {
+            padding: 10px 22px !important;
+            margin: 0 !important;
+            border-radius: 8px 8px 0 0;
+            cursor: pointer;
+            background: transparent;
+            border-bottom: 3px solid transparent;
+        }
+        [class*="st-key-main_tabbar"] [role="radiogroup"] > label > div:first-child { display: none !important; }
+        [class*="st-key-main_tabbar"] [role="radiogroup"] > label p {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif !important;
+            font-size: 15px; font-weight: 600; color: #4a5a6a;
+        }
+        [class*="st-key-main_tabbar"] [role="radiogroup"] > label:hover { background: rgba(46,134,193,0.10); }
+        [class*="st-key-main_tabbar"] [role="radiogroup"] > label:has(input:checked) {
+            background: #ffffff;
+            border-bottom: 3px solid #d6336c;
+        }
+        [class*="st-key-main_tabbar"] [role="radiogroup"] > label:has(input:checked) p { color: #1a5276; }
+
+        /* Sidebar Navigation Buttons */
+        [data-testid="stSidebar"] [data-testid="stSidebarUserContent"],
+        [data-testid="stSidebar"] > div > div { padding-left: 0.6rem !important; padding-right: 0.6rem !important; }
+        /* narrower space between the boxes */
+        [data-testid="stSidebar"] [data-testid="stVerticalBlock"] { gap: 0.25rem !important; }
+        [data-testid="stSidebar"] [data-testid="stVerticalBlockBorderWrapper"] [data-testid="stVerticalBlock"] { gap: 0.2rem !important; }
+        [data-testid="stSidebar"] .stButton { margin: 0 !important; width: 100% !important; }
+        .stSidebar .stButton > button {
+            background: #ffffff !important;
+            color: #333 !important;
+            border: 1px solid #d6e4f0 !important;
+            border-radius: 8px !important;
+            box-shadow: none !important;
+            text-align: left !important;
+            justify-content: flex-start !important;
+            width: 100% !important;
+            padding: 8px 10px !important;
+            font-size: 14px !important;
+            margin: 0 !important;
+            /* wrap the text so labels never overflow when the sidebar is narrow */
+            white-space: normal !important;
+            word-wrap: break-word !important;
+            overflow-wrap: anywhere !important;
+            word-break: break-word !important;
+            height: auto !important;
+            min-height: 40px !important;
+            line-height: 1.3 !important;
+        }
+        .stSidebar .stButton > button p,
+        .stSidebar .stButton > button div,
+        .stSidebar .stButton > button span {
+            white-space: normal !important;
+            overflow-wrap: anywhere !important;
+            word-break: break-word !important;
+            text-align: left !important;
+            line-height: 1.3 !important;
+            margin: 0 !important;
+        }
+        .stSidebar .stButton > button:hover {
+            background: #eaf2f8 !important;
+            border-color: #2e86c1 !important;
+            color: #1a5276 !important;
+        }
+        /* Active (selected) sidebar tab: colorful */
+        .stSidebar .stButton > button[kind="primary"],
+        .stSidebar .stButton > button[data-testid="stBaseButton-primary"] {
+            background: linear-gradient(135deg, #f59f00 0%, #f76707 35%, #d6336c 70%, #7048e8 100%) !important;
+            color: #ffffff !important;
+            border: 1px solid #ffd43b !important;
+            font-weight: 700 !important;
+            box-shadow: 0 3px 12px rgba(214, 51, 108, 0.40) !important;
+        }
+        .stSidebar .stButton > button[kind="primary"] *,
+        .stSidebar .stButton > button[data-testid="stBaseButton-primary"] * { color: #ffffff !important; }
+        .stSidebar .stButton > button[kind="primary"]:hover,
+        .stSidebar .stButton > button[data-testid="stBaseButton-primary"]:hover {
+            filter: brightness(1.08);
+            border-color: #ffffff !important;
         }
 
         .streamlit-expanderHeader {
@@ -343,15 +394,6 @@ def inject_custom_css():
         .progress-status-card.card-pending { background: linear-gradient(135deg, #fcc419 0%, #ff922b 100%); }
         .progress-status-card.card-initiated { background: linear-gradient(135deg, #6f42c1 0%, #cc5de8 100%); }
 
-        .progress-summary-row {
-            display: grid;
-            grid-template-columns: repeat(5, 1fr);
-            gap: 10px;
-            margin: 10px 0 15px 0;
-        }
-        @media (max-width: 768px) { .progress-summary-row { grid-template-columns: repeat(3, 1fr); } }
-        @media (max-width: 480px) { .progress-summary-row { grid-template-columns: 1fr; } }
-
         .filter-row {
             display: grid;
             grid-template-columns: repeat(4, 1fr);
@@ -398,13 +440,6 @@ def inject_custom_css():
 
         .stSpinner { display: none !important; }
         .stAlert { border: none !important; background: transparent !important; }
-
-        .sidebar-section {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif !important;
-        }
-        .sidebar-section * {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif !important;
-        }
 
         .admin-metric {
             background: linear-gradient(135deg, #1a5276 0%, #2e86c1 100%);
@@ -495,29 +530,19 @@ def inject_custom_css():
             justify-content: space-between;
         }
 
-        .admin-management-row {
-            display: grid;
-            grid-template-columns: 1fr 1fr 1fr;
-            gap: 15px;
-            margin: 10px 0;
-        }
-        @media (max-width: 768px) {
-            .admin-management-row { grid-template-columns: 1fr; }
-        }
-        .admin-management-card {
-            background: #f8f9fa;
-            border-radius: 10px;
-            padding: 15px;
-            border: 1px solid #e0e0e0;
-        }
-        .admin-management-card h4 {
+        /* FSPT sidebar title */
+        .fspt-sidebar-title {
+            text-align: center;
+            font-family: 'Times New Roman', Times, serif !important;
+            font-size: 2.6rem;
+            font-weight: 900;
+            letter-spacing: 6px;
             color: #1a5276;
-            margin-bottom: 10px;
-            font-size: 14px;
-            font-weight: 600;
+            margin: 0 0 4px 0;
+            line-height: 1;
+            padding-top: 4px;
         }
 
-        /* Sidebar groups */
         [data-testid="stSidebar"] [data-testid="stVerticalBlockBorderWrapper"] {
             border: 1px solid #d6e4f0 !important;
             border-radius: 12px !important;
@@ -537,21 +562,7 @@ def inject_custom_css():
             border-bottom: 2px solid #2e86c1;
         }
 
-        /* FSPT sidebar title */
-        .fspt-sidebar-title {
-            text-align: center;
-            font-family: 'Times New Roman', Times, serif !important;
-            font-size: 2.6rem;
-            font-weight: 900;
-            letter-spacing: 6px;
-            color: #1a5276;
-            margin: 0 0 4px 0;
-            line-height: 1;
-            padding-top: 4px;
-        }
-
-        /* Clickable summary cards: an invisible button is stretched over the
-           (unchanged) card so a click toggles the table below it. */
+        /* Clickable summary cards: an invisible button is stretched over the (unchanged) card so a click toggles the table below it. */
         [class*="st-key-sumcard_"] { position: relative; }
         [class*="st-key-sumcard_"] [data-testid="stElementContainer"]:has(button),
         [class*="st-key-sumcard_"] .element-container:has(button) {
@@ -574,7 +585,8 @@ def inject_custom_css():
             min-height: 0 !important;
             cursor: pointer;
         }
-        /* Floating chatbot: fixed bottom-right bubble that opens a chat panel */
+
+        /* Floating chatbot */
         .st-key-fspt_chat_float {
             position: fixed !important;
             bottom: 24px;
@@ -2339,7 +2351,7 @@ def render_unified_historical_table(df_filtered, issue_pivot, nsoh_pivot, consum
 
     all_available_months = []
     if not nsoh_pivot.empty:
-        all_available_months = get_month_columns(nsoh_pivot)
+        all_available_months = sort_months_chronologically(list(get_month_columns(nsoh_pivot)))
 
     if not all_available_months:
         st.info("No month data available.")
@@ -2353,7 +2365,8 @@ def render_unified_historical_table(df_filtered, issue_pivot, nsoh_pivot, consum
 
     col_start, col_end = st.columns(2)
     with col_start:
-        start_month = st.selectbox("Start Month", all_available_months, index=0, key="hist_start_month")
+        start_month = st.selectbox("Start Month", all_available_months,
+                                   index=max(0, len(all_available_months) - 12), key="hist_start_month")
     with col_end:
         end_month = st.selectbox("End Month", all_available_months, index=len(all_available_months) - 1, key="hist_end_month")
 
@@ -2529,6 +2542,23 @@ def render_unified_historical_table(df_filtered, issue_pivot, nsoh_pivot, consum
         **{month: deliv_vals[i] for i, month in enumerate(all_months)}
     })
 
+    # RMOS = Received / AMC per month (blank when either is missing/zero)
+    rmos_vals = []
+    for i, month in enumerate(all_months):
+        recv_str = deliv_vals[i].replace(',', '') if deliv_vals[i] else ""
+        try:
+            recv_num = float(recv_str) if recv_str else 0.0
+        except (ValueError, TypeError):
+            recv_num = 0.0
+        if recv_num > 0 and amc_value > 0:
+            rmos_vals.append(f"{recv_num / amc_value:.2f}")
+        else:
+            rmos_vals.append("")
+    data_rows.append({
+        'Data Type': '📦 RMOS',
+        **{month: rmos_vals[i] for i, month in enumerate(all_months)}
+    })
+
     unified_df = pd.DataFrame(data_rows)
 
     st.markdown(f"""
@@ -2553,7 +2583,7 @@ def render_unified_historical_table(df_filtered, issue_pivot, nsoh_pivot, consum
     )
 
     # ============================================================
-    # 1) AMC vs ISSUE (FIRST comparison graph)
+    # 1) AMC vs ISSUE (FIRST comparison graph) - GRID LINES REMOVED
     # ============================================================
     st.markdown("---")
     st.markdown("""
@@ -2665,7 +2695,7 @@ def render_unified_historical_table(df_filtered, issue_pivot, nsoh_pivot, consum
             hovermode='x unified',
             xaxis=dict(showgrid=False, showline=True, tickangle=45,
                        categoryorder='array', categoryarray=all_months),
-            yaxis=dict(showgrid=True, gridcolor='#e0e0e0', showline=True),
+            yaxis=dict(showgrid=False, showline=True),  # GRID REMOVED
             plot_bgcolor='white',
             margin=dict(l=60, r=40, t=60, b=60)
         )
@@ -2678,7 +2708,7 @@ def render_unified_historical_table(df_filtered, issue_pivot, nsoh_pivot, consum
         st.info("No AMC / Issue data available for comparison.")
 
     # ============================================================
-    # 2) A_AMC (3m avg) vs AMC
+    # 2) A_AMC (3m avg) vs AMC - GRID LINES REMOVED
     # ============================================================
     st.markdown("---")
     st.markdown("""
@@ -2787,7 +2817,7 @@ def render_unified_historical_table(df_filtered, issue_pivot, nsoh_pivot, consum
             legend=dict(orientation='h', yanchor='bottom', y=1.02, xanchor='center', x=0.5),
             hovermode='x unified',
             xaxis=dict(showgrid=False, showline=True, tickangle=45, categoryorder='array', categoryarray=all_months),
-            yaxis=dict(showgrid=True, gridcolor='#e0e0e0', showline=True),
+            yaxis=dict(showgrid=False, showline=True),  # GRID REMOVED
             plot_bgcolor='white',
             margin=dict(l=60, r=40, t=60, b=60)
         )
@@ -2800,7 +2830,7 @@ def render_unified_historical_table(df_filtered, issue_pivot, nsoh_pivot, consum
         st.info("No A_AMC / AMC data available for comparison.")
 
     # ============================================================
-    # 3) NSOH vs Consumption vs Issue
+    # 3) NSOH vs Consumption vs Issue - GRID LINES REMOVED
     # ============================================================
     st.markdown("---")
     st.markdown("""
@@ -2883,7 +2913,7 @@ def render_unified_historical_table(df_filtered, issue_pivot, nsoh_pivot, consum
                 ))
 
         colors = {
-            '📦 NSOH': '#FF6B6B',
+            '📦 NSOH': '#FF0000',
             '📊 Consumption': '#51CF66',
             '📤 Issue': '#4DABF7'
         }
@@ -2894,7 +2924,8 @@ def render_unified_historical_table(df_filtered, issue_pivot, nsoh_pivot, consum
                 y=data['values'],
                 name=data['Data Type'],
                 mode='lines+markers+text',
-                line=dict(color=colors.get(data['Data Type'], '#666'), width=3),
+                line=dict(color=colors.get(data['Data Type'], '#666'), width=3,
+                          dash='dash' if data['Data Type'] == '📦 NSOH' else 'solid'),
                 marker=dict(size=10, color=colors.get(data['Data Type'], '#666')),
                 text=data['text_values'],
                 textposition='top center' if data['Data Type'] != '📤 Issue' else 'bottom center',
@@ -2910,7 +2941,7 @@ def render_unified_historical_table(df_filtered, issue_pivot, nsoh_pivot, consum
             legend=dict(orientation='h', yanchor='bottom', y=1.02, xanchor='center', x=0.5),
             hovermode='x unified',
             xaxis=dict(showgrid=False, showline=True, tickangle=45, categoryorder='array', categoryarray=all_months),
-            yaxis=dict(showgrid=True, gridcolor='#e0e0e0', showline=True),
+            yaxis=dict(showgrid=False, showline=True),  # GRID REMOVED
             plot_bgcolor='white',
             margin=dict(l=60, r=40, t=60, b=60)
         )
@@ -2921,7 +2952,7 @@ def render_unified_historical_table(df_filtered, issue_pivot, nsoh_pivot, consum
         )
 
     # ============================================================
-    # 4) AMC vs Consumption vs Issue
+    # 4) AMC vs Consumption vs Issue - GRID LINES REMOVED
     # ============================================================
     st.markdown("---")
     st.markdown("""
@@ -3031,7 +3062,7 @@ def render_unified_historical_table(df_filtered, issue_pivot, nsoh_pivot, consum
             legend=dict(orientation='h', yanchor='bottom', y=1.02, xanchor='center', x=0.5),
             hovermode='x unified',
             xaxis=dict(showgrid=False, showline=True, tickangle=45, categoryorder='array', categoryarray=all_months),
-            yaxis=dict(showgrid=True, gridcolor='#e0e0e0', showline=True),
+            yaxis=dict(showgrid=False, showline=True),  # GRID REMOVED
             plot_bgcolor='white',
             margin=dict(l=60, r=40, t=60, b=60)
         )
@@ -3343,7 +3374,7 @@ def render_action_plan_graph(df_filtered, material_problems, action_df, nsoh_piv
                             legend=dict(orientation='h', yanchor='bottom', y=1.02, xanchor='center', x=0.5),
                             hovermode='x unified',
                             xaxis=dict(showgrid=False, showline=True, tickangle=45),
-                            yaxis=dict(showgrid=True, gridcolor='#e0e0e0', showline=True),
+                            yaxis=dict(showgrid=False, showline=True),
                             plot_bgcolor='white'
                         )
                         st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': True})
@@ -3676,7 +3707,8 @@ def render_system_generated_action_plan(action_df, material_problems, sheet_name
 # RENDER EXPERT ACTION PLAN — with Completion Date support
 # ============================================================================
 def render_expert_action_plan_with_status(df_filtered, material_problems, action_df,
-                                          sheet_name, nsoh_pivot, selected_quarter, selected_year):
+                                          sheet_name, nsoh_pivot, selected_quarter, selected_year,
+                                          deliveries_pivot=None):
     current_year = datetime.now().year
 
     # ------------------------------------------------------------------
@@ -4046,9 +4078,12 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
         git_mos = 0; lc_mos = 0; wb_mos = 0; tmd_mos = 0
         git_po = ""; lc_po = ""; wb_po = ""; tmd_po = ""
         nsoh_value = 0
+        tmos_value = 0
 
         if not mat_row.empty:
             row_data = mat_row.iloc[0]
+            _t = pd.to_numeric(row_data.get('TMOS', 0), errors='coerce')
+            tmos_value = float(_t) if pd.notna(_t) else 0.0
             amc_value = float(row_data.get('AMC', 0)) if pd.notna(row_data.get('AMC', 0)) else 0
             git_mos = float(row_data.get('GIT_MOS', 0)) if pd.notna(row_data.get('GIT_MOS', 0)) else 0
             lc_mos = float(row_data.get('LC_MOS', 0)) if pd.notna(row_data.get('LC_MOS', 0)) else 0
@@ -4069,7 +4104,7 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
         if nsoh_row is not None:
             all_months = get_month_columns(nsoh_pivot)
             if all_months:
-                all_months = [m for m in all_months if pd.to_datetime(m, format='%b-%Y') >= pd.to_datetime('Jan-2026', format='%b-%Y')]
+                all_months = sorted(all_months, key=lambda m: pd.to_datetime(m, format='%b-%Y'))
 
                 if all_months:
                     nmos_values = []
@@ -4086,7 +4121,7 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
                         else:
                             nmos_values.append(0)
 
-                    HISTORY_WINDOW = 6
+                    HISTORY_WINDOW = 12
                     if len(all_months) > HISTORY_WINDOW:
                         selected_months = all_months[-HISTORY_WINDOW:]
                         selected_months_dt = months_dt[-HISTORY_WINDOW:]
@@ -4133,7 +4168,7 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
                     if wb_mos > 0: pipeline_queue.append(('WB', wb_mos, wb_po))
                     if tmd_mos > 0: pipeline_queue.append(('TMD', tmd_mos, tmd_po))
 
-                    PROJECTION_WINDOW = 6
+                    PROJECTION_WINDOW = 12
                     future_months = []
                     future_months_dt = []
                     projected_nmos_line = []
@@ -4235,16 +4270,13 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
                     fig.add_hrect(y0=2, y1=6, fillcolor="rgba(255,215,0,0.06)", line_width=0, layer="below")
                     fig.add_hrect(y0=6, y1=18, fillcolor="rgba(50,205,50,0.06)", line_width=0, layer="below")
 
-                    for i in range(total_points):
-                        fig.add_vline(x=i, line_width=1, line_color='rgba(0,0,0,0.08)',
-                                      line_dash='solid', layer='below')
+                    # V-LINES REMOVED AS REQUESTED
 
+                    # Shadow between NMOS line and zero
                     fig.add_trace(go.Scatter(
-                        x=x_indices_full + x_indices_full[::-1],
-                        y=combined_nmos_values + [0]*len(combined_nmos_values),
-                        fill='toself',
-                        fillcolor=f'rgba({int(nmos_color[1:3],16)}, {int(nmos_color[3:5],16)}, {int(nmos_color[5:7],16)}, 0.10)',
-                        line=dict(color='rgba(0,0,0,0)'),
+                        x=x_indices_full, y=combined_nmos_values,
+                        mode='lines', line=dict(width=0),
+                        fill='tozeroy', fillcolor='rgba(128,128,128,0.25)',
                         showlegend=False, hoverinfo='skip'
                     ))
 
@@ -4254,25 +4286,51 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
                     fig.add_trace(go.Scatter(
                         x=x_indices_full, y=combined_nmos_values, name='NMOS',
                         mode='lines+markers+text',
-                        line=dict(color='#2e86c1', width=3),
-                        marker=dict(size=10, color='#2e86c1', line=dict(width=2, color='white')),
+                        line=dict(color='#8B0000', width=1, dash='dash'),
+                        marker=dict(size=10, color='#8B0000', line=dict(width=2, color='white')),
                         text=text_vals, textposition='top center',
                         textfont=dict(size=9, color='#333'),
                         customdata=custom,
                         hovertemplate='<b>%{customdata[0]}</b><br>NMOS: %{y:.2f} months<extra></extra>'
                     ))
 
-                    if hist_count > 0:
-                        fig.add_vline(x=hist_count - 1, line_dash='dot',
-                                      line_color='#888', line_width=1.5)
-                        fig.add_trace(go.Scatter(
-                            x=[hist_count - 1], y=[current_display_nmos],
-                            mode='markers',
-                            marker=dict(symbol='star', size=22, color='#FCC419',
-                                        line=dict(width=2, color='white')),
-                            name=f'Current: {current_display_nmos:.2f}m',
-                            hovertemplate='<b>Current NMOS</b><br>%{y:.2f} months<extra></extra>'
-                        ))
+                    # Received sticks: solid vertical line from y=0 up to y=RMOS (Received / AMC).
+                    # No on-chart label — tooltip only (month + RMOS).
+                    deliv_row = None
+                    if (deliveries_pivot is not None and not deliveries_pivot.empty
+                            and 'Material Description' in deliveries_pivot.columns):
+                        _dr = deliveries_pivot[deliveries_pivot['Material Description'] == selected_material]
+                        if not _dr.empty:
+                            deliv_row = _dr.iloc[0]
+
+                    if deliv_row is not None and amc_value > 0:
+                        recv_color = '#17a589'
+                        _legend_done = False
+                        for i_m, m_lbl in enumerate(selected_months):
+                            qty = deliv_row[m_lbl] if m_lbl in deliv_row.index else 0
+                            try:
+                                qty = float(qty) if pd.notna(qty) else 0.0
+                            except Exception:
+                                qty = 0.0
+                            if qty <= 0:
+                                continue
+                            rmos = qty / amc_value  # line length = RMOS
+                            if rmos <= 0:
+                                continue
+                            # Plain solid vertical line from 0 → RMOS; no marker, no annotation
+                            fig.add_trace(go.Scatter(
+                                x=[i_m, i_m], y=[0, rmos],
+                                mode='lines',
+                                line=dict(color=recv_color, width=4),
+                                name='Received (RMOS)', legendgroup='recv',
+                                showlegend=not _legend_done,
+                                customdata=[[m_lbl, rmos], [m_lbl, rmos]],
+                                hovertemplate=(
+                                    '<b>%{customdata[0]}</b><br>'
+                                    'RMOS: %{customdata[1]:.2f}m<extra></extra>'
+                                )
+                            ))
+                            _legend_done = True
 
                     stage_colors = {
                         'GIT': '#6f42c1', 'LC': '#2e86c1', 'WB': '#1e8449',
@@ -4288,7 +4346,7 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
                         for idx_ev, ev in enumerate(evs_sorted):
                             stage = ev['stage']
                             color = stage_colors.get(stage, '#333')
-                            y_marker = ev['y_marker']
+                            y_marker = float(ev['stage_mos'])   # length = GIT/LC/WB/TMD MOS
                             month_curr = ev.get('month_curr', '')
                             if stage == 'Mobilize':
                                 rec_text = (f"Mobilize & initiate new purchase — "
@@ -4319,14 +4377,12 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
                                             line=dict(width=2, color='white')),
                                 showlegend=False, hoverinfo='skip'
                             ))
-                            fig.add_annotation(
-                                x=x_draw, y=y_marker, text=f"{stage}",
-                                showarrow=False, yshift=14 + idx_ev * 14,
-                                font=dict(size=10, color=color,
-                                          family='Times New Roman, Times, serif'),
-                                bgcolor='rgba(255,255,255,0.9)',
-                                bordercolor=color, borderwidth=1, borderpad=3,
-                            )
+                            if ev.get('nmos_at_trigger') == 6.0:
+                                fig.add_trace(go.Scatter(
+                                    x=[x_draw], y=[6.0], mode='markers',
+                                    marker=dict(size=9, color='white', symbol='diamond',
+                                                line=dict(width=2, color=color)),
+                                    showlegend=False, hoverinfo='skip'))
 
                     thresholds_lines = [
                         (1, 'Stock Out (1m)', '#FF0000'),
@@ -4344,15 +4400,16 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
                             opacity=0.7
                         )
 
-                    _data_peak = max(combined_nmos_values) if combined_nmos_values else 0
-                    y_max = max(20, _data_peak + 2) if _data_peak > 18 else 20
+                    _data_peak = max(list(combined_nmos_values)
+                                     + [float(ev['stage_mos']) for ev in trigger_events] + [0])
+                    y_max = max(20, _data_peak + 2)
 
                     tick_vals = x_indices_full
                     tick_text = all_months_display
                     max_marker_x = max([ev['x_exact'] for ev in trigger_events], default=total_points - 1)
                     chart_right = max(total_points - 0.5, max_marker_x + 0.5)
                     chart_left = -0.5
-                    inner_chart_width = max(1100, int((chart_right - chart_left) * 100))
+                    inner_chart_width = max(1100, int((chart_right - chart_left) * 80))
 
                     fig.update_layout(
                         title=dict(text=f"NMOS Trend — {selected_material[:60]}",
@@ -4367,7 +4424,7 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
                                    tickvals=tick_vals, ticktext=tick_text, tickangle=45,
                                    tickfont=dict(size=11),
                                    range=[chart_left, chart_right], fixedrange=True),
-                        yaxis=dict(showgrid=True, gridcolor='#e8e8e8', showline=True,
+                        yaxis=dict(showgrid=False, showline=True,
                                    range=[0, y_max], tickmode='array',
                                    tickvals=[0, 2, 4, 6, 8, 10, 12, 14, 16, 18],
                                    ticktext=['0', '2', '4', '6', '8', '10', '12', '14', '16', '18'],
@@ -4408,7 +4465,7 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
                     st.markdown('</div>', unsafe_allow_html=True)
                     st.markdown("---")
                 else:
-                    st.info("No historical data available from Jan-2026 onward.")
+                    st.info("No historical data available.")
             else:
                 st.info("No month columns found in the data.")
         else:
@@ -5926,7 +5983,7 @@ def render_ap_progress_follow_up(sheet_name, selected_quarter, selected_year, se
     st.markdown("---")
 
     # ======================================================================
-    # BAR CHARTS — Program & Organization
+    # BAR CHARTS — Program & Organization - GRID LINES REMOVED
     # ======================================================================
     col_bar1, col_bar2 = st.columns(2)
 
@@ -5978,8 +6035,7 @@ def render_ap_progress_follow_up(sheet_name, selected_quarter, selected_year, se
                     ),
                     yaxis=dict(
                         tickfont=dict(size=11, family='Times New Roman, Times, serif'),
-                        showgrid=True,
-                        gridcolor='#e0e0e0',
+                        showgrid=False, # GRID REMOVED
                         showline=True,
                         linecolor='#333',
                         linewidth=1.5,
@@ -6068,8 +6124,7 @@ def render_ap_progress_follow_up(sheet_name, selected_quarter, selected_year, se
                 ),
                 yaxis=dict(
                     tickfont=dict(size=11, family='Times New Roman, Times, serif'),
-                    showgrid=True,
-                    gridcolor='#e0e0e0',
+                    showgrid=False, # GRID REMOVED
                     showline=True,
                     linecolor='#333',
                     linewidth=1.5,
@@ -6299,8 +6354,7 @@ def render_ap_progress_follow_up(sheet_name, selected_quarter, selected_year, se
                 ),
                 yaxis=dict(
                     tickfont=dict(size=11, family='Times New Roman, Times, serif'),
-                    showgrid=True,
-                    gridcolor='#e0e0e0',
+                    showgrid=False, # GRID REMOVED
                     showline=True,
                     linecolor='#333',
                     linewidth=1.5,
@@ -6906,7 +6960,7 @@ def _sort_statuses_reverse(values):
 
 
 def _sb_group(icon, title):
-    """Bordered sidebar group with a small title. Use as: with _sb_group('🗂️', 'Section'):"""
+    """Bordered sidebar group with a small title. Use as: with _sb_group('🗂️', 'Sub-Tools'):"""
     try:
         box = st.container(border=True)
     except TypeError:  # older Streamlit without border support
@@ -6918,21 +6972,21 @@ def _sb_group(icon, title):
 
 def _render_section_switcher():
     """Top-of-sidebar switch between Supply Planning and Forecasting.
-    Both sections are independent — not a nested tab bar."""
+    Both sections are independent — rendered as plain buttons (no radio)."""
     if "active_section" not in st.session_state:
         st.session_state.active_section = "supply_planning"
 
-    choice = st.radio(
-        "",
-        options=["🧮 Supply Planning", "📈 Forecasting"],
-        index=0 if st.session_state.active_section == "supply_planning" else 1,
-        key="active_section_radio",
-        label_visibility="collapsed",
-    )
-    new_section = "supply_planning" if choice.startswith("🧮") else "forecasting"
-    if new_section != st.session_state.active_section:
-        st.session_state.active_section = new_section
-        st.rerun()
+    btn_sp_type = "primary" if st.session_state.active_section == "supply_planning" else "secondary"
+    btn_fc_type = "primary" if st.session_state.active_section == "forecasting" else "secondary"
+
+    if st.button("🧮 Supply Planning", key="btn_section_sp", use_container_width=True, type=btn_sp_type):
+        if st.session_state.active_section != "supply_planning":
+            st.session_state.active_section = "supply_planning"
+            st.rerun()
+    if st.button("📈 Forecasting", key="btn_section_fc", use_container_width=True, type=btn_fc_type):
+        if st.session_state.active_section != "forecasting":
+            st.session_state.active_section = "forecasting"
+            st.rerun()
     return st.session_state.active_section
 
 
@@ -7148,7 +7202,7 @@ def render_forecasting_section(issue_pivot, sheet_name):
     )
     ax_hist.tick_params(axis="y", labelsize=12)
     ax_hist.legend(loc="upper left", fontsize=11)
-    ax_hist.grid(True, alpha=0.3)
+    ax_hist.grid(False) # GRID REMOVED
     plt.tight_layout()
     st.pyplot(fig_hist)
 
@@ -7363,7 +7417,7 @@ def _render_single_monthly_detail(d, material):
     ax.set_title(f"{material} — Historical + All-Models Forecast", fontsize=15, fontweight="bold")
     ax.tick_params(axis="both", labelsize=12)
     ax.legend(loc="upper left", bbox_to_anchor=(1.01, 1), fontsize=10, frameon=True)
-    ax.grid(True, alpha=0.3)
+    ax.grid(False) # GRID REMOVED
     plt.tight_layout()
     st.pyplot(fig)
 
@@ -7527,7 +7581,7 @@ def _render_single_yearly_detail(d, material):
     ax.set_title(f"{material} — Historical + All-Models Forecast", fontsize=15, fontweight="bold")
     ax.tick_params(axis="both", labelsize=12)
     ax.legend(loc="upper left", bbox_to_anchor=(1.01, 1), fontsize=9, frameon=True)
-    ax.grid(True, alpha=0.3)
+    ax.grid(False) # GRID REMOVED
     plt.tight_layout()
     st.pyplot(fig)
 
@@ -8621,6 +8675,8 @@ def main():
         st.session_state.force_password_reset = False
     if 'summary_card_sel' not in st.session_state:
         st.session_state.summary_card_sel = None
+    if 'current_page' not in st.session_state:
+        st.session_state.current_page = "Historical Data"
 
     inject_custom_css()
     inject_javascript()
@@ -8660,9 +8716,42 @@ def main():
                     unsafe_allow_html=True)
         st.markdown("---")
 
-        # ---------------- GROUP 1: SECTION ----------------
-        with _sb_group("🗂️", "Section"):
+        # ---------------- GROUP 1: SUB-TOOLS ----------------
+        with _sb_group("🗂️", "Sub-Tools"):
             active_section = _render_section_switcher()
+
+        # ---------------- GROUP 1b: MAIN TABS ----------------
+        MAIN_TABS_ALL = [
+            ("Historical Data", "Historical Data"),
+            ("Expert Action Plan", "Expert Action Plan"),
+            ("Action Plan Follow Up", "Action Plan Follow Up"),
+            ("System Generated Action Plan", "System Generated Action Plan"),
+        ]
+
+        available_main_tabs = []
+        if active_section == "supply_planning":
+            _user_tabs = get_user_tab_access()
+            if _user_tabs and "All" not in _user_tabs:
+                available_main_tabs = [(l, k) for l, k in MAIN_TABS_ALL if k in _user_tabs]
+            else:
+                available_main_tabs = MAIN_TABS_ALL
+
+            _valid_keys = [k for _l, k in available_main_tabs]
+            if _valid_keys and st.session_state.current_page not in _valid_keys:
+                st.session_state.current_page = _valid_keys[0]
+
+            with _sb_group("📑", "Main Tabs"):
+                if available_main_tabs:
+                    for label, key in available_main_tabs:
+                        # Highlight the active tab
+                        btn_type = "primary" if st.session_state.current_page == key else "secondary"
+                        if st.button(label, key=f"btn_nav_{key}", use_container_width=True, type=btn_type):
+                            st.session_state.current_page = key
+                            st.rerun()
+                else:
+                    st.caption("No tabs assigned. Contact your administrator.")
+        else:
+            st.session_state.current_page = "Forecasting"
 
         # Spacer pushes Admin & Account toward the bottom of the sidebar
         st.markdown('<div style="height: max(40px, calc(100vh - 560px));"></div>', unsafe_allow_html=True)
@@ -8882,56 +8971,48 @@ def main():
     # RENDER — 2 INDEPENDENT SECTIONS
     # ============================================================
     if active_section == "supply_planning":
-        user_tabs = get_user_tab_access()
-
-        all_tabs = [
-            ("📊 Historical Data", "Historical Data"),
-            ("📋 Expert Action Plan", "Expert Action Plan"),
-            ("📈 Action Plan Follow Up", "Action Plan Follow Up"),
-            ("📦 System Generated Action Plan", "System Generated Action Plan"),
-        ]
-
-        if user_tabs and "All" not in user_tabs:
-            available_tabs = [(l, k) for l, k in all_tabs if k in user_tabs]
-        else:
-            available_tabs = all_tabs
-
-        if available_tabs:
-            tab_labels = [t[0] for t in available_tabs]
-            tab_keys = [t[1] for t in available_tabs]
-            tabs = st.tabs(tab_labels)
-
-            for tab, tab_key in zip(tabs, tab_keys):
-                with tab:
-                    if tab_key == "Historical Data":
-                        st.markdown(f"## 📊 {sheet_name if sheet_name != 'All' else 'All Programs'} Historical Data")
-                        render_unified_historical_table(
-                            df_filtered, issue_pivot, nsoh_pivot,
-                            consumption_pivot, deliveries_pivot,
-                            ordered_materials_tuple, sheet_name)
-                    elif tab_key == "Expert Action Plan":
-                        st.markdown(f"## 📋 {sheet_name if sheet_name != 'All' else 'All Programs'} Expert Action Plan")
-                        render_expert_action_plan_with_status(
-                            df_filtered, material_problems, action_df,
-                            sheet_name, nsoh_pivot,
-                            selected_quarter, selected_year)
-                    elif tab_key == "Action Plan Follow Up":
-                        render_ap_progress_follow_up(
-                            sheet_name, selected_quarter,
-                            selected_year,
-                            st.session_state.selected_status)
-                    elif tab_key == "System Generated Action Plan":
-                        render_supply_planning_exercise(
-                            df_filtered, supply_df, supply_plan,
-                            ordered_materials_tuple, sheet_name, action_df)
-                        st.markdown("---")
-                        render_system_generated_action_plan(
-                            action_df, material_problems, sheet_name)
-        else:
+        if not available_main_tabs:
             st.warning("You don't have access to any Supply Planning tabs. Please contact your administrator.")
+        else:
+            _tab_keys = [_key for _lbl, _key in available_main_tabs]
+            _tab_key = st.session_state.current_page
+            if _tab_key not in _tab_keys:
+                _tab_key = _tab_keys[0]
+                st.session_state.current_page = _tab_key
 
+            # Main-panel tab bar (shares state with the sidebar buttons)
+            _label_by_key = {k: l for l, k in available_main_tabs}
+            with st.container(key="main_tabbar"):
+                st.radio(
+                    "Main tabs", _tab_keys, key="current_page", horizontal=True,
+                    format_func=lambda k: _label_by_key.get(k, k),
+                    label_visibility="collapsed",
+                )
+            _tab_key = st.session_state.current_page
+
+            # Show the tab selected in the sidebar or in the tab bar
+            if _tab_key == "Historical Data":
+                st.markdown(f"## 📊 {sheet_name if sheet_name != 'All' else 'All Programs'} Historical Data")
+                render_unified_historical_table(
+                    df_filtered, issue_pivot, nsoh_pivot, consumption_pivot, deliveries_pivot,
+                    ordered_materials_tuple, sheet_name)
+
+            elif _tab_key == "Expert Action Plan":
+                st.markdown(f"## 📋 {sheet_name if sheet_name != 'All' else 'All Programs'} Expert Action Plan")
+                render_expert_action_plan_with_status(
+                    df_filtered, material_problems, action_df, sheet_name, nsoh_pivot,
+                    selected_quarter, selected_year, deliveries_pivot=deliveries_pivot)
+
+            elif _tab_key == "Action Plan Follow Up":
+                render_ap_progress_follow_up(sheet_name, selected_quarter, selected_year,
+                                             st.session_state.selected_status)
+
+            elif _tab_key == "System Generated Action Plan":
+                render_supply_planning_exercise(
+                    df_filtered, supply_df, supply_plan, ordered_materials_tuple, sheet_name, action_df)
+                st.markdown("---")
+                render_system_generated_action_plan(action_df, material_problems, sheet_name)
     else:
-        # FORECASTING SECTION (fully independent)
         render_forecasting_section(issue_pivot, sheet_name)
 
 
