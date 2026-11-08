@@ -1579,7 +1579,8 @@ def load_expert_plan_records(program=None, quarter=None, year=None):
                     'Identified Problem': rec.get('identified_problem'),
                     'Action Point': rec.get('action_point'),
                     'Responsible Body': rec.get('responsible_body'),
-                    'Due Date': rec.get('due_date'), 'Completion Date': rec.get('completion_date'),
+                    'Due Date': rec.get('due_date'), 'Level of Urgency': rec.get('level_of_urgency') or '',
+                    'Completion Date': rec.get('completion_date'),
                     'Status': rec.get('status', 'Pending'), 'Quarter': rec.get('quarter'),
                     'Year': rec.get('year'), 'Program': rec.get('program'),
                     'Updated At': rec.get('updated_at'), 'Created At': rec.get('created_at'),
@@ -1604,16 +1605,31 @@ def save_expert_plan_record(record):
             'action_point': record.get('Action Point'),
             'responsible_body': record.get('Responsible Body'),
             'due_date': record.get('Due Date'),
+            'level_of_urgency': record.get('Level of Urgency'),
             'completion_date': record.get('Completion Date'),
             'status': record.get('Status', 'Pending'), 'quarter': record.get('Quarter'),
             'year': int(record.get('Year')) if record.get('Year') else None,
             'program': record.get('Program')
         }
         existing = supabase.table("expert_plan_records").select("record_id").eq("record_id", data['record_id']).execute()
-        if existing.data:
-            supabase.table("expert_plan_records").update(data).eq("record_id", data['record_id']).execute()
-        else:
-            supabase.table("expert_plan_records").insert(data).execute()
+
+        def _write(payload):
+            if existing.data:
+                supabase.table("expert_plan_records").update(payload).eq("record_id", payload['record_id']).execute()
+            else:
+                supabase.table("expert_plan_records").insert(payload).execute()
+
+        try:
+            _write(data)
+        except Exception as _e:
+            if 'level_of_urgency' in str(_e):
+                # Column not created yet in Supabase: save everything else
+                data.pop('level_of_urgency', None)
+                _write(data)
+                st.warning("⚠️ Level of Urgency was not saved: add a text column named "
+                           "'level_of_urgency' to the 'expert_plan_records' table in Supabase.")
+            else:
+                raise
         load_expert_plan_records.clear()
         return True
     except Exception as e:
@@ -1654,6 +1670,14 @@ def calculate_dos(df):
                 updated[material] = {'days': 0, 'is_out_of_stock': False}
     save_dos_tracking(updated)
     return {material: data['days'] for material, data in updated.items()}
+
+
+RISK_TYPE_LABELS = {
+    'Risk of Stock out': 'Risk Stock Out',
+    'Expiry Risk': 'Risk Expiry',
+    'Critical Risk': 'Critical Risk',
+    '': 'None',
+}
 
 
 def categorize_stock(nmos):
@@ -2268,7 +2292,8 @@ def compute_action_plan(df_filtered):
                 responsible_body = "MOH"
             material_problems[material]['problems'].append({
                 'Identified Problem': '🔴 Stock Out', 'Action Point': action_point,
-                'Responsible Body': responsible_body, 'Due Date': 'IMMEDIATELY'
+                'Responsible Body': responsible_body, 'Due Date': 'IMMEDIATELY',
+                'Level of Urgency': 'High'
             })
 
         elif nmos >= 1 and (risk_of_stock == 'Risk of Stock out' or risk_type == 'Risk of Stock out'):
@@ -2281,14 +2306,16 @@ def compute_action_plan(df_filtered):
             material_problems[material]['problems'].append({
                 'Identified Problem': '🟡 Risk of Stock Out', 'Action Point': action_point,
                 'Responsible Body': responsible_body,
-                'Due Date': end_of_month.strftime('Before %d %b %Y')
+                'Due Date': end_of_month.strftime('Before %d %b %Y'),
+                'Level of Urgency': 'High'
             })
 
         if nmos > 0 and (has_expiry_risk or risk_type == 'Expiry Risk'):
             action_point, responsible_body = get_expiry_risk_action(row)
             material_problems[material]['problems'].append({
                 'Identified Problem': '⚠️ Expiry Risk', 'Action Point': action_point,
-                'Responsible Body': responsible_body, 'Due Date': 'ASAP'
+                'Responsible Body': responsible_body, 'Due Date': 'ASAP',
+                'Level of Urgency': 'Medium'
             })
 
         if 1 <= nmos < 6:
@@ -2301,7 +2328,8 @@ def compute_action_plan(df_filtered):
             material_problems[material]['problems'].append({
                 'Identified Problem': '📉 Below Minimum Stock Level', 'Action Point': action_point,
                 'Responsible Body': responsible_body,
-                'Due Date': end_of_month.strftime('Before %d %b %Y')
+                'Due Date': end_of_month.strftime('Before %d %b %Y'),
+                'Level of Urgency': 'Medium'
             })
 
         if tmos < 18:
@@ -2312,7 +2340,8 @@ def compute_action_plan(df_filtered):
             due_date = calculate_due_date_for_pipeline(tmos)
             material_problems[material]['problems'].append({
                 'Identified Problem': '📦 Pipeline Insufficient - Cannot Reach Max Stock',
-                'Action Point': action_point, 'Responsible Body': responsible_body, 'Due Date': due_date
+                'Action Point': action_point, 'Responsible Body': responsible_body, 'Due Date': due_date,
+                'Level of Urgency': 'Medium' if tmos < 8 else 'Low'
             })
 
     for material, data in material_problems.items():
@@ -2339,7 +2368,8 @@ def compute_action_plan(df_filtered):
                     'Identified Problem': problem['Identified Problem'],
                     'Action Point': problem['Action Point'],
                     'Responsible Body': problem['Responsible Body'],
-                    'Due Date': problem['Due Date']
+                    'Due Date': problem['Due Date'],
+                    'Level of Urgency': problem.get('Level of Urgency', 'Medium')
                 })
 
     if action_plan_rows:
@@ -3613,6 +3643,7 @@ def render_system_generated_action_plan(action_df, material_problems, sheet_name
             action      = row.get('Action Point', '') or ''
             responsible = row.get('Responsible Body', '') or ''
             due_date    = row.get('Due Date', '') or ''
+            urgency     = row.get('Level of Urgency', '') or ''
 
             rows_html_parts.append(
                 f'<tr>'
@@ -3627,6 +3658,7 @@ def render_system_generated_action_plan(action_df, material_problems, sheet_name
                 f'<td class="col-action">{action}</td>'
                 f'<td class="col-responsible">{responsible}</td>'
                 f'<td class="col-date">{due_date}</td>'
+                f'<td class="col-status">{urgency}</td>'
                 f'</tr>'
             )
 
@@ -3648,6 +3680,7 @@ def render_system_generated_action_plan(action_df, material_problems, sheet_name
             '<th class="col-action">Action Point</th>'
             '<th class="col-responsible">Responsible Body</th>'
             '<th class="col-date">Due Date</th>'
+            '<th class="col-status">Level of Urgency</th>'
             '</tr>'
             '</thead>'
             '<tbody>'
@@ -3674,6 +3707,7 @@ def render_system_generated_action_plan(action_df, material_problems, sheet_name
             action      = row.get('Action Point', '') or ''
             responsible = row.get('Responsible Body', '') or ''
             due_date    = row.get('Due Date', '') or ''
+            urgency     = row.get('Level of Urgency', '') or ''
 
             st.markdown(f"""
             <div class="data-card">
@@ -3694,6 +3728,7 @@ def render_system_generated_action_plan(action_df, material_problems, sheet_name
                     <div class="responsible full-width">
                         <span><strong>👤 Responsible:</strong> {responsible}</span>
                         <span><strong>📅 Due:</strong> {due_date}</span>
+                        <span><strong>🚦 Urgency:</strong> {urgency}</span>
                     </div>
                 </div>
             </div>
@@ -4026,6 +4061,8 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
             'expiry': expiry_formatted if expiry_formatted else (expiry if expiry else 'N/A'),
             'exp_mos': exp_mos_formatted if exp_mos_formatted else 'N/A',
             'po_mos': po_mos_formatted,
+            'stock_status': (row.get('Stock Status', '') if pd.notna(row.get('Stock Status', '')) else '') or categorize_stock(usable_nmos_val) or 'N/A',
+            'risk_type': RISK_TYPE_LABELS.get(str(row.get('Risk Type', '') if pd.notna(row.get('Risk Type', '')) else '').strip(), 'None'),
             'current_month_label': current_month_label
         }
 
@@ -4041,6 +4078,7 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
                 'problem': row.get('Identified Problem', ''),
                 'action': row.get('Action Point', ''),
                 'due_date': row.get('Due Date', ''),
+                'urgency': row.get('Level of Urgency', ''),
                 'responsible': row.get('Responsible Body', '')
             })
         return problems
@@ -4496,15 +4534,17 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
             html += f'<h4 style="color: #1a5276; font-size: 18px; font-weight: 700; margin-bottom: 15px;">📦 {selected_material}</h4>'
             html += f'<div style="background: white; padding: 8px 12px; border-radius: 6px; margin-bottom: 5px;"><strong>NSOH:</strong> {base_info["nsoh"]}</div>'
             html += f'<div style="background: white; padding: 8px 12px; border-radius: 6px; margin-bottom: 5px;"><strong>AMC:</strong> {base_info["amc"]}</div>'
-            html += f'<div style="background: white; padding: 8px 12px; border-radius: 6px; margin-bottom: 5px;"><strong>PMOS:</strong> {base_info["pmos"]:.2f}</div>'
-            html += f'<div style="background: white; padding: 8px 12px; border-radius: 6px; margin-bottom: 5px;"><strong>NMOS:</strong> {base_info["nmos"]:.2f}</div>'
             html += f'<div style="background: #f0f0f0; padding: 8px 12px; border-radius: 6px; margin-bottom: 5px;"><strong>NMOS_raw:</strong> {base_info["nmos_raw"]:.2f}</div>'
+            html += f'<div style="background: white; padding: 8px 12px; border-radius: 6px; margin-bottom: 5px;"><strong>Expiry:</strong> {base_info["expiry"]}</div>'
+            html += f'<div style="background: white; padding: 8px 12px; border-radius: 6px; margin-bottom: 5px;"><strong>Expiry_MOS:</strong> {base_info["exp_mos"]}</div>'
             html += f'<div style="background: #fdecea; padding: 8px 12px; border-radius: 6px; margin-bottom: 5px; border-left: 3px solid #dc3545;"><strong>Lost MOS (due to expiry):</strong> {base_info["lost_mos"]:.2f}</div>'
+            html += f'<div style="background: white; padding: 8px 12px; border-radius: 6px; margin-bottom: 5px;"><strong>NMOS:</strong> {base_info["nmos"]:.2f}</div>'
+            html += f'<div style="background: white; padding: 8px 12px; border-radius: 6px; margin-bottom: 5px;"><strong>Stock Status:</strong> {base_info["stock_status"]}</div>'
+            html += f'<div style="background: white; padding: 8px 12px; border-radius: 6px; margin-bottom: 5px;"><strong>PMOS:</strong> {base_info["pmos"]:.2f}</div>'
             html += f'<div style="background: white; padding: 8px 12px; border-radius: 6px; margin-bottom: 5px;"><strong>TMOS:</strong> {base_info["tmos"]:.2f}</div>'
+            html += f'<div style="background: white; padding: 8px 12px; border-radius: 6px; margin-bottom: 5px;"><strong>Risk Type:</strong> {base_info["risk_type"]}</div>'
             html += f'<div style="background: white; padding: 8px 12px; border-radius: 6px; margin-bottom: 5px;"><strong>Status:</strong> {base_info["status"]}</div>'
             html += f'<div style="background: white; padding: 8px 12px; border-radius: 6px; margin-bottom: 5px;"><strong>PO_MOS:</strong> {base_info["po_mos"]}</div>'
-            html += f'<div style="background: white; padding: 8px 12px; border-radius: 6px; margin-bottom: 5px;"><strong>Expiry:</strong> {base_info["expiry"]}</div>'
-            html += f'<div style="background: white; padding: 8px 12px; border-radius: 6px; margin-bottom: 5px;"><strong>Exp_MOS:</strong> {base_info["exp_mos"]}</div>'
 
             if system_problems:
                 html += '<div style="margin-top: 10px;"><strong>System Generated Action Items:</strong><br>'
@@ -4513,7 +4553,7 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
                     html += f'<div><span style="display: inline-block; width: 12px; height: 12px; border-radius: 50%; background: #2e86c1; margin-right: 8px;"></span>'
                     html += f'<strong>{idx}. Identified Problem:</strong> {prob["problem"]}</div>'
                     html += f'<div style="padding-left: 24px;"><strong>Action Point:</strong> {prob["action"]}</div>'
-                    html += f'<div style="padding-left: 24px; font-size: 12px; opacity: 0.8;"><strong>Responsible:</strong> {prob["responsible"]} | <strong>Due:</strong> {prob["due_date"]}</div>'
+                    html += f'<div style="padding-left: 24px; font-size: 12px; opacity: 0.8;"><strong>Responsible:</strong> {prob["responsible"]} | <strong>Due:</strong> {prob["due_date"]} | <strong>Urgency:</strong> {prob["urgency"]}</div>'
                     html += '</div>'
                 html += '</div>'
             else:
@@ -4695,6 +4735,7 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
             action_val = edit_record.get('Action Point', '')
             resp_val = edit_record.get('Responsible Body', '') or ''
             due_val = edit_record.get('Due Date', '')
+            urgency_val = edit_record.get('Level of Urgency', '') or 'Medium'
             completion_val = edit_record.get('Completion Date', '')
             status_val = edit_record.get('Status', 'Pending')
             purchase_order_val = edit_record.get('Purchase Order', '')
@@ -4706,6 +4747,7 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
             action_val = ""
             resp_val = ""
             due_val = ""
+            urgency_val = "Medium"
             completion_val = ""
             status_val = "Select Status"
             quarter_val = "Select Quarter"
@@ -4770,8 +4812,12 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
                 st.markdown('<p style="font-weight: bold; color: black; font-size: 15px; margin-bottom: 5px;">Action Point</p>', unsafe_allow_html=True)
                 action_point = st.text_area("", value=action_val, key="ap_action", height=80, label_visibility="collapsed")
 
-            st.markdown('<p style="font-weight: bold; color: black; font-size: 15px; margin-bottom: 5px;">Responsible Body</p>', unsafe_allow_html=True)
-            col_r1a, col_r1b = st.columns([2, 2])
+            _lbl_a, _lbl_b, _lbl_c = st.columns([2, 2, 1])
+            with _lbl_a:
+                st.markdown('<p style="font-weight: bold; color: black; font-size: 15px; margin-bottom: 5px;">Responsible Body</p>', unsafe_allow_html=True)
+            with _lbl_c:
+                st.markdown('<p style="font-weight: bold; color: black; font-size: 15px; margin-bottom: 5px;">Level of Urgency</p>', unsafe_allow_html=True)
+            col_r1a, col_r1b, col_r1c = st.columns([2, 2, 1])
             with col_r1a:
                 selected_responsible_list = st.multiselect(
                     "Select one or more",
@@ -4786,6 +4832,15 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
                     value=default_custom_responsible,
                     key="ap_custom_responsible",
                     placeholder="Add custom responsible body (comma-separated)",
+                    label_visibility="collapsed"
+                )
+            with col_r1c:
+                urgency_options = ["Low", "Medium", "High"]
+                level_of_urgency = st.selectbox(
+                    "Level of Urgency",
+                    urgency_options,
+                    index=urgency_options.index(urgency_val) if urgency_val in urgency_options else 1,
+                    key="ap_level_of_urgency",
                     label_visibility="collapsed"
                 )
 
@@ -4876,6 +4931,7 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
                             'Action Point': action_point,
                             'Responsible Body': final_responsible,
                             'Due Date': due_date,
+                            'Level of Urgency': level_of_urgency,
                             'Completion Date': completion_date,
                             'Status': status,
                             'Quarter': quarter,
@@ -4910,6 +4966,7 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
                             'Action Point': action_point,
                             'Responsible Body': final_responsible,
                             'Due Date': due_date,
+                            'Level of Urgency': level_of_urgency,
                             'Completion Date': completion_date,
                             'Status': status,
                             'Quarter': quarter,
@@ -5123,6 +5180,7 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
                         action = _safe_val(r.get('Action Point', '')) or ''
                         resp = _safe_val(r.get('Responsible Body', '')) or ''
                         due_raw = r.get('Due Date', '')
+                        urgency = _safe_val(r.get('Level of Urgency', '')) or ''
                         completion_raw = r.get('Completion Date', '')
                         status = _safe_val(r.get('Status', '')) or ''
 
@@ -5145,6 +5203,7 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
                             'Action Point':       f'<td class="col-action">{action}</td>',
                             'Responsible Body':   f'<td class="col-responsible">{resp}</td>',
                             'Due Date':           f'<td class="col-date">{due}</td>',
+                            'Level of Urgency':   f'<td class="col-status">{urgency}</td>',
                             'Completion Date':    f'<td class="col-date">{completion_display}</td>',
                             'Status':             f'<td class="col-status">{status}</td>',
                             'Timeliness':         f'<td class="col-status">{timeliness_html}</td>',
@@ -5199,9 +5258,9 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
                             st.markdown(f"### 📋 {quarter}, {year} Supply Planning {program_display} Action Plan")
                             cols = ['Material', 'NSOH', 'AMC', 'PMOS', 'NMOS', 'TMOS',
                                     'Purchase Order', 'Order Quantity', 'Identified Problem',
-                                    'Action Point', 'Responsible Body', 'Due Date',
+                                    'Action Point', 'Responsible Body', 'Due Date', 'Level of Urgency',
                                     'Completion Date', 'Status', 'Timeliness']
-                            cols = [c for c in cols if c in quarter_df.columns or c in ('Timeliness', 'Completion Date')]
+                            cols = [c for c in cols if c in quarter_df.columns or c in ('Timeliness', 'Completion Date', 'Level of Urgency')]
                             table_html = build_expert_html_table(quarter_df, cols)
                             st.markdown(table_html, unsafe_allow_html=True)
                             st.markdown("---")
@@ -5239,6 +5298,7 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
                                         <div class="responsible full-width">
                                             <span><strong>👤 Responsible:</strong> {row.get('Responsible Body', '')}</span>
                                             <span><strong>📅 Due:</strong> {due_display}</span>
+                                            <span><strong>🚦 Urgency:</strong> {row.get('Level of Urgency', '') or ''}</span>
                                             {completion_html}
                                         </div>
                                     </div>
@@ -5250,9 +5310,9 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
                     if view_mode == "Table":
                         cols = ['Material', 'NSOH', 'AMC', 'PMOS', 'NMOS', 'TMOS',
                                 'Purchase Order', 'Order Quantity', 'Identified Problem',
-                                'Action Point', 'Responsible Body', 'Due Date',
+                                'Action Point', 'Responsible Body', 'Due Date', 'Level of Urgency',
                                 'Completion Date', 'Status', 'Timeliness']
-                        cols = [c for c in cols if c in filtered_df.columns or c in ('Timeliness', 'Completion Date')]
+                        cols = [c for c in cols if c in filtered_df.columns or c in ('Timeliness', 'Completion Date', 'Level of Urgency')]
                         table_html = build_expert_html_table(filtered_df, cols)
                         st.markdown(table_html, unsafe_allow_html=True)
                     else:
@@ -5288,6 +5348,7 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
                                     <div class="responsible full-width">
                                         <span><strong>👤 Responsible:</strong> {row.get('Responsible Body', '')}</span>
                                         <span><strong>📅 Due:</strong> {due_display}</span>
+                                        <span><strong>🚦 Urgency:</strong> {row.get('Level of Urgency', '') or ''}</span>
                                         {completion_html}
                                     </div>
                                 </div>
@@ -5314,6 +5375,10 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
                         axis=1
                     )
                 export_df = export_df.replace({pd.NA: '', np.nan: ''})
+                if 'Level of Urgency' in export_df.columns and 'Due Date' in export_df.columns:
+                    _cols = [c for c in export_df.columns if c != 'Level of Urgency']
+                    _cols.insert(_cols.index('Due Date') + 1, 'Level of Urgency')
+                    export_df = export_df[_cols]
                 if '_Timeliness_Filter' in export_df.columns:
                     export_df = export_df.drop(columns=['_Timeliness_Filter'])
                 filtered_df_clean = clean_dataframe_for_excel(export_df)
@@ -5745,6 +5810,7 @@ def render_ap_progress_follow_up(sheet_name, selected_quarter, selected_year, se
         'Action Point',
         'Responsible Body',
         'Due Date',
+        'Level of Urgency',
         'Status Display',
         'Timeliness',
         'Current NMOS',
@@ -5778,6 +5844,8 @@ def render_ap_progress_follow_up(sheet_name, selected_quarter, selected_year, se
                 html_table += '<th style="font-family: Times New Roman, Times, serif !important; font-size: 15px; width: 11%;">Responsible Body</th>'
             elif col == 'Due Date':
                 html_table += '<th style="font-family: Times New Roman, Times, serif !important; font-size: 15px; width: 9%;">Due Date</th>'
+            elif col == 'Level of Urgency':
+                html_table += '<th style="font-family: Times New Roman, Times, serif !important; font-size: 15px; width: 8%; text-align: center;">Level of Urgency</th>'
             elif col in ['Current NMOS', 'Current PMOS', 'Current TMOS']:
                 html_table += f'<th style="font-family: Times New Roman, Times, serif !important; font-size: 13px; width: 7%; text-align: center;">{col}</th>'
             else:
@@ -5805,6 +5873,8 @@ def render_ap_progress_follow_up(sheet_name, selected_quarter, selected_year, se
                     html_table += f'<td style="font-family: Times New Roman, Times, serif !important; font-size: 14px; min-width: 200px;">{row.get(col, "")}</td>'
                 elif col == 'Due Date':
                     html_table += f'<td style="font-family: Times New Roman, Times, serif !important; font-size: 14px; text-align: center; white-space: nowrap;">{row.get(col, "")}</td>'
+                elif col == 'Level of Urgency':
+                    html_table += f'<td style="font-family: Times New Roman, Times, serif !important; font-size: 14px; text-align: center;">{row.get(col, "") or ""}</td>'
                 else:
                     html_table += f'<td style="font-family: Times New Roman, Times, serif !important; font-size: 14px;">{row.get(col, "")}</td>'
             html_table += '</tr>'
@@ -5835,6 +5905,7 @@ def render_ap_progress_follow_up(sheet_name, selected_quarter, selected_year, se
                     <div class="responsible full-width">
                         <span><strong>👤 Responsible:</strong> {row.get('Responsible Body', '')}</span>
                         <span><strong>📅 Due:</strong> {row.get('Due Date', '')}</span>
+                        <span><strong>🚦 Urgency:</strong> {row.get('Level of Urgency', '') or ''}</span>
                         <span><strong>⏱️ Timeliness:</strong> {row.get('Timeliness', '')}</span>
                     </div>
                 </div>
@@ -5844,11 +5915,14 @@ def render_ap_progress_follow_up(sheet_name, selected_quarter, selected_year, se
 
     output = BytesIO()
     with pd.ExcelWriter(output, engine='openpyxl') as writer:
-        df_to_export = display_df[[
+        _exp_cols = [
             'Material', 'NMOS', 'Purchase Order', 'Order Quantity',
             'Identified Problem', 'Action Point', 'Responsible Body',
-            'Due Date', 'Status', 'Timeliness', 'Current NMOS', 'Current PMOS', 'Current TMOS'
-        ]].copy()
+            'Due Date', 'Level of Urgency', 'Status', 'Timeliness', 'Current NMOS', 'Current PMOS', 'Current TMOS'
+        ]
+        if 'Level of Urgency' not in display_df.columns:
+            display_df['Level of Urgency'] = ''
+        df_to_export = display_df[_exp_cols].copy()
         df_to_export_clean = clean_dataframe_for_excel(df_to_export)
         df_to_export_clean.to_excel(writer, index=False, sheet_name='Action Plan')
     excel_data = output.getvalue()
@@ -6469,7 +6543,7 @@ def render_ap_progress_follow_up(sheet_name, selected_quarter, selected_year, se
 
     EXPORT_COLUMNS = [
         'Material', 'NMOS', 'Purchase Order', 'Order Quantity',
-        'Identified Problem', 'Action Point', 'Responsible Body', 'Due Date'
+        'Identified Problem', 'Action Point', 'Responsible Body', 'Due Date', 'Level of Urgency'
     ]
 
     FONT_FAMILY = 'Times New Roman'
@@ -6658,7 +6732,7 @@ def render_ap_progress_follow_up(sheet_name, selected_quarter, selected_year, se
         yellow_font = Font(name=FONT_FAMILY, size=12, color='B7950B', bold=True)
 
         wrap_cols = {'Material', 'Identified Problem', 'Action Point', 'Responsible Body'}
-        center_cols = {'NMOS', 'Purchase Order', 'Order Quantity', 'Due Date'}
+        center_cols = {'NMOS', 'Purchase Order', 'Order Quantity', 'Due Date', 'Level of Urgency'}
 
         if df_to_write.empty:
             msg_row = header_row_idx + 1
@@ -6674,7 +6748,7 @@ def render_ap_progress_follow_up(sheet_name, selected_quarter, selected_year, se
                 'Material': 40, 'NMOS': 10,
                 'Purchase Order': 22, 'Order Quantity': 18,
                 'Identified Problem': 40, 'Action Point': 55,
-                'Responsible Body': 28, 'Due Date': 16
+                'Responsible Body': 28, 'Due Date': 16, 'Level of Urgency': 16
             }
             for c_idx, col_name in enumerate(EXPORT_COLUMNS, start=1):
                 ws.column_dimensions[get_column_letter(c_idx)].width = default_widths.get(col_name, 18)
@@ -7764,6 +7838,7 @@ def render_summary_card_table(df_records, kind, value):
                     <div class="responsible full-width">
                         <span><strong>👤 Responsible:</strong> {esc(r.get('Responsible Body'))}</span>
                         <span><strong>📅 Due:</strong> {esc(_fmt_date_pretty(r.get('Due Date')))}</span>
+                        <span><strong>🚦 Urgency:</strong> {esc(r.get('Level of Urgency'))}</span>
                         <span><strong>⏱️ Timeliness:</strong> {_SUMMARY_TIMELINESS_ICONS.get(t, '')} {esc(t)}</span>
                     </div>
                 </div>
@@ -7772,7 +7847,7 @@ def render_summary_card_table(df_records, kind, value):
         st.markdown('</div>', unsafe_allow_html=True)
     else:
         cols = ['Material', 'Program', 'NMOS', 'Purchase Order', 'Order Quantity', 'Identified Problem',
-                'Action Point', 'Responsible Body', 'Due Date', 'Completion Date', 'Status', 'Timeliness']
+                'Action Point', 'Responsible Body', 'Due Date', 'Level of Urgency', 'Completion Date', 'Status', 'Timeliness']
         head = ''.join(f'<th style="{f} font-size:15px;">{c}</th>' for c in cols)
         body = []
         for _, r in sub.iterrows():
@@ -7792,6 +7867,7 @@ def render_summary_card_table(df_records, kind, value):
                 f'<td style="{f} min-width:200px;">{esc(r.get("Action Point"))}</td>',
                 f'<td style="{f}">{esc(r.get("Responsible Body"))}</td>',
                 f'<td style="{f} text-align:center; white-space:nowrap;">{esc(_fmt_date_pretty(r.get("Due Date")))}</td>',
+                f'<td style="{f} text-align:center;">{esc(r.get("Level of Urgency"))}</td>',
                 f'<td style="{f} text-align:center; white-space:nowrap;">{esc(_fmt_date_pretty(r.get("Completion Date")))}</td>',
                 f'<td style="{f} text-align:center;">{_badge(r.get("Status"))}</td>',
                 f'<td style="{f} text-align:center; white-space:nowrap;">{_SUMMARY_TIMELINESS_ICONS.get(t, "")} {esc(t)}</td>',
@@ -7804,7 +7880,7 @@ def render_summary_card_table(df_records, kind, value):
         )
 
     export_cols = ['Material', 'Program', 'NMOS', 'Purchase Order', 'Order Quantity', 'Identified Problem',
-                   'Action Point', 'Responsible Body', 'Due Date', 'Completion Date', 'Status', '_Timeliness']
+                   'Action Point', 'Responsible Body', 'Due Date', 'Level of Urgency', 'Completion Date', 'Status', '_Timeliness']
     export_df = sub[[c for c in export_cols if c in sub.columns]].rename(columns={'_Timeliness': 'Timeliness'}).copy()
     for dc in ('Due Date', 'Completion Date'):
         if dc in export_df.columns:
