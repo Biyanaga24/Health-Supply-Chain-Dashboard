@@ -123,7 +123,9 @@ def authenticate_user(email, password):
                 'email': user['email'],
                 'full_name': user.get('full_name', user['email'].split('@')[0]),
                 'role': user.get('role', 'user'),
-                'is_approved': user.get('is_approved', 1)
+                'is_approved': user.get('is_approved', 1),
+                'program_access': user.get('program_access', 'All'),
+                'main_tab_access': user.get('main_tab_access', 'All'),
             }
         return None
     except Exception as e:
@@ -481,15 +483,32 @@ def init_session_state():
     if 'font_size' not in st.session_state:
         st.session_state.font_size = "medium"
 
+def refresh_user_access(user_id):
+    """Re-fetch program_access, main_tab_access and role from Supabase into session"""
+    try:
+        response = supabase.table("users") \
+            .select("role, program_access, main_tab_access") \
+            .eq("id", user_id) \
+            .execute()
+        if response.data:
+            data = response.data[0]
+            st.session_state['user']['role']            = data.get('role', st.session_state['user'].get('role', 'user'))
+            st.session_state['user']['program_access']  = data.get('program_access', 'All')
+            st.session_state['user']['main_tab_access'] = data.get('main_tab_access', 'All')
+    except Exception:
+        pass
+
 def check_session_validity():
-    """Update user's last active timestamp with Addis Ababa time"""
+    """Update user's last active timestamp and refresh access fields"""
     if st.session_state.get('auth') and st.session_state.get('user'):
         now = get_current_time()
         if (now - st.session_state.get('last_activity', now)).seconds >= 30:
             update_user_session(
-                st.session_state['user']['id'], 
+                st.session_state['user']['id'],
                 st.session_state.get('session_id', '')
             )
+            # Re-sync access fields in case admin changed them
+            refresh_user_access(st.session_state['user']['id'])
             st.session_state['last_activity'] = now
 
 def logout_user():
