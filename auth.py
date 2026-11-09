@@ -254,7 +254,7 @@ def delete_user(user_id):
     except Exception as e:
         return False, str(e)
 
-MAIN_TAB_OPTIONS = ["Dashboard", "Advanced Analytics", "Upload"]
+MAIN_TAB_OPTIONS = ["Dashboard", "Advanced Analytics", "Executive Summary", "Issue Data", "Upload"]
 PROGRAM_OPTIONS = ["All", "Malaria", "HIV", "TB", "OI and Hepatitis", "FP", "CH", "MH",
                    "Nutrition", "Lab Malaria", "Lab TB", "HIV Lab", "Vaccine"]
 
@@ -1504,7 +1504,7 @@ def show_admin_panel():
                 with col_main_tab:
                     st.markdown("##### 🗂️ Main Tab Access")
                     current_main_tabs = get_user_main_tab_access(selected_edit_id)
-                    if not current_main_tabs:
+                    if not current_main_tabs or "All" in current_main_tabs:
                         current_main_tabs = MAIN_TAB_OPTIONS.copy()
                     new_main_tabs = st.multiselect(
                         "Select Main Tabs",
