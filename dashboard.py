@@ -179,6 +179,428 @@ _CARD_JS = """
 """
 
 # ---------------------------------------------------
+# Advanced HTML table (sortable, searchable, sticky header, badges, expiry chips)
+# ---------------------------------------------------
+_ADV_STATUS_COLORS = {
+    "Stock Out": ("#c0392b", "#ffffff"), "Understock": ("#f1c40f", "#4a3b00"),
+    "Normal Stock": ("#27ae60", "#ffffff"), "Overstock": ("#5dade2", "#08304a"),
+}
+_ADV_RISK_COLORS = {
+    "Critical Risk": ("#8e44ad", "#ffffff"), "Risk of Stock out": ("#e67e22", "#ffffff"),
+    "Expiry Risk": ("#e67e22", "#ffffff"),
+}
+_EXPIRY_RE = re.compile(r"[\d,\.]+\s*\([A-Za-z]{3,9}[-\s]\d{2,4}\)")
+
+
+def _adv_table_html(df, height=620, search=True, wrap_cols=("Status",)):
+    """Self-contained HTML table: click a header to sort, type to filter, sticky header + first column,
+    status badges, expiry batches as chips, long text wrapped. Returns an HTML string."""
+    import html as _h
+    cols = [str(c) for c in df.columns]
+    head = "".join(f"<th data-i='{i}' title='Click to sort'>{_h.escape(c)}<span class='ar'></span></th>" for i, c in enumerate(cols))
+    rows = []
+    for rec in df.itertuples(index=False, name=None):
+        tds = []
+        status = ""
+        for c, v in zip(cols, rec):
+            if c == "Stock Status":
+                status = "" if v is None else str(v)
+        for i, (c, v) in enumerate(zip(cols, rec)):
+            try:
+                empty = v is None or (not isinstance(v, str) and pd.isna(v))
+            except Exception:
+                empty = False
+            txt = "" if empty else str(v)
+            esc = _h.escape(txt)
+            sortv = esc
+            if c == "Material Description":
+                bg = _ADV_STATUS_COLORS.get(status, ("#cfd8e3", ""))[0]
+                cell = f"<td class='md' style='border-left:5px solid {bg}' data-s='{esc}'>{esc}</td>"
+            elif c == "Stock Status" and txt:
+                b, f = _ADV_STATUS_COLORS.get(txt, ("#95a5a6", "#fff"))
+                cell = f"<td data-s='{esc}'><span class='bd' style='background:{b};color:{f}'>{esc}</span></td>"
+            elif c == "Risk Type" and txt:
+                b, f = _ADV_RISK_COLORS.get(txt, ("#95a5a6", "#fff"))
+                cell = f"<td data-s='{esc}'><span class='bd' style='background:{b};color:{f}'>{esc}</span></td>"
+            elif c == "Expiry":
+                chips = _EXPIRY_RE.findall(txt) if txt else []
+                if chips:
+                    body = "".join(f"<span class='chip'>{_h.escape(x.strip())}</span>" for x in chips)
+                elif txt:
+                    body = "".join(f"<span class='chip'>{_h.escape(x.strip())}</span>" for x in txt.split(",") if x.strip())
+                else:
+                    body = ""
+                cell = f"<td class='exp' data-s='{esc}'><div class='chips'>{body}</div></td>"
+            elif c in wrap_cols:
+                cell = f"<td class='wr' data-s='{esc}' title='{esc}'><div class='clamp'>{esc}</div></td>"
+            elif c == "DOS":
+                try:
+                    pos = float(txt) > 0
+                except Exception:
+                    pos = False
+                cell = (f"<td class='num' data-s='{esc}'>" + (f"<span class='bd' style='background:#e74c3c;color:#fff'>{esc}</span>" if pos else esc) + "</td>")
+            else:
+                t = txt.replace(",", "").replace("%", "").replace("-", "", 1) if txt else ""
+                isnum = bool(t) and t.replace(".", "", 1).isdigit()
+                neg = txt.startswith("-") and isnum
+                cls = "num" if isnum else ""
+                if neg:
+                    cls += " neg"
+                cell = f"<td class='{cls.strip()}' data-s='{esc}'>{esc}</td>"
+            tds.append(cell)
+        rows.append("<tr>" + "".join(tds) + "</tr>")
+    box = "<input id='q' type='search' placeholder='🔍 Filter rows…'>" if search else ""
+    return f"""<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
+<style>
+*{{box-sizing:border-box}} body{{margin:0;font-family:'Segoe UI',Roboto,Arial,sans-serif;font-size:13px;color:#1f2a38;background:transparent}}
+#bar{{display:flex;gap:10px;align-items:center;margin:0 0 8px}} #q{{flex:1;padding:7px 12px;border:1px solid #c9d6e2;border-radius:20px;font-size:13px;outline:none}}
+#q:focus{{border-color:#2e86c1;box-shadow:0 0 0 2px rgba(46,134,193,.2)}} #cnt{{color:#5b6b7b;font-size:12px;white-space:nowrap}}
+#w{{height:{int(height)-46}px;overflow:auto;border:1px solid #d5dee8;border-radius:10px;background:#fff;box-shadow:0 2px 8px rgba(26,82,118,.08)}}
+table{{border-collapse:separate;border-spacing:0;width:100%;min-width:max-content}}
+th{{position:sticky;top:0;z-index:3;background:linear-gradient(#1f5f8b,#1a5276);color:#fff;text-align:left;padding:10px 12px;font-weight:600;cursor:pointer;white-space:nowrap;user-select:none;border-right:1px solid rgba(255,255,255,.12)}}
+th:hover{{background:#2e86c1}} th .ar{{margin-left:6px;font-size:10px;opacity:.9}}
+td{{padding:8px 12px;border-bottom:1px solid #edf1f5;vertical-align:top;background:#fff}}
+tr:nth-child(even) td{{background:#f6f9fc}} tr:hover td{{background:#e8f3fb !important}}
+td.md{{position:sticky;left:0;z-index:2;min-width:240px;max-width:340px;font-weight:600;color:#1a3a55;white-space:normal;box-shadow:2px 0 4px rgba(0,0,0,.05)}}
+th:first-child{{position:sticky;left:0;z-index:4}}
+td.num{{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}} td.neg{{color:#c0392b;font-weight:600}}
+td.exp{{min-width:230px;max-width:380px}} .chips{{display:flex;flex-wrap:wrap;gap:4px}}
+.chip{{background:#fdf2e3;color:#8a4b08;border:1px solid #f5cf9c;border-radius:12px;padding:2px 9px;font-size:12px;white-space:nowrap}}
+td.wr{{min-width:200px;max-width:340px}} .clamp{{display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden;line-height:1.35}}
+td.wr:hover .clamp{{-webkit-line-clamp:unset}}
+.bd{{display:inline-block;padding:2px 10px;border-radius:12px;font-weight:600;font-size:12px;white-space:nowrap}}
+@media (max-width:640px){{body{{font-size:12px}} td,th{{padding:7px 8px}} td.md{{min-width:150px;max-width:190px}}}}
+</style></head><body>
+<div id='bar'>{box}<span id='cnt'></span></div>
+<div id='w'><table id='t'><thead><tr>{head}</tr></thead><tbody>{''.join(rows)}</tbody></table></div>
+<script>
+(function(){{
+ var t=document.getElementById('t'),tb=t.tBodies[0],q=document.getElementById('q'),cnt=document.getElementById('cnt');
+ var rows=Array.prototype.slice.call(tb.rows),dir={{}};
+ function upd(){{var n=0;rows.forEach(function(r){{if(r.style.display!=='none')n++;}});cnt.textContent=n+' of '+rows.length+' rows';}}
+ function num(s){{var x=parseFloat(String(s).replace(/[,%]/g,''));return isNaN(x)?null:x;}}
+ t.tHead.addEventListener('click',function(e){{
+  var th=e.target.closest('th');if(!th)return;var i=+th.dataset.i;dir[i]=dir[i]===1?-1:1;
+  Array.prototype.forEach.call(t.tHead.rows[0].cells,function(c){{c.querySelector('.ar').textContent='';}});
+  th.querySelector('.ar').textContent=dir[i]===1?'▲':'▼';
+  rows.sort(function(a,b){{var x=a.cells[i].dataset.s,y=b.cells[i].dataset.s,nx=num(x),ny=num(y);
+   if(nx!==null&&ny!==null)return (nx-ny)*dir[i];
+   if(x===''&&y!=='')return 1; if(y===''&&x!=='')return -1;
+   return x.localeCompare(y,undefined,{{numeric:true}})*dir[i];}});
+  rows.forEach(function(r){{tb.appendChild(r);}});
+ }});
+ if(q)q.addEventListener('input',function(){{var v=q.value.toLowerCase();
+  rows.forEach(function(r){{r.style.display=r.textContent.toLowerCase().indexOf(v)===-1?'none':'';}});upd();}});
+ upd();
+}})();
+</script></body></html>"""
+
+
+def render_adv_table(df, key=None, max_height=640, wrap_cols=("Status",)):
+    """Show the advanced table in the page (height adapts to the number of rows)."""
+    n = len(df)
+    h = int(min(max_height, 130 + n * 46))
+    st.components.v1.html(_adv_table_html(df, height=h, wrap_cols=wrap_cols), height=h + 6, scrolling=False)
+
+
+# ---------------------------------------------------
+# Floating assistant (reasoning over the dashboard's own data; optional Claude API if a key is in secrets)
+# ---------------------------------------------------
+_BOT_STOP = set("""the and for with what which how many much are is was were show list give tell me about of in on at to a an
+all any this that these those please can you could would should stock status item items material materials medicine medicines
+product products have has had there their from by do does need needs now current currently dashboard data info information
+level levels month months qty quantity amount number total count""".split())
+
+
+def _bf(x, d=0):
+    try:
+        if x is None or pd.isna(x):
+            return "n/a"
+        return f"{float(x):,.{d}f}"
+    except Exception:
+        return str(x)
+
+
+def _bot_find_material(q, d):
+    names = d['Material Description'].astype(str)
+    low = names.str.lower()
+    ql = q.lower()
+    full = low[low.apply(lambda n: len(n) > 4 and n in ql)]
+    if len(full):
+        return d.loc[full.index[:1]]
+    toks = [t for t in re.findall(r"[a-z0-9\-\+]{3,}", ql) if t not in _BOT_STOP]
+    if not toks:
+        return None
+    score = low.apply(lambda n: sum(1 for t in toks if t in n))
+    top = score.max()
+    if top <= 0:
+        return None
+    hit = d.loc[score[score == top].index]
+    if top == 1 and len(hit) > 6:
+        return None
+    return hit.head(6)
+
+
+def _bot_material_profile(r):
+    nm = float(r.get('NMOS')) if pd.notna(r.get('NMOS')) else None
+    tm = float(r.get('TMOS')) if pd.notna(r.get('TMOS')) else None
+    lines = [f"**{r['Material Description']}**",
+             f"- Status: **{r.get('Stock Status', 'n/a')}** · NMOS {_bf(nm, 2)} · TMOS {_bf(tm, 2)} · AMC {_bf(r.get('AMC'))}",
+             f"- Head Office {_bf(r.get('Head Office'))} · Hubs {_bf(r.get('Hubs'))} · NSOH {_bf(r.get('NSOH'))}"]
+    if pd.notna(r.get('GF_MOS')):
+        lines.append(f"- Gap to 18 months: **{_bf(r.get('GF_MOS'), 2)} MOS ≈ {_bf(r.get('GF_Qty'))} units**")
+    if str(r.get('Expiry', '')).strip():
+        lines.append(f"- Expiry batches: {r.get('Expiry')}")
+    if str(r.get('Risk Type', '')).strip():
+        lines.append(f"- Risk: **{r.get('Risk Type')}**")
+    why = []
+    st_ = r.get('Stock Status')
+    if st_ == "Stock Out":
+        why.append("NMOS < 1, so there is effectively no national stock." +
+                   (" The pipeline (GIT/LC/WB/TMD) brings TMOS to " + _bf(tm, 1) + ", so " + ("follow up the inbound shipments urgently." if (tm or 0) >= 1 else "nothing meaningful is coming — place or expedite an order.") if tm is not None else ""))
+    elif st_ == "Understock":
+        why.append("Stock is below the minimum level; " + ("inbound pipeline lifts TMOS to " + _bf(tm, 1) + " — monitor arrival." if tm and nm is not None and tm > nm + 1 else "no sufficient pipeline — plan a replenishment."))
+    elif st_ == "Overstock":
+        why.append("Stock is above the maximum level — pause new orders and consider redistribution to avoid expiry.")
+    elif st_ == "Normal Stock":
+        why.append("Stock is within the target range.")
+    if str(r.get('Risk Type', '')) in ("Expiry Risk", "Critical Risk"):
+        why.append("Expiring batches may not be consumed at the current AMC — prioritise redistribution of the near-expiry batches.")
+    if why:
+        lines.append("\n**Reasoning:** " + " ".join(why))
+    return "\n".join(lines)
+
+
+def _bot_table(d, cols, n=10):
+    cols = [c for c in cols if c in d.columns]
+    t = d[cols].head(n).copy()
+    for c in t.columns:
+        if c != 'Material Description' and pd.api.types.is_numeric_dtype(t[c]):
+            t[c] = t[c].apply(lambda v: _bf(v, 2 if c in ('NMOS', 'TMOS', 'GF_MOS') else 0))
+    head = "| " + " | ".join(t.columns) + " |\n|" + "|".join(["---"] * len(t.columns)) + "|"
+    body = "\n".join("| " + " | ".join(str(v).replace("|", "/") for v in r) + " |" for r in t.itertuples(index=False, name=None))
+    return head + "\n" + body
+
+
+def _bot_context(d):
+    n = len(d)
+    vc = d['Stock Status'].value_counts().to_dict() if 'Stock Status' in d.columns else {}
+    rk = d['Risk Type'].fillna('').value_counts().to_dict() if 'Risk Type' in d.columns else {}
+    return (f"Rows: {n}. Status counts: {vc}. Risk counts: {rk}. Avg procurement lead: {st.session_state.get('kpi_avg_proc_lead')} days.")
+
+
+def _bot_llm(q, d, history):
+    """Optional: Claude answers using a compact data digest. Only used when ANTHROPIC_API_KEY is in st.secrets."""
+    try:
+        key = st.secrets.get("ANTHROPIC_API_KEY")
+    except Exception:
+        key = None
+    if not key:
+        return None
+    try:
+        import requests
+        cols = [c for c in ['Material Description', 'Head Office', 'Hubs', 'NSOH', 'AMC', 'NMOS', 'TMOS', 'GF_MOS', 'GF_Qty', 'Stock Status', 'Risk Type', 'Expiry'] if c in d.columns]
+        digest = d[cols].head(150).to_csv(index=False)
+        sysmsg = ("You are the assistant of the EPSS HPC Stock Management Dashboard. Answer only from the data given. "
+                  "Think step by step internally, then give a short, precise answer with the key numbers and a recommendation. "
+                  "Stock levels: <1 NMOS Stock Out; <6 Understock; 6-18 Normal; >18 Overstock (vaccines: <4, 4-10, >10). "
+                  "GF_MOS = 18 - TMOS; GF_Qty = GF_MOS x AMC.\n" + _bot_context(d) + "\nData (first 150 rows, CSV):\n" + digest)
+        msgs = [{"role": m["role"], "content": m["content"]} for m in history[-6:]] + [{"role": "user", "content": q}]
+        r = requests.post("https://api.anthropic.com/v1/messages",
+                          headers={"x-api-key": key, "anthropic-version": "2023-06-01", "content-type": "application/json"},
+                          json={"model": "claude-sonnet-5-5", "max_tokens": 900, "system": sysmsg, "messages": msgs}, timeout=40)
+        if r.status_code == 200:
+            return "".join(b.get("text", "") for b in r.json().get("content", []))
+    except Exception:
+        return None
+    return None
+
+
+def _bot_answer(q, d, history=()):
+    ql = q.lower().strip()
+    if d is None or d.empty:
+        return "There is no data for the current filters. Change the Program / Material filters in the sidebar and ask again."
+    if re.fullmatch(r"(hi|hello|hey|good (morning|afternoon|evening)|help|\?)[!. ]*", ql):
+        return ("Hello! I answer from the data currently filtered on the dashboard. Try:\n"
+                "- *How many stock out items are there?*\n- *Which materials are at risk of expiry?*\n"
+                "- *Show details of Artesunate*\n- *Top 10 materials by GF_Qty*\n- *Give me a summary* / *What should I prioritise?*")
+    out = []
+    n = len(d)
+    status = d['Stock Status'] if 'Stock Status' in d.columns else pd.Series([''] * n, index=d.index)
+    risk = d['Risk Type'].fillna('') if 'Risk Type' in d.columns else pd.Series([''] * n, index=d.index)
+    sdef = [("stock out", "Stock Out"), ("stockout", "Stock Out"), ("understock", "Understock"), ("under stock", "Understock"),
+            ("overstock", "Overstock"), ("over stock", "Overstock"), ("normal", "Normal Stock")]
+    want_list = any(w in ql for w in ("list", "which", "show", "name", "what are", "who"))
+    want_count = any(w in ql for w in ("how many", "count", "number of", "total"))
+
+    # 1) lead time
+    if "lead" in ql and ("time" in ql or "procure" in ql):
+        v = st.session_state.get('kpi_avg_proc_lead')
+        return (f"The average procurement lead time is **{v} days** (same figure as 📦 Avg Procurement Lead in the Procurement Lead Time tab)." if v is not None
+                else "No procurement lead time records are available yet.")
+
+    # 2) summary / priorities
+    if any(w in ql for w in ("summary", "overview", "summarise", "summarize", "status of", "how are we", "overall")):
+        vc = status.value_counts()
+        avail = (pd.to_numeric(d.get('NMOS'), errors='coerce') > 1).mean() * 100 if 'NMOS' in d.columns else float('nan')
+        out.append(f"**Overview ({n} materials in the current filter)**")
+        for s_ in ("Stock Out", "Understock", "Normal Stock", "Overstock"):
+            out.append(f"- {s_}: **{int(vc.get(s_, 0))}** ({vc.get(s_, 0) / n * 100:.0f}%)")
+        out.append(f"- Availability (NMOS > 1): **{avail:.0f}%**")
+        out.append(f"- At risk of stock out: **{int((risk == 'Risk of Stock out').sum())}** · Expiry risk: **{int((risk == 'Expiry Risk').sum())}** · Critical: **{int((risk == 'Critical Risk').sum())}**")
+        if 'GF_Qty' in d.columns:
+            gap = pd.to_numeric(d['GF_Qty'], errors='coerce')
+            out.append(f"- Total units to reach 18 months (positive gaps): **{_bf(gap[gap > 0].sum())}**")
+        v = st.session_state.get('kpi_avg_proc_lead')
+        if v is not None:
+            out.append(f"- Avg procurement lead time: **{v} days**")
+        so = int((status == 'Stock Out').sum())
+        out.append("\n**Reasoning:** " + ("Stock-outs are the first concern; " if so else "No stock-outs; ") +
+                   ("overstock items should be redistributed before they expire." if int((status == 'Overstock').sum()) else "stock levels look balanced."))
+        return "\n".join(out)
+
+    if any(w in ql for w in ("prioritis", "prioritiz", "priority", "urgent", "recommend", "what should", "action")):
+        t = d.copy()
+        t['_n'] = pd.to_numeric(t.get('NMOS'), errors='coerce')
+        t['_t'] = pd.to_numeric(t.get('TMOS'), errors='coerce')
+        crit = t[(status.loc[t.index] == 'Stock Out') & (t['_t'].fillna(0) < 1)]
+        pipe = t[(status.loc[t.index] == 'Stock Out') & (t['_t'].fillna(0) >= 1)]
+        exp = t[risk.loc[t.index].isin(['Expiry Risk', 'Critical Risk'])]
+        over = t[status.loc[t.index] == 'Overstock']
+        out.append("**Suggested priorities (most urgent first)**")
+        out.append(f"1. 🔴 **{len(crit)}** stock-out items with no meaningful pipeline (TMOS < 1) — order/expedite now." + (" e.g. " + ", ".join(crit['Material Description'].head(5)) if len(crit) else ""))
+        out.append(f"2. 🟠 **{len(pipe)}** stock-out items that have stock inbound — follow up shipments." + (" e.g. " + ", ".join(pipe['Material Description'].head(5)) if len(pipe) else ""))
+        out.append(f"3. 🟣 **{len(exp)}** items with expiry risk — redistribute near-expiry batches." + (" e.g. " + ", ".join(exp['Material Description'].head(5)) if len(exp) else ""))
+        out.append(f"4. 🔵 **{len(over)}** overstocked items — stop new orders, rebalance between hubs.")
+        out.append("\n**Reasoning:** an item with no stock and nothing inbound causes the quickest service failure, so it ranks above one whose stock is on the way; expiry loss and overstock are slower-moving.")
+        return "\n".join(out)
+
+    # 3) gap (GF)
+    if "gf" in ql or "gap" in ql or "18 month" in ql or "target" in ql:
+        if 'GF_Qty' in d.columns:
+            t = d.copy()
+            t['_g'] = pd.to_numeric(t['GF_Qty'], errors='coerce')
+            m = re.search(r"top\s*(\d+)", ql)
+            k = int(m.group(1)) if m else 10
+            asc = any(w in ql for w in ("lowest", "most over", "excess", "surplus"))
+            t = t.dropna(subset=['_g']).sort_values('_g', ascending=asc).head(k)
+            out.append(f"**{'Largest surplus' if asc else 'Largest shortfall'} versus the 18-month target** (GF_MOS = 18 − TMOS, GF_Qty = GF_MOS × AMC):")
+            out.append(_bot_table(t, ['Material Description', 'AMC', 'TMOS', 'GF_MOS', 'GF_Qty'], k))
+            return "\n".join(out)
+
+    # 4) ranking
+    rank_cols = {"nmos": "NMOS", "amc": "AMC", "nsoh": "NSOH", "tmos": "TMOS", "hub": "Hubs", "head office": "Head Office"}
+    if any(w in ql for w in ("top", "highest", "lowest", "most", "least", "largest", "smallest", "best", "worst")):
+        for key, col in rank_cols.items():
+            if key in ql and col in d.columns:
+                m = re.search(r"(?:top|lowest|highest|bottom)\s*(\d+)", ql)
+                k = int(m.group(1)) if m else 10
+                asc = any(w in ql for w in ("lowest", "least", "smallest", "worst", "bottom"))
+                t = d.copy()
+                t['_v'] = pd.to_numeric(t[col], errors='coerce')
+                t = t.dropna(subset=['_v']).sort_values('_v', ascending=asc).head(k)
+                return f"**{'Lowest' if asc else 'Highest'} {k} by {col}:**\n" + _bot_table(t, ['Material Description', col, 'Stock Status'], k)
+
+    # 5) risk questions
+    if "expir" in ql or "risk" in ql:
+        if "critical" in ql:
+            sel, name = risk == 'Critical Risk', "Critical Risk"
+        elif "expir" in ql:
+            sel, name = risk.isin(['Expiry Risk', 'Critical Risk']), "Expiry Risk (incl. Critical)"
+        else:
+            sel, name = risk == 'Risk of Stock out', "Risk of Stock out"
+        t = d[sel]
+        out.append(f"**{len(t)}** material(s) with **{name}** in the current filter.")
+        if len(t) and (want_list or not want_count):
+            cols = ['Material Description', 'NMOS', 'AMC', 'Expiry'] if "expir" in ql else ['Material Description', 'NMOS', 'TMOS', 'Stock Status']
+            out.append(_bot_table(t, cols, 15))
+            if len(t) > 15:
+                out.append(f"…and {len(t) - 15} more (click the card on the Dashboard to see all).")
+        return "\n".join(out)
+
+    # 6) status questions
+    for key, val in sdef:
+        if key in ql and "risk" not in ql:
+            t = d[status == val]
+            out.append(f"**{len(t)}** material(s) are **{val}** ({len(t) / n * 100:.0f}% of {n}).")
+            if len(t) and (want_list or not want_count):
+                out.append(_bot_table(t, ['Material Description', 'NMOS', 'TMOS', 'AMC'], 15))
+                if len(t) > 15:
+                    out.append(f"…and {len(t) - 15} more.")
+            return "\n".join(out)
+
+    # 7) material lookup
+    hit = _bot_find_material(q, d)
+    if hit is not None and len(hit):
+        if len(hit) == 1:
+            return _bot_material_profile(hit.iloc[0])
+        out.append(f"I found {len(hit)} matching materials:")
+        for _, r in hit.iterrows():
+            out.append(f"- **{r['Material Description']}** — {r.get('Stock Status', '')}, NMOS {_bf(r.get('NMOS'), 2)}")
+        out.append("\nName one of them for full details.")
+        return "\n".join(out)
+
+    # 8) optional LLM, else guidance
+    llm = _bot_llm(q, d, list(history))
+    if llm:
+        return llm
+    return ("I could not match that to the data. I can answer questions about **stock status counts and lists**, **risk / expiry**, "
+            "**a specific material**, **top / lowest by NMOS, AMC, NSOH, GF_Qty**, **procurement lead time**, a **summary** or **priorities**.")
+
+
+def _bot_panel():
+    hist = st.session_state.setdefault('bot_history', [])
+    d = st.session_state.get('_bot_df')
+    box = st.container(height=340)
+    with box:
+        if not hist:
+            st.markdown("👋 Ask me about stock status, risks, expiry, a material, or say **summary**.")
+        for m in hist:
+            with st.chat_message(m["role"]):
+                st.markdown(m["content"])
+    with st.form("bot_form", clear_on_submit=True, border=False):
+        q = st.text_input("Ask", placeholder="e.g. How many stock out items?", label_visibility="collapsed")
+        c1, c2 = st.columns([3, 1])
+        send = c1.form_submit_button("Send", use_container_width=True, type="primary")
+        clr = c2.form_submit_button("Clear", use_container_width=True)
+    if clr:
+        st.session_state['bot_history'] = []
+        st.rerun(scope="fragment")
+    if send and q.strip():
+        hist.append({"role": "user", "content": q.strip()})
+        try:
+            ans = _bot_answer(q.strip(), d, hist[:-1])
+        except Exception as e:
+            ans = f"Sorry, I could not work that out ({type(e).__name__}). Try rephrasing."
+        hist.append({"role": "assistant", "content": ans})
+        st.rerun(scope="fragment")
+
+
+try:
+    _bot_fragment = st.fragment(_bot_panel)
+except Exception:
+    _bot_fragment = _bot_panel
+
+
+def render_floating_chatbot(d):
+    st.session_state['_bot_df'] = d
+    st.markdown("""
+<style>
+div[class*="st-key-floating_chat"] { position: fixed; bottom: 18px; right: 18px; z-index: 999990; width: auto !important; }
+div[class*="st-key-floating_chat"] button[kind="secondary"], div[class*="st-key-floating_chat"] [data-testid="stPopover"] > button {
+  border-radius: 28px; background: linear-gradient(135deg,#1a5276,#2e86c1); color: #fff; border: none;
+  box-shadow: 0 6px 18px rgba(26,82,118,.45); padding: .55rem 1.1rem; font-weight: 600; }
+div[class*="st-key-floating_chat"] [data-testid="stPopover"] > button p { color: #fff !important; }
+div[data-testid="stPopoverBody"] { width: min(440px, 92vw) !important; max-height: 82vh; }
+@media (max-width: 768px) { div[class*="st-key-floating_chat"] { bottom: 12px; right: 12px; } }
+</style>""", unsafe_allow_html=True)
+    with st.container(key="floating_chat"):
+        with st.popover("💬 Ask Assistant"):
+            st.markdown("**EPSS Stock Assistant**")
+            _bot_fragment()
+
+
+# ---------------------------------------------------
 # Excel export helper (used by every download button)
 # ---------------------------------------------------
 _XL_ILLEGAL = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f]")
@@ -3389,9 +3811,10 @@ _sb_flt = st.sidebar.container()   # filters live in the sidebar, right above Na
 _fc = [_sb_flt] * 5 if _filters_visible else None
 if _filters_visible:
     with _fc[4]:
-        view_mode = st.selectbox("🎨 Display Settings", ["Table View", "Card View"],
-                                 index=0 if st.session_state.view_mode == "table" else 1)
-        st.session_state.view_mode = "table" if view_mode == "Table View" else "card"
+        _vm_opts = ["Table View", "Card View", "📱 Mobile View"]
+        _vm_idx = {"table": 0, "card": 1, "mobile": 2}.get(st.session_state.view_mode, 0)
+        view_mode = st.selectbox("🎨 Display Settings", _vm_opts, index=_vm_idx)
+        st.session_state.view_mode = {"Table View": "table", "Card View": "card"}.get(view_mode, "mobile")
 
 # ---------------------------------------------------
 # Program Selection - MULTI-SELECT (UPDATED)
@@ -3435,6 +3858,23 @@ if google_sheets:
     program_list = ["All"] + sorted_sheets
 else:
     program_list = ["All"]
+
+# --- Enforce program_access from user session (non-admins only) ---
+if st.session_state['user'].get('role') != 'admin':
+    _raw_prog = st.session_state['user'].get('program_access', 'All') or 'All'
+    _allowed_progs = [p.strip() for p in _raw_prog.split(',') if p.strip()]
+    if _allowed_progs and 'All' not in _allowed_progs:
+        _allowed_set = set(_allowed_progs)
+        program_list = ["All"] + [p for p in program_list if p in _allowed_set]
+        if len(program_list) == 1:  # only "All" left means no match
+            st.warning("⚠️ You don't have access to any programs. Contact your administrator.")
+            st.stop()
+        # Clamp any saved selection to only allowed programs
+        _saved = st.session_state.get('selected_programs', ['All'])
+        _clamped = [p for p in _saved if p == 'All' or p in _allowed_set]
+        if not _clamped:
+            _clamped = ['All']
+        st.session_state.selected_programs = _clamped
 
 # Multi-select for programs
 if _filters_visible:
@@ -3505,7 +3945,7 @@ def _frame_sig(obj):
 # Supabase DOS read + write inside calculate_dos) on every click made the app slow, so reuse the result
 # until one of the inputs actually changes.
 _frames_sig = (
-    current_data_hash, date.today().isoformat(), tuple(selected_programs_list), bool(show_all_programs),
+    'v3-gf', current_data_hash, date.today().isoformat(), tuple(selected_programs_list), bool(show_all_programs),
     subcategory_filter, _frame_sig(google_sheets), _frame_sig(branch_amc_data)
 )
 _frames_memo = st.session_state.get('_main_frames_memo')
@@ -3514,10 +3954,13 @@ if _frames_memo is not None and _frames_memo.get('sig') == _frames_sig:
     display_df = _frames_memo['display_df'].copy()
 else:
     if show_all_programs or len(selected_programs_list) == 0:
-        # Use all programs
+        # Use only the programs in program_list (already filtered by user access)
+        _allowed_sheet_names = set(p for p in program_list if p != "All")
         if google_sheets:
             all_dfs = []
             for name, df_program in google_sheets.items():
+                if name not in _allowed_sheet_names:
+                    continue
                 if df_program.empty:
                     continue
                 df_copy = df_program.copy()
@@ -3643,6 +4086,15 @@ else:
         else:
             df['TMOS'] = np.nan
 
+        # Gap to the 18-month target: GF_MOS = 18 - TMOS ; GF_Qty = GF_MOS x AMC (placed right after TMOS)
+        _gf_mos = 18 - pd.to_numeric(df['TMOS'], errors='coerce')
+        _gf_qty = _gf_mos * pd.to_numeric(df['AMC'], errors='coerce') if 'AMC' in df.columns else np.nan
+        df['GF_MOS'] = _gf_mos.round(2)
+        df['GF_Qty'] = pd.Series(_gf_qty, index=df.index).round(0)
+        _cols_gf = [c for c in df.columns if c not in ('GF_MOS', 'GF_Qty')]
+        _t = _cols_gf.index('TMOS') + 1
+        df = df[_cols_gf[:_t] + ['GF_MOS', 'GF_Qty'] + _cols_gf[_t:]]
+
         if 'NMOS' in df.columns:
             _lo_lv, _hi_lv = levels_for(df['Material Description'])
             df['Stock Status'] = [categorize_stock(n_, a_, b_) for n_, a_, b_ in zip(df['NMOS'], _lo_lv, _hi_lv)]
@@ -3763,7 +4215,7 @@ else:
 
         for col in display_df.columns:
             if col not in text_columns_to_preserve:
-                if col in ['NMOS', 'GIT_MOS', 'LC_MOS', 'WB_MOS', 'TMD_MOS', 'TMOS']:
+                if col in ['NMOS', 'GIT_MOS', 'LC_MOS', 'WB_MOS', 'TMD_MOS', 'TMOS', 'GF_MOS']:
                     display_df[col] = display_df[col].apply(format_mos_with_decimals)
                 elif col in ['Hubs%', 'Head Office%', 'Distr. Gap']:
                     display_df[col] = display_df[col].apply(lambda x: f"{x:.1f}%" if pd.notna(x) else "")
@@ -3871,7 +4323,9 @@ else:
 # NAVIGATION (expandable: pages -> tabs/sections)
 # ===================================================
 _is_admin = st.session_state['user']['role'] == 'admin'
-NAV_TREE = {
+
+# Full nav tree definition
+_FULL_NAV_TREE = {
     "Dashboard": [
         "📋 Stock Status Table", "📈 KPIs & Analytics", "💡 Decision Briefs",
         "📍 Hubs Distribution", "📋 Procurement Lead Time", "🚚 New Deliveries"
@@ -3887,7 +4341,32 @@ NAV_TREE = {
     "Issue Data": [],
 }
 if _can_upload_data():
-    NAV_TREE["Upload Data"] = []
+    _FULL_NAV_TREE["Upload Data"] = []
+
+# Filter pages based on main_tab_access (admins always see everything)
+def _get_allowed_nav_tree():
+    if _is_admin:
+        return dict(_FULL_NAV_TREE)
+    raw = st.session_state['user'].get('main_tab_access', 'All') or 'All'
+    allowed = [t.strip() for t in raw.split(',') if t.strip()]
+    if not allowed or 'All' in allowed:
+        return dict(_FULL_NAV_TREE)
+    # Map main_tab_access values to NAV_TREE keys
+    _TAB_MAP = {
+        "Dashboard":           "Dashboard",
+        "Advanced Analytics":  "Advanced Analytics",
+        "Upload":              "Upload Data",
+        "Executive Summary":   "Executive Summary",
+        "Issue Data":          "Issue Data",
+    }
+    return {
+        nav_key: subs
+        for tab_name, nav_key in _TAB_MAP.items()
+        if tab_name in allowed and nav_key in _FULL_NAV_TREE
+        for subs in [_FULL_NAV_TREE[nav_key]]
+    }
+
+NAV_TREE = _get_allowed_nav_tree()
 # Profile / Admin Panel live in the "Users Control" group next to Logout
 USER_PAGES = ["Profile"]
 if _is_admin:
@@ -3953,8 +4432,8 @@ section[data-testid="stSidebar"] div[class*="st-key-nav_"] button[data-testid="s
 section[data-testid="stSidebar"] div[class*="st-key-nav_sub_"] {
     width: calc(100% - 16px) !important;
     margin-left: 16px !important;
-    border-left: 2px solid #c9d6e2;
-    padding-left: 6px;
+    border-left: none;
+    padding-left: 0;
 }
 section[data-testid="stSidebar"] div[class*="st-key-nav_sub_"] button { font-size: 13px !important; padding: 0.3rem 0.6rem !important; }
 /* active tab inside a page = blue (page stays green) */
@@ -4112,6 +4591,14 @@ if st.sidebar.button("🚪 Logout", key="nav_user_logout", use_container_width=T
     st.session_state['auth'] = False
     st.session_state['user'] = None
     st.rerun()
+
+if st.session_state.get('view_mode') == "mobile":
+    st.markdown('''<style>
+/* 📱 Mobile View: phone-sized single column layout on any screen */
+.block-container { max-width: 480px !important; margin: 0 auto !important; padding-left: .6rem !important; padding-right: .6rem !important; }
+</style>''', unsafe_allow_html=True)
+
+render_floating_chatbot(df_filtered if 'df_filtered' in globals() and isinstance(df_filtered, pd.DataFrame) else df)
 
 # ---------------------------------------------------
 # Route to pages
@@ -6111,11 +6598,7 @@ else:
                     _shown[_c] = _shown[_c].apply(format_number_with_commas)
             if 'NMOS' in _shown.columns:
                 _shown['NMOS'] = _shown['NMOS'].apply(format_mos_with_decimals)
-            st.dataframe(
-                _shown, use_container_width=True, hide_index=True,
-                height=min(500, (len(_shown) + 1) * 35 + 3),
-                column_config={"Material Description": st.column_config.TextColumn("Material Description", width=300)}
-            )
+            render_adv_table(_shown, max_height=560)
             _c1, _c2 = st.columns(2)
             with _c1:
                 st.download_button(
@@ -6209,9 +6692,9 @@ with tab1:
             cols = [c for c in cols if c in search_df.columns]
             search_df = search_df[cols]
 
-            if st.session_state.view_mode == "card":
+            if st.session_state.view_mode in ("card", "mobile"):
                 st.markdown("### 📇 Card View")
-                cols_per_row = 2
+                cols_per_row = 1 if st.session_state.view_mode == "mobile" else 2
                 for i in range(0, len(search_df), cols_per_row):
                     card_cols = st.columns(cols_per_row)
                     for j, col in enumerate(card_cols):
@@ -6253,6 +6736,7 @@ with tab1:
                                 <p><strong>📊 S/Status:</strong> {row.get('Stock Status', 'N/A')}</p>
                                 <p><strong>📊 Status:</strong> {row.get('Status', 'N/A')}</p>
                                 <p><strong>🔄 TMOS:</strong> {row.get('TMOS', 'N/A')}</p>
+                                <p><strong>🎯 GF_MOS:</strong> {row.get('GF_MOS', 'N/A')} &nbsp; <strong>GF_Qty:</strong> {row.get('GF_Qty', 'N/A')}</p>
                                 <p><strong>⚠️ Risk Type:</strong> <span style='color: {risk_color}; font-weight: bold;'>{risk_type_value}</span></p>
                             </div>
                             """, unsafe_allow_html=True)
@@ -6346,6 +6830,8 @@ with tab1:
             if 'Material Description' in all_columns and 'TMOS' in all_columns:
                 mat_index = all_columns.index('Material Description')
                 tmos_index = all_columns.index('TMOS')
+                if 'GF_Qty' in all_columns:
+                    tmos_index = max(tmos_index, all_columns.index('GF_Qty'))
                 all_cols_between = all_columns[mat_index:tmos_index + 1]
 
                 if 'AMC' in all_cols_between and 'NMOS' in all_cols_between:
@@ -6374,7 +6860,7 @@ with tab1:
             # ------------------------------------------------------------------
             TEXT_COLUMNS  = {'Material Description', 'Status', 'Expiry'}
             PO_COLUMNS    = {'GIT_PO', 'LC_PO', 'WB_PO', 'TMD_PO'}
-            FLOAT_COLUMNS = {'NMOS', 'GIT_MOS', 'LC_MOS', 'WB_MOS', 'TMD_MOS', 'TMOS'}
+            FLOAT_COLUMNS = {'NMOS', 'GIT_MOS', 'LC_MOS', 'WB_MOS', 'TMD_MOS', 'TMOS', 'GF_MOS'}
 
             BRANCH_COLUMNS = {c for c in report_columns if 'Branch' in c}
 
