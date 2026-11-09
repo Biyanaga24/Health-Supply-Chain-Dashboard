@@ -3876,6 +3876,12 @@ if st.session_state['user'].get('role') != 'admin':
             _clamped = ['All']
         st.session_state.selected_programs = _clamped
 
+# --- Is this user allowed to see ALL programs? (admins, or program_access contains "All") ---
+_user_role_chk = st.session_state['user'].get('role')
+_raw_prog_chk = st.session_state['user'].get('program_access', 'All') or 'All'
+_allowed_chk = [p.strip() for p in _raw_prog_chk.split(',') if p.strip()]
+_is_unrestricted = (_user_role_chk == 'admin') or (not _allowed_chk) or ('All' in _allowed_chk)
+
 # Multi-select for programs
 if _filters_visible:
     with _fc[0]:
@@ -4020,9 +4026,17 @@ else:
             df = df.drop_duplicates(subset=['Material Description'], keep='first')
         else:
             st.error("Material Description column missing for merge")
-            df = df_external.copy()
+            # Restricted users must never fall back to the full national data
+            df = df_external.copy() if _is_unrestricted else df_external.iloc[0:0].copy()
     else:
-        df = df_external.copy()
+        if _is_unrestricted:
+            df = df_external.copy()
+        else:
+            # Restricted user but their program data is empty/unavailable:
+            # show nothing instead of leaking every medicine.
+            df = df_external.iloc[0:0].copy()
+            st.warning("⚠️ No data available for your assigned program(s) right now. "
+                       "Please refresh, or contact your administrator.")
 
     if not df.empty:
         if 'S/N' in df.columns:
