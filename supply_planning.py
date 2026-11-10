@@ -1546,27 +1546,28 @@ def save_dos_tracking(dos_tracking):
 # ============================================================================
 # EXPERT PLAN RECORDS
 # ============================================================================
-@st.cache_data(ttl=300, show_spinner=False)
-def _user_allowed_programs():
-    """None = user may see every program; otherwise the list of assigned programs."""
+def _user_programs_key():
+    """Current user's assigned programs as a hashable tuple (empty = no restriction).
+    NOT cached: it must be evaluated for every user on every run, and is passed
+    into the cached loaders below so each program set gets its own cache entry."""
     try:
         progs = get_user_program_access()
     except Exception:
-        return None
-    if progs and "All" not in progs:
-        return list(progs)
-    return None
+        progs = None
+    if not progs or "All" in progs:
+        return ()
+    return tuple(sorted(str(p) for p in progs))
 
 
-def load_expert_plan_records(program=None, quarter=None, year=None):
+@st.cache_data(ttl=300, show_spinner=False)
+def _load_expert_plan_records_cached(program, quarter, year, allowed_programs):
     supabase = get_supabase()
     if supabase is None: return []
     try:
         query = supabase.table("expert_plan_records").select("*")
-        # Only return records of the program(s) assigned to the current user
-        _allowed = _user_allowed_programs()
-        if _allowed is not None:
-            query = query.in_("program", _allowed)
+        # Only return records of the program(s) assigned to the user
+        if allowed_programs:
+            query = query.in_("program", list(allowed_programs))
         if program:
             _pl = _prog_list(program)
             if _pl and len(_pl) > 1: query = query.in_("program", _pl)
@@ -1596,6 +1597,14 @@ def load_expert_plan_records(program=None, quarter=None, year=None):
         return []
     except Exception:
         return []
+
+
+def load_expert_plan_records(program=None, quarter=None, year=None):
+    return _load_expert_plan_records_cached(program, quarter, year, _user_programs_key())
+
+
+# keep existing `load_expert_plan_records.clear()` calls working
+load_expert_plan_records.clear = _load_expert_plan_records_cached.clear
 
 
 def save_expert_plan_record(record):
@@ -1851,22 +1860,26 @@ PROGRAM_ORDER_LIST = [
 
 
 @st.cache_data(ttl=CACHE_TTL, show_spinner=False)
-def get_program_materials(sheet_name):
+def get_program_materials(sheet_name, user_programs_key=()):
     sheet_id = "14VvZ7IyOmpM4SZrY5_ArHDgLkeFN4inW"
     google_sheets = load_google_sheets(sheet_id)
+    allowed = set(user_programs_key)  # empty = no restriction
     ordered = []
     if google_sheets:
         if sheet_name == "All":
             for prog in PROGRAM_ORDER_LIST:
+                if allowed and prog not in allowed: continue
                 if prog in google_sheets and 'Material Description' in google_sheets[prog].columns:
                     for mat in google_sheets[prog]['Material Description'].dropna().tolist():
                         if mat not in ordered: ordered.append(mat)
             for prog in google_sheets.keys():
+                if allowed and prog not in allowed: continue
                 if prog not in PROGRAM_ORDER_LIST and 'Material Description' in google_sheets[prog].columns:
                     for mat in google_sheets[prog]['Material Description'].dropna().tolist():
                         if mat not in ordered: ordered.append(mat)
         else:
             for prog in _prog_list(sheet_name):
+                if allowed and prog not in allowed: continue
                 if prog in google_sheets and 'Material Description' in google_sheets[prog].columns:
                     for mat in google_sheets[prog]['Material Description'].dropna().tolist():
                         if mat not in ordered: ordered.append(mat)
@@ -1970,12 +1983,13 @@ def compute_consumption_pivot(program_materials_tuple):
 # GET FILTERED DATA
 # ============================================================================
 @st.cache_data(ttl=CACHE_TTL, show_spinner=False)
-def get_filtered_data(sheet_name, subcategory_filter):
+def get_filtered_data(sheet_name, subcategory_filter, user_programs_key=()):
     df_national = load_national_data()
     sheet_id_amc = "14VvZ7IyOmpM4SZrY5_ArHDgLkeFN4inW"
     google_sheets = load_google_sheets(sheet_id_amc)
     branch_amc_data = load_branch_amc("12Z5xqX32QIzjoN6tNvGbjutMheXx5US1")
-    user_programs = get_user_program_access()
+    # Taken from the cache key (not read inside) so users never share cached results
+    user_programs = list(user_programs_key)
 
     _restricted = bool(user_programs and "All" not in user_programs)
     _progs = _prog_list(sheet_name)
@@ -4091,7 +4105,7 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
         return problems
 
     # ------------------------------------------------------------------
-    ordered_materials = get_program_materials(sheet_name)
+    ordered_materials = get_program_materials(sheet_name, _user_programs_key())
 
     if sheet_name != "All":
         _sheet_id = "14VvZ7IyOmpM4SZrY5_ArHDgLkeFN4inW"
@@ -5702,7 +5716,7 @@ def render_ap_progress_follow_up(sheet_name, selected_quarter, selected_year, se
     # ======================================================================
     sheet_name_param = sheet_name if sheet_name != "All" else "All"
     subcategory_filter = st.session_state.get('selected_subcategory', 'All')
-    df_filtered_current = get_filtered_data(sheet_name_param, subcategory_filter)
+    df_filtered_current = get_filtered_data(sheet_name_param, subcategory_filter, _user_programs_key())
 
     current_lookup = {}
     if not df_filtered_current.empty:
@@ -9039,7 +9053,7 @@ def main():
             load_all_data_cached()
             st.session_state.data_loaded = True
 
-    df_filtered = get_filtered_data(sheet_name, subcategory_filter)
+    df_filtered = get_filtered_data(sheet_name, subcategory_filter, _user_programs_key())
     if df_filtered.empty:
         st.error("No data available for the selected filters.")
         st.stop()
@@ -9174,7 +9188,7 @@ def main():
     # ============================================================
     # DATA COMPUTATION
     # ============================================================
-    ordered_materials_tuple = get_program_materials(sheet_name)
+    ordered_materials_tuple = get_program_materials(sheet_name, _user_programs_key())
 
     issue_pivot = compute_issue_pivot(ordered_materials_tuple)
     nsoh_pivot = compute_nsoh_pivot()
