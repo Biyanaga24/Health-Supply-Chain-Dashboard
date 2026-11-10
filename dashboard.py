@@ -3002,7 +3002,7 @@ def log_dashboard_update(action, details="", rows=None):
         user = st.session_state.get('user') or {}
         if client is None or not user:
             return False
-        client.table(UPDATE_LOG_TABLE).insert({
+        res = client.table(UPDATE_LOG_TABLE).insert({
             "created_at": datetime.now(timezone.utc).isoformat(),
             "updated_by": str(user.get('full_name') or user.get('username') or user.get('email') or 'Unknown'),
             "username": str(user.get('username') or user.get('email') or ''),
@@ -3011,6 +3011,12 @@ def log_dashboard_update(action, details="", rows=None):
             "details": str(details)[:500],
             "rows_affected": int(rows) if rows is not None else None,
         }).execute()
+        # Uploads keep ONE row per file type: the new upload replaces the previous entry.
+        if str(action).startswith("Uploaded ") and res.data:
+            try:
+                client.table(UPDATE_LOG_TABLE).delete().eq("action", str(action)[:120]).lt("id", res.data[0]["id"]).execute()
+            except Exception:
+                pass
         st.session_state.pop('_update_log_err', None)
         try:
             load_update_log.clear()
@@ -3067,15 +3073,19 @@ def _render_update_history():
         else:
             st.info("No updates have been recorded yet.")
         return
-    shown = pd.DataFrame({
-        "Date": log_df['Date'],
-        "Time (EAT)": log_df['Time (EAT)'],
-        "Updated by": log_df['User'],
-        "Action": log_df['Action'],
-        "File / details": log_df['Details'],
-        "Records": log_df['Records'].apply(lambda v: f"{int(v):,}" if pd.notna(v) else ""),
-    }).head(100)
-    st.dataframe(shown, use_container_width=True, hide_index=True, height=min(420, (len(shown) + 1) * 35 + 3))
+    rows = []
+    for kind, cfg in UPLOAD_KINDS.items():
+        sub = log_df[log_df['Action'] == f"Uploaded {cfg['label']}"]
+        if sub.empty:
+            rows.append({"File": cfg['label'], "Date": "", "Time (EAT)": "", "Updated by": "Not uploaded yet",
+                         "File name": "", "Records": ""})
+        else:
+            r = sub.iloc[0]   # newest first
+            rows.append({"File": cfg['label'], "Date": r['Date'], "Time (EAT)": r['Time (EAT)'],
+                         "Updated by": r['User'], "File name": r['Details'],
+                         "Records": f"{int(r['Records']):,}" if pd.notna(r['Records']) else ""})
+    shown = pd.DataFrame(rows)
+    st.dataframe(shown, use_container_width=True, hide_index=True, height=(len(shown) + 1) * 35 + 3)
 
 
 def _render_last_upload(kind):
