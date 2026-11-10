@@ -2971,7 +2971,8 @@ def save_posting_to_supabase(records):
 # Supabase table below. Times are stored in UTC and shown in East Africa Time (UTC+3, no daylight saving).
 # ===================================================
 UPDATE_LOG_TABLE = "dashboard_update_log"
-UPDATE_LOG_ENABLED = False   # update history is switched off for now; set True (and create the table) to bring it back
+UPDATE_LOG_ENABLED = True
+UPDATE_LOG_VIEW_ROLES = None   # None = everyone who can open the Upload page
 UPDATE_LOG_SQL = """create table if not exists public.dashboard_update_log (
     id            bigint generated always as identity primary key,
     created_at    timestamptz not null default now(),
@@ -2987,8 +2988,9 @@ alter table public.dashboard_update_log disable row level security;"""
 
 
 def _can_view_update_log():
-    user = st.session_state.get('user') or {}
-    return user.get('role') in UPDATE_LOG_VIEW_ROLES
+    if UPDATE_LOG_VIEW_ROLES is None:
+        return True
+    return (st.session_state.get('user') or {}).get('role') in UPDATE_LOG_VIEW_ROLES
 
 
 def log_dashboard_update(action, details="", rows=None):
@@ -3066,10 +3068,30 @@ def _render_update_history():
             st.info("No updates have been recorded yet.")
         return
     shown = pd.DataFrame({
-        "Date & time (EAT)": log_df['Date'] + "  " + log_df['Time (EAT)'],
+        "Date": log_df['Date'],
+        "Time (EAT)": log_df['Time (EAT)'],
         "Updated by": log_df['User'],
+        "Action": log_df['Action'],
+        "File / details": log_df['Details'],
+        "Records": log_df['Records'].apply(lambda v: f"{int(v):,}" if pd.notna(v) else ""),
     }).head(100)
     st.dataframe(shown, use_container_width=True, hide_index=True, height=min(420, (len(shown) + 1) * 35 + 3))
+
+
+def _render_last_upload(kind):
+    """One line inside each upload tab: who uploaded this file type last, and when."""
+    if not UPDATE_LOG_ENABLED:
+        return
+    log_df, _ = load_update_log()
+    label = f"Uploaded {UPLOAD_KINDS[kind]['label']}"
+    sub = log_df[log_df['Action'] == label] if not log_df.empty else log_df
+    if sub.empty:
+        st.caption("🕒 No upload has been recorded yet for this file type.")
+        return
+    r = sub.iloc[0]
+    recs = f" · {int(r['Records']):,} records" if pd.notna(r['Records']) else ""
+    st.info(f"🕒 Last updated by **{r['User']}** on **{r['Date']}** at **{r['Time (EAT)']}** (EAT)"
+            f" — {r['Details']}{recs}")
 
 
 def save_issue_to_supabase(records):
@@ -3150,6 +3172,7 @@ def _render_upload_panel(kind):
     cfg = UPLOAD_KINDS[kind]
     ctr_key, state_key = f"upl_{kind}_ctr", f"upl_{kind}_state"
     st.session_state.setdefault(ctr_key, 0)
+    _render_last_upload(kind)
 
     with st.expander("Required columns", expanded=False):
         st.write(", ".join(f"`{c}`" for c in cfg["required"]))
@@ -3420,121 +3443,60 @@ def load_national_data_with_hash():
 # ---------------------------------------------------
 # DOS Tracking Function (UPDATED - NO DUPLICATE CODE)
 # ---------------------------------------------------
+def _eat_today():
+    """Today's date in East Africa Time (UTC+3), independent of the server's timezone."""
+    return (datetime.now(timezone.utc) + timedelta(hours=3)).date()
+
+
 def calculate_dos(current_df):
-    """Calculate Days Out of Stock - stores persistently in Supabase"""
-    from datetime import date, datetime, timedelta
-
-    current_date = date.today()
-
-    # Load existing DOS tracking from Supabase
+    """Days Out of Stock (stock-out = NMOS < 1).
+    Day 1 = the day the material was first seen out of stock; +1 each calendar day (EAT); 0 once NMOS >= 1.
+    A material whose NMOS cannot be calculated keeps its previous state instead of being reset.
+    Only rows that changed are written to Supabase."""
+    today = _eat_today()
     dos_tracking = load_dos_tracking_from_supabase()
 
-    # Get current NMOS values from DataFrame
-    current_nmos = {}
-    for idx, row in current_df.iterrows():
-        material = row.get('Material Description')
-        if pd.isna(material):
-            continue
-
-        # Get NMOS value
-        nmos = row.get('NMOS')
-        try:
-            if pd.isna(nmos) or nmos == "":
-                nmos = 1  # Default to 1 if no data
-            else:
-                # ===== FIX: SAFELY STRIP COMMAS =====
-                nmos = float(str(nmos).replace(',', ''))
-        except (ValueError, TypeError):
-            nmos = 1
-
-        current_nmos[str(material)] = nmos
-
-    # Helper function to convert to date if needed
-    def ensure_date(d):
+    def as_date(d):
         if d is None:
             return None
-        if isinstance(d, datetime):
-            return d.date()
-        return d
+        return d.date() if isinstance(d, datetime) else d
 
-    # Update DOS tracking based on current NMOS
-    updated_tracking = {}
-    for material, nmos in current_nmos.items():
-        is_out_of_stock = nmos < 1
+    changed, days_out = {}, {}
+    nmos_col = current_df['NMOS'] if 'NMOS' in current_df.columns else [np.nan] * len(current_df)
+    for material, raw in zip(current_df['Material Description'], nmos_col):
+        if pd.isna(material):
+            continue
+        material = str(material)
+        try:
+            nmos = float(str(raw).replace(',', ''))
+        except (ValueError, TypeError):
+            nmos = float('nan')
 
-        if material not in dos_tracking:
-            # Initialize tracking for this material
-            if is_out_of_stock:
-                updated_tracking[material] = {
-                    'start_date': current_date,
-                    'days': 1,
-                    'is_out_of_stock': True,
-                    'last_nmos': nmos,
-                    'last_check_date': current_date
-                }
-            else:
-                updated_tracking[material] = {
-                    'start_date': None,
-                    'days': 0,
-                    'is_out_of_stock': False,
-                    'last_nmos': nmos,
-                    'last_check_date': current_date
-                }
+        prev = dos_tracking.get(material) or {}
+        prev_out = bool(prev.get('is_out_of_stock'))
+        prev_start = as_date(prev.get('start_date'))
+
+        if pd.isna(nmos):
+            is_out, start = prev_out, prev_start
+        elif nmos < 1:
+            is_out = True
+            start = prev_start if (prev_out and prev_start) else today
         else:
-            tracking = dos_tracking[material].copy()
+            is_out, start = False, None
+        if is_out and start is None:
+            start = today
 
-            # Convert dates to date objects for comparison
-            start_date = ensure_date(tracking.get('start_date'))
-            last_check = ensure_date(tracking.get('last_check_date', current_date))
-            previous_status = tracking.get('is_out_of_stock', False)
-            previous_nmos = tracking.get('last_nmos', 1)
+        days = ((today - start).days + 1) if is_out else 0
+        days_out[material] = days
+        if is_out != prev_out or start != prev_start or days != int(prev.get('days') or 0):
+            changed[material] = {
+                'start_date': start, 'last_check_date': today, 'days': days,
+                'is_out_of_stock': is_out, 'last_nmos': 0 if pd.isna(nmos) else nmos,
+            }
 
-            # Check if status changed
-            if is_out_of_stock != previous_status:
-                if is_out_of_stock and not previous_status:
-                    # JUST went out of stock - start counting from today
-                    tracking['start_date'] = current_date
-                    tracking['days'] = 1
-                    tracking['is_out_of_stock'] = True
-                elif not is_out_of_stock and previous_status:
-                    # JUST came back in stock - reset to 0
-                    tracking['start_date'] = None
-                    tracking['days'] = 0
-                    tracking['is_out_of_stock'] = False
-            else:
-                # Status unchanged
-                if is_out_of_stock:
-                    # Still out of stock - increment days
-                    if start_date is not None:
-                        # Calculate actual days from start date to today
-                        tracking['days'] = (current_date - start_date).days
-                        if tracking['days'] < 1:
-                            tracking['days'] = 1
-                    else:
-                        # No start date but we're out of stock - set start date
-                        tracking['start_date'] = current_date - timedelta(days=1)
-                        tracking['days'] = 1
-                    tracking['is_out_of_stock'] = True
-                else:
-                    # Still in stock - ensure days is 0
-                    tracking['days'] = 0
-                    tracking['is_out_of_stock'] = False
-
-            # Update last known values
-            tracking['last_nmos'] = nmos
-            tracking['last_check_date'] = current_date
-            updated_tracking[material] = tracking
-
-    # Keep any materials from previous tracking that aren't in current data
-    for material, tracking in dos_tracking.items():
-        if material not in updated_tracking:
-            updated_tracking[material] = tracking
-
-    # Save updated tracking to Supabase
-    save_dos_tracking_to_supabase(updated_tracking)
-
-    # Return current DOS days for each material
-    return {material: tracking['days'] for material, tracking in updated_tracking.items()}
+    if changed:
+        save_dos_tracking_to_supabase(changed)
+    return days_out
 
 # ---------------------------------------------------
 # Recommendation Functions
@@ -3951,7 +3913,7 @@ def _frame_sig(obj):
 # Supabase DOS read + write inside calculate_dos) on every click made the app slow, so reuse the result
 # until one of the inputs actually changes.
 _frames_sig = (
-    'v3-gf', current_data_hash, date.today().isoformat(), tuple(selected_programs_list), bool(show_all_programs),
+    'v3-gf', current_data_hash, _eat_today().isoformat(), tuple(selected_programs_list), bool(show_all_programs),
     subcategory_filter, _frame_sig(google_sheets), _frame_sig(branch_amc_data)
 )
 _frames_memo = st.session_state.get('_main_frames_memo')
@@ -8083,6 +8045,237 @@ with tab3:
             st.info("No data available.")
 
 # ---------------------------------------------------
+# FLIP CARD HELPERS (used by Tab 4 - Hubs Distribution)
+# ---------------------------------------------------
+def _flip_card(key, front_title, back_title):
+    """Click-to-flip card. Returns (container, is_back).
+    The header button is the title of the visible side; clicking it flips the card."""
+    state_key = f"{key}_is_back"
+    count_key = f"{key}_flips"
+    if state_key not in st.session_state:
+        st.session_state[state_key] = False
+    if count_key not in st.session_state:
+        st.session_state[count_key] = 0
+    is_back = st.session_state[state_key]
+
+    def _toggle():
+        st.session_state[state_key] = not st.session_state[state_key]
+        st.session_state[count_key] += 1
+
+    c1, c2 = ("#b03a2e", "#e67e22") if is_back else ("#1f3c88", "#3a6ea5")
+    anim = f"flip_{key}_{'b' if is_back else 'f'}"
+    anim_rule = f"animation:{anim} .6s ease;" if st.session_state[count_key] > 0 else ""
+    deg = "-90deg" if is_back else "90deg"
+
+    css = (
+        "<style>"
+        "@keyframes __A__{from{transform:perspective(1400px) rotateY(__D__);opacity:.15}"
+        "to{transform:perspective(1400px) rotateY(0deg);opacity:1}}"
+        ".st-key-__K__{border:1px solid rgba(128,128,128,.35);border-radius:14px;"
+        "padding:.6rem .9rem 1rem .9rem;box-shadow:0 4px 14px rgba(0,0,0,.08);__R__}"
+        ".st-key-__K___hdr button{background:linear-gradient(90deg,__C1__,__C2__);color:#fff;"
+        "border:none;border-radius:10px;padding:.7rem 1rem;justify-content:flex-start;}"
+        ".st-key-__K___hdr button p{font-size:20px;font-weight:700;color:#fff;margin:0;}"
+        ".st-key-__K___hdr button:hover{filter:brightness(1.12);color:#fff;}"
+        "</style>"
+    )
+    css = (css.replace("__A__", anim).replace("__D__", deg).replace("__K__", key)
+              .replace("__R__", anim_rule).replace("__C1__", c1).replace("__C2__", c2))
+    st.markdown(css, unsafe_allow_html=True)
+
+    try:
+        box = st.container(key=key)
+    except TypeError:          # older Streamlit without container keys
+        box = st.container()
+    with box:
+        label = (f"{back_title}   ⟲ click to flip back" if is_back
+                 else f"{front_title}   ⟳ click to flip")
+        st.button(label, key=f"{key}_hdr", on_click=_toggle, use_container_width=True)
+    return box, is_back
+
+
+@st.cache_data(ttl=3600, show_spinner="Loading issue data (first time only)…")
+def _load_issue_monthly():
+    """Issue data reduced to Material x Plant x Month. Pages are fetched in parallel."""
+    from concurrent.futures import ThreadPoolExecutor
+    client = st.session_state.get("supabase_client")      # taken here: worker threads have no session_state
+    if client is None:
+        return pd.DataFrame()
+    size = 1000
+    total = client.table("issue_data").select("id", count="exact").limit(1).execute().count or 0
+    if total == 0:
+        return pd.DataFrame()
+
+    def fetch(start):
+        for attempt in range(2):
+            try:
+                return (client.table("issue_data")
+                        .select("material_descr, plant, delivery_date, quantity")
+                        .order("id").range(start, start + size - 1).execute().data)
+            except Exception:
+                if attempt == 1:
+                    raise
+    with ThreadPoolExecutor(max_workers=8) as ex:
+        pages = list(ex.map(fetch, range(0, total, size)))
+    rows = [r for p in pages for r in (p or [])]
+    if not rows:
+        return pd.DataFrame()
+
+    df = pd.DataFrame(rows).rename(columns={'material_descr': 'Material Description', 'plant': 'Plant',
+                                            'delivery_date': 'Delivery Date', 'quantity': 'Quantity'})
+    df['Quantity'] = pd.to_numeric(df['Quantity'], errors='coerce').fillna(0)
+    df['Month'] = pd.to_datetime(df['Delivery Date'], errors='coerce').dt.to_period('M').dt.to_timestamp()
+    df = df[~df['Plant'].astype(str).str.contains('Head Office|HO01', case=False, na=False)]
+    return df.groupby(['Material Description', 'Plant', 'Month'], dropna=False, as_index=False)['Quantity'].sum()
+
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def _build_plant_issue_views(health_branches, materials):
+    """health_branches: Material Description + Branch columns only. materials: tuple in display order.
+    Returns (issue_qty_pivot, amos_pivot, ordered_materials); pivots are Plant x Material. Cached."""
+    monthly = _load_issue_monthly()
+    if monthly is None or monthly.empty:
+        return None
+    health = (health_branches.assign(**{'Material Description': health_branches['Material Description'].astype(str)})
+                             .drop_duplicates('Material Description').set_index('Material Description'))
+    mats = [m for m in materials if m in health.index]
+    issue = monthly[monthly['Material Description'].isin(mats)]
+    if issue.empty:
+        return None
+
+    qty_pivot = issue.groupby(['Plant', 'Material Description'])['Quantity'].sum().unstack(fill_value=0)
+    ordered = [m for m in mats if m in qty_pivot.columns]
+    qty_pivot = qty_pivot[ordered]
+
+    amos_pivot = pd.DataFrame()
+    dated = issue[issue['Month'].notna()]
+    if not dated.empty:
+        start12 = dated['Month'].max() - pd.DateOffset(months=11)
+        plant_amc = (dated[dated['Month'] >= start12]
+                     .groupby(['Material Description', 'Plant'])['Quantity'].sum().div(12).round(2)
+                     .rename('A_AMC').reset_index())
+
+        branch_cols = [c for c in health.columns if 'Branch' in c]
+
+        def match(plant):
+            name = plant.split(' (')[0]
+            low = name.lower()
+            for bc in branch_cols:
+                if bc == name or bc.lower() == low:
+                    return bc
+            for bc in branch_cols:
+                if low in bc.lower() or bc.lower() in low:
+                    return bc
+            if ' (' in plant and ')' in plant:
+                code = plant.split(' (')[1].replace(')', '').lower()
+                for bc in branch_cols:
+                    if code in bc.lower():
+                        return bc
+            return None
+        mapping = {p: match(p) for p in plant_amc['Plant'].unique()}
+        mapping = {p: b for p, b in mapping.items() if b}
+
+        recs = []
+        for plant, bc in mapping.items():
+            sr = pd.to_numeric(health[bc].astype(str).str.replace(',', '', regex=False), errors='coerce').fillna(0)
+            sr = sr[(sr > 0) & (sr.index.isin(mats))]
+            recs.extend({'Material Description': m, 'Plant': plant, 'HSOH': float(v)} for m, v in sr.items())
+        if recs:
+            amos_df = pd.DataFrame(recs).merge(plant_amc, on=['Material Description', 'Plant'], how='inner')
+            if not amos_df.empty:
+                amos_df['AMOS'] = np.where(amos_df['A_AMC'] > 0, amos_df['HSOH'] / amos_df['A_AMC'], 0).round(2)
+                amos_pivot = amos_df.pivot_table(index='Plant', columns='Material Description',
+                                                 values='AMOS', fill_value=0).round(2)
+    return qty_pivot, amos_pivot, ordered
+
+
+def _render_plant_flip_card(health_df, material_order):
+    """Flip card: Plant vs Material AMOS (front)  <->  Plant vs Material Issue Quantity (back)."""
+    try:
+        _bcols = [c for c in health_df.columns if 'Branch' in c]
+        views = _build_plant_issue_views(health_df[['Material Description'] + _bcols].copy(), tuple(material_order))
+    except Exception as e:
+        st.warning(f"Could not load Issue data for the Plant vs Material charts: {e}")
+        return
+    if views is None:
+        st.info("No issue data available for the Plant vs Material charts.")
+        return
+    qty_pivot, amos_pivot, ordered = views
+
+    box, is_back = _flip_card("flip_amos_issue",
+                              "🔥 Plant vs Material - Actual Month of Stock (AMOS)",
+                              "🔥 Plant vs Material - Issue Quantity Heatmap")
+    with box:
+        per_page = 10
+        total = len(ordered)
+        pages = max(1, (total + per_page - 1) // per_page)
+        if 'plant_flip_page' not in st.session_state:
+            st.session_state.plant_flip_page = 1
+        st.session_state.plant_flip_page = min(max(1, st.session_state.plant_flip_page), pages)
+
+        def _go(delta):
+            st.session_state.plant_flip_page = min(max(1, st.session_state.plant_flip_page + delta), pages)
+
+        if pages > 1:
+            cp, cm, cn = st.columns([1, 2, 1])
+            with cp:
+                st.button("◀ Previous", key="plant_flip_prev", on_click=_go, args=(-1,))
+            with cm:
+                st.markdown(f"<p style='text-align: center;'>Page {st.session_state.plant_flip_page} of {pages}</p>",
+                            unsafe_allow_html=True)
+            with cn:
+                st.button("Next ▶", key="plant_flip_next", on_click=_go, args=(1,))
+
+        s = (st.session_state.plant_flip_page - 1) * per_page
+        page_mats = ordered[s:s + per_page]
+
+        if not is_back:
+            # ---------------- AMOS ----------------
+            st.caption("AMOS = HSOH (from health_data) ÷ Plant A_AMC (last 12 months of issue_data)")
+            mats = [m for m in page_mats if not amos_pivot.empty and m in amos_pivot.columns]
+            if amos_pivot.empty or not mats:
+                st.info("No AMOS data for these materials. Need both HSOH (health_data) and Plant A_AMC (issue_data).")
+            else:
+                pg = amos_pivot[mats]
+                fig_amos = go.Figure(data=go.Heatmap(
+                    z=pg.values, y=pg.index, x=pg.columns,
+                    colorscale=[[0.0, 'red'], [0.125, 'yellow'], [0.5, 'green'], [1.0, 'skyblue']],
+                    zmin=0, zmax=8,
+                    text=pg.values.round(1), texttemplate='%{text}', textfont={"size": 10},
+                    colorbar=dict(title="MOS", tickvals=[0.5, 1, 2, 4, 6, 8],
+                                  ticktext=['0.5', '1', '2', '4', '6', '8+']),
+                    hovertemplate='<b>Material:</b> %{x}<br><b>Plant:</b> %{y}<br><b>AMOS:</b> %{z:.2f} months<br><extra></extra>'
+                ))
+                fig_amos.update_layout(
+                    xaxis_tickangle=-45, xaxis={'title': 'Material Description', 'tickfont': {'size': 10}},
+                    yaxis={'title': 'Plant'}, height=max(400, 35 * len(pg) + 100),
+                    margin=dict(l=150, r=50, t=50, b=250))
+                st.plotly_chart(fig_amos, use_container_width=True)
+                st.markdown("#### MOS Thresholds:")
+                lc1, lc2, lc3, lc4 = st.columns(4)
+                with lc1:
+                    st.markdown("🔴 **< 0.5** : Stock Out")
+                with lc2:
+                    st.markdown("🟡 **0.5 - 1** : Understock")
+                with lc3:
+                    st.markdown("🟢 **1 - 4** : Normal Stock")
+                with lc4:
+                    st.markdown("🔵 **> 4** : Overstock")
+        else:
+            # ---------------- Issue Quantity ----------------
+            pg = qty_pivot[page_mats]
+            fig_issue = go.Figure(data=go.Heatmap(
+                z=pg.values, y=pg.index, x=pg.columns, colorscale='Reds',
+                text=pg.values, texttemplate='%{text:,.0f}', textfont={"size": 10},
+                colorbar=dict(title="Quantity")))
+            fig_issue.update_layout(
+                xaxis_tickangle=-45, xaxis={'title': 'Material Description', 'tickfont': {'size': 10}},
+                yaxis={'title': 'Plant'}, height=max(400, 35 * len(pg) + 100),
+                margin=dict(l=150, r=50, t=50, b=250))
+            st.plotly_chart(fig_issue, use_container_width=True)
+
+
+# ---------------------------------------------------
 # TAB 4 - Hubs Distribution (COMPLETE FIXED CODE)
 # ---------------------------------------------------
 with tab4:
@@ -8210,272 +8403,282 @@ with tab4:
                             # MOS Heatmap - Using master program order (WITH FIX)
                             # ============================================
                             if division_df.shape[1] > 2:
-                                branch_cols_list = [col for col in division_df.columns if col not in ['Material Description', 'CV (%)', 'CV Category']]
-                                heatmap_df = division_df.copy()
-
-                                # CRITICAL FIX: Remove duplicates from heatmap_df index BEFORE reindexing
-                                heatmap_df = heatmap_df.set_index('Material Description')
-                                # Remove duplicate indices from heatmap_df itself
-                                heatmap_df = heatmap_df[~heatmap_df.index.duplicated(keep='first')]
-
-                                # Then filter master_material_order to only include materials in heatmap_df
-                                # AND remove any duplicates
-                                unique_master_order = []
-                                for m in master_material_order:
-                                    if m in heatmap_df.index and m not in unique_master_order:
-                                        unique_master_order.append(m)
-
-                                # Reindex with the unique ordered list
-                                heatmap_df = heatmap_df.reindex(unique_master_order)
-                                heatmap_df = heatmap_df.reset_index()
-
-                                heatmap_df_indexed = heatmap_df.set_index('Material Description')
-                                heatmap_df_indexed = heatmap_df_indexed[branch_cols_list]
-                                heatmap_df_transposed = heatmap_df_indexed.T
-                                total_materials = len(heatmap_df_transposed.columns)
-                                materials_per_page = 11
-
-                                if total_materials > materials_per_page:
-                                    total_pages = (total_materials + materials_per_page - 1) // materials_per_page
-                                    col1, col2, col3 = st.columns([1, 3, 1])
-                                    with col1:
-                                        if st.button("◀ Previous", key="heatmap_prev"):
-                                            if st.session_state.heatmap_page > 1:
-                                                st.session_state.heatmap_page -= 1
-                                                st.rerun()
-                                    with col2:
-                                        st.markdown(f"<h5 style='text-align: center;'>Page {st.session_state.heatmap_page} of {total_pages}</h5>", unsafe_allow_html=True)
-                                    with col3:
-                                        if st.button("Next ▶", key="heatmap_next"):
-                                            if st.session_state.heatmap_page < total_pages:
-                                                st.session_state.heatmap_page += 1
-                                                st.rerun()
-                                    start_idx = (st.session_state.heatmap_page - 1) * materials_per_page
-                                    end_idx = min(start_idx + materials_per_page, total_materials)
-                                    page_materials = heatmap_df_transposed.columns[start_idx:end_idx]
-                                    heatmap_page_df = heatmap_df_transposed[page_materials]
-                                    st.info(f"Showing materials {start_idx + 1} to {end_idx} of {total_materials}")
-                                else:
-                                    heatmap_page_df = heatmap_df_transposed
-
-                                fig = go.Figure(data=go.Heatmap(
-                                    z=heatmap_page_df.values, y=heatmap_page_df.index, x=heatmap_page_df.columns,
-                                    colorscale=[[0.0, 'red'], [0.125, 'yellow'], [0.5, 'green'], [1.0, 'skyblue']],
-                                    zmin=0, zmax=8, text=heatmap_page_df.values.round(1), texttemplate='%{text}', textfont={"size": 14},
-                                    colorbar=dict(title="MOS", tickvals=[0.5, 1, 2, 4, 6, 8], ticktext=['0.5', '1', '2', '4', '6', '8+']),
-                                    hovertemplate='<b>Material:</b> %{x}<br><b>Branch:</b> %{y}<br><b>MOS:</b> %{z:.2f} months<br><extra></extra>'
-                                ))
-                                fig.update_layout(xaxis={'title': 'Material Description', 'tickangle': -45, 'tickfont': {'size': 12}}, 
-                                                yaxis={'title': 'Branches', 'tickfont': {'size': 12}}, height=650, margin=dict(l=120, r=120, t=50, b=200))
-                                st.plotly_chart(fig, use_container_width=True)
-
-                                st.markdown("#### MOS Thresholds:")
-                                col1, col2, col3, col4 = st.columns(4)
-                                with col1:
-                                    st.markdown("🔴 **< 0.5** : Stock Out")
-                                with col2:
-                                    st.markdown("🟡 **0.5 - 1** : Understock")
-                                with col3:
-                                    st.markdown("🟢 **1 - 4** : Normal Stock")
-                                with col4:
-                                    st.markdown("🔵 **> 4** : Overstock")
-
                                 # ============================================
-                                # EPSS Hubs SOH Heatmap (WITH FIX)
+                                # FLIP CARD 1: MOS (front)  <->  EPSS SOH Heatmap (back)
                                 # ============================================
-                                st.markdown("---")
-                                st.markdown("<h5 style='font-size: 20px; font-weight: bold;'>🔥 EPSS Stock on Hand (SOH) Heatmap</h5>", unsafe_allow_html=True)
+                                _f1_box, _f1_back = _flip_card("flip_mos_soh", "📍 Stock Distribution Across Hubs by MOS", "🔥 EPSS Stock on Hand (SOH) Heatmap")
+                                with _f1_box:
+                                    if not _f1_back:
+                                        branch_cols_list = [col for col in division_df.columns if col not in ['Material Description', 'CV (%)', 'CV Category']]
+                                        heatmap_df = division_df.copy()
 
-                                # Add filter option
-                                heatmap_filter = st.radio(
-                                    "Select View:",
-                                    ["🏪 Hubs Only", "🏢 With Head Office"],
-                                    horizontal=True,
-                                    key="soh_heatmap_filter",
-                                    index=1
-                                )
+                                        # CRITICAL FIX: Remove duplicates from heatmap_df index BEFORE reindexing
+                                        heatmap_df = heatmap_df.set_index('Material Description')
+                                        # Remove duplicate indices from heatmap_df itself
+                                        heatmap_df = heatmap_df[~heatmap_df.index.duplicated(keep='first')]
 
-                                branch_soh_cols = []
-                                for col in df.columns:
-                                    if 'Branch' in col:
-                                        branch_soh_cols.append(col)
-                                    elif col.startswith('Hub') and col not in ['Hubs', 'Hubs%']:
-                                        branch_soh_cols.append(col)
+                                        # Then filter master_material_order to only include materials in heatmap_df
+                                        # AND remove any duplicates
+                                        unique_master_order = []
+                                        for m in master_material_order:
+                                            if m in heatmap_df.index and m not in unique_master_order:
+                                                unique_master_order.append(m)
 
-                                branch_soh_cols = list(set(branch_soh_cols))
-                                branch_soh_cols = [col for col in branch_soh_cols if col != 'Material Description']
-                                branch_soh_cols = sorted(branch_soh_cols)
+                                        # Reindex with the unique ordered list
+                                        heatmap_df = heatmap_df.reindex(unique_master_order)
+                                        heatmap_df = heatmap_df.reset_index()
 
-                                if branch_soh_cols:
-                                    # Create heatmap data with branches
-                                    heatmap_data = df[['Material Description'] + branch_soh_cols].copy()
+                                        heatmap_df_indexed = heatmap_df.set_index('Material Description')
+                                        heatmap_df_indexed = heatmap_df_indexed[branch_cols_list]
+                                        heatmap_df_transposed = heatmap_df_indexed.T
+                                        total_materials = len(heatmap_df_transposed.columns)
+                                        materials_per_page = 11
 
-                                    for col in branch_soh_cols:
-                                        heatmap_data[col] = pd.to_numeric(heatmap_data[col], errors='coerce').fillna(0)
+                                        if total_materials > materials_per_page:
+                                            total_pages = (total_materials + materials_per_page - 1) // materials_per_page
+                                            col1, col2, col3 = st.columns([1, 3, 1])
+                                            with col1:
+                                                if st.button("◀ Previous", key="heatmap_prev"):
+                                                    if st.session_state.heatmap_page > 1:
+                                                        st.session_state.heatmap_page -= 1
+                                                        st.rerun()
+                                            with col2:
+                                                st.markdown(f"<h5 style='text-align: center;'>Page {st.session_state.heatmap_page} of {total_pages}</h5>", unsafe_allow_html=True)
+                                            with col3:
+                                                if st.button("Next ▶", key="heatmap_next"):
+                                                    if st.session_state.heatmap_page < total_pages:
+                                                        st.session_state.heatmap_page += 1
+                                                        st.rerun()
+                                            start_idx = (st.session_state.heatmap_page - 1) * materials_per_page
+                                            end_idx = min(start_idx + materials_per_page, total_materials)
+                                            page_materials = heatmap_df_transposed.columns[start_idx:end_idx]
+                                            heatmap_page_df = heatmap_df_transposed[page_materials]
+                                            st.info(f"Showing materials {start_idx + 1} to {end_idx} of {total_materials}")
+                                        else:
+                                            heatmap_page_df = heatmap_df_transposed
 
-                                    # CRITICAL FIX: Remove duplicates and reindex
-                                    heatmap_data_indexed = heatmap_data.set_index('Material Description')
-                                    # Remove duplicate indices
-                                    heatmap_data_indexed = heatmap_data_indexed[~heatmap_data_indexed.index.duplicated(keep='first')]
-
-                                    # Create unique ordered list
-                                    unique_master_order_soh = []
-                                    for m in master_material_order:
-                                        if m in heatmap_data_indexed.index and m not in unique_master_order_soh:
-                                            unique_master_order_soh.append(m)
-
-                                    heatmap_data_indexed = heatmap_data_indexed.reindex(unique_master_order_soh)
-                                    heatmap_data_indexed = heatmap_data_indexed.fillna(0)
-                                    heatmap_data_transposed = heatmap_data_indexed.T
-
-                                    # Add Head Office
-                                    if heatmap_filter == "🏢 With Head Office" and 'Head Office' in df.columns:
-                                        head_office_data = df[['Material Description', 'Head Office']].copy()
-                                        head_office_data['Head Office'] = pd.to_numeric(head_office_data['Head Office'], errors='coerce').fillna(0)
-                                        head_office_data = head_office_data.set_index('Material Description')
-                                        # Remove duplicates
-                                        head_office_data = head_office_data[~head_office_data.index.duplicated(keep='first')]
-                                        head_office_data = head_office_data.reindex(unique_master_order_soh)
-                                        head_office_data = head_office_data.fillna(0)
-                                        head_office_data = head_office_data.T
-                                        head_office_data.index = ['🏢 Head Office']
-
-                                        # Ensure columns match
-                                        common_materials = heatmap_data_transposed.columns.intersection(head_office_data.columns)
-                                        heatmap_data_transposed = heatmap_data_transposed[common_materials]
-                                        head_office_aligned = head_office_data[common_materials]
-
-                                        combined_heatmap = pd.concat([heatmap_data_transposed, head_office_aligned])
-                                    else:
-                                        combined_heatmap = heatmap_data_transposed
-
-                                    total_materials_soh = len(combined_heatmap.columns)
-                                    materials_per_page_soh = 10
-
-                                    if 'soh_heatmap_page' not in st.session_state:
-                                        st.session_state.soh_heatmap_page = 1
-
-                                    if total_materials_soh > materials_per_page_soh:
-                                        total_pages_soh = (total_materials_soh + materials_per_page_soh - 1) // materials_per_page_soh
-
-                                        col_prev, col_page, col_next = st.columns([1, 3, 1])
-                                        with col_prev:
-                                            if st.button("◀ Previous", key="soh_heatmap_prev"):
-                                                if st.session_state.soh_heatmap_page > 1:
-                                                    st.session_state.soh_heatmap_page -= 1
-                                                    st.rerun()
-                                        with col_page:
-                                            st.markdown(f"<p style='text-align: center;'>Page {st.session_state.soh_heatmap_page} of {total_pages_soh}</p>", unsafe_allow_html=True)
-                                        with col_next:
-                                            if st.button("Next ▶", key="soh_heatmap_next"):
-                                                if st.session_state.soh_heatmap_page < total_pages_soh:
-                                                    st.session_state.soh_heatmap_page += 1
-                                                    st.rerun()
-
-                                        start_idx_soh = (st.session_state.soh_heatmap_page - 1) * materials_per_page_soh
-                                        end_idx_soh = min(start_idx_soh + materials_per_page_soh, total_materials_soh)
-                                        page_materials_soh = combined_heatmap.columns[start_idx_soh:end_idx_soh]
-                                        heatmap_page_df_soh = combined_heatmap[page_materials_soh]
-                                    else:
-                                        heatmap_page_df_soh = combined_heatmap
-
-                                    if not heatmap_page_df_soh.empty:
-                                        # ============================================
-                                        # VISUALIZATION FIXES (Layout & Readability)
-                                        # ============================================
-
-                                        # 1. Determine available screen width (responsive layout)
-                                        max_plot_width = 1600  # Fallback max width
-                                        if 'st' in globals():
-                                            try:
-                                                # Get browser width if possible, otherwise use a safe default for Streamlit
-                                                max_plot_width = 1200 
-                                            except:
-                                                pass
-
-                                        # 2. Calculate dynamic width based on number of materials (columns)
-                                        # Base width per material: 100px, minimum total width: 800px
-                                        num_cols = len(heatmap_page_df_soh.columns)
-                                        base_col_width = 100
-                                        dynamic_width = max(800, num_cols * base_col_width)
-                                        # Cap at max_plot_width to prevent horizontal scrolling if there are too many
-                                        final_width = min(dynamic_width, max_plot_width)
-
-                                        # 3. Calculate dynamic height based on rows (branches)
-                                        # Base height per row: 45px, minimum total height: 400px
-                                        num_rows = len(heatmap_page_df_soh.index)
-                                        base_row_height = 45
-                                        dynamic_height = max(400, num_rows * base_row_height + 80) # +80 for title
-
-                                        # 4. Create text array: Suppress zeros to prevent clutter
-                                        # If value is 0, show empty string, else format with commas
-                                        text_values = []
-                                        for row_vals in heatmap_page_df_soh.values:
-                                            new_row = []
-                                            for val in row_vals:
-                                                if val == 0:
-                                                    new_row.append('')
-                                                else:
-                                                    new_row.append(f"{int(val):,}")
-                                            text_values.append(new_row)
-
-                                        # 5. Create the Heatmap
-                                        fig_soh = go.Figure(data=go.Heatmap(
-                                            z=heatmap_page_df_soh.values,
-                                            y=heatmap_page_df_soh.index,
-                                            x=heatmap_page_df_soh.columns,
-                                            colorscale='Reds',
-                                            zmin=0,
-                                            zmax=heatmap_page_df_soh.max().max() if not heatmap_page_df_soh.empty else 1,
-                                            text=text_values, # Using cleaned array
-                                            texttemplate='%{text}',
-                                            textfont={"size": 12}, # Slightly larger font for readability
-                                            colorbar=dict(
-                                                title="Stock on Hand (Units)", 
-                                                title_side="right", 
-                                                ticks="outside",
-                                                thickness=15, # Proportional thickness
-                                                len=0.75 # Proportional length
-                                            ),
-                                            hovertemplate='<b>Material:</b> %{x}<br><b>Location:</b> %{y}<br><b>SOH:</b> %{z:,.0f} units<br><extra></extra>'
+                                        fig = go.Figure(data=go.Heatmap(
+                                            z=heatmap_page_df.values, y=heatmap_page_df.index, x=heatmap_page_df.columns,
+                                            colorscale=[[0.0, 'red'], [0.125, 'yellow'], [0.5, 'green'], [1.0, 'skyblue']],
+                                            zmin=0, zmax=8, text=heatmap_page_df.values.round(1), texttemplate='%{text}', textfont={"size": 14},
+                                            colorbar=dict(title="MOS", tickvals=[0.5, 1, 2, 4, 6, 8], ticktext=['0.5', '1', '2', '4', '6', '8+']),
+                                            hovertemplate='<b>Material:</b> %{x}<br><b>Branch:</b> %{y}<br><b>MOS:</b> %{z:.2f} months<br><extra></extra>'
                                         ))
+                                        fig.update_layout(xaxis={'title': 'Material Description', 'tickangle': -45, 'tickfont': {'size': 12}}, 
+                                                        yaxis={'title': 'Branches', 'tickfont': {'size': 12}}, height=650, margin=dict(l=120, r=120, t=50, b=200))
+                                        st.plotly_chart(fig, use_container_width=True)
 
-                                        # 6. Layout Best Practices
-                                        fig_soh.update_layout(
-                                            title="EPSS Stock on Hand Distribution",
-                                            xaxis={
-                                                'title': 'Material Description', 
-                                                'tickangle': -45, # Rotate labels for readability
-                                                'tickfont': {'size': 11}, 
-                                                'automargin': True,
-                                                'side': 'bottom'
-                                            },
-                                            yaxis={
-                                                'title': 'Location', 
-                                                'tickfont': {'size': 12},
-                                                'automargin': True # Ensures branch names don't get cut off
-                                            },
-                                            # Apply dynamic width and height
-                                            width=final_width, 
-                                            height=dynamic_height,
-                                            # Increase margins significantly so labels don't overlap edges
-                                            margin=dict(
-                                                l=180,  # Larger left margin for branch names
-                                                r=50, 
-                                                t=80,  # Margin for title
-                                                b=250  # Large bottom margin for rotated X-axis labels
-                                            ),
-                                            # Responsive best practices for Streamlit
-                                            autosize=True,
-                                            paper_bgcolor='rgba(0,0,0,0)',
-                                            plot_bgcolor='rgba(0,0,0,0)'
+                                        st.markdown("#### MOS Thresholds:")
+                                        col1, col2, col3, col4 = st.columns(4)
+                                        with col1:
+                                            st.markdown("🔴 **< 0.5** : Stock Out")
+                                        with col2:
+                                            st.markdown("🟡 **0.5 - 1** : Understock")
+                                        with col3:
+                                            st.markdown("🟢 **1 - 4** : Normal Stock")
+                                        with col4:
+                                            st.markdown("🔵 **> 4** : Overstock")
+                                    else:
+                                        # ============================================
+                                        # EPSS Hubs SOH Heatmap (WITH FIX)
+                                        # ============================================
+
+                                        # Add filter option
+                                        heatmap_filter = st.radio(
+                                            "Select View:",
+                                            ["🏪 Hubs Only", "🏢 With Head Office"],
+                                            horizontal=True,
+                                            key="soh_heatmap_filter",
+                                            index=1
                                         )
 
-                                        st.plotly_chart(fig_soh, use_container_width=True)
-                                    else:
-                                        st.info("No data available for heatmap")
-                                else:
-                                    st.info("No branch/hub stock data available for heatmap")
+                                        branch_soh_cols = []
+                                        for col in df.columns:
+                                            if 'Branch' in col:
+                                                branch_soh_cols.append(col)
+                                            elif col.startswith('Hub') and col not in ['Hubs', 'Hubs%']:
+                                                branch_soh_cols.append(col)
+
+                                        branch_soh_cols = list(set(branch_soh_cols))
+                                        branch_soh_cols = [col for col in branch_soh_cols if col != 'Material Description']
+                                        branch_soh_cols = sorted(branch_soh_cols)
+
+                                        if branch_soh_cols:
+                                            # Create heatmap data with branches
+                                            heatmap_data = df[['Material Description'] + branch_soh_cols].copy()
+
+                                            for col in branch_soh_cols:
+                                                heatmap_data[col] = pd.to_numeric(heatmap_data[col], errors='coerce').fillna(0)
+
+                                            # CRITICAL FIX: Remove duplicates and reindex
+                                            heatmap_data_indexed = heatmap_data.set_index('Material Description')
+                                            # Remove duplicate indices
+                                            heatmap_data_indexed = heatmap_data_indexed[~heatmap_data_indexed.index.duplicated(keep='first')]
+
+                                            # Create unique ordered list
+                                            unique_master_order_soh = []
+                                            for m in master_material_order:
+                                                if m in heatmap_data_indexed.index and m not in unique_master_order_soh:
+                                                    unique_master_order_soh.append(m)
+
+                                            heatmap_data_indexed = heatmap_data_indexed.reindex(unique_master_order_soh)
+                                            heatmap_data_indexed = heatmap_data_indexed.fillna(0)
+                                            heatmap_data_transposed = heatmap_data_indexed.T
+
+                                            # Add Head Office
+                                            if heatmap_filter == "🏢 With Head Office" and 'Head Office' in df.columns:
+                                                head_office_data = df[['Material Description', 'Head Office']].copy()
+                                                head_office_data['Head Office'] = pd.to_numeric(head_office_data['Head Office'], errors='coerce').fillna(0)
+                                                head_office_data = head_office_data.set_index('Material Description')
+                                                # Remove duplicates
+                                                head_office_data = head_office_data[~head_office_data.index.duplicated(keep='first')]
+                                                head_office_data = head_office_data.reindex(unique_master_order_soh)
+                                                head_office_data = head_office_data.fillna(0)
+                                                head_office_data = head_office_data.T
+                                                head_office_data.index = ['🏢 Head Office']
+
+                                                # Ensure columns match
+                                                common_materials = heatmap_data_transposed.columns.intersection(head_office_data.columns)
+                                                heatmap_data_transposed = heatmap_data_transposed[common_materials]
+                                                head_office_aligned = head_office_data[common_materials]
+
+                                                combined_heatmap = pd.concat([heatmap_data_transposed, head_office_aligned])
+                                            else:
+                                                combined_heatmap = heatmap_data_transposed
+
+                                            total_materials_soh = len(combined_heatmap.columns)
+                                            materials_per_page_soh = 10
+
+                                            if 'soh_heatmap_page' not in st.session_state:
+                                                st.session_state.soh_heatmap_page = 1
+
+                                            if total_materials_soh > materials_per_page_soh:
+                                                total_pages_soh = (total_materials_soh + materials_per_page_soh - 1) // materials_per_page_soh
+
+                                                col_prev, col_page, col_next = st.columns([1, 3, 1])
+                                                with col_prev:
+                                                    if st.button("◀ Previous", key="soh_heatmap_prev"):
+                                                        if st.session_state.soh_heatmap_page > 1:
+                                                            st.session_state.soh_heatmap_page -= 1
+                                                            st.rerun()
+                                                with col_page:
+                                                    st.markdown(f"<p style='text-align: center;'>Page {st.session_state.soh_heatmap_page} of {total_pages_soh}</p>", unsafe_allow_html=True)
+                                                with col_next:
+                                                    if st.button("Next ▶", key="soh_heatmap_next"):
+                                                        if st.session_state.soh_heatmap_page < total_pages_soh:
+                                                            st.session_state.soh_heatmap_page += 1
+                                                            st.rerun()
+
+                                                start_idx_soh = (st.session_state.soh_heatmap_page - 1) * materials_per_page_soh
+                                                end_idx_soh = min(start_idx_soh + materials_per_page_soh, total_materials_soh)
+                                                page_materials_soh = combined_heatmap.columns[start_idx_soh:end_idx_soh]
+                                                heatmap_page_df_soh = combined_heatmap[page_materials_soh]
+                                            else:
+                                                heatmap_page_df_soh = combined_heatmap
+
+                                            if not heatmap_page_df_soh.empty:
+                                                # ============================================
+                                                # VISUALIZATION FIXES (Layout & Readability)
+                                                # ============================================
+
+                                                # 1. Determine available screen width (responsive layout)
+                                                max_plot_width = 1600  # Fallback max width
+                                                if 'st' in globals():
+                                                    try:
+                                                        # Get browser width if possible, otherwise use a safe default for Streamlit
+                                                        max_plot_width = 1200 
+                                                    except:
+                                                        pass
+
+                                                # 2. Calculate dynamic width based on number of materials (columns)
+                                                # Base width per material: 100px, minimum total width: 800px
+                                                num_cols = len(heatmap_page_df_soh.columns)
+                                                base_col_width = 100
+                                                dynamic_width = max(800, num_cols * base_col_width)
+                                                # Cap at max_plot_width to prevent horizontal scrolling if there are too many
+                                                final_width = min(dynamic_width, max_plot_width)
+
+                                                # 3. Calculate dynamic height based on rows (branches)
+                                                # Base height per row: 45px, minimum total height: 400px
+                                                num_rows = len(heatmap_page_df_soh.index)
+                                                base_row_height = 45
+                                                dynamic_height = max(400, num_rows * base_row_height + 80) # +80 for title
+
+                                                # 4. Create text array: Suppress zeros to prevent clutter
+                                                # If value is 0, show empty string, else format with commas
+                                                text_values = []
+                                                for row_vals in heatmap_page_df_soh.values:
+                                                    new_row = []
+                                                    for val in row_vals:
+                                                        if val == 0:
+                                                            new_row.append('')
+                                                        else:
+                                                            new_row.append(f"{int(val):,}")
+                                                    text_values.append(new_row)
+
+                                                # 5. Create the Heatmap
+                                                fig_soh = go.Figure(data=go.Heatmap(
+                                                    z=heatmap_page_df_soh.values,
+                                                    y=heatmap_page_df_soh.index,
+                                                    x=heatmap_page_df_soh.columns,
+                                                    colorscale='Reds',
+                                                    zmin=0,
+                                                    zmax=heatmap_page_df_soh.max().max() if not heatmap_page_df_soh.empty else 1,
+                                                    text=text_values, # Using cleaned array
+                                                    texttemplate='%{text}',
+                                                    textfont={"size": 12}, # Slightly larger font for readability
+                                                    colorbar=dict(
+                                                        title="Stock on Hand (Units)", 
+                                                        title_side="right", 
+                                                        ticks="outside",
+                                                        thickness=15, # Proportional thickness
+                                                        len=0.75 # Proportional length
+                                                    ),
+                                                    hovertemplate='<b>Material:</b> %{x}<br><b>Location:</b> %{y}<br><b>SOH:</b> %{z:,.0f} units<br><extra></extra>'
+                                                ))
+
+                                                # 6. Layout Best Practices
+                                                fig_soh.update_layout(
+                                                    title="EPSS Stock on Hand Distribution",
+                                                    xaxis={
+                                                        'title': 'Material Description', 
+                                                        'tickangle': -45, # Rotate labels for readability
+                                                        'tickfont': {'size': 11}, 
+                                                        'automargin': True,
+                                                        'side': 'bottom'
+                                                    },
+                                                    yaxis={
+                                                        'title': 'Location', 
+                                                        'tickfont': {'size': 12},
+                                                        'automargin': True # Ensures branch names don't get cut off
+                                                    },
+                                                    # Apply dynamic width and height
+                                                    width=final_width, 
+                                                    height=dynamic_height,
+                                                    # Increase margins significantly so labels don't overlap edges
+                                                    margin=dict(
+                                                        l=180,  # Larger left margin for branch names
+                                                        r=50, 
+                                                        t=80,  # Margin for title
+                                                        b=250  # Large bottom margin for rotated X-axis labels
+                                                    ),
+                                                    # Responsive best practices for Streamlit
+                                                    autosize=True,
+                                                    paper_bgcolor='rgba(0,0,0,0)',
+                                                    plot_bgcolor='rgba(0,0,0,0)'
+                                                )
+
+                                                st.plotly_chart(fig_soh, use_container_width=True)
+                                            else:
+                                                st.info("No data available for heatmap")
+                                        else:
+                                            st.info("No branch/hub stock data available for heatmap")
+
+                                # ============================================
+                                # FLIP CARD 2: Plant AMOS (front)  <->  Plant Issue Quantity Heatmap (back)
+                                # ============================================
+                                st.markdown("---")
+                                _render_plant_flip_card(df, master_material_order)
 
                                 st.markdown("---")
                                 st.markdown("<h5 style='font-size: 20px; font-weight: bold;'>Full Branch MOS Data with CV</h5>", unsafe_allow_html=True)
