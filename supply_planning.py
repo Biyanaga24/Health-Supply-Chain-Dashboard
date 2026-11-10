@@ -1547,11 +1547,26 @@ def save_dos_tracking(dos_tracking):
 # EXPERT PLAN RECORDS
 # ============================================================================
 @st.cache_data(ttl=300, show_spinner=False)
+def _user_allowed_programs():
+    """None = user may see every program; otherwise the list of assigned programs."""
+    try:
+        progs = get_user_program_access()
+    except Exception:
+        return None
+    if progs and "All" not in progs:
+        return list(progs)
+    return None
+
+
 def load_expert_plan_records(program=None, quarter=None, year=None):
     supabase = get_supabase()
     if supabase is None: return []
     try:
         query = supabase.table("expert_plan_records").select("*")
+        # Only return records of the program(s) assigned to the current user
+        _allowed = _user_allowed_programs()
+        if _allowed is not None:
+            query = query.in_("program", _allowed)
         if program:
             _pl = _prog_list(program)
             if _pl and len(_pl) > 1: query = query.in_("program", _pl)
@@ -7132,6 +7147,108 @@ def _pick_best_model_by_errors(trained: dict):
     return best, df
 
 
+def _fit_ses(y, alpha):
+    """Return (one-step in-sample SSE, last level) for simple exponential smoothing."""
+    level = y[0]
+    sse = 0.0
+    for v in y[1:]:
+        sse += (v - level) ** 2
+        level = alpha * v + (1 - alpha) * level
+    return sse, level
+
+
+def _fit_des(y, alpha, beta):
+    """Return (one-step in-sample SSE, level, trend) for Holt's linear method."""
+    level, trend = y[0], (y[1] - y[0])
+    sse = 0.0
+    for v in y[1:]:
+        pred = level + trend
+        sse += (v - pred) ** 2
+        new_level = alpha * v + (1 - alpha) * (level + trend)
+        trend = beta * (new_level - level) + (1 - beta) * trend
+        level = new_level
+    return sse, level, trend
+
+
+def _best_ses(y):
+    grid = np.arange(0.1, 1.0, 0.1)
+    a = min(grid, key=lambda al: _fit_ses(y, al)[0])
+    return a, _fit_ses(y, a)[1]
+
+
+def _best_des(y):
+    best = None
+    for al in np.arange(0.1, 1.0, 0.1):
+        for be in np.arange(0.1, 1.0, 0.1):
+            sse, lv, tr = _fit_des(y, al, be)
+            if best is None or sse < best[0]:
+                best = (sse, al, be, lv, tr)
+    return best[1], best[2], best[3], best[4]
+
+
+def _ensure_ses_des(trained, af, hv, train_pct, horizon):
+    """Make sure SES and DES appear in the error-metrics table (and in the
+    forecasts) when the forecasting core did not return them."""
+    trained = dict(trained or {})
+    af = dict(af or {})
+    y_all = np.asarray(hv, dtype=float) if hv is not None else np.array([])
+    y_all = y_all[np.isfinite(y_all)]
+    if len(y_all) < 4:
+        return trained, af
+
+    split = max(3, int(len(y_all) * train_pct / 100.0))
+    split = min(split, len(y_all) - 1)
+    y_tr, y_te = y_all[:split], y_all[split:]
+    if len(y_tr) < 3 or len(y_te) < 1:
+        return trained, af
+
+    def _metrics(pred):
+        err = y_te - pred
+        mae = float(np.mean(np.abs(err)))
+        rmse = float(np.sqrt(np.mean(err ** 2)))
+        nz = y_te != 0
+        mape = float(np.mean(np.abs(err[nz] / y_te[nz])) * 100) if nz.any() else np.nan
+        sst = float(np.sum((y_te - y_te.mean()) ** 2))
+        r2 = float(1 - np.sum(err ** 2) / sst) if sst > 0 else np.nan
+        return mae, rmse, mape, r2
+
+    def _forecast_dict(vals):
+        vals = np.clip(np.asarray(vals, dtype=float), 0, None)
+        return {"values": vals.tolist(), "total": float(vals.sum()),
+                "avg": float(vals.mean()), "min": float(vals.min()), "max": float(vals.max())}
+
+    h = int(horizon) if horizon else 12
+    steps = np.arange(1, h + 1)
+
+    if "SES" not in trained:
+        try:
+            a, _ = _best_ses(y_tr)
+            lvl = _fit_ses(y_tr, a)[1]
+            mae, rmse, mape, r2 = _metrics(np.full(len(y_te), lvl))
+            trained["SES"] = {"mae": mae, "rmse": rmse, "mape": mape, "r2": r2,
+                              "params": f"alpha={a:.2f}"}
+            if "SES" not in af:
+                a2, lvl2 = _best_ses(y_all)
+                af["SES"] = _forecast_dict(np.full(h, lvl2))
+        except Exception:
+            pass
+
+    if "DES" not in trained:
+        try:
+            a, b, lv, tr = _best_des(y_tr)
+            pred = lv + tr * np.arange(1, len(y_te) + 1)
+            mae, rmse, mape, r2 = _metrics(pred)
+            trained["DES"] = {"mae": mae, "rmse": rmse, "mape": mape, "r2": r2,
+                              "params": f"alpha={a:.2f}, beta={b:.2f}"}
+            if "DES" not in af:
+                a2, b2, lv2, tr2 = _best_des(y_all)
+                af["DES"] = _forecast_dict(lv2 + tr2 * steps)
+        except Exception:
+            pass
+
+    return trained, af
+
+
 def _display_error_metrics_table(score_df: pd.DataFrame):
     if score_df.empty:
         st.info("No test data — increase Training % or add more history.")
@@ -7426,17 +7543,20 @@ def _render_single_monthly_detail(d, material):
 
     # ---- 1) Error metrics + single-source-of-truth model selection ----
     st.markdown("### 📊 Model Performance Comparison (Error Metrics)")
-    trained = d.get("trained_models", {})
+    af = d.get("all_forecasts", {})
+    hs = d.get("data_series", pd.Series())
+    hv = np.asarray(hs.values, dtype=float) if (hasattr(hs, "values") and len(hs) > 0) else np.array([])
+    _h = max((len(f.get("values", [])) for f in af.values()), default=0) or st.session_state.get("fc_horizon_m", 12)
+    trained, af = _ensure_ses_des(
+        d.get("trained_models", {}), af, hv,
+        st.session_state.get("fc_train_pct", 70), _h,
+    )
     best_model, score_df = _pick_best_model_by_errors(trained)
     _display_error_metrics_table(score_df)
     if best_model:
         st.success(f"🏆 **Best Performing Model (lowest composite error):** {best_model}")
     else:
         best_model = d.get("recommended_model_criteria", "SES")
-
-    af = d.get("all_forecasts", {})
-    hs = d.get("data_series", pd.Series())
-    hv = np.asarray(hs.values, dtype=float) if (hasattr(hs, "values") and len(hs) > 0) else np.array([])
 
     # ---- 2) All Models Forecast Comparison (moved UP) ----
     st.markdown("### 🔍 All Models Forecast Comparison")
@@ -8799,9 +8919,35 @@ def main():
     </style>
     """, unsafe_allow_html=True)
 
-    st.markdown("""
+    _u = st.session_state.get('user') or {}
+    _welcome_name = _html.escape(str(_u.get('full_name') or _u.get('email') or '').strip())
+    _welcome_html = (
+        f'<div style="margin-top:6px; font-size:1.1rem; color:#ffffff;">'
+        f'👋 Welcome, <b>{_welcome_name}</b></div>' if _welcome_name else ''
+    )
+    st.markdown(f"""
+    <style>
+        .app-header h1.app-title-animated {{
+            color: #ffffff !important;
+            display: inline-block;
+            animation: titleFloat 3.5s ease-in-out infinite,
+                       titleGlow 3.5s ease-in-out infinite;
+        }}
+        @keyframes titleFloat {{
+            0%, 100% {{ transform: translateY(0); }}
+            50%      {{ transform: translateY(-3px); }}
+        }}
+        @keyframes titleGlow {{
+            0%, 100% {{ text-shadow: 0 0 4px rgba(255,255,255,0.20); }}
+            50%      {{ text-shadow: 0 0 14px rgba(255,255,255,0.65); }}
+        }}
+        @media (prefers-reduced-motion: reduce) {{
+            .app-header h1.app-title-animated {{ animation: none; }}
+        }}
+    </style>
     <div class="app-header fade-in">
-        <h1>📦 SUPPLY PLANNING TOOL</h1>
+        <h1 class="app-title-animated">📦 SUPPLY PLANNING TOOL</h1>
+        {_welcome_html}
     </div>
     """, unsafe_allow_html=True)
 
