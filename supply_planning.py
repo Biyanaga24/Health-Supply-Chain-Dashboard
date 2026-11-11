@@ -289,9 +289,11 @@ def inject_custom_css():
             border: 1px solid #ffd43b !important;
             font-weight: 700 !important;
             box-shadow: 0 3px 12px rgba(214, 51, 108, 0.40) !important;
+            justify-content: flex-start !important;
+            text-align: left !important;
         }
         .stSidebar .stButton > button[kind="primary"] *,
-        .stSidebar .stButton > button[data-testid="stBaseButton-primary"] * { color: #ffffff !important; }
+        .stSidebar .stButton > button[data-testid="stBaseButton-primary"] * { color: #ffffff !important; text-align: left !important; }
         .stSidebar .stButton > button[kind="primary"]:hover,
         .stSidebar .stButton > button[data-testid="stBaseButton-primary"]:hover {
             filter: brightness(1.08);
@@ -550,7 +552,7 @@ def inject_custom_css():
             text-transform: uppercase;
             color: #1a5276;
             padding: 2px 0 6px 0;
-            margin-bottom: 6px;
+            margin-bottom: 12px;
             border-bottom: 2px solid #2e86c1;
         }
 
@@ -695,6 +697,84 @@ def inject_javascript():
         });
     </script>
     """, unsafe_allow_html=True)
+
+
+_SC_CSS = (
+    "<style>"
+    ".sc-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(380px,1fr));gap:18px;margin:12px 0;}"
+    ".sc-card{background:linear-gradient(135deg,#2e86c1 0%,#1a5276 100%);padding:3px;border-radius:14px;"
+    "box-shadow:0 3px 10px rgba(26,82,118,0.18);transition:transform .15s ease,box-shadow .15s ease;}"
+    ".sc-card:hover{transform:translateY(-3px);box-shadow:0 8px 18px rgba(26,82,118,0.28);}"
+    ".sc-inner{background:#f0f0f0;padding:16px 16px 14px;border-radius:11px;height:100%;box-sizing:border-box;}"
+    ".sc-head{display:flex;justify-content:space-between;align-items:flex-start;gap:10px;}"
+    ".sc-title{color:#1a5276;font-size:17px;font-weight:700;line-height:1.3;margin:0;}"
+    ".sc-badge{color:#fff;padding:4px 12px;border-radius:20px;font-size:12px;font-weight:600;white-space:nowrap;}"
+    ".sc-metrics{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin:12px 0 6px;}"
+    ".sc-metric{background:#fff;border-radius:8px;padding:7px 6px;text-align:center;}"
+    ".sc-metric .k{display:block;font-size:11px;color:#6b7280;text-transform:uppercase;letter-spacing:.4px;}"
+    ".sc-metric .v{display:block;font-size:15px;font-weight:700;color:#1a5276;margin-top:2px;}"
+    ".sc-block{background:#fff;border-radius:8px;padding:8px 12px;margin-top:6px;font-size:14px;line-height:1.45;"
+    "border-left:4px solid #2e86c1;}"
+    ".sc-block.problem{background:#fdecea;border-left-color:#dc3545;}"
+    ".sc-block.action{border-left-color:#2e86c1;}"
+    ".sc-chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px;}"
+    ".sc-chip{background:#fff;border-radius:20px;padding:4px 11px;font-size:12px;color:#333;}"
+    ".sc-chip b{color:#1a5276;}"
+    "</style>"
+)
+
+
+def _sc_val(v):
+    if v is None:
+        return ""
+    try:
+        if pd.isna(v):
+            return ""
+    except Exception:
+        pass
+    return _html.escape(str(v))
+
+
+def _sc_badge(text, color):
+    t = _sc_val(text)
+    return f'<span class="sc-badge" style="background:{color};">{t}</span>' if t else ""
+
+
+def _urgency_color(u):
+    u = str(u or "").lower()
+    if any(k in u for k in ("critical", "high", "urgent", "immediate")):
+        return "#dc3545"
+    if "medium" in u or "moderate" in u:
+        return "#fd7e14"
+    if "low" in u:
+        return "#28a745"
+    return "#6c757d"
+
+
+def _stock_style_card_html(title, badge_html, metrics, problem, action, chips):
+    """One card in the same look as the Stock Info card (blue frame, grey body, white tiles)."""
+    m_html = "".join(
+        f'<div class="sc-metric"><span class="k">{_html.escape(str(k))}</span>'
+        f'<span class="v">{_sc_val(v) or "-"}</span></div>' for k, v in metrics
+    )
+    out = (f'<div class="sc-card"><div class="sc-inner">'
+           f'<div class="sc-head"><h4 class="sc-title">📦 {_sc_val(title)}</h4>{badge_html}</div>'
+           f'<div class="sc-metrics">{m_html}</div>')
+    if _sc_val(problem):
+        out += f'<div class="sc-block problem"><b>⚠️ Identified Problem:</b> {_sc_val(problem)}</div>'
+    if _sc_val(action):
+        out += f'<div class="sc-block action"><b>📌 Action Point:</b> {_sc_val(action)}</div>'
+    chip_html = "".join(
+        f'<span class="sc-chip">{icon} <b>{_html.escape(lbl)}:</b> {_sc_val(val) or "-"}</span>'
+        for icon, lbl, val in chips
+    )
+    out += f'<div class="sc-chips">{chip_html}</div></div></div>'
+    return out
+
+
+def _render_stock_style_cards(cards_html_list):
+    st.markdown(_SC_CSS + '<div class="sc-grid">' + "".join(cards_html_list) + '</div>',
+                unsafe_allow_html=True)
 
 
 def render_view_toggle(view_key, default_view="Table"):
@@ -1696,13 +1776,46 @@ RISK_TYPE_LABELS = {
 }
 
 
-def categorize_stock(nmos):
+DEFAULT_MIN_STOCK_MOS = 6
+DEFAULT_MAX_STOCK_MOS = 18
+VACCINE_MIN_STOCK_MOS = 4
+VACCINE_MAX_STOCK_MOS = 10
+STOCK_LIMITS_SHEET_ID = "14VvZ7IyOmpM4SZrY5_ArHDgLkeFN4inW"
+
+
+@st.cache_data(ttl=CACHE_TTL, show_spinner=False)
+def _vaccine_material_set():
+    try:
+        gs = load_google_sheets(STOCK_LIMITS_SHEET_ID)
+        if gs and 'Vaccine' in gs and 'Material Description' in gs['Vaccine'].columns:
+            return frozenset(gs['Vaccine']['Material Description'].dropna().astype(str).str.strip())
+    except Exception:
+        pass
+    return frozenset()
+
+
+def get_stock_limits(material=None):
+    """Return (min_stock, max_stock) in months. Vaccine: 4 / 10. Everything else: 6 / 18."""
+    try:
+        if material is not None and str(material).strip() in _vaccine_material_set():
+            return VACCINE_MIN_STOCK_MOS, VACCINE_MAX_STOCK_MOS
+    except Exception:
+        pass
+    return DEFAULT_MIN_STOCK_MOS, DEFAULT_MAX_STOCK_MOS
+
+
+def get_reorder_point(material=None):
+    return get_stock_limits(material)[0] + 2   # 8 default (6+2), 6 for vaccine (4+2)
+
+
+def categorize_stock(nmos, material=None):
+    min_s, max_s = get_stock_limits(material)
     try:
         if pd.isna(nmos): return ""
         x = float(nmos)
         if x < 1: return "Stock Out"
-        elif x < 6: return "Understock"
-        elif x <= 18: return "Normal Stock"
+        elif x < min_s: return "Understock"
+        elif x <= max_s: return "Normal Stock"
         else: return "Overstock"
     except:
         return ""
@@ -1720,6 +1833,7 @@ def calculate_coefficient_of_variation(values):
 def calculate_risk(row):
     try:
         nmos = row.get('NMOS', np.nan)
+        _min_s, _max_s = get_stock_limits(row.get('Material Description'))
         if pd.isna(nmos) or nmos < 1: return ""
         git_mos = row.get('GIT_MOS', 0) or 0
         lc_mos = row.get('LC_MOS', 0) or 0
@@ -1727,8 +1841,8 @@ def calculate_risk(row):
         tmd_mos = row.get('TMD_MOS', 0) or 0
         if 1 <= nmos < 2: return "Risk of Stock out"
         if 2 <= nmos < 4 and git_mos == 0: return "Risk of Stock out"
-        if 4 <= nmos < 6 and git_mos == 0 and lc_mos == 0 and wb_mos == 0: return "Risk of Stock out"
-        if 6 <= nmos < 7 and git_mos == 0 and lc_mos == 0 and wb_mos == 0 and tmd_mos == 0: return "Risk of Stock out"
+        if 4 <= nmos < _min_s and git_mos == 0 and lc_mos == 0 and wb_mos == 0: return "Risk of Stock out"
+        if _min_s <= nmos < _min_s + 1 and git_mos == 0 and lc_mos == 0 and wb_mos == 0 and tmd_mos == 0: return "Risk of Stock out"
         return ""
     except:
         return ""
@@ -2069,7 +2183,7 @@ def get_filtered_data(sheet_name, subcategory_filter, user_programs_key=()):
     df['TMOS'] = df[available_mos].sum(axis=1) if available_mos else np.nan
 
     if 'NMOS' in df.columns:
-        df['Stock Status'] = df['NMOS'].apply(categorize_stock)
+        df['Stock Status'] = df.apply(lambda _r: categorize_stock(_r.get('NMOS'), _r.get('Material Description')), axis=1)
 
     if 'Hubs' in df.columns and 'Head Office' in df.columns and 'NSOH' in df.columns:
         hubs_vals = pd.to_numeric(df['Hubs'], errors='coerce').fillna(0)
@@ -2189,7 +2303,7 @@ def get_filtered_data(sheet_name, subcategory_filter, user_programs_key=()):
             lambda r: compute_usable_nmos(r.get('NMOS_raw', 0), r.get('AMC', 0), r.get('Expiry Batches', []) or []),
             axis=1
         )
-        df['Stock Status'] = df['NMOS'].apply(categorize_stock)
+        df['Stock Status'] = df.apply(lambda _r: categorize_stock(_r.get('NMOS'), _r.get('Material Description')), axis=1)
         _mos_cols = ['NMOS', 'GIT_MOS', 'LC_MOS', 'WB_MOS', 'TMD_MOS']
         _avail = [c for c in _mos_cols if c in df.columns]
         if _avail:
@@ -2230,16 +2344,18 @@ def compute_supply_plan(df_filtered):
         except:
             continue
         pipeline_mos = git_mos + lc_mos + wb_mos + tmd_mos
-        mos_needed = 18 - tmos
+        _min_s, _max_s = get_stock_limits(material)
+        _reorder = _min_s + 2
+        mos_needed = _max_s - tmos
         if mos_needed > 0 and amc > 0:
             order_quantity = int(mos_needed * amc)
-            if tmos <= 8:
+            if tmos <= _reorder:
                 urgency = "🔴 CRITICAL"
                 action = f"Place this {order_quantity:,} units IMMEDIATELY"
                 order_by = "Now"
                 expected_delivery = get_future_date(6)
             else:
-                months_until_order = round(tmos - 8, 1)
+                months_until_order = round(tmos - _reorder, 1)
                 urgency = "🟡 PLAN"
                 order_by_readable = get_readable_order_by(months_until_order)
                 action = f"Place this {order_quantity:,} units by {order_by_readable}"
@@ -2290,7 +2406,8 @@ def compute_action_plan(df_filtered):
         except:
             continue
         if amc == 0 and not has_expiry_risk: continue
-        mos_needed_calc = max(0, 18 - tmos)
+        _min_s, _max_s = get_stock_limits(material)
+        mos_needed_calc = max(0, _max_s - tmos)
         nsoh_formatted = f"{int(nsoh):,}" if nsoh > 0 else "0"
         amc_formatted = f"{int(amc):,}" if amc > 0 else "N/A"
         pmos = round(get_total_pipeline_mos(row), 2)
@@ -2307,7 +2424,7 @@ def compute_action_plan(df_filtered):
         if nmos < 1:
             if has_pipeline(row): action_point, responsible_body = get_pipeline_recommendation(row)
             else:
-                months_needed_stock = max(0, 18 - tmos)
+                months_needed_stock = max(0, _max_s - tmos)
                 order_qty = int(months_needed_stock * amc) if amc > 0 and months_needed_stock > 0 else 0
                 action_point = f"Mobilize resource and initiate purchase request for {months_needed_stock:.1f} months ({order_qty:,} units)"
                 responsible_body = "MOH"
@@ -2320,7 +2437,7 @@ def compute_action_plan(df_filtered):
         elif nmos >= 1 and (risk_of_stock == 'Risk of Stock out' or risk_type == 'Risk of Stock out'):
             if has_pipeline(row): action_point, responsible_body = get_pipeline_recommendation(row)
             else:
-                months_needed_stock = max(0, 18 - tmos)
+                months_needed_stock = max(0, _max_s - tmos)
                 order_qty = int(months_needed_stock * amc) if amc > 0 and months_needed_stock > 0 else 0
                 action_point = f"Mobilize resource and initiate purchase request for {months_needed_stock:.1f} months ({order_qty:,} units)"
                 responsible_body = "MOH"
@@ -2339,10 +2456,10 @@ def compute_action_plan(df_filtered):
                 'Level of Urgency': 'Medium'
             })
 
-        if 1 <= nmos < 6:
+        if 1 <= nmos < _min_s:
             if has_pipeline(row): action_point, responsible_body = get_pipeline_recommendation(row)
             else:
-                months_needed_stock = max(0, 18 - tmos)
+                months_needed_stock = max(0, _max_s - tmos)
                 order_qty = int(months_needed_stock * amc) if amc > 0 and months_needed_stock > 0 else 0
                 action_point = f"Mobilize resource and initiate purchase request for {months_needed_stock:.1f} months ({order_qty:,} units)"
                 responsible_body = "MOH"
@@ -2353,8 +2470,8 @@ def compute_action_plan(df_filtered):
                 'Level of Urgency': 'Medium'
             })
 
-        if tmos < 18:
-            months_needed_stock = 18 - tmos
+        if tmos < _max_s:
+            months_needed_stock = _max_s - tmos
             order_qty = int(months_needed_stock * amc) if amc > 0 and months_needed_stock > 0 else 0
             action_point = f"Mobilize resource and initiate purchase request for {months_needed_stock:.1f} months ({order_qty:,} units)"
             responsible_body = "MOH"
@@ -2362,7 +2479,7 @@ def compute_action_plan(df_filtered):
             material_problems[material]['problems'].append({
                 'Identified Problem': '📦 Pipeline Insufficient - Cannot Reach Max Stock',
                 'Action Point': action_point, 'Responsible Body': responsible_body, 'Due Date': due_date,
-                'Level of Urgency': 'Medium' if tmos < 8 else 'Low'
+                'Level of Urgency': 'Medium' if tmos < _min_s + 2 else 'Low'
             })
 
     for material, data in material_problems.items():
@@ -3147,13 +3264,13 @@ def render_supply_planning_exercise(df_filtered, supply_df, supply_plan, ordered
         **Supply Planning Parameters:**
         - Lead Time = 6 months
         - Safety Stock = 2 months
-        - Minimum Stock Level = 6 months
-        - Maximum Stock Level = 18 months
-        - Reorder Point = 8 months
+        - Minimum Stock Level = 6 months (Vaccine: 4 months)
+        - Maximum Stock Level = 18 months (Vaccine: 10 months)
+        - Reorder Point = Minimum + 2 months (8 months; Vaccine: 6 months)
 
         **Order Quantity Formula:**
-        - Order Quantity = (18 - TMOS) × AMC
-        - MOS Needed = 18 - TMOS
+        - Order Quantity = (Max Stock - TMOS) × AMC
+        - MOS Needed = Max Stock - TMOS
         **TMOS = NMOS + Pipeline MOS**
         """)
 
@@ -3353,11 +3470,12 @@ def render_action_plan_graph(df_filtered, material_problems, action_df, nsoh_piv
                             hovertemplate='<b>%{x}</b><br>NMOS: %{y:.2f} months<extra></extra>'
                         ))
 
+                        _g_min, _g_max = get_stock_limits(selected_material)
                         thresholds = [
                             (2, 'Safety Stock (2m)', '#FF6B6B', 'dash'),
-                            (6, 'Min Stock (6m)', '#FF922B', 'dash'),
-                            (8, 'Reorder Point (8m)', '#CC5DE8', 'dash'),
-                            (18, 'Max Stock (18m)', '#51CF66', 'dash')
+                            (_g_min, f'Min Stock ({_g_min}m)', '#FF922B', 'dash'),
+                            (_g_min + 2, f'Reorder Point ({_g_min + 2}m)', '#CC5DE8', 'dash'),
+                            (_g_max, f'Max Stock ({_g_max}m)', '#51CF66', 'dash')
                         ]
 
                         for threshold, label, color, dash in thresholds:
@@ -3714,47 +3832,23 @@ def render_system_generated_action_plan(action_df, material_problems, sheet_name
         st.markdown(table_html, unsafe_allow_html=True)
 
     else:
-        # CARD VIEW - Beautiful Card Design like the image
-        st.markdown('<div class="card-view-container">', unsafe_allow_html=True)
+        # CARD VIEW - same look as the Stock Info card
+        _cards = []
         for _, row in filtered_df.iterrows():
-            material    = row.get('Material', '') or ''
-            nsoh        = row.get('NSOH', '') or ''
-            amc         = row.get('AMC', '') or ''
-            pmos        = row.get('PMOS', '') or ''
-            nmos        = row.get('NMOS', '') or ''
-            tmos        = row.get('TMOS', '') or ''
-            mos_needed  = row.get('MOS Needed', '') or ''
-            problem     = row.get('Identified Problem', '') or ''
-            action      = row.get('Action Point', '') or ''
-            responsible = row.get('Responsible Body', '') or ''
-            due_date    = row.get('Due Date', '') or ''
-            urgency     = row.get('Level of Urgency', '') or ''
-
-            st.markdown(f"""
-            <div class="data-card">
-                <div class="card-header">
-                    <span class="card-title">📦 {material}</span>
-                </div>
-                <div class="card-body">
-                    <div class="full-width" style="display: grid; grid-template-columns: 1fr 1fr; gap: 4px 12px; margin-bottom: 8px;">
-                        <span class="label">NSOH</span><span class="value">{nsoh}</span>
-                        <span class="label">AMC</span><span class="value">{amc}</span>
-                        <span class="label">PMOS</span><span class="value">{pmos}</span>
-                        <span class="label">NMOS</span><span class="value">{nmos}</span>
-                        <span class="label">TMOS</span><span class="value">{tmos}</span>
-                        <span class="label">MOS Needed</span><span class="value">{mos_needed}</span>
-                    </div>
-                    <div class="problem full-width"><strong>⚠️ Problem:</strong> {problem}</div>
-                    <div class="action full-width"><strong>📌 Action:</strong> {action}</div>
-                    <div class="responsible full-width">
-                        <span><strong>👤 Responsible:</strong> {responsible}</span>
-                        <span><strong>📅 Due:</strong> {due_date}</span>
-                        <span><strong>🚦 Urgency:</strong> {urgency}</span>
-                    </div>
-                </div>
-            </div>
-            """, unsafe_allow_html=True)
-        st.markdown('</div>', unsafe_allow_html=True)
+            _urg = row.get('Level of Urgency', '') or ''
+            _cards.append(_stock_style_card_html(
+                title=row.get('Material', ''),
+                badge_html=_sc_badge(_urg, _urgency_color(_urg)),
+                metrics=[('NSOH', row.get('NSOH', '')), ('AMC', row.get('AMC', '')),
+                         ('PMOS', row.get('PMOS', '')), ('NMOS', row.get('NMOS', '')),
+                         ('TMOS', row.get('TMOS', '')), ('MOS Needed', row.get('MOS Needed', ''))],
+                problem=row.get('Identified Problem', ''),
+                action=row.get('Action Point', ''),
+                chips=[('👤', 'Responsible', row.get('Responsible Body', '')),
+                       ('📅', 'Due', row.get('Due Date', '')),
+                       ('🚦', 'Urgency', _urg)],
+            ))
+        _render_stock_style_cards(_cards)
 
     output = BytesIO()
     with pd.ExcelWriter(output, engine='openpyxl') as writer:
@@ -4039,7 +4133,7 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
             pmos = row.get('PMOS', 0)
             if pd.isna(pmos):
                 pmos = 0
-            mos_needed = max(0, 18 - (nmos + pmos))
+            mos_needed = max(0, get_stock_limits(material)[1] - (nmos + pmos))
 
         expiry_formatted = ""
         exp_mos_formatted = ""
@@ -4082,7 +4176,7 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
             'expiry': expiry_formatted if expiry_formatted else (expiry if expiry else 'N/A'),
             'exp_mos': exp_mos_formatted if exp_mos_formatted else 'N/A',
             'po_mos': po_mos_formatted,
-            'stock_status': (row.get('Stock Status', '') if pd.notna(row.get('Stock Status', '')) else '') or categorize_stock(usable_nmos_val) or 'N/A',
+            'stock_status': (row.get('Stock Status', '') if pd.notna(row.get('Stock Status', '')) else '') or categorize_stock(usable_nmos_val, material) or 'N/A',
             'risk_type': RISK_TYPE_LABELS.get(str(row.get('Risk Type', '') if pd.notna(row.get('Risk Type', '')) else '').strip(), 'None'),
             'current_month_label': current_month_label
         }
@@ -4222,13 +4316,15 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
                     current_display_nmos = _cur_nmos_usable
                     current_month_label = last_selected_month.strftime('%b-%Y')
 
+                    _min_s, _max_s = get_stock_limits(selected_material)
+                    _reorder_pt = _min_s + 2
                     if current_display_nmos < 1:
                         nmos_color = '#FF0000'; status_text = "🔴 STOCK OUT"
                     elif 1 <= current_display_nmos < 2:
                         nmos_color = '#FF4500'; status_text = "🟠 CRITICAL"
-                    elif 2 <= current_display_nmos < 6:
+                    elif 2 <= current_display_nmos < _min_s:
                         nmos_color = '#FFD700'; status_text = "🟡 WARNING"
-                    elif 6 <= current_display_nmos <= 18:
+                    elif _min_s <= current_display_nmos <= _max_s:
                         nmos_color = '#32CD32'; status_text = "🟢 NORMAL"
                     else:
                         nmos_color = '#87CEEB'; status_text = "🔵 OVERSTOCK"
@@ -4266,20 +4362,20 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
                             fire_stage = False
                             x_trigger = None
                             crossing_threshold = None
-                            if nmos_before_depletion < 6:
+                            if nmos_before_depletion < _min_s:
                                 fire_stage = True
                                 x_trigger = current_x_idx - 0.5
                                 crossing_threshold = nmos_before_depletion
-                            elif nmos_before_depletion >= 6 and nmos_after_depletion < 6:
+                            elif nmos_before_depletion >= _min_s and nmos_after_depletion < _min_s:
                                 fire_stage = True
                                 denom = nmos_before_depletion - nmos_after_depletion
-                                t_frac = (nmos_before_depletion - 6.0) / denom if denom > 0 else 0.5
+                                t_frac = (nmos_before_depletion - float(_min_s)) / denom if denom > 0 else 0.5
                                 x_trigger = (current_x_idx - 1) + t_frac
-                                crossing_threshold = 6.0
+                                crossing_threshold = float(_min_s)
                             if fire_stage:
                                 stage, stage_mos, stage_po = pipeline_queue[pipeline_idx]
                                 pipeline_idx += 1
-                                y_marker = 6.0 if stage != 'Mobilize' else 8.0
+                                y_marker = float(_min_s) if stage != 'Mobilize' else float(_reorder_pt)
                                 trigger_events.append({
                                     'x_exact': x_trigger,
                                     'y_marker': y_marker,
@@ -4296,22 +4392,22 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
                                 nmos_after_depletion += stage_mos
                                 triggered_this_month = True
 
-                        if not triggered_this_month and pipeline_idx >= len(pipeline_queue) and nmos_after_depletion < 6:
+                        if not triggered_this_month and pipeline_idx >= len(pipeline_queue) and nmos_after_depletion < _min_s:
                             already_mobilized = any(ev['stage'] == 'Mobilize' for ev in trigger_events)
                             if not already_mobilized:
-                                if nmos_before_depletion < 6:
+                                if nmos_before_depletion < _min_s:
                                     x_trigger = current_x_idx - 0.5
                                     crossing_threshold = nmos_before_depletion
                                 else:
                                     denom = nmos_before_depletion - nmos_after_depletion
-                                    t_frac = (nmos_before_depletion - 6.0) / denom if denom > 0 else 0.5
+                                    t_frac = (nmos_before_depletion - float(_min_s)) / denom if denom > 0 else 0.5
                                     x_trigger = (current_x_idx - 1) + t_frac
-                                    crossing_threshold = 6.0
-                                shortfall = 12.0
+                                    crossing_threshold = float(_min_s)
+                                shortfall = float(_max_s - _min_s)
                                 qty = int(shortfall * amc_value) if amc_value > 0 else 0
                                 trigger_events.append({
                                     'x_exact': x_trigger,
-                                    'y_marker': 8.0,
+                                    'y_marker': float(_reorder_pt),
                                     'month_prev': future_months[-2] if i > 1 else current_month_label,
                                     'month_curr': future_months[-1],
                                     'stage': 'Mobilize',
@@ -4421,7 +4517,7 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
                             month_curr = ev.get('month_curr', '')
                             if stage == 'Mobilize':
                                 rec_text = (f"Mobilize & initiate new purchase — "
-                                            f"(18 − 6) × {int(amc_value):,} = {ev['qty']:,} units")
+                                            f"({_max_s} − {_min_s}) × {int(amc_value):,} = {ev['qty']:,} units")
                                 stage_label = "🟠 Mobilize & Initiate"
                             else:
                                 po_s = str(ev['stage_po']).strip() if ev['stage_po'] is not None else ''
@@ -4448,9 +4544,9 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
                                             line=dict(width=2, color='white')),
                                 showlegend=False, hoverinfo='skip'
                             ))
-                            if ev.get('nmos_at_trigger') == 6.0:
+                            if ev.get('nmos_at_trigger') == float(_min_s):
                                 fig.add_trace(go.Scatter(
-                                    x=[x_draw], y=[6.0], mode='markers',
+                                    x=[x_draw], y=[float(_min_s)], mode='markers',
                                     marker=dict(size=9, color='white', symbol='diamond',
                                                 line=dict(width=2, color=color)),
                                     showlegend=False, hoverinfo='skip'))
@@ -4458,9 +4554,9 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
                     thresholds_lines = [
                         (1, 'Stock Out (1m)', '#FF0000'),
                         (2, 'Safety Stock (2m)', '#FF6B6B'),
-                        (6, 'Min Stock (6m)', '#FF922B'),
-                        (8, 'Reorder Point (8m)', '#CC5DE8'),
-                        (18, 'Max Stock (18m)', '#51CF66'),
+                        (_min_s, f'Min Stock ({_min_s}m)', '#FF922B'),
+                        (_reorder_pt, f'Reorder Point ({_reorder_pt}m)', '#CC5DE8'),
+                        (_max_s, f'Max Stock ({_max_s}m)', '#51CF66'),
                     ]
                     for threshold, label, color in thresholds_lines:
                         fig.add_hline(
@@ -5093,7 +5189,7 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
             default_programs = ['Malaria'] if 'Malaria' in all_programs else all_programs[:1] if all_programs else []
             all_statuses = _sort_statuses_reverse(records_df['Status'].unique().tolist()) if 'Status' in records_df.columns else []
 
-            col_filter1, col_filter2, col_filter3, col_filter4 = st.columns(4)
+            col_filter1, col_filter2, col_filter3, col_filter4, col_filter5 = st.columns(5)
             with col_filter1:
                 selected_programs = st.multiselect("Program", options=all_programs, default=default_programs, key="filter_program_expert")
             with col_filter2:
@@ -5107,6 +5203,8 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
                     timeliness_options,
                     key="timeliness_filter_expert"
                 )
+            with col_filter5:
+                st.selectbox("Select View", ["Table", "Cards"], key="expert_view_mode")
 
             filtered_df = records_df.copy()
 
@@ -5137,7 +5235,7 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
                 filtered_df = filtered_df[filtered_df['_Timeliness_Filter'] == timeliness_filter_expert]
 
             if not filtered_df.empty:
-                view_mode = st.session_state.get("sidebar_view_mode", "Table")
+                view_mode = st.session_state.get("expert_view_mode", "Table")
 
                 st.markdown(
                     "<style>"
@@ -5287,10 +5385,10 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
                             st.markdown("---")
                         else:
                             st.markdown(f"### 📋 {quarter}, {year} Supply Planning {program_display} Action Plan")
-                            st.markdown('<div class="card-view-container">', unsafe_allow_html=True)
+                            _cards = []
                             for _, row in quarter_df.iterrows():
-                                status = row.get('Status', 'Pending')
-                                status_class = status.lower().replace(' ', '-') if status else 'pending'
+                                status = row.get('Status', 'Pending') or 'Pending'
+                                _urg = row.get('Level of Urgency', '') or ''
                                 due_display = format_due_date_display(row.get('Due Date', ''))
                                 completion_display = format_due_date_display(row.get('Completion Date', ''))
                                 t_icon, t_label = compute_timeliness(
@@ -5298,34 +5396,31 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
                                     row.get('Due Date', ''),
                                     row.get('Completion Date', '')
                                 )
-                                completion_html = f'<span><strong>✅ Completed:</strong> {completion_display}</span>' if completion_display else ''
-                                st.markdown(f"""
-                                <div class="data-card">
-                                    <div class="card-header">
-                                        <span class="card-title">{row.get('Material', '')}</span>
-                                        <span class="status-badge {status_class}">{status}</span>
-                                    </div>
-                                    <div class="card-body">
-                                        <span class="label">NSOH</span><span class="value">{row.get('NSOH', '')}</span>
-                                        <span class="label">AMC</span><span class="value">{row.get('AMC', '')}</span>
-                                        <span class="label">PMOS</span><span class="value">{row.get('PMOS', '')}</span>
-                                        <span class="label">NMOS</span><span class="value">{row.get('NMOS', '')}</span>
-                                        <span class="label">TMOS</span><span class="value">{row.get('TMOS', '')}</span>
-                                        <span class="label">PO</span><span class="value">{row.get('Purchase Order', '')}</span>
-                                        <span class="label">Order Qty</span><span class="value">{row.get('Order Quantity', '')}</span>
-                                        <span class="label">Timeliness</span><span class="value">{t_icon} {t_label}</span>
-                                        <div class="problem full-width"><strong>⚠️ Problem:</strong> {row.get('Identified Problem', '')}</div>
-                                        <div class="action full-width"><strong>📌 Action:</strong> {row.get('Action Point', '')}</div>
-                                        <div class="responsible full-width">
-                                            <span><strong>👤 Responsible:</strong> {row.get('Responsible Body', '')}</span>
-                                            <span><strong>📅 Due:</strong> {due_display}</span>
-                                            <span><strong>🚦 Urgency:</strong> {row.get('Level of Urgency', '') or ''}</span>
-                                            {completion_html}
-                                        </div>
-                                    </div>
-                                </div>
-                                """, unsafe_allow_html=True)
-                            st.markdown('</div>', unsafe_allow_html=True)
+                                chips = [
+                                    ('👤', 'Responsible', row.get('Responsible Body', '')),
+                                    ('📅', 'Due', due_display),
+                                    ('🚦', 'Urgency', _urg),
+                                    ('⏱️', 'Timeliness', f'{t_icon} {t_label}'),
+                                ]
+                                if completion_display:
+                                    chips.append(('✅', 'Completed', completion_display))
+                                _cards.append(_stock_style_card_html(
+                                    title=row.get('Material', ''),
+                                    badge_html=_sc_badge(status, _SUMMARY_STATUS_COLORS.get(status, '#6c757d')),
+                                    metrics=[
+                                        ('NSOH', row.get('NSOH', '')),
+                                        ('AMC', row.get('AMC', '')),
+                                        ('PMOS', row.get('PMOS', '')),
+                                        ('NMOS', row.get('NMOS', '')),
+                                        ('TMOS', row.get('TMOS', '')),
+                                        ('PO', row.get('Purchase Order', '')),
+                                        ('Order Qty', row.get('Order Quantity', '')),
+                                    ],
+                                    problem=row.get('Identified Problem', ''),
+                                    action=row.get('Action Point', ''),
+                                    chips=chips,
+                                ))
+                            _render_stock_style_cards(_cards)
                             st.markdown("---")
                 else:
                     if view_mode == "Table":
@@ -5337,10 +5432,10 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
                         table_html = build_expert_html_table(filtered_df, cols)
                         st.markdown(table_html, unsafe_allow_html=True)
                     else:
-                        st.markdown('<div class="card-view-container">', unsafe_allow_html=True)
+                        _cards2 = []
                         for _, row in filtered_df.iterrows():
-                            status = row.get('Status', 'Pending')
-                            status_class = status.lower().replace(' ', '-') if status else 'pending'
+                            status = row.get('Status', 'Pending') or 'Pending'
+                            _urg2 = row.get('Level of Urgency', '') or ''
                             due_display = format_due_date_display(row.get('Due Date', ''))
                             completion_display = format_due_date_display(row.get('Completion Date', ''))
                             t_icon, t_label = compute_timeliness(
@@ -5348,34 +5443,31 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
                                 row.get('Due Date', ''),
                                 row.get('Completion Date', '')
                             )
-                            completion_html = f'<span><strong>✅ Completed:</strong> {completion_display}</span>' if completion_display else ''
-                            st.markdown(f"""
-                            <div class="data-card">
-                                <div class="card-header">
-                                    <span class="card-title">{row.get('Material', '')}</span>
-                                    <span class="status-badge {status_class}">{status}</span>
-                                </div>
-                                <div class="card-body">
-                                    <span class="label">NSOH</span><span class="value">{row.get('NSOH', '')}</span>
-                                    <span class="label">AMC</span><span class="value">{row.get('AMC', '')}</span>
-                                    <span class="label">PMOS</span><span class="value">{row.get('PMOS', '')}</span>
-                                    <span class="label">NMOS</span><span class="value">{row.get('NMOS', '')}</span>
-                                    <span class="label">TMOS</span><span class="value">{row.get('TMOS', '')}</span>
-                                    <span class="label">PO</span><span class="value">{row.get('Purchase Order', '')}</span>
-                                    <span class="label">Order Qty</span><span class="value">{row.get('Order Quantity', '')}</span>
-                                    <span class="label">Timeliness</span><span class="value">{t_icon} {t_label}</span>
-                                    <div class="problem full-width"><strong>⚠️ Problem:</strong> {row.get('Identified Problem', '')}</div>
-                                    <div class="action full-width"><strong>📌 Action:</strong> {row.get('Action Point', '')}</div>
-                                    <div class="responsible full-width">
-                                        <span><strong>👤 Responsible:</strong> {row.get('Responsible Body', '')}</span>
-                                        <span><strong>📅 Due:</strong> {due_display}</span>
-                                        <span><strong>🚦 Urgency:</strong> {row.get('Level of Urgency', '') or ''}</span>
-                                        {completion_html}
-                                    </div>
-                                </div>
-                            </div>
-                            """, unsafe_allow_html=True)
-                        st.markdown('</div>', unsafe_allow_html=True)
+                            chips2 = [
+                                ('👤', 'Responsible', row.get('Responsible Body', '')),
+                                ('📅', 'Due', due_display),
+                                ('🚦', 'Urgency', _urg2),
+                                ('⏱️', 'Timeliness', f'{t_icon} {t_label}'),
+                            ]
+                            if completion_display:
+                                chips2.append(('✅', 'Completed', completion_display))
+                            _cards2.append(_stock_style_card_html(
+                                title=row.get('Material', ''),
+                                badge_html=_sc_badge(status, _SUMMARY_STATUS_COLORS.get(status, '#6c757d')),
+                                metrics=[
+                                    ('NSOH', row.get('NSOH', '')),
+                                    ('AMC', row.get('AMC', '')),
+                                    ('PMOS', row.get('PMOS', '')),
+                                    ('NMOS', row.get('NMOS', '')),
+                                    ('TMOS', row.get('TMOS', '')),
+                                    ('PO', row.get('Purchase Order', '')),
+                                    ('Order Qty', row.get('Order Quantity', '')),
+                                ],
+                                problem=row.get('Identified Problem', ''),
+                                action=row.get('Action Point', ''),
+                                chips=chips2,
+                            ))
+                        _render_stock_style_cards(_cards2)
             else:
                 st.info("No records match the selected filters.")
 
@@ -5561,7 +5653,7 @@ def render_ap_progress_follow_up(sheet_name, selected_quarter, selected_year, se
     # ======================================================================
     st.markdown('<div class="filter-row">', unsafe_allow_html=True)
 
-    col_filter0, col_filter_mat, col_filter1, col_filter2, col_filter3 = st.columns(5)
+    col_filter0, col_filter_mat, col_filter1, col_filter2, col_filter3, col_filter_view = st.columns(6)
 
     with col_filter0:
         all_programs = sorted(df['Program'].unique().tolist()) if 'Program' in df.columns else []
@@ -5627,6 +5719,10 @@ def render_ap_progress_follow_up(sheet_name, selected_quarter, selected_year, se
             timeliness_options,
             key="timeliness_filter_dropdown"
         )
+
+    with col_filter_view:
+        _view_opts = ["Table", "Cards"]
+        st.selectbox("Select View", _view_opts, key="followup_view_mode")
 
     st.markdown('</div>', unsafe_allow_html=True)
 
@@ -5840,7 +5936,7 @@ def render_ap_progress_follow_up(sheet_name, selected_quarter, selected_year, se
     ]
     cols_to_display = [c for c in cols_to_display if c in display_df.columns or c in ('Status Display', 'Timeliness')]
 
-    view_mode = st.session_state.get("sidebar_view_mode", "Table")
+    view_mode = st.session_state.get("followup_view_mode", "Table")
 
     if view_mode == "Table":
         html_table = '<div class="dataframe-container"><table class="styled-table" style="font-family: Times New Roman, Times, serif !important; font-size: 14px; width: 100%;"><thead><tr>'
@@ -5904,35 +6000,27 @@ def render_ap_progress_follow_up(sheet_name, selected_quarter, selected_year, se
         st.markdown(html_table, unsafe_allow_html=True)
 
     else:
-        st.markdown('<div class="card-view-container">', unsafe_allow_html=True)
+        _cards = []
         for _, row in display_df.iterrows():
-            status = row.get('Status', 'Pending')
-            status_class = status.lower().replace(' ', '-') if status else 'pending'
-            st.markdown(f"""
-            <div class="data-card">
-                <div class="card-header">
-                    <span class="card-title">{row.get('Material', '')}</span>
-                    <span class="status-badge {status_class}">{status}</span>
-                </div>
-                <div class="card-body">
-                    <span class="label">NMOS</span><span class="value">{row.get('NMOS', 'N/A')}</span>
-                    <span class="label">Purchase Order</span><span class="value">{row.get('Purchase Order', '')}</span>
-                    <span class="label">Order Quantity</span><span class="value">{row.get('Order Quantity', '')}</span>
-                    <span class="label">Current NMOS</span><span class="value">{row.get('Current NMOS', 'N/A')}</span>
-                    <span class="label">Current PMOS</span><span class="value">{row.get('Current PMOS', 'N/A')}</span>
-                    <span class="label">Current TMOS</span><span class="value">{row.get('Current TMOS', 'N/A')}</span>
-                    <div class="problem full-width"><strong>⚠️ Problem:</strong> {row.get('Identified Problem', '')}</div>
-                    <div class="action full-width"><strong>📌 Action:</strong> {row.get('Action Point', '')}</div>
-                    <div class="responsible full-width">
-                        <span><strong>👤 Responsible:</strong> {row.get('Responsible Body', '')}</span>
-                        <span><strong>📅 Due:</strong> {row.get('Due Date', '')}</span>
-                        <span><strong>🚦 Urgency:</strong> {row.get('Level of Urgency', '') or ''}</span>
-                        <span><strong>⏱️ Timeliness:</strong> {row.get('Timeliness', '')}</span>
-                    </div>
-                </div>
-            </div>
-            """, unsafe_allow_html=True)
-        st.markdown('</div>', unsafe_allow_html=True)
+            status = row.get('Status', 'Pending') or 'Pending'
+            _urg = row.get('Level of Urgency', '') or ''
+            _cards.append(_stock_style_card_html(
+                title=row.get('Material', ''),
+                badge_html=_sc_badge(status, _SUMMARY_STATUS_COLORS.get(status, '#6c757d')),
+                metrics=[('NMOS', row.get('NMOS', 'N/A')),
+                         ('Purchase Order', row.get('Purchase Order', '')),
+                         ('Order Qty', row.get('Order Quantity', '')),
+                         ('Current NMOS', row.get('Current NMOS', 'N/A')),
+                         ('Current PMOS', row.get('Current PMOS', 'N/A')),
+                         ('Current TMOS', row.get('Current TMOS', 'N/A'))],
+                problem=row.get('Identified Problem', ''),
+                action=row.get('Action Point', ''),
+                chips=[('👤', 'Responsible', row.get('Responsible Body', '')),
+                       ('📅', 'Due', row.get('Due Date', '')),
+                       ('🚦', 'Urgency', _urg),
+                       ('⏱️', 'Timeliness', row.get('Timeliness', ''))],
+            ))
+        _render_stock_style_cards(_cards)
 
     output = BytesIO()
     with pd.ExcelWriter(output, engine='openpyxl') as writer:
@@ -7944,7 +8032,7 @@ def render_summary_card_table(df_records, kind, value):
         return (f'<span style="background:{color}; color:white; padding:4px 12px; border-radius:20px; '
                 f'font-size:12px; font-weight:600;">{esc(status)}</span>')
 
-    if st.session_state.get("sidebar_view_mode", "Table") == "Cards":
+    if st.session_state.get("followup_view_mode", "Table") == "Cards":
         st.markdown('<div class="card-view-container">', unsafe_allow_html=True)
         for _, r in sub.iterrows():
             t = r['_Timeliness']
@@ -8228,7 +8316,7 @@ _CHAT_SYSTEM = (
     "Definitions: completion rate = Completed / total action points. On-time rate = action points with timeliness "
     "'On Time' / total. Timeliness: On Time = completed on/before due date; Late = completed after due date; Overdue = "
     "not completed and past due; Not Yet Due = not completed, due in the future. Stock: NMOS<1 Stock Out, 1-6 Understock, "
-    "6-18 Normal, >18 Overstock; min 6 months, max 18, reorder point 8.\n"
+    "6-18 Normal, >18 Overstock; min 6 months, max 18, reorder point 8 (Vaccine program: min 4, max 10, reorder point 6).\n"
     "Format: concise Markdown (short paragraphs, bullets, a small table when comparing).\n\nDATA:\n"
 )
 
@@ -8728,7 +8816,7 @@ def render_chatbot(sheet_name, selected_quarter, selected_year, action_df, df_fi
 
 
 # ============================================================================
-# SELECTION PANEL (main panel, above the progress summary)
+# SELECTION PANEL (sidebar, above Main Tabs)
 # ============================================================================
 def _render_selection_panel():
     sheet_id_amc = "14VvZ7IyOmpM4SZrY5_ArHDgLkeFN4inW"
@@ -8763,8 +8851,8 @@ def _render_selection_panel():
     }
 
     with st.container(border=True):
-        st.markdown('<div class="sb-group-title">🎯 Selection</div>', unsafe_allow_html=True)
-        cols = st.columns(5)
+        st.markdown('<div class="sb-group-title" style="border-bottom:none;padding-bottom:0;margin-bottom:14px;">🎯 Selection</div>', unsafe_allow_html=True)
+        cols = [st.container() for _ in range(5)]  # stacked (lives in the sidebar)
 
         _prog_choices = [p for p in program_list if p != "All"]
         _prev = [p for p in (_prog_list(st.session_state.selected_program) or []) if p in _prog_choices]
@@ -8823,20 +8911,6 @@ def _render_selection_panel():
             )
         st.session_state.selected_year = selected_year
         col_idx += 1
-
-        view_options = ["Table", "Cards"]
-        current_view = st.session_state.get("sidebar_view_mode", "Table")
-        with cols[col_idx]:
-            selected_view = st.selectbox(
-                "Select View",
-                view_options,
-                index=view_options.index(current_view) if current_view in view_options else 0,
-                key="main_sel_view"
-            )
-        if selected_view != current_view:
-            st.session_state.sidebar_view_mode = selected_view
-            st.session_state.view_system_action = selected_view
-            st.rerun()
 
     return sheet_name, subcategory_filter, selected_quarter, selected_year
 
@@ -8928,6 +9002,7 @@ def main():
     [data-testid="stMainBlockContainer"], .block-container {
         padding-left: 1rem !important;
         padding-right: 1rem !important;
+        padding-top: 0.5rem !important;
     }
     [data-testid="stSidebar"] [data-testid="stSidebarContent"] { padding-right: 0 !important; }
     </style>
@@ -8977,6 +9052,11 @@ def main():
         # ---------------- GROUP 1: SUB-TOOLS ----------------
         with _sb_group("🗂️", "Sub-Tools"):
             active_section = _render_section_switcher()
+
+        # ---------------- GROUP 1a: SELECTION (above Main Tabs) ----------------
+        sheet_name, subcategory_filter, selected_quarter, selected_year = _render_selection_panel()
+
+        st.markdown('<div style="margin-top: 14px;"></div>', unsafe_allow_html=True)
 
         # ---------------- GROUP 1b: MAIN TABS ----------------
         MAIN_TABS_ALL = [
@@ -9039,11 +9119,6 @@ def main():
 
             if st.button("🚪 Logout", use_container_width=True):
                 logout()
-
-    # ============================================================
-    # SELECTION (main panel — sits just above the progress summary)
-    # ============================================================
-    sheet_name, subcategory_filter, selected_quarter, selected_year = _render_selection_panel()
 
     # ============================================================
     # DATA LOADING
