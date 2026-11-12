@@ -777,15 +777,79 @@ def _render_stock_style_cards(cards_html_list):
                 unsafe_allow_html=True)
 
 
+_SC_STOCK_CSS = (
+    "<style>"
+    ".sc-row{display:flex;flex-wrap:wrap;gap:5px;margin-top:5px;}"
+    ".sc-cell{flex:1 1 0;min-width:120px;background:#fff;border-radius:6px;padding:5px 12px;"
+    "font-size:14px;line-height:1.3;color:#333;}"
+    ".sc-cell b{color:#1a5276;}"
+    ".sc-cell.warn{background:#fdecea;border-left:3px solid #dc3545;}"
+    ".sc-cell.warn b{color:#dc3545;}"
+    ".sc-metric.warn{background:#fdecea;}"
+    ".sc-metric.warn .v{color:#dc3545;}"
+    ".sc-sub{color:#1a5276;font-size:13px;font-weight:700;margin:12px 0 2px;}"
+    ".sc-stock .sc-title{font-size:17px;}"
+    ".sc-stock .sc-metric .k{font-size:15px;}"
+    ".sc-stock .sc-metric .v{font-size:16px;}"
+    ".sc-stock .sc-cell{font-size:16px;}"
+    ".sc-stock .sc-cell b{font-size:15px;}"
+    ".sc-stock .sc-sub{font-size:15px;}"
+    ".sc-stock .sc-sys{font-size:14px;}"
+    ".sc-stock .sc-sys .meta{font-size:14px;}"
+    ".sc-sys{background:#fff;border-radius:8px;padding:7px 12px;margin-top:5px;font-size:13.5px;"
+    "line-height:1.4;border-left:4px solid #2e86c1;}"
+    ".sc-sys .meta{font-size:12px;color:#666;margin-top:2px;}"
+    "</style>"
+)
+
+
+def _stock_info_card_html(title, rows, system_items):
+    """Stock Info panel: card frame, short white rows.
+    rows: list of rows; each row is a list of (label, value, is_warning) shown side by side.
+    system_items: list of dicts (problem, action, responsible, due_date, urgency)
+    """
+    out = (f'<div class="sc-card sc-stock"><div class="sc-inner">'
+           f'<div class="sc-head"><h4 class="sc-title">📦 {_sc_val(title)}</h4></div>')
+    for row in rows:
+        if len(row) > 1:
+            # grouped short row -> same tiles as the card view (label above, bold value)
+            tiles = "".join(
+                f'<div class="sc-metric{" warn" if warn else ""}"><span class="k">{_html.escape(str(k))}</span>'
+                f'<span class="v">{_sc_val(v) or "-"}</span></div>' for k, v, warn in row
+            )
+            out += (f'<div class="sc-metrics" style="grid-template-columns:repeat({len(row)},1fr);'
+                    f'margin:5px 0 0;">{tiles}</div>')
+        else:
+            k, v, warn = row[0]
+            out += (f'<div class="sc-row"><div class="sc-cell{" warn" if warn else ""}">'
+                    f'<b>{_html.escape(str(k))}:</b> {_sc_val(v) or "-"}</div></div>')
+    out += '<div class="sc-sub">System Generated Action Items</div>'
+    if system_items:
+        for i, it in enumerate(system_items, 1):
+            out += (f'<div class="sc-sys"><b>{i}. Identified Problem:</b> {_sc_val(it.get("problem"))}'
+                    f'<br><b>Action Point:</b> {_sc_val(it.get("action"))}'
+                    f'<div class="meta"><b>Responsible:</b> {_sc_val(it.get("responsible")) or "-"} &nbsp;|&nbsp; '
+                    f'<b>Due:</b> {_sc_val(it.get("due_date")) or "-"} &nbsp;|&nbsp; '
+                    f'<b>Urgency:</b> {_sc_val(it.get("urgency")) or "-"}</div></div>')
+    else:
+        out += '<div class="sc-sys">None</div>'
+    out += '</div></div>'
+    return out
+
+
+def _render_stock_info_card(card_html):
+    st.markdown(_SC_CSS + _SC_STOCK_CSS + card_html, unsafe_allow_html=True)
+
+
 def render_view_toggle(view_key, default_view="Table"):
     col1, col2, col3 = st.columns([1, 1, 4])
     with col1:
-        if st.button("📋 Table", key=f"table_{view_key}", use_container_width=True,
+        if st.button("📋 Table", key=f"table_{view_key}", width='stretch',
                      type="primary" if st.session_state.get(view_key, default_view) == "Table" else "secondary"):
             st.session_state[view_key] = "Table"
             st.rerun()
     with col2:
-        if st.button("📇 Cards", key=f"cards_{view_key}", use_container_width=True,
+        if st.button("📇 Cards", key=f"cards_{view_key}", width='stretch',
                      type="primary" if st.session_state.get(view_key, default_view) == "Cards" else "secondary"):
             st.session_state[view_key] = "Cards"
             st.rerun()
@@ -815,7 +879,7 @@ def load_all_data_cached():
 def render_admin_page():
     col1, col2 = st.columns([1, 4])
     with col1:
-        if st.button("← Back to Tool", use_container_width=True, type="primary"):
+        if st.button("← Back to Tool", width='stretch', type="primary"):
             st.session_state.show_admin_page = False
             st.rerun()
 
@@ -867,18 +931,18 @@ def render_admin_page():
                     """, unsafe_allow_html=True)
                     c1, c2, c3, c4 = st.columns([1, 1, 1, 1])
                     with c1:
-                        if st.button("✅ Approve", key=f"approve_{user['id']}", use_container_width=True):
+                        if st.button("✅ Approve", key=f"approve_{user['id']}", width='stretch'):
                             if approve_user(str(user['id'])):
                                 st.success("User approved!"); st.rerun()
                     with c2:
-                        if st.button("❌ Reject", key=f"reject_{user['id']}", use_container_width=True):
+                        if st.button("❌ Reject", key=f"reject_{user['id']}", width='stretch'):
                             if reject_user(str(user['id'])):
                                 st.success("User rejected!"); st.rerun()
                     with c3:
                         new_role = st.selectbox("Assign Role", ['viewer', 'editor', 'admin'], index=0,
                                                 key=f"role_pending_{user['id']}", label_visibility="collapsed")
                     with c4:
-                        if st.button("Assign", key=f"assign_role_{user['id']}", use_container_width=True):
+                        if st.button("Assign", key=f"assign_role_{user['id']}", width='stretch'):
                             if update_user_role(str(user['id']), new_role):
                                 st.success(f"Role set to {new_role}!"); st.rerun()
                     st.divider()
@@ -914,7 +978,7 @@ def render_admin_page():
             df_users = pd.DataFrame(user_data)
             cols = ['Name', 'Email', 'Role', 'Approved', 'Active', 'Program Access', 'Tab Access', 'Active Date', 'Registered']
             cols = [c for c in cols if c in df_users.columns]
-            st.dataframe(df_users[cols], use_container_width=True, hide_index=True)
+            st.dataframe(df_users[cols], width='stretch', hide_index=True)
 
             st.markdown("---")
             st.markdown("### Edit User")
@@ -932,7 +996,7 @@ def render_admin_page():
                         new_role = st.selectbox("Select Role", ['viewer', 'editor', 'admin'],
                                                 index=['viewer', 'editor', 'admin'].index(current_role) if current_role in ['viewer', 'editor', 'admin'] else 0,
                                                 key=f"edit_role_{selected_user['id']}")
-                        if st.button("🔄 Update Role", key=f"update_role_{selected_user['id']}", use_container_width=True):
+                        if st.button("🔄 Update Role", key=f"update_role_{selected_user['id']}", width='stretch'):
                             if update_user_role(str(selected_user['id']), new_role):
                                 st.success(f"Role updated to {new_role}!"); st.rerun()
                             else:
@@ -945,7 +1009,7 @@ def render_admin_page():
                         new_programs = st.multiselect("Select Programs", program_options,
                                                       default=current_programs if current_programs else ['All'],
                                                       key=f"edit_programs_{selected_user['id']}")
-                        if st.button("📋 Update Programs", key=f"update_programs_{selected_user['id']}", use_container_width=True):
+                        if st.button("📋 Update Programs", key=f"update_programs_{selected_user['id']}", width='stretch'):
                             if update_user_program_access(str(selected_user['id']), new_programs):
                                 st.success("Program access updated!"); st.rerun()
                             else:
@@ -964,7 +1028,7 @@ def render_admin_page():
                         new_tabs = st.multiselect("Select Tabs", TAB_OPTIONS + ["All"],
                                                   default=current_tabs,
                                                   key=f"edit_tabs_{selected_user['id']}")
-                        if st.button("📑 Update Tabs", key=f"update_tabs_{selected_user['id']}", use_container_width=True):
+                        if st.button("📑 Update Tabs", key=f"update_tabs_{selected_user['id']}", width='stretch'):
                             if update_user_tab_access(str(selected_user['id']), new_tabs):
                                 st.success("Tab access updated!"); st.rerun()
                             else:
@@ -974,11 +1038,11 @@ def render_admin_page():
                     col3, col4 = st.columns(2)
                     with col3:
                         is_active = selected_user.get('is_active', True)
-                        if st.button("🔴 Deactivate" if is_active else "🟢 Activate", use_container_width=True):
+                        if st.button("🔴 Deactivate" if is_active else "🟢 Activate", width='stretch'):
                             if toggle_user_active(str(selected_user['id']), not is_active):
                                 st.success(f"User {'deactivated' if is_active else 'activated'}!"); st.rerun()
                     with col4:
-                        if st.button("🗑️ Delete User", use_container_width=True, type="secondary"):
+                        if st.button("🗑️ Delete User", width='stretch', type="secondary"):
                             if reject_user(str(selected_user['id'])):
                                 st.success("User deleted!"); st.rerun()
         else:
@@ -998,7 +1062,7 @@ def render_admin_page():
                     hole=0.3, marker=dict(colors=['#4DABF7', '#FCC419', '#FF6B6B']),
                     textinfo='label+percent')])
                 fig_roles.update_layout(title="Role Distribution", height=350)
-                st.plotly_chart(fig_roles, use_container_width=True)
+                st.plotly_chart(fig_roles, width='stretch')
             with col2:
                 approved_count = len([u for u in all_users if u.get('is_approved', False)])
                 pending_count = len([u for u in all_users if not u.get('is_approved', False)])
@@ -1007,7 +1071,7 @@ def render_admin_page():
                     hole=0.3, marker=dict(colors=['#2ED573', '#FF6B6B']),
                     textinfo='label+percent')])
                 fig_status.update_layout(title="Approval Status", height=350)
-                st.plotly_chart(fig_status, use_container_width=True)
+                st.plotly_chart(fig_status, width='stretch')
 
     with tab4:
         st.markdown("### 🔑 Password Reset Requests")
@@ -1036,11 +1100,11 @@ def render_admin_page():
                     """, unsafe_allow_html=True)
                     c1, c2, c3 = st.columns([1, 1, 3])
                     with c1:
-                        if st.button("✅ Approve", key=f"appr_reset_{req['id']}", use_container_width=True, type="primary"):
+                        if st.button("✅ Approve", key=f"appr_reset_{req['id']}", width='stretch', type="primary"):
                             if approve_password_reset(str(req['id'])):
                                 st.success(f"Approved reset for {req.get('email', '')}."); st.rerun()
                     with c2:
-                        if st.button("❌ Reject", key=f"rej_reset_{req['id']}", use_container_width=True):
+                        if st.button("❌ Reject", key=f"rej_reset_{req['id']}", width='stretch'):
                             if reject_password_reset(str(req['id'])):
                                 st.success(f"Rejected reset for {req.get('email', '')}."); st.rerun()
                     st.divider()
@@ -1062,7 +1126,7 @@ def render_admin_page():
                         </div>
                     </div>
                     """, unsafe_allow_html=True)
-                    if st.button("↩️ Revoke Approval", key=f"revoke_reset_{req['id']}", use_container_width=True):
+                    if st.button("↩️ Revoke Approval", key=f"revoke_reset_{req['id']}", width='stretch'):
                         if reject_password_reset(str(req['id'])):
                             st.success(f"Approval revoked for {req.get('email', '')}."); st.rerun()
                     st.divider()
@@ -1077,7 +1141,7 @@ def render_profile_page():
         st.error("No user session found."); return
     col_back, _ = st.columns([1, 4])
     with col_back:
-        if st.button("← Back to Tool", use_container_width=True, type="primary"):
+        if st.button("← Back to Tool", width='stretch', type="primary"):
             st.session_state.show_profile_page = False; st.rerun()
     st.markdown("""
     <div class="app-header fade-in"><h1>👤 My Profile</h1></div>
@@ -1134,7 +1198,7 @@ def render_profile_page():
             new_name = st.text_input("Full Name", value=user.get('full_name', ''), key="profile_name_input")
             st.text_input("Email (read-only)", value=user.get('email', ''), disabled=True, key="profile_email_readonly")
             st.text_input("Role (read-only)", value=user.get('role', 'viewer'), disabled=True, key="profile_role_readonly")
-            save_profile = st.form_submit_button("💾 Save Profile", use_container_width=True, type="primary")
+            save_profile = st.form_submit_button("💾 Save Profile", width='stretch', type="primary")
             if save_profile:
                 if not new_name or not new_name.strip():
                     st.warning("Full name cannot be empty.")
@@ -1151,7 +1215,7 @@ def render_profile_page():
             old_pw = st.text_input("Current Password", type="password", key="cp_old")
             new_pw = st.text_input("New Password", type="password", key="cp_new")
             confirm_pw = st.text_input("Confirm New Password", type="password", key="cp_confirm")
-            change_btn = st.form_submit_button("🔒 Change Password", use_container_width=True, type="primary")
+            change_btn = st.form_submit_button("🔒 Change Password", width='stretch', type="primary")
             if change_btn:
                 if not old_pw or not new_pw or not confirm_pw:
                     st.warning("Please fill all password fields.")
@@ -1179,7 +1243,7 @@ def render_profile_page():
     st.markdown("---")
     col_a, col_b, col_c = st.columns([2, 1, 2])
     with col_b:
-        if st.button("🚪 Logout", use_container_width=True):
+        if st.button("🚪 Logout", width='stretch'):
             logout()
 
 
@@ -1204,7 +1268,7 @@ def render_forced_password_reset():
         with st.form("forced_reset_form", clear_on_submit=True):
             new_pw = st.text_input("New Password", type="password", key="fr_new")
             confirm_pw = st.text_input("Confirm New Password", type="password", key="fr_confirm")
-            submitted = st.form_submit_button("✅ Set New Password", type="primary", use_container_width=True)
+            submitted = st.form_submit_button("✅ Set New Password", type="primary", width='stretch')
             if submitted:
                 if not new_pw or not confirm_pw:
                     st.warning("Please fill both fields.")
@@ -1218,7 +1282,7 @@ def render_forced_password_reset():
                         st.success(msg); time.sleep(1.2); logout()
                     else:
                         st.error(msg)
-        if st.button("🚪 Cancel & Logout", use_container_width=True):
+        if st.button("🚪 Cancel & Logout", width='stretch'):
             logout()
     return True
 
@@ -1242,11 +1306,11 @@ def render_admin_password_resets_tab():
             """, unsafe_allow_html=True)
             c1, c2, c3 = st.columns([1, 1, 3])
             with c1:
-                if st.button("✅ Approve", key=f"appr_reset_{req['id']}", use_container_width=True):
+                if st.button("✅ Approve", key=f"appr_reset_{req['id']}", width='stretch'):
                     if approve_password_reset(str(req['id'])):
                         st.success("Approved."); st.rerun()
             with c2:
-                if st.button("❌ Reject", key=f"rej_reset_{req['id']}", use_container_width=True):
+                if st.button("❌ Reject", key=f"rej_reset_{req['id']}", width='stretch'):
                     if reject_password_reset(str(req['id'])):
                         st.success("Rejected."); st.rerun()
             st.divider()
@@ -1260,7 +1324,7 @@ def render_admin_password_resets_tab():
                 <span style="font-size: 12px; color: #999;">Approved: {req.get('password_reset_approved_at', '')[:19]}</span>
             </div>
             """, unsafe_allow_html=True)
-            if st.button("↩️ Revoke Approval", key=f"revoke_reset_{req['id']}", use_container_width=True):
+            if st.button("↩️ Revoke Approval", key=f"revoke_reset_{req['id']}", width='stretch'):
                 if reject_password_reset(str(req['id'])):
                     st.success("Revoked."); st.rerun()
             st.divider()
@@ -2744,7 +2808,7 @@ def render_unified_historical_table(df_filtered, issue_pivot, nsoh_pivot, consum
         <p style='font-size: 12px; color: #666;'>Showing {len(all_months)} months</p>
     </div>
     """, unsafe_allow_html=True)
-    st.dataframe(unified_df, use_container_width=True, hide_index=True)
+    st.dataframe(unified_df, width='stretch', hide_index=True)
 
     output = BytesIO()
     with pd.ExcelWriter(output, engine='openpyxl') as writer:
@@ -2756,7 +2820,7 @@ def render_unified_historical_table(df_filtered, issue_pivot, nsoh_pivot, consum
         data=excel_data,
         file_name=f"historical_data_{selected_material}_{datetime.now().strftime('%Y%m%d')}.xlsx",
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        use_container_width=True
+        width='stretch'
     )
 
     # ============================================================
@@ -2878,7 +2942,7 @@ def render_unified_historical_table(df_filtered, issue_pivot, nsoh_pivot, consum
         )
         st.plotly_chart(
             fig_amc_issue,
-            use_container_width=True,
+            width='stretch',
             config={'displayModeBar': 'hover'}
         )
     else:
@@ -3000,7 +3064,7 @@ def render_unified_historical_table(df_filtered, issue_pivot, nsoh_pivot, consum
         )
         st.plotly_chart(
             fig_aamc,
-            use_container_width=True,
+            width='stretch',
             config={'displayModeBar': 'hover'}
         )
     else:
@@ -3124,7 +3188,7 @@ def render_unified_historical_table(df_filtered, issue_pivot, nsoh_pivot, consum
         )
         st.plotly_chart(
             fig,
-            use_container_width=True,
+            width='stretch',
             config={'displayModeBar': 'hover'}
         )
 
@@ -3245,7 +3309,7 @@ def render_unified_historical_table(df_filtered, issue_pivot, nsoh_pivot, consum
         )
         st.plotly_chart(
             fig2,
-            use_container_width=True,
+            width='stretch',
             config={'displayModeBar': 'hover'}
         )
     else:
@@ -3320,7 +3384,7 @@ def render_supply_planning_exercise(df_filtered, supply_df, supply_plan, ordered
     st.markdown("### Order Quantity Plan")
     st.dataframe(
         supply_df[['Material', 'Current TMOS', 'NMOS', 'Pipeline', 'AMC', 'MOS Needed', 'Order Quantity', 'Urgency', 'Action', 'Order By', 'Expected Delivery']],
-        use_container_width=True,
+        width='stretch',
         hide_index=True
     )
 
@@ -3334,7 +3398,7 @@ def render_supply_planning_exercise(df_filtered, supply_df, supply_plan, ordered
         data=excel_data,
         file_name=f"order_quantity_plan_{sheet_name}_{datetime.now().strftime('%Y%m%d')}.xlsx",
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        use_container_width=True
+        width='stretch'
     )
 
     if action_df is not None and not action_df.empty:
@@ -3368,7 +3432,7 @@ def render_supply_planning_exercise(df_filtered, supply_df, supply_plan, ordered
             legend=dict(orientation='v', yanchor='middle', y=0.5, xanchor='left', x=1.05),
             margin=dict(l=40, r=200, t=60, b=40)
         )
-        st.plotly_chart(fig_problem, use_container_width=True, config={'displayModeBar': True})
+        st.plotly_chart(fig_problem, width='stretch', config={'displayModeBar': True})
 
         st.markdown("---")
 
@@ -3404,7 +3468,7 @@ def render_supply_planning_exercise(df_filtered, supply_df, supply_plan, ordered
             legend=dict(orientation='v', yanchor='middle', y=0.5, xanchor='left', x=1.05),
             margin=dict(l=40, r=200, t=60, b=40)
         )
-        st.plotly_chart(fig_body, use_container_width=True, config={'displayModeBar': True})
+        st.plotly_chart(fig_body, width='stretch', config={'displayModeBar': True})
 
 def render_action_plan_graph(df_filtered, material_problems, action_df, nsoh_pivot, sheet_name):
     st.markdown(f"""
@@ -3555,7 +3619,7 @@ def render_action_plan_graph(df_filtered, material_problems, action_df, nsoh_piv
                             yaxis=dict(showgrid=False, showline=True),
                             plot_bgcolor='white'
                         )
-                        st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': True})
+                        st.plotly_chart(fig, width='stretch', config={'displayModeBar': True})
                     else:
                         st.info("No historical data available from Jan-2026 onward.")
                 else:
@@ -3587,27 +3651,27 @@ def render_system_generated_action_plan(action_df, material_problems, sheet_name
     selected_tab_action = st.session_state.action_plan_tab
     col_filter1, col_filter2, col_filter3, col_filter4, col_filter5, col_filter6 = st.columns(6)
     with col_filter1:
-        if st.button("📋 All Issues", use_container_width=True, type="primary" if selected_tab_action == "📋 All Issues" else "secondary"):
+        if st.button("📋 All Issues", width='stretch', type="primary" if selected_tab_action == "📋 All Issues" else "secondary"):
             st.session_state.action_plan_tab = "📋 All Issues"
             st.rerun()
     with col_filter2:
-        if st.button("🔴 Stock Out", use_container_width=True, type="primary" if selected_tab_action == "🔴 Stock Out" else "secondary"):
+        if st.button("🔴 Stock Out", width='stretch', type="primary" if selected_tab_action == "🔴 Stock Out" else "secondary"):
             st.session_state.action_plan_tab = "🔴 Stock Out"
             st.rerun()
     with col_filter3:
-        if st.button("🟡 Risk of SO", use_container_width=True, type="primary" if selected_tab_action == "🟡 Risk of Stock Out" else "secondary"):
+        if st.button("🟡 Risk of SO", width='stretch', type="primary" if selected_tab_action == "🟡 Risk of Stock Out" else "secondary"):
             st.session_state.action_plan_tab = "🟡 Risk of Stock Out"
             st.rerun()
     with col_filter4:
-        if st.button("⚠️ Expiry Risk", use_container_width=True, type="primary" if selected_tab_action == "⚠️ Expiry Risk" else "secondary"):
+        if st.button("⚠️ Expiry Risk", width='stretch', type="primary" if selected_tab_action == "⚠️ Expiry Risk" else "secondary"):
             st.session_state.action_plan_tab = "⚠️ Expiry Risk"
             st.rerun()
     with col_filter5:
-        if st.button("📉 Below Min", use_container_width=True, type="primary" if selected_tab_action == "📉 Below Min Stock" else "secondary"):
+        if st.button("📉 Below Min", width='stretch', type="primary" if selected_tab_action == "📉 Below Min Stock" else "secondary"):
             st.session_state.action_plan_tab = "📉 Below Min Stock"
             st.rerun()
     with col_filter6:
-        if st.button("📦 Pipeline Insuff", use_container_width=True, type="primary" if selected_tab_action == "📦 Pipeline Insufficient" else "secondary"):
+        if st.button("📦 Pipeline Insuff", width='stretch', type="primary" if selected_tab_action == "📦 Pipeline Insufficient" else "secondary"):
             st.session_state.action_plan_tab = "📦 Pipeline Insufficient"
             st.rerun()
 
@@ -3860,7 +3924,7 @@ def render_system_generated_action_plan(action_df, material_problems, sheet_name
         data=excel_data,
         file_name=f"action_plan_filtered_{sheet_name}_{datetime.now().strftime('%Y%m%d')}.xlsx",
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        use_container_width=True
+        width='stretch'
     )
 # ============================================================================
 # RENDER EXPERT ACTION PLAN — with Completion Date support
@@ -4617,7 +4681,7 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
 
                     st.markdown('<div class="nmos-chart-scroll">', unsafe_allow_html=True)
                     st.plotly_chart(
-                        fig, use_container_width=False,
+                        fig, width='content',
                         config={
                             'displayModeBar': False, 'scrollZoom': False,
                             'staticPlot': False, 'doubleClick': False,
@@ -4646,40 +4710,27 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
         system_problems = get_system_generated_problems(selected_material)
 
         if base_info:
-            html = '<div style="background: #2e86c1; padding: 3px; border-radius: 12px; margin: 10px 0;">'
-            html += '<div style="background: #f0f0f0; padding: 20px; border-radius: 10px;">'
-            html += f'<h4 style="color: #1a5276; font-size: 18px; font-weight: 700; margin-bottom: 15px;">📦 {selected_material}</h4>'
-            html += f'<div style="background: white; padding: 8px 12px; border-radius: 6px; margin-bottom: 5px;"><strong>NSOH:</strong> {base_info["nsoh"]}</div>'
-            html += f'<div style="background: white; padding: 8px 12px; border-radius: 6px; margin-bottom: 5px;"><strong>AMC:</strong> {base_info["amc"]}</div>'
-            html += f'<div style="background: #f0f0f0; padding: 8px 12px; border-radius: 6px; margin-bottom: 5px;"><strong>NMOS_raw:</strong> {base_info["nmos_raw"]:.2f}</div>'
-            html += f'<div style="background: white; padding: 8px 12px; border-radius: 6px; margin-bottom: 5px;"><strong>Expiry:</strong> {base_info["expiry"]}</div>'
-            html += f'<div style="background: white; padding: 8px 12px; border-radius: 6px; margin-bottom: 5px;"><strong>Expiry_MOS:</strong> {base_info["exp_mos"]}</div>'
-            html += f'<div style="background: #fdecea; padding: 8px 12px; border-radius: 6px; margin-bottom: 5px; border-left: 3px solid #dc3545;"><strong>Lost MOS (due to expiry):</strong> {base_info["lost_mos"]:.2f}</div>'
-            html += f'<div style="background: white; padding: 8px 12px; border-radius: 6px; margin-bottom: 5px;"><strong>NMOS:</strong> {base_info["nmos"]:.2f}</div>'
-            html += f'<div style="background: white; padding: 8px 12px; border-radius: 6px; margin-bottom: 5px;"><strong>Stock Status:</strong> {base_info["stock_status"]}</div>'
-            html += f'<div style="background: white; padding: 8px 12px; border-radius: 6px; margin-bottom: 5px;"><strong>PMOS:</strong> {base_info["pmos"]:.2f}</div>'
-            html += f'<div style="background: white; padding: 8px 12px; border-radius: 6px; margin-bottom: 5px;"><strong>TMOS:</strong> {base_info["tmos"]:.2f}</div>'
-            html += f'<div style="background: white; padding: 8px 12px; border-radius: 6px; margin-bottom: 5px;"><strong>Risk Type:</strong> {base_info["risk_type"]}</div>'
-            html += f'<div style="background: white; padding: 8px 12px; border-radius: 6px; margin-bottom: 5px;"><strong>Status:</strong> {base_info["status"]}</div>'
-            html += f'<div style="background: white; padding: 8px 12px; border-radius: 6px; margin-bottom: 5px;"><strong>PO_MOS:</strong> {base_info["po_mos"]}</div>'
+            _render_stock_info_card(_stock_info_card_html(
+                title=selected_material,
+                rows=[
+                    [("NSOH", base_info["nsoh"], False),
+                     ("AMC", base_info["amc"], False),
+                     ("NMOS_raw", f'{base_info["nmos_raw"]:.2f}', False)],
+                    [("Expiry", base_info["expiry"], False)],
+                    [("Expiry_MOS", base_info["exp_mos"], False)],
+                    [("Lost MOS", f'{base_info["lost_mos"]:.2f}', True),
+                     ("NMOS", f'{base_info["nmos"]:.2f}', False),
+                     ("PMOS", f'{base_info["pmos"]:.2f}', False),
+                     ("TMOS", f'{base_info["tmos"]:.2f}', False)],
+                    [("Stock Status", base_info["stock_status"], False),
+                     ("Risk Type", base_info["risk_type"], False)],
+                    [("Status", base_info["status"], False)],
+                    [("PO_MOS", base_info["po_mos"], False)],
+                ],
+                system_items=system_problems,
+            ))
 
-            if system_problems:
-                html += '<div style="margin-top: 10px;"><strong>System Generated Action Items:</strong><br>'
-                for idx, prob in enumerate(system_problems, 1):
-                    html += f'<div style="background: rgba(200, 200, 200, 0.3); padding: 8px 12px; border-radius: 6px; margin: 5px 0;">'
-                    html += f'<div><span style="display: inline-block; width: 12px; height: 12px; border-radius: 50%; background: #2e86c1; margin-right: 8px;"></span>'
-                    html += f'<strong>{idx}. Identified Problem:</strong> {prob["problem"]}</div>'
-                    html += f'<div style="padding-left: 24px;"><strong>Action Point:</strong> {prob["action"]}</div>'
-                    html += f'<div style="padding-left: 24px; font-size: 12px; opacity: 0.8;"><strong>Responsible:</strong> {prob["responsible"]} | <strong>Due:</strong> {prob["due_date"]} | <strong>Urgency:</strong> {prob["urgency"]}</div>'
-                    html += '</div>'
-                html += '</div>'
-            else:
-                html += '<div style="margin-top: 10px;"><strong>System Generated Action Items:</strong> None</div>'
-
-            html += '</div></div>'
-            st.markdown(html, unsafe_allow_html=True)
-
-        if st.button("Hide Stock Info", use_container_width=True):
+        if st.button("Hide Stock Info", width='stretch'):
             st.session_state.show_material_info = False
             st.rerun()
 
@@ -4694,12 +4745,12 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
         col_actions = st.columns(3)
 
         with col_actions[0]:
-            if st.button("📊 Stock Info", use_container_width=True):
+            if st.button("📊 Stock Info", width='stretch'):
                 st.session_state.show_material_info = not st.session_state.show_material_info
                 st.rerun()
 
         with col_actions[1]:
-            if st.button("➕ Add New Action", use_container_width=True):
+            if st.button("➕ Add New Action", width='stretch'):
                 st.session_state.adding_action_point = True
                 st.session_state.edit_record_id = None
                 st.session_state.show_change_list = False
@@ -4709,13 +4760,13 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
         with col_actions[2]:
             if has_records:
                 button_label = "🔄 Hide Actions" if st.session_state.show_change_list else "🔄 Change"
-                if st.button(button_label, use_container_width=True):
+                if st.button(button_label, width='stretch'):
                     st.session_state.show_change_list = not st.session_state.show_change_list
                     st.session_state.adding_action_point = False
                     st.session_state.edit_record_id = None
                     st.rerun()
             else:
-                st.button("🔄 Change", use_container_width=True, disabled=True)
+                st.button("🔄 Change", width='stretch', disabled=True)
 
     st.markdown("---")
 
@@ -5015,9 +5066,9 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
             col_btn1, col_btn2 = st.columns(2)
             with col_btn1:
                 submit_label = "💾 Update" if is_editing else "💾 Save"
-                submit_clicked = st.form_submit_button(submit_label, use_container_width=True, type="primary")
+                submit_clicked = st.form_submit_button(submit_label, width='stretch', type="primary")
             with col_btn2:
-                cancel_clicked = st.form_submit_button("❌ Cancel", use_container_width=True, type="secondary")
+                cancel_clicked = st.form_submit_button("❌ Cancel", width='stretch', type="secondary")
 
             if submit_clicked:
                 if quarter == "Select Quarter":
@@ -5503,7 +5554,7 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
                 data=excel_data,
                 file_name=f"all_action_points_{sheet_name}_{datetime.now().strftime('%Y%m%d')}.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                use_container_width=True
+                width='stretch'
             )
         else:
             st.info(f"No action points found for {sheet_name} with the selected filters.")
@@ -6041,7 +6092,7 @@ def render_ap_progress_follow_up(sheet_name, selected_quarter, selected_year, se
         data=excel_data,
         file_name=f"detailed_action_plan_{sheet_name}_{datetime.now().strftime('%Y%m%d')}.xlsx",
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        use_container_width=True
+        width='stretch'
     )
 
     st.markdown("---")
@@ -6112,7 +6163,7 @@ def render_ap_progress_follow_up(sheet_name, selected_quarter, selected_year, se
         )
         st.plotly_chart(
             fig_pie,
-            use_container_width=True,
+            width='stretch',
             config={'displayModeBar': 'hover'},
             key="ap_status_pie_followup"
         )
@@ -6163,7 +6214,7 @@ def render_ap_progress_follow_up(sheet_name, selected_quarter, selected_year, se
             )
             st.plotly_chart(
                 fig_t,
-                use_container_width=True,
+                width='stretch',
                 config={'displayModeBar': 'hover'},
                 key="ap_timeliness_pie_followup"
             )
@@ -6245,7 +6296,7 @@ def render_ap_progress_follow_up(sheet_name, selected_quarter, selected_year, se
 
                 st.plotly_chart(
                     fig_prog_bar,
-                    use_container_width=True,
+                    width='stretch',
                     config={'displayModeBar': 'hover'}
                 )
             else:
@@ -6334,7 +6385,7 @@ def render_ap_progress_follow_up(sheet_name, selected_quarter, selected_year, se
 
             st.plotly_chart(
                 fig_org_bar,
-                use_container_width=True,
+                width='stretch',
                 config={'displayModeBar': 'hover'}
             )
         else:
@@ -6453,7 +6504,7 @@ def render_ap_progress_follow_up(sheet_name, selected_quarter, selected_year, se
                     )
                     st.plotly_chart(
                         fig_org_pie,
-                        use_container_width=True,
+                        width='stretch',
                         config={'displayModeBar': 'hover'},
                         key=f"org_pie_{org_name}"
                     )
@@ -6577,7 +6628,7 @@ def render_ap_progress_follow_up(sheet_name, selected_quarter, selected_year, se
 
             st.plotly_chart(
                 fig_epss,
-                use_container_width=True,
+                width='stretch',
                 config={'displayModeBar': 'hover'}
             )
 
@@ -6588,7 +6639,7 @@ def render_ap_progress_follow_up(sheet_name, selected_quarter, selected_year, se
             epss_display['Pending %'] = epss_display['Pending %'].round(1)
             epss_display = epss_display[['Body', 'Total', 'Completed', 'Completed %', 'Not Completed', 'Not Completed %', 'Pending', 'Pending %']]
             epss_display.columns = ['Body', 'Total', 'Completed', 'Completed %', 'Not Completed', 'Not Completed %', 'Pending', 'Pending %']
-            st.dataframe(epss_display, use_container_width=True, hide_index=True)
+            st.dataframe(epss_display, width='stretch', hide_index=True)
 
             st.markdown("---")
 
@@ -6632,7 +6683,7 @@ def render_ap_progress_follow_up(sheet_name, selected_quarter, selected_year, se
             st.markdown("### 📊 Organization Breakdown Summary Table")
             combined_df = pd.DataFrame(combined_data)
             combined_df = combined_df.sort_values('Organization')
-            st.dataframe(combined_df, use_container_width=True, hide_index=True)
+            st.dataframe(combined_df, width='stretch', hide_index=True)
     else:
         st.info("No responsible body data available.")
 
@@ -7134,7 +7185,7 @@ def render_ap_progress_follow_up(sheet_name, selected_quarter, selected_year, se
             data=multi_excel_data,
             file_name=file_name,
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            use_container_width=True,
+            width='stretch',
             key="download_multi_program_xlsx_followup"
         )
     except Exception as _e:
@@ -7174,11 +7225,11 @@ def _render_section_switcher():
     btn_sp_type = "primary" if st.session_state.active_section == "supply_planning" else "secondary"
     btn_fc_type = "primary" if st.session_state.active_section == "forecasting" else "secondary"
 
-    if st.button("🧮 Supply Planning", key="btn_section_sp", use_container_width=True, type=btn_sp_type):
+    if st.button("🧮 Supply Planning", key="btn_section_sp", width='stretch', type=btn_sp_type):
         if st.session_state.active_section != "supply_planning":
             st.session_state.active_section = "supply_planning"
             st.rerun()
-    if st.button("📈 Forecasting", key="btn_section_fc", use_container_width=True, type=btn_fc_type):
+    if st.button("📈 Forecasting", key="btn_section_fc", width='stretch', type=btn_fc_type):
         if st.session_state.active_section != "forecasting":
             st.session_state.active_section = "forecasting"
             st.rerun()
@@ -7364,7 +7415,7 @@ def _display_error_metrics_table(score_df: pd.DataFrame):
     show = show.drop(
         columns=[c for c in ["R2"] + [c for c in show.columns if c.startswith("_")] if c in show.columns]
     )
-    st.dataframe(show, use_container_width=True, hide_index=True)
+    st.dataframe(show, width='stretch', hide_index=True)
 
 
 # ============================================================================
@@ -7554,7 +7605,7 @@ def render_forecasting_section(issue_pivot, sheet_name):
     # ---------- Run button ----------
     run_clicked = st.button(
         f"▶️ Run Forecast for {selected_material[:60]}",
-        use_container_width=True,
+        width='stretch',
         type="primary",
         key="fc_run_btn",
     )
@@ -7672,7 +7723,7 @@ def _render_single_monthly_detail(d, material):
                 "Min Month": f"{f.get('min', 0):,.0f}",
                 "Max Month": f"{f.get('max', 0):,.0f}",
             })
-        st.dataframe(pd.DataFrame(rows2), use_container_width=True, hide_index=True)
+        st.dataframe(pd.DataFrame(rows2), width='stretch', hide_index=True)
     else:
         st.info("No forecasts available.")
 
@@ -7736,7 +7787,7 @@ def _render_single_monthly_detail(d, material):
         {"Metric": "Total Forecast Demand", "Value": f"{fdata.get('total', 0):,.0f} units"},
         {"Metric": "Average Monthly Forecast", "Value": f"{fdata.get('avg', 0):,.0f} units"},
     ])
-    st.dataframe(results_table, use_container_width=True, hide_index=True)
+    st.dataframe(results_table, width='stretch', hide_index=True)
 
     # ---- 5) Monthly Forecast Breakdown — models as columns ----
     if af:
@@ -7749,7 +7800,7 @@ def _render_single_monthly_detail(d, material):
                 col = [f"{fv[i]:,.0f}" if i < len(fv) else "" for i in range(max_len)]
                 breakdown[model_name] = col
             br_df = pd.DataFrame(breakdown).set_index("Month")
-            st.dataframe(br_df, use_container_width=True)
+            st.dataframe(br_df, width='stretch')
 
             # CSV export (models as columns, months as rows)
             csv_df = br_df.reset_index()
@@ -7830,7 +7881,7 @@ def _render_single_yearly_detail(d, material):
                 "Last Year": f"{f.get('last_year', 0):,.0f}",
                 "Parameters": f.get("params", "-"),
             })
-        st.dataframe(pd.DataFrame(rows2), use_container_width=True, hide_index=True)
+        st.dataframe(pd.DataFrame(rows2), width='stretch', hide_index=True)
     else:
         st.info("No forecasts available.")
 
@@ -7897,7 +7948,7 @@ def _render_single_yearly_detail(d, material):
                 col = [f"{fv[i]:,.0f}" if i < len(fv) else "" for i in range(max_len)]
                 breakdown[model_name] = col
             br_df = pd.DataFrame(breakdown).set_index("Year")
-            st.dataframe(br_df, use_container_width=True)
+            st.dataframe(br_df, width='stretch')
 
             csv_df = br_df.reset_index()
             st.download_button(
@@ -7999,7 +8050,7 @@ def _clickable_card(key, card_html, kind, value):
         box = st.container()
     with box:
         st.markdown(card_html, unsafe_allow_html=True)
-        st.button(" ", key=f"sumcard_btn_{key}", use_container_width=True,
+        st.button(" ", key=f"sumcard_btn_{key}", width='stretch',
                   on_click=_toggle_summary_card, args=(kind, value))
 
 
@@ -8017,7 +8068,7 @@ def render_summary_card_table(df_records, kind, value):
     with c_title:
         st.markdown(f"### 📋 {label} ({len(sub)})")
     with c_close:
-        st.button("✖ Close", key="summary_card_close", use_container_width=True,
+        st.button("✖ Close", key="summary_card_close", width='stretch',
                   on_click=_close_summary_card)
 
     if sub.empty:
@@ -8107,7 +8158,7 @@ def render_summary_card_table(df_records, kind, value):
         data=buf.getvalue(),
         file_name=f"{kind}_{value.replace(' ', '_')}_{datetime.now().strftime('%Y%m%d')}.xlsx",
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        use_container_width=True,
+        width='stretch',
         key=f"dl_summary_card_{kind}_{value}"
     )
 
@@ -8778,24 +8829,24 @@ def render_chatbot(sheet_name, selected_quarter, selected_year, action_df, df_fi
 
         q1, q2 = st.columns(2)
         with q1:
-            st.button("📊 Overall summary", key="chat_q1", use_container_width=True,
+            st.button("📊 Overall summary", key="chat_q1", width='stretch',
                       on_click=_chat_queue_prompt, args=("Summarize the overall status",))
         with q2:
-            st.button("🎯 What to prioritize?", key="chat_q2", use_container_width=True,
+            st.button("🎯 What to prioritize?", key="chat_q2", width='stretch',
                       on_click=_chat_queue_prompt, args=("What should we prioritize?",))
         q3, q4 = st.columns(2)
         with q3:
-            st.button("⏱️ Are we on track?", key="chat_q3", use_container_width=True,
+            st.button("⏱️ Are we on track?", key="chat_q3", width='stretch',
                       on_click=_chat_queue_prompt, args=("Are we on track?",))
         with q4:
-            if st.button("🗑️ Clear chat", key="chat_clear", use_container_width=True):
+            if st.button("🗑️ Clear chat", key="chat_clear", width='stretch'):
                 st.session_state.pop('chat_messages', None)
                 st.rerun()
 
         with st.form("fspt_chat_form", clear_on_submit=True):
             typed_text = st.text_input("Request", key="fspt_chat_text", label_visibility="collapsed",
                                        placeholder="Type your request here…")
-            sent = st.form_submit_button("Send ➤", use_container_width=True, type="primary")
+            sent = st.form_submit_button("Send ➤", width='stretch', type="primary")
         typed = typed_text.strip() if (sent and typed_text) else None
         prompt = st.session_state.pop('chat_pending', None) or typed
 
@@ -9075,7 +9126,7 @@ def main():
                 available_main_tabs = MAIN_TABS_ALL
 
             _valid_keys = [k for _l, k in available_main_tabs]
-            if _valid_keys and st.session_state.current_page not in _valid_keys:
+            if _valid_keys and st.session_state.get("current_page") not in _valid_keys:
                 st.session_state.current_page = _valid_keys[0]
 
             with _sb_group("📑", "Main Tabs"):
@@ -9083,7 +9134,7 @@ def main():
                     for label, key in available_main_tabs:
                         # Highlight the active tab
                         btn_type = "primary" if st.session_state.current_page == key else "secondary"
-                        if st.button(label, key=f"btn_nav_{key}", use_container_width=True, type=btn_type):
+                        if st.button(label, key=f"btn_nav_{key}", width='stretch', type=btn_type):
                             st.session_state.current_page = key
                             st.rerun()
                 else:
@@ -9097,27 +9148,27 @@ def main():
         # ---------------- GROUP 2: ADMIN & ACCOUNT ----------------
         with _sb_group("⚙️", "Admin & Account"):
             if is_admin():
-                if st.button("🔐 Admin Panel", use_container_width=True, type="primary"):
+                if st.button("🔐 Admin Panel", width='stretch', type="primary"):
                     st.session_state.show_admin_page = True
                     st.session_state.show_profile_page = False
                     st.rerun()
                 if st.session_state.get('show_admin_page', False):
                     st.info("📋 Admin Panel is open")
-                    if st.button("← Back to Tool", use_container_width=True):
+                    if st.button("← Back to Tool", width='stretch'):
                         st.session_state.show_admin_page = False
                         st.rerun()
 
-            if st.button("🔄 Refresh Data", use_container_width=True, type="primary"):
+            if st.button("🔄 Refresh Data", width='stretch', type="primary"):
                 st.cache_data.clear()
                 st.session_state.data_loaded = False
                 st.rerun()
 
-            if st.button("👤 Profile", use_container_width=True, type="primary"):
+            if st.button("👤 Profile", width='stretch', type="primary"):
                 st.session_state.show_profile_page = True
                 st.session_state.show_admin_page = False
                 st.rerun()
 
-            if st.button("🚪 Logout", use_container_width=True):
+            if st.button("🚪 Logout", width='stretch'):
                 logout()
 
     # ============================================================
@@ -9308,7 +9359,9 @@ def main():
             st.warning("You don't have access to any Supply Planning tabs. Please contact your administrator.")
         else:
             _tab_keys = [_key for _lbl, _key in available_main_tabs]
-            _tab_key = st.session_state.current_page
+            # .get(): Streamlit drops widget-bound keys (the tab radio below uses
+            # key="current_page") on any run where that widget isn't rendered.
+            _tab_key = st.session_state.get("current_page")
             if _tab_key not in _tab_keys:
                 _tab_key = _tab_keys[0]
                 st.session_state.current_page = _tab_key
@@ -9321,7 +9374,7 @@ def main():
                     format_func=lambda k: _label_by_key.get(k, k),
                     label_visibility="collapsed",
                 )
-            _tab_key = st.session_state.current_page
+            _tab_key = st.session_state.get("current_page", _tab_keys[0])
 
             # Show the tab selected in the sidebar or in the tab bar
             if _tab_key == "Historical Data":
