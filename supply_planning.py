@@ -9369,10 +9369,16 @@ def main():
             # Main-panel tab bar (shares state with the sidebar buttons)
             _label_by_key = {k: l for l, k in available_main_tabs}
             with st.container(key="main_tabbar"):
+                # Radio uses its OWN widget key so Streamlit's widget-key cleanup can
+                # never delete "current_page"; the two are synced explicitly.
+                def _sync_main_tab():
+                    st.session_state["current_page"] = st.session_state["main_tab_radio"]
+                st.session_state["main_tab_radio"] = _tab_key
                 st.radio(
-                    "Main tabs", _tab_keys, key="current_page", horizontal=True,
+                    "Main tabs", _tab_keys, key="main_tab_radio", horizontal=True,
                     format_func=lambda k: _label_by_key.get(k, k),
                     label_visibility="collapsed",
+                    on_change=_sync_main_tab,
                 )
             _tab_key = st.session_state.get("current_page", _tab_keys[0])
 
