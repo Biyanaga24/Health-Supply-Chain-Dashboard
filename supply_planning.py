@@ -1547,21 +1547,22 @@ def load_google_sheets_raw(sheet_id):
 @st.cache_data(ttl=CACHE_TTL, show_spinner=False)
 def process_google_sheets(content):
     if content is None: return {}
-    try:
-        sheets = pd.read_excel(BytesIO(content), sheet_name=None, header=2, engine='openpyxl')
-        cleaned = {}
-        for name, df in sheets.items():
-            if df.empty:
-                cleaned[name] = df; continue
-            df = df.loc[:, ~df.columns.str.contains("^Unnamed")]
-            df.columns = df.columns.str.strip()
-            for col in df.columns:
-                if df[col].dtype == 'object':
-                    df[col] = df[col].fillna("")
-            cleaned[name] = df
-        return cleaned
-    except Exception:
-        return {}
+    # Errors propagate (st.cache_data never caches exceptions) so a parse failure is
+    # reported by load_google_sheets and retried, instead of being cached as {}.
+    sheets = pd.read_excel(BytesIO(content), sheet_name=None, header=2, engine='openpyxl')
+    cleaned = {}
+    for name, df in sheets.items():
+        if df.empty:
+            cleaned[name] = df; continue
+        # astype(str): headers can be numbers/dates, which break the .str accessor
+        df = df.loc[:, ~df.columns.astype(str).str.contains("^Unnamed")]
+        df.columns = df.columns.astype(str).str.strip()
+        for col in df.columns:
+            # pandas 3 reads text as the dedicated "str" dtype, not "object"
+            if pd.api.types.is_object_dtype(df[col]) or pd.api.types.is_string_dtype(df[col]):
+                df[col] = df[col].fillna("")
+        cleaned[name] = df
+    return cleaned
 
 
 def load_google_sheets_fallback():
@@ -1580,9 +1581,13 @@ def load_google_sheets(sheet_id):
     except Exception as e:
         st.session_state["_gs_error"] = str(e)
         return load_google_sheets_fallback()
-    result = process_google_sheets(content)
+    try:
+        result = process_google_sheets(content)
+    except Exception as e:
+        st.session_state["_gs_error"] = f"Excel parsing error: {type(e).__name__}: {e}"
+        return load_google_sheets_fallback()
     if not result:
-        st.session_state["_gs_error"] = "The spreadsheet downloaded but could not be parsed."
+        st.session_state["_gs_error"] = "The spreadsheet downloaded but contained no sheets."
         return load_google_sheets_fallback()
     st.session_state.pop("_gs_error", None)
     return result
