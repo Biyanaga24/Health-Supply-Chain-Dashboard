@@ -1531,11 +1531,17 @@ def load_google_sheets_raw(sheet_id):
             'Accept-Language': 'en-US,en;q=0.5',
         })
         session.trust_env = False
-        response = session.get(url, timeout=60)
+        response = session.get(url, timeout=30)
         response.raise_for_status()
+        ctype = response.headers.get('Content-Type', '')
+        if 'html' in ctype.lower():
+            # Google returned a login / consent page instead of the xlsx
+            raise RuntimeError("Google returned a web page instead of the spreadsheet "
+                               "(sheet is not shared as 'Anyone with the link can view').")
         return response.content
-    except Exception:
-        return None
+    except Exception as e:
+        # Re-raise so the failure is NOT cached; load_google_sheets handles it.
+        raise RuntimeError(f"{type(e).__name__}: {e}") from e
 
 
 @st.cache_data(ttl=CACHE_TTL, show_spinner=False)
@@ -1566,12 +1572,19 @@ def load_google_sheets_fallback():
     }
 
 
-@st.cache_data(ttl=CACHE_TTL, show_spinner=False)
 def load_google_sheets(sheet_id):
-    content = load_google_sheets_raw(sheet_id)
-    if content is None: return load_google_sheets_fallback()
+    # Not cached itself: the raw download and the parsing are cached, but only on
+    # success, so a transient failure is retried on the next rerun.
+    try:
+        content = load_google_sheets_raw(sheet_id)
+    except Exception as e:
+        st.session_state["_gs_error"] = str(e)
+        return load_google_sheets_fallback()
     result = process_google_sheets(content)
-    if not result: return load_google_sheets_fallback()
+    if not result:
+        st.session_state["_gs_error"] = "The spreadsheet downloaded but could not be parsed."
+        return load_google_sheets_fallback()
+    st.session_state.pop("_gs_error", None)
     return result
 
 
@@ -8882,6 +8895,8 @@ def _render_selection_panel():
 
     if not has_data:
         st.warning("⚠️ Could not load program data. Using fallback.")
+        if st.session_state.get("_gs_error"):
+            st.caption(f"Reason: {st.session_state['_gs_error']}")
         program_list = ["All", "Malaria", "HIV", "TB", "OI and Hepatitis", "Nutrition", "Lab TB", "HIV Lab"]
     else:
         program_list = ["All"] + list(google_sheets.keys()) if google_sheets else ["All"]
@@ -9133,7 +9148,7 @@ def main():
                 if available_main_tabs:
                     for label, key in available_main_tabs:
                         # Highlight the active tab
-                        btn_type = "primary" if st.session_state.current_page == key else "secondary"
+                        btn_type = "primary" if st.session_state.get("current_page") == key else "secondary"
                         if st.button(label, key=f"btn_nav_{key}", width='stretch', type=btn_type):
                             st.session_state.current_page = key
                             st.rerun()
