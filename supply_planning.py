@@ -9372,7 +9372,9 @@ def main():
                 # Radio uses its OWN widget key so Streamlit's widget-key cleanup can
                 # never delete "current_page"; the two are synced explicitly.
                 def _sync_main_tab():
-                    st.session_state["current_page"] = st.session_state["main_tab_radio"]
+                    _picked = st.session_state.get("main_tab_radio")
+                    if _picked is not None:
+                        st.session_state["current_page"] = _picked
                 st.session_state["main_tab_radio"] = _tab_key
                 st.radio(
                     "Main tabs", _tab_keys, key="main_tab_radio", horizontal=True,
