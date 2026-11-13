@@ -6811,13 +6811,12 @@ with tab1:
 
             columns_to_exclude = ['Stock Status', 'Risk of Stock', 'Hubs%', 'Head Office%',
                                   'Distr. Gap', 'CV (%)', 'CV Category', 'Has Expiry Risk',
-                                  'Expiry Risk Details', 'Assigned Subcategory', 'Risk Type', 'DOS']
+                                  'Expiry Risk Details', 'Assigned Subcategory', 'Risk Type', 'DOS',
+                                  'GF_MOS', 'GF_Qty']
 
             if 'Material Description' in all_columns and 'TMOS' in all_columns:
                 mat_index = all_columns.index('Material Description')
                 tmos_index = all_columns.index('TMOS')
-                if 'GF_Qty' in all_columns:
-                    tmos_index = max(tmos_index, all_columns.index('GF_Qty'))
                 all_cols_between = all_columns[mat_index:tmos_index + 1]
 
                 if 'AMC' in all_cols_between and 'NMOS' in all_cols_between:
@@ -6836,7 +6835,7 @@ with tab1:
                     if col not in columns_to_exclude:
                         report_columns.append(col)
 
-            report_columns = list(dict.fromkeys(report_columns))
+            report_columns = [c for c in dict.fromkeys(report_columns) if c not in ('GF_MOS', 'GF_Qty')]
             if 'Material Description' in report_columns:
                 report_columns.remove('Material Description')
                 report_columns.insert(0, 'Material Description')
