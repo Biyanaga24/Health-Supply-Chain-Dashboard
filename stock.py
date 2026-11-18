@@ -6405,10 +6405,52 @@ else:
     if subcategory_filter != "All" and len(selected_programs_list) == 1:
         program_display = f"{selected_programs_list[0]} - {subcategory_filter}"
 
-    # Header: title only (EPSS badge is in the sidebar, filters + display settings sit right below this title)
+    # Header: same banner as the Supply Planning tool (EPSS badge is in the sidebar, filters + display settings sit right below)
     with _title_slot:
         st.markdown("""
-        <h1 class='animated-header' style='font-size: 32px; font-weight: bold; font-family: Times New Roman; margin: 0; padding: 0; line-height: 1.2; text-align: center; display: block; width: 100%;'>STOCK MANAGEMENT TOOL</h1>
+        <style>
+            .app-header {
+                background: linear-gradient(135deg, #1a5276 0%, #2e86c1 50%, #1a5276 100%);
+                padding: 20px 30px;
+                border-radius: 12px;
+                margin-bottom: 20px;
+                color: white;
+                animation: slideIn 1s ease-out;
+                box-shadow: 0 4px 20px rgba(26, 82, 118, 0.3);
+                border: 2px solid rgba(255,255,255,0.1);
+            }
+            @keyframes slideIn {
+                0% { transform: translateX(-100%); opacity: 0; }
+                100% { transform: translateX(0); opacity: 1; }
+            }
+            .app-header h1 {
+                margin: 0;
+                padding: 0;
+                font-weight: 700;
+                font-family: 'Times New Roman', Times, serif !important;
+                font-size: 2.2rem !important;
+            }
+            .app-header h1.app-title-animated {
+                color: #ffffff !important;
+                display: inline-block;
+                animation: titleFloat 3.5s ease-in-out infinite,
+                           titleGlow 3.5s ease-in-out infinite;
+            }
+            @keyframes titleFloat {
+                0%, 100% { transform: translateY(0); }
+                50%      { transform: translateY(-3px); }
+            }
+            @keyframes titleGlow {
+                0%, 100% { text-shadow: 0 0 4px rgba(255,255,255,0.20); }
+                50%      { text-shadow: 0 0 14px rgba(255,255,255,0.65); }
+            }
+            @media (prefers-reduced-motion: reduce) {
+                .app-header h1.app-title-animated { animation: none; }
+            }
+        </style>
+        <div class="app-header">
+            <h1 class="app-title-animated">📦 STOCK MANAGEMENT TOOL</h1>
+        </div>
         """, unsafe_allow_html=True)
 
     st.markdown("---")
