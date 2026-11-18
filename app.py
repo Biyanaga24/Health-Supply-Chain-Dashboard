@@ -1,20 +1,3 @@
-"""
-app.py - the ONE entry point.   Run with:   streamlit run app.py   (Streamlit >= 1.46)
-
-  * one page config, one login, one account per person
-  * the first module the person may open is the landing page
-  * sidebar, top to bottom:
-        EPSS
-        Welcome, <name>!
-        Modules            (only the modules that person may open)
-        <the open module's own sidebar>
-              Stock Management -> its filters + Navigation
-              Supply Planning  -> Selection + Main Tabs
-              Forecasting      -> no controls, just the title "Demand Forecasting Tool"
-        ✅ Connected to Supabase (admins)
-        Refresh            (once, clears every module's caches)
-        Admin Panel (admins), Profile, Logout   (once)
-"""
 import streamlit as st
 
 st.set_page_config(

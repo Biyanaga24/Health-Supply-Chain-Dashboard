@@ -16,7 +16,7 @@ CACHE_TTL = 3600
 # ============================================================================
 # AUTHENTICATION IMPORTS
 # ============================================================================
-from sup_auth import (
+from sup_outh import (
     require_auth, get_current_user, get_user_role,
     is_admin, logout, get_user_program_access,
     get_all_users, get_pending_users, approve_user, reject_user,
@@ -9164,11 +9164,13 @@ def _render_selection_panel():
 
 
 def main():
-    st.set_page_config(
-        page_title="FSPT – Forecasting and Supply Planning Tool",
-        layout="wide",
-        initial_sidebar_state="expanded"
-    )
+    _EMB = bool(st.session_state.get("_unified_shell"))   # embedded in app.py (one login, one sidebar)
+    if not _EMB:
+        st.set_page_config(
+            page_title="FSPT – Forecasting and Supply Planning Tool",
+            layout="wide",
+            initial_sidebar_state="expanded"
+        )
 
     # ============================================================
     # SESSION STATE INITIALIZATION
@@ -9231,15 +9233,15 @@ def main():
         st.session_state.get('force_password_reset', False)
         or has_approved_password_reset(current_user.get('id'))
     )
-    if needs_forced_reset:
+    if needs_forced_reset and not _EMB:
         if render_forced_password_reset():
             st.stop()
 
-    if st.session_state.get('show_profile_page', False):
+    if st.session_state.get('show_profile_page', False) and not _EMB:
         render_profile_page()
         st.stop()
 
-    if st.session_state.get('show_admin_page', False) and is_admin():
+    if st.session_state.get('show_admin_page', False) and is_admin() and not _EMB:
         render_admin_page()
         st.stop()
 
@@ -9260,8 +9262,11 @@ def main():
     _welcome_name = _html.escape(str(_u.get('full_name') or _u.get('email') or '').strip())
     _welcome_html = (
         f'<div style="margin-top:6px; font-size:1.1rem; color:#ffffff;">'
-        f'👋 Welcome, <b>{_welcome_name}</b></div>' if _welcome_name else ''
+        f'👋 Welcome, <b>{_welcome_name}</b></div>' if (_welcome_name and not _EMB) else ''
     )
+    _app_title = ("📈 DEMAND FORECASTING TOOL"
+                  if _EMB and st.session_state.get("active_section") == "forecasting"
+                  else "📦 SUPPLY PLANNING TOOL")
     st.markdown(f"""
     <style>
         .app-header h1.app-title-animated {{
@@ -9283,7 +9288,7 @@ def main():
         }}
     </style>
     <div class="app-header fade-in">
-        <h1 class="app-title-animated">📦 SUPPLY PLANNING TOOL</h1>
+        <h1 class="app-title-animated">{_app_title}</h1>
         {_welcome_html}
     </div>
     """, unsafe_allow_html=True)
@@ -9291,18 +9296,27 @@ def main():
     # ============================================================
     # SIDEBAR
     # ============================================================
-    with st.sidebar:
+    with (st.session_state.get("_sb_slot") if _EMB and st.session_state.get("_sb_slot") is not None else st.sidebar):
         # FSPT title (only word at top of sidebar)
-        st.markdown('<div class="fspt-sidebar-title">FSPT</div>',
-                    unsafe_allow_html=True)
-        st.markdown("---")
+        if not _EMB:
+            st.markdown('<div class="fspt-sidebar-title">FSPT</div>',
+                        unsafe_allow_html=True)
+            st.markdown("---")
 
-        # ---------------- GROUP 1: SUB-TOOLS ----------------
-        with _sb_group("🗂️", "Sub-Tools"):
-            active_section = _render_section_switcher()
+            # ---------------- GROUP 1: SUB-TOOLS ----------------
+            with _sb_group("🗂️", "Sub-Tools"):
+                active_section = _render_section_switcher()
+        else:
+            # the module is chosen in the shell's "Modules" list
+            active_section = st.session_state.get("active_section", "supply_planning")
 
         # ---------------- GROUP 1a: SELECTION (above Main Tabs) ----------------
-        sheet_name, subcategory_filter, selected_quarter, selected_year = _render_selection_panel()
+        if _EMB and active_section == "forecasting":
+            st.markdown("#### Demand Forecasting Tool")
+            sheet_name, subcategory_filter, selected_quarter, selected_year = "All", "All", "All", "All"
+            st.session_state.selected_program = "All"
+        else:
+            sheet_name, subcategory_filter, selected_quarter, selected_year = _render_selection_panel()
 
         st.markdown('<div style="margin-top: 14px;"></div>', unsafe_allow_html=True)
 
@@ -9339,34 +9353,35 @@ def main():
         else:
             st.session_state.current_page = "Forecasting"
 
-        # Spacer pushes Admin & Account toward the bottom of the sidebar
-        st.markdown('<div style="height: max(40px, calc(100vh - 560px));"></div>', unsafe_allow_html=True)
+        if not _EMB:
+            # Spacer pushes Admin & Account toward the bottom of the sidebar
+            st.markdown('<div style="height: max(40px, calc(100vh - 560px));"></div>', unsafe_allow_html=True)
 
-        # ---------------- GROUP 2: ADMIN & ACCOUNT ----------------
-        with _sb_group("⚙️", "Admin & Account"):
-            if is_admin():
-                if st.button("🔐 Admin Panel", width='stretch', type="primary"):
-                    st.session_state.show_admin_page = True
-                    st.session_state.show_profile_page = False
-                    st.rerun()
-                if st.session_state.get('show_admin_page', False):
-                    st.info("📋 Admin Panel is open")
-                    if st.button("← Back to Tool", width='stretch'):
-                        st.session_state.show_admin_page = False
+            # ---------------- GROUP 2: ADMIN & ACCOUNT ----------------
+            with _sb_group("⚙️", "Admin & Account"):
+                if is_admin():
+                    if st.button("🔐 Admin Panel", width='stretch', type="primary"):
+                        st.session_state.show_admin_page = True
+                        st.session_state.show_profile_page = False
                         st.rerun()
+                    if st.session_state.get('show_admin_page', False):
+                        st.info("📋 Admin Panel is open")
+                        if st.button("← Back to Tool", width='stretch'):
+                            st.session_state.show_admin_page = False
+                            st.rerun()
 
-            if st.button("🔄 Refresh Data", width='stretch', type="primary"):
-                st.cache_data.clear()
-                st.session_state.data_loaded = False
-                st.rerun()
+                if st.button("🔄 Refresh Data", width='stretch', type="primary"):
+                    st.cache_data.clear()
+                    st.session_state.data_loaded = False
+                    st.rerun()
 
-            if st.button("👤 Profile", width='stretch', type="primary"):
-                st.session_state.show_profile_page = True
-                st.session_state.show_admin_page = False
-                st.rerun()
+                if st.button("👤 Profile", width='stretch', type="primary"):
+                    st.session_state.show_profile_page = True
+                    st.session_state.show_admin_page = False
+                    st.rerun()
 
-            if st.button("🚪 Logout", width='stretch'):
-                logout()
+                if st.button("🚪 Logout", width='stretch'):
+                    logout()
 
     # ============================================================
     # DATA LOADING
