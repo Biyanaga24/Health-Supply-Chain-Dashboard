@@ -59,3 +59,6 @@ Sidebar, top to bottom: **EPSS -> Welcome, <name>! -> Modules -> the open module
 * Stock / Supply no longer draw their own EPSS, Welcome, Refresh, Admin, Profile or Logout when embedded (standalone behaviour is unchanged).
 * No Overview page: the first module a user may open is the landing page.
 * Not run here (no Streamlit in the sandbox): files compile, but the sidebar order still needs a visual check.
+
+## Extra package
+* PowerPoint export of the Action Plan Follow Up table needs `python-pptx` (`pip install python-pptx`). Add it to your `requirements.txt`.

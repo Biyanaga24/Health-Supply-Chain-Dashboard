@@ -4695,8 +4695,7 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
                         xaxis_title='Month', yaxis_title='Months of Stock (NMOS)',
                         height=520, width=inner_chart_width,
                         margin=dict(l=70, r=140, t=60, b=90),
-                        legend=dict(orientation='h', yanchor='bottom', y=1.02,
-                                    xanchor='center', x=0.5, font=dict(size=11)),
+                        showlegend=False,   # replaced by the HTML strips above / below the chart
                         hovermode='closest', dragmode=False,
                         xaxis=dict(showgrid=False, showline=True, tickmode='array',
                                    tickvals=tick_vals, ticktext=tick_text, tickangle=45,
@@ -4726,6 +4725,27 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
                         </style>
                     """, unsafe_allow_html=True)
 
+                    # ---- ABOVE the graph: current NMOS + pipeline MOS values ----
+                    def _chip(label, value, color):
+                        return (
+                            '<span style="display:inline-flex;align-items:center;gap:6px;'
+                            'padding:4px 12px;border:1px solid #d5dbe5;border-radius:16px;'
+                            'background:#fff;font-size:13px;font-weight:600;color:#1a1a1a;">'
+                            f'<span style="width:10px;height:10px;border-radius:50%;background:{color};'
+                            'display:inline-block;"></span>'
+                            f'{label}: {value}</span>'
+                        )
+                    _above = ''.join([
+                        _chip('Current NMOS', f'{current_display_nmos:.2f}m', '#8B0000'),
+                        _chip('GIT_MOS', f'{git_mos:.2f}m', stage_colors['GIT']),
+                        _chip('LC_MOS', f'{lc_mos:.2f}m', stage_colors['LC']),
+                        _chip('WB_MOS', f'{wb_mos:.2f}m', stage_colors['WB']),
+                        _chip('TMD_MOS', f'{tmd_mos:.2f}m', stage_colors['TMD']),
+                    ])
+                    st.markdown(
+                        f'<div style="display:flex;flex-wrap:wrap;gap:8px;margin:4px 0 8px 0;">{_above}</div>',
+                        unsafe_allow_html=True)
+
                     st.markdown('<div class="nmos-chart-scroll">', unsafe_allow_html=True)
                     st.plotly_chart(
                         fig, width='content',
@@ -4741,6 +4761,35 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
                         key=f"nmos_chart_{selected_material}_{hist_count}"
                     )
                     st.markdown('</div>', unsafe_allow_html=True)
+
+                    # ---- UNDER the graph: colour key of the lines drawn on the graph ----
+                    def _line_key(label, color, dashed=False, thick=False):
+                        _h = 3 if thick else 2
+                        _style = 'dashed' if dashed else 'solid'
+                        return (
+                            '<span style="display:inline-flex;align-items:center;gap:6px;'
+                            'font-size:12px;color:#333;">'
+                            f'<span style="width:28px;height:0;border-top:{_h}px {_style} {color};'
+                            'display:inline-block;"></span>'
+                            f'{label}</span>'
+                        )
+                    _below = ''.join([
+                        _line_key('NMOS', '#8B0000', dashed=True),
+                        _line_key('Received (RMOS)', '#17a589', thick=True),
+                        _line_key('GIT', stage_colors['GIT'], thick=True),
+                        _line_key('LC', stage_colors['LC'], thick=True),
+                        _line_key('WB', stage_colors['WB'], thick=True),
+                        _line_key('TMD', stage_colors['TMD'], thick=True),
+                        _line_key('Mobilize', stage_colors['Mobilize'], thick=True),
+                        _line_key('Stock Out (1m)', '#FF0000', dashed=True),
+                        _line_key('Safety Stock (2m)', '#FF6B6B', dashed=True),
+                        _line_key(f'Min Stock ({_min_s}m)', '#FF922B', dashed=True),
+                        _line_key(f'Reorder Point ({_reorder_pt}m)', '#CC5DE8', dashed=True),
+                        _line_key(f'Max Stock ({_max_s}m)', '#51CF66', dashed=True),
+                    ])
+                    st.markdown(
+                        f'<div style="display:flex;flex-wrap:wrap;gap:6px 18px;margin:8px 0 0 0;">{_below}</div>',
+                        unsafe_allow_html=True)
                     st.markdown("---")
                 else:
                     st.info("No historical data available.")
@@ -5653,12 +5702,12 @@ def build_action_plan_pptx(df, program_title="All Programs"):
     total_w = 13.333 - 2 * margin
     scale = total_w / sum(w for _, _, w in cols)
     widths = [w * scale for _, _, w in cols]
-    font_pt, line_h, pad_h, header_h = 10, 0.17, 0.12, 0.4
+    font_pt, line_h, pad_h, header_h = 16, 0.27, 0.12, 0.5
 
     def row_height(values):
         lines = 1
         for v, w in zip(values, widths):
-            chars_per_line = max(4, int(w * 13.5))
+            chars_per_line = max(4, int(w * 8.0))
             n = sum(max(1, -(-len(part) // chars_per_line)) for part in str(v).split("\n"))
             lines = max(lines, n)
         return lines * line_h + pad_h
@@ -5884,13 +5933,19 @@ def render_ap_progress_follow_up(sheet_name, selected_quarter, selected_year, se
         if target_quarter and target_year and 'Quarter' in _mat_df.columns and 'Year' in _mat_df.columns:
             _mat_df = _mat_df[(_mat_df['Quarter'] == target_quarter)
                               & (_mat_df['Year'].astype(str) == str(target_year))]
-        material_options = ["All"] + sorted(_mat_df['Material'].dropna().astype(str).unique().tolist()) \
-            if 'Material' in _mat_df.columns else ["All"]
-        material_filter = st.selectbox("Material", material_options, key="ap_material_filter")
+        material_options = sorted(_mat_df['Material'].dropna().astype(str).unique().tolist()) \
+            if 'Material' in _mat_df.columns else []
+        # drop stale selections (e.g. after the program filter changed)
+        if "ap_material_filter" in st.session_state:
+            st.session_state["ap_material_filter"] = [
+                m for m in st.session_state["ap_material_filter"] if m in material_options]
+        material_filter = st.multiselect("Material", material_options, key="ap_material_filter",
+                                         placeholder="All")
 
     with col_filter1:
-        status_options = ["All"] + _sort_statuses_reverse(df['Status'].unique().tolist()) if 'Status' in df.columns else ["All"]
-        status_filter = st.selectbox("Status", status_options, key="status_filter_dropdown_ap")
+        status_options = _sort_statuses_reverse(df['Status'].unique().tolist()) if 'Status' in df.columns else []
+        status_filter = st.multiselect("Status", status_options, key="status_filter_dropdown_ap",
+                                       placeholder="All")
 
     with col_filter2:
         all_responsible_bodies = []
@@ -5916,19 +5971,21 @@ def render_ap_progress_follow_up(sheet_name, selected_quarter, selected_year, se
                 organization_groups[org] = []
             organization_groups[org].append(body)
 
-        body_options = ["All"]
+        body_options = []
         for org in ['EPSS', 'MOH', 'MSH_SCS', 'Other']:
             if org in organization_groups and organization_groups[org]:
                 body_options.append(org)
 
-        body_filter = st.selectbox("Responsible Body", body_options, key="body_filter_dropdown")
+        body_filter = st.multiselect("Responsible Body", body_options, key="body_filter_dropdown",
+                                     placeholder="All")
 
     with col_filter3:
-        timeliness_options = ["All", "On Time", "Late", "Overdue", "Not Yet Due"]
-        timeliness_filter = st.selectbox(
+        timeliness_options = ["On Time", "Late", "Overdue", "Not Yet Due"]
+        timeliness_filter = st.multiselect(
             "Timeliness",
             timeliness_options,
-            key="timeliness_filter_dropdown"
+            key="timeliness_filter_dropdown",
+            placeholder="All"
         )
 
     with col_filter_view:
@@ -5945,13 +6002,13 @@ def render_ap_progress_follow_up(sheet_name, selected_quarter, selected_year, se
     if program_filter:
         filtered_df = filtered_df[filtered_df['Program'].isin(program_filter)]
 
-    if material_filter != "All" and 'Material' in filtered_df.columns:
-        filtered_df = filtered_df[filtered_df['Material'].astype(str) == material_filter]
+    if material_filter and 'Material' in filtered_df.columns:
+        filtered_df = filtered_df[filtered_df['Material'].astype(str).isin(material_filter)]
 
-    if status_filter != "All" and 'Status' in filtered_df.columns:
-        filtered_df = filtered_df[filtered_df['Status'] == status_filter]
+    if status_filter and 'Status' in filtered_df.columns:
+        filtered_df = filtered_df[filtered_df['Status'].isin(status_filter)]
 
-    if body_filter != "All" and 'Responsible Body' in filtered_df.columns:
+    if body_filter and 'Responsible Body' in filtered_df.columns:
         def _row_matches_org(resp_str, org):
             parts = [b.strip() for b in str(resp_str).split(',') if b.strip()]
             for b in parts:
@@ -5965,11 +6022,11 @@ def render_ap_progress_follow_up(sheet_name, selected_quarter, selected_year, se
                     return True
             return False
 
-        if body_filter in ('EPSS', 'MOH', 'MSH_SCS', 'Other'):
-            filtered_df = filtered_df[filtered_df['Responsible Body'].apply(lambda x: _row_matches_org(x, body_filter))]
+        filtered_df = filtered_df[filtered_df['Responsible Body'].apply(
+            lambda x: any(_row_matches_org(x, _o) for _o in body_filter))]
 
-    if timeliness_filter != "All" and '_Timeliness_Filter' in filtered_df.columns:
-        filtered_df = filtered_df[filtered_df['_Timeliness_Filter'] == timeliness_filter]
+    if timeliness_filter and '_Timeliness_Filter' in filtered_df.columns:
+        filtered_df = filtered_df[filtered_df['_Timeliness_Filter'].isin(timeliness_filter)]
 
     if selected_status != "All" and 'Status' in filtered_df.columns:
         filtered_df = filtered_df[filtered_df['Status'] == selected_status]
@@ -9064,7 +9121,7 @@ def render_chatbot(sheet_name, selected_quarter, selected_year, action_df, df_fi
 # ============================================================================
 # SELECTION PANEL (sidebar, above Main Tabs)
 # ============================================================================
-def _render_selection_panel():
+def _render_selection_panel(program_only=False):
     sheet_id_amc = "14VvZ7IyOmpM4SZrY5_ArHDgLkeFN4inW"
     google_sheets = load_google_sheets(sheet_id_amc)
 
@@ -9117,6 +9174,11 @@ def _render_selection_panel():
         else:
             sheet_name = MULTI_SEP.join([p for p in _prog_choices if p in _chosen])
         st.session_state.selected_program = sheet_name
+
+        if program_only:
+            # Demand Forecasting Tool: Program is the only selector
+            st.session_state.selected_subcategory = "All"
+            return sheet_name, "All", "All", "All"
 
         col_idx = 1
         if len(_chosen) == 1 and _chosen[0] in PROGRAM_HIERARCHY and PROGRAM_HIERARCHY[_chosen[0]]["is_parent"]:
@@ -9313,8 +9375,7 @@ def main():
         # ---------------- GROUP 1a: SELECTION (above Main Tabs) ----------------
         if _EMB and active_section == "forecasting":
             st.markdown("#### Demand Forecasting Tool")
-            sheet_name, subcategory_filter, selected_quarter, selected_year = "All", "All", "All", "All"
-            st.session_state.selected_program = "All"
+            sheet_name, subcategory_filter, selected_quarter, selected_year = _render_selection_panel(program_only=True)
         else:
             sheet_name, subcategory_filter, selected_quarter, selected_year = _render_selection_panel()
 
