@@ -4473,20 +4473,20 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
                             fire_stage = False
                             x_trigger = None
                             crossing_threshold = None
-                            if nmos_before_depletion < _min_s:
+                            if nmos_before_depletion < _reorder_pt:
                                 fire_stage = True
                                 x_trigger = current_x_idx - 0.5
                                 crossing_threshold = nmos_before_depletion
-                            elif nmos_before_depletion >= _min_s and nmos_after_depletion < _min_s:
+                            elif nmos_before_depletion >= _reorder_pt and nmos_after_depletion < _reorder_pt:
                                 fire_stage = True
                                 denom = nmos_before_depletion - nmos_after_depletion
-                                t_frac = (nmos_before_depletion - float(_min_s)) / denom if denom > 0 else 0.5
+                                t_frac = (nmos_before_depletion - float(_reorder_pt)) / denom if denom > 0 else 0.5
                                 x_trigger = (current_x_idx - 1) + t_frac
-                                crossing_threshold = float(_min_s)
+                                crossing_threshold = float(_reorder_pt)
                             if fire_stage:
                                 stage, stage_mos, stage_po = pipeline_queue[pipeline_idx]
                                 pipeline_idx += 1
-                                y_marker = float(_min_s) if stage != 'Mobilize' else float(_reorder_pt)
+                                y_marker = float(_reorder_pt)
                                 trigger_events.append({
                                     'x_exact': x_trigger,
                                     'y_marker': y_marker,
@@ -4503,18 +4503,18 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
                                 nmos_after_depletion += stage_mos
                                 triggered_this_month = True
 
-                        if not triggered_this_month and pipeline_idx >= len(pipeline_queue) and nmos_after_depletion < _min_s:
+                        if not triggered_this_month and pipeline_idx >= len(pipeline_queue) and nmos_after_depletion < _reorder_pt:
                             already_mobilized = any(ev['stage'] == 'Mobilize' for ev in trigger_events)
                             if not already_mobilized:
-                                if nmos_before_depletion < _min_s:
+                                if nmos_before_depletion < _reorder_pt:
                                     x_trigger = current_x_idx - 0.5
                                     crossing_threshold = nmos_before_depletion
                                 else:
                                     denom = nmos_before_depletion - nmos_after_depletion
-                                    t_frac = (nmos_before_depletion - float(_min_s)) / denom if denom > 0 else 0.5
+                                    t_frac = (nmos_before_depletion - float(_reorder_pt)) / denom if denom > 0 else 0.5
                                     x_trigger = (current_x_idx - 1) + t_frac
-                                    crossing_threshold = float(_min_s)
-                                shortfall = float(_max_s - _min_s)
+                                    crossing_threshold = float(_reorder_pt)
+                                shortfall = float(_max_s - _reorder_pt)
                                 qty = int(shortfall * amc_value) if amc_value > 0 else 0
                                 trigger_events.append({
                                     'x_exact': x_trigger,
@@ -4628,7 +4628,7 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
                             month_curr = ev.get('month_curr', '')
                             if stage == 'Mobilize':
                                 rec_text = (f"Mobilize & initiate new purchase — "
-                                            f"({_max_s} − {_min_s}) × {int(amc_value):,} = {ev['qty']:,} units")
+                                            f"({_max_s} − {_reorder_pt}) × {int(amc_value):,} = {ev['qty']:,} units")
                                 stage_label = "🟠 Mobilize & Initiate"
                             else:
                                 po_s = str(ev['stage_po']).strip() if ev['stage_po'] is not None else ''
@@ -4655,9 +4655,9 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
                                             line=dict(width=2, color='white')),
                                 showlegend=False, hoverinfo='skip'
                             ))
-                            if ev.get('nmos_at_trigger') == float(_min_s):
+                            if ev.get('nmos_at_trigger') == float(_reorder_pt):
                                 fig.add_trace(go.Scatter(
-                                    x=[x_draw], y=[float(_min_s)], mode='markers',
+                                    x=[x_draw], y=[float(_reorder_pt)], mode='markers',
                                     marker=dict(size=9, color='white', symbol='diamond',
                                                 line=dict(width=2, color=color)),
                                     showlegend=False, hoverinfo='skip'))
@@ -4689,46 +4689,28 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
                     chart_left = -0.5
                     inner_chart_width = max(1100, int((chart_right - chart_left) * 80))
 
-                    # ---- inside the chart box, next to the title: current NMOS + pipeline MOS ----
-                    def _dot(c):
-                        return f'<span style="color:{c}">●</span>'
-                    _top_items = [f"{_dot('#8B0000')} <b>Current NMOS:</b> {current_display_nmos:.2f}m"]
-                    for _lbl, _val, _key in (("GIT_MOS", git_mos, 'GIT'), ("LC_MOS", lc_mos, 'LC'),
-                                             ("WB_MOS", wb_mos, 'WB'), ("TMD_MOS", tmd_mos, 'TMD')):
-                        if _val and _val > 0:      # zero pipeline stages are not shown
-                            _top_items.append(f"{_dot(stage_colors[_key])} <b>{_lbl}:</b> {_val:.2f}m")
-                    _top_txt = "     ".join(_top_items)
-                    # second row, directly under the title (no overlap with it)
+                    # ---- legend row under the title: NMOS and each pipeline MOS, coloured to match the chart ----
+                    def _key(c, label, val):
+                        return (f'<span style="color:{c}"><b>━━ {label}</b></span>'
+                                f'<b>: {val:.2f}m</b>')
+                    _top_items = [_key('#8B0000', 'NMOS', current_display_nmos)]
+                    for _lbl, _val, _skey in (("GIT_MOS", git_mos, 'GIT'), ("LC_MOS", lc_mos, 'LC'),
+                                              ("WB_MOS", wb_mos, 'WB'), ("TMD_MOS", tmd_mos, 'TMD')):
+                        _top_items.append(_key(stage_colors[_skey], _lbl, _val))
+                    _top_txt = "      ".join(_top_items)
                     fig.add_annotation(
-                        xref='paper', yref='paper', x=0, y=1, yshift=26,
+                        xref='paper', yref='paper', x=0, y=1, yshift=28,
                         xanchor='left', yanchor='top', showarrow=False,
-                        text=_top_txt, align='left', font=dict(size=13, color='#222'))
-
-                    # ---- inside the chart box, next to the x-axis title "Month": line colour key ----
-                    def _ln(c, label, dashed=False):
-                        return f'<span style="color:{c}">{"╌╌" if dashed else "━━"}</span> {label}'
-                    _bottom_txt = "<b>Month</b>      " + "   ".join([
-                        _ln('#8B0000', 'NMOS', dashed=True),
-                        _ln('#17a589', 'Received (RMOS)'),
-                        _ln(stage_colors['GIT'], 'GIT'),
-                        _ln(stage_colors['LC'], 'LC'),
-                        _ln(stage_colors['WB'], 'WB'),
-                        _ln(stage_colors['TMD'], 'TMD'),
-                        _ln(stage_colors['Mobilize'], 'Mobilize'),
-                    ])
-                    fig.add_annotation(
-                        xref='paper', yref='paper', x=0.5, y=0, yshift=-92,
-                        xanchor='center', yanchor='top', showarrow=False,
-                        text=_bottom_txt, font=dict(size=13, color='#222'))
+                        text=_top_txt, align='left', font=dict(size=14, color='#222'))
 
                     fig.update_layout(
                         title=dict(text=f"NMOS Trend — {selected_material[:60]}",
                                    font=dict(size=15, color='#1a5276'),
                                    x=0.01, xref='container', xanchor='left',
                                    y=0.975, yref='container', yanchor='top'),
-                        xaxis_title=None, yaxis_title='Months of Stock (NMOS)',
+                        xaxis_title='Month', yaxis_title='Months of Stock (NMOS)',
                         height=540, width=inner_chart_width,
-                        margin=dict(l=70, r=140, t=90, b=120),
+                        margin=dict(l=70, r=140, t=90, b=100),
                         showlegend=False,   # replaced by the HTML strips above / below the chart
                         hovermode='closest', dragmode=False,
                         xaxis=dict(showgrid=False, showline=True, tickmode='array',
@@ -7975,68 +7957,15 @@ _MODEL_INFO = {
 
 
 def _render_model_interpretation(af, hv, best_model=None, period="month"):
-    """Plain-language reading of each model's forecast, shown under 'All Models Forecast Comparison'."""
+    """Compact model key (abbreviation - full name) shown under 'All Models Forecast Comparison'."""
     if not af:
         return
-    try:
-        hv_arr = np.asarray(hv, dtype=float) if hv is not None and len(hv) > 0 else np.array([])
-    except Exception:
-        hv_arr = np.array([])
-    hist_avg = float(np.nanmean(hv_arr)) if len(hv_arr) > 0 else None
-
-    lines = []
-    avgs = {}
-    for mn, f in af.items():
-        vals = np.asarray(f.get("values", []), dtype=float) if len(f.get("values", [])) else np.array([])
-        avg = float(f.get("avg", np.nanmean(vals) if len(vals) else 0) or 0)
-        avgs[mn] = avg
-        full, how, fit = _MODEL_INFO.get(mn, (mn, "", ""))
-
-        # compare with history
-        if hist_avg and hist_avg > 0:
-            diff = (avg - hist_avg) / hist_avg * 100
-            if abs(diff) < 5:
-                vs = f"about the same as the historical average ({hist_avg:,.0f})"
-            else:
-                vs = f"{abs(diff):.0f}% {'above' if diff > 0 else 'below'} the historical average ({hist_avg:,.0f})"
-        else:
-            vs = "no historical average to compare with"
-
-        # shape of the forecast
-        shape = "flat"
-        if len(vals) >= 2 and np.nanmean(vals) > 0:
-            slope = (vals[-1] - vals[0]) / max(1, len(vals) - 1) / np.nanmean(vals) * 100
-            rng = (np.nanmax(vals) - np.nanmin(vals)) / np.nanmean(vals) * 100
-            if abs(slope) >= 1.5:
-                shape = "rising" if slope > 0 else "falling"
-            elif rng >= 15:
-                shape = "seasonal / fluctuating"
-        tag = "  🏆 *best on error metrics*" if best_model and mn == best_model else ""
-        lines.append(
-            f"- **{mn}** ({full}){tag}: expects about **{avg:,.0f} per {period}** — {vs}; "
-            f"the forecast shape is **{shape}**. {how} Suits {fit}."
-        )
-
-    st.markdown("#### 🧭 Interpretation")
-    st.markdown("\n".join(lines))
-
-    # overall reading
-    vals_all = [v for v in avgs.values() if v is not None]
-    if len(vals_all) >= 2:
-        lo_m = min(avgs, key=avgs.get); hi_m = max(avgs, key=avgs.get)
-        mean_all = float(np.mean(vals_all))
-        spread = (avgs[hi_m] - avgs[lo_m]) / mean_all * 100 if mean_all > 0 else 0
-        if spread < 15:
-            agree = "The models **agree closely**, so the forecast is fairly reliable."
-        elif spread < 40:
-            agree = "The models show **moderate disagreement**; use the best-performing model but keep a safety margin."
-        else:
-            agree = "The models **disagree widely**, so treat the forecast with caution and review the history for outliers or stock-outs."
-        msg = (f"Per-{period} averages range from **{avgs[lo_m]:,.0f} ({lo_m})** to **{avgs[hi_m]:,.0f} ({hi_m})** "
-               f"(spread {spread:.0f}% of the mean). {agree}")
-        if best_model:
-            msg += f" Prefer **{best_model}**, which had the lowest composite error on the test data."
-        st.info(msg)
+    items = []
+    for mn in af.keys():
+        if mn in _MODEL_INFO:
+            items.append(f"**{mn}** - {_MODEL_INFO[mn][0]}")
+    if items:
+        st.markdown("  \n".join(items))
 
 
 def _render_single_monthly_detail(d, material):
