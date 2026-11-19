@@ -4697,7 +4697,8 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
                     _top_items = [_key('#8B0000', 'NMOS', current_display_nmos)]
                     for _lbl, _val, _skey in (("GIT_MOS", git_mos, 'GIT'), ("LC_MOS", lc_mos, 'LC'),
                                               ("WB_MOS", wb_mos, 'WB'), ("TMD_MOS", tmd_mos, 'TMD')):
-                        _top_items.append(_key(stage_colors[_skey], _lbl, _val))
+                        if _val and _val > 0:      # zero pipeline stages are not shown
+                            _top_items.append(_key(stage_colors[_skey], _lbl, _val))
                     _top_txt = "      ".join(_top_items)
                     fig.add_annotation(
                         xref='paper', yref='paper', x=0, y=1, yshift=28,
