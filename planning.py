@@ -4689,12 +4689,46 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
                     chart_left = -0.5
                     inner_chart_width = max(1100, int((chart_right - chart_left) * 80))
 
+                    # ---- inside the chart box, next to the title: current NMOS + pipeline MOS ----
+                    def _dot(c):
+                        return f'<span style="color:{c}">●</span>'
+                    _top_txt = "   ".join([
+                        f"{_dot('#8B0000')} <b>Current NMOS:</b> {current_display_nmos:.2f}m",
+                        f"{_dot(stage_colors['GIT'])} <b>GIT_MOS:</b> {git_mos:.2f}m",
+                        f"{_dot(stage_colors['LC'])} <b>LC_MOS:</b> {lc_mos:.2f}m",
+                        f"{_dot(stage_colors['WB'])} <b>WB_MOS:</b> {wb_mos:.2f}m",
+                        f"{_dot(stage_colors['TMD'])} <b>TMD_MOS:</b> {tmd_mos:.2f}m",
+                    ])
+                    fig.add_annotation(
+                        xref='paper', yref='paper', x=1, y=1, yshift=48,
+                        xanchor='right', yanchor='top', showarrow=False,
+                        text=_top_txt, align='right', font=dict(size=13, color='#222'))
+
+                    # ---- inside the chart box, next to the x-axis title "Month": line colour key ----
+                    def _ln(c, label, dashed=False):
+                        return f'<span style="color:{c}">{"╌╌" if dashed else "━━"}</span> {label}'
+                    _bottom_txt = "<b>Month</b>      " + "   ".join([
+                        _ln('#8B0000', 'NMOS', dashed=True),
+                        _ln('#17a589', 'Received (RMOS)'),
+                        _ln(stage_colors['GIT'], 'GIT'),
+                        _ln(stage_colors['LC'], 'LC'),
+                        _ln(stage_colors['WB'], 'WB'),
+                        _ln(stage_colors['TMD'], 'TMD'),
+                        _ln(stage_colors['Mobilize'], 'Mobilize'),
+                    ])
+                    fig.add_annotation(
+                        xref='paper', yref='paper', x=0.5, y=0, yshift=-92,
+                        xanchor='center', yanchor='top', showarrow=False,
+                        text=_bottom_txt, font=dict(size=13, color='#222'))
+
                     fig.update_layout(
                         title=dict(text=f"NMOS Trend — {selected_material[:60]}",
-                                   font=dict(size=15, color='#1a5276')),
-                        xaxis_title='Month', yaxis_title='Months of Stock (NMOS)',
-                        height=520, width=inner_chart_width,
-                        margin=dict(l=70, r=140, t=60, b=90),
+                                   font=dict(size=15, color='#1a5276'),
+                                   x=0.01, xref='container', xanchor='left',
+                                   y=0.975, yref='container', yanchor='top'),
+                        xaxis_title=None, yaxis_title='Months of Stock (NMOS)',
+                        height=540, width=inner_chart_width,
+                        margin=dict(l=70, r=140, t=60, b=120),
                         showlegend=False,   # replaced by the HTML strips above / below the chart
                         hovermode='closest', dragmode=False,
                         xaxis=dict(showgrid=False, showline=True, tickmode='array',
@@ -4725,27 +4759,6 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
                         </style>
                     """, unsafe_allow_html=True)
 
-                    # ---- ABOVE the graph: current NMOS + pipeline MOS values ----
-                    def _chip(label, value, color):
-                        return (
-                            '<span style="display:inline-flex;align-items:center;gap:6px;'
-                            'padding:4px 12px;border:1px solid #d5dbe5;border-radius:16px;'
-                            'background:#fff;font-size:13px;font-weight:600;color:#1a1a1a;">'
-                            f'<span style="width:10px;height:10px;border-radius:50%;background:{color};'
-                            'display:inline-block;"></span>'
-                            f'{label}: {value}</span>'
-                        )
-                    _above = ''.join([
-                        _chip('Current NMOS', f'{current_display_nmos:.2f}m', '#8B0000'),
-                        _chip('GIT_MOS', f'{git_mos:.2f}m', stage_colors['GIT']),
-                        _chip('LC_MOS', f'{lc_mos:.2f}m', stage_colors['LC']),
-                        _chip('WB_MOS', f'{wb_mos:.2f}m', stage_colors['WB']),
-                        _chip('TMD_MOS', f'{tmd_mos:.2f}m', stage_colors['TMD']),
-                    ])
-                    st.markdown(
-                        f'<div style="display:flex;flex-wrap:wrap;gap:8px;margin:4px 0 8px 0;">{_above}</div>',
-                        unsafe_allow_html=True)
-
                     st.markdown('<div class="nmos-chart-scroll">', unsafe_allow_html=True)
                     st.plotly_chart(
                         fig, width='content',
@@ -4762,34 +4775,6 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
                     )
                     st.markdown('</div>', unsafe_allow_html=True)
 
-                    # ---- UNDER the graph: colour key of the lines drawn on the graph ----
-                    def _line_key(label, color, dashed=False, thick=False):
-                        _h = 3 if thick else 2
-                        _style = 'dashed' if dashed else 'solid'
-                        return (
-                            '<span style="display:inline-flex;align-items:center;gap:6px;'
-                            'font-size:12px;color:#333;">'
-                            f'<span style="width:28px;height:0;border-top:{_h}px {_style} {color};'
-                            'display:inline-block;"></span>'
-                            f'{label}</span>'
-                        )
-                    _below = ''.join([
-                        _line_key('NMOS', '#8B0000', dashed=True),
-                        _line_key('Received (RMOS)', '#17a589', thick=True),
-                        _line_key('GIT', stage_colors['GIT'], thick=True),
-                        _line_key('LC', stage_colors['LC'], thick=True),
-                        _line_key('WB', stage_colors['WB'], thick=True),
-                        _line_key('TMD', stage_colors['TMD'], thick=True),
-                        _line_key('Mobilize', stage_colors['Mobilize'], thick=True),
-                        _line_key('Stock Out (1m)', '#FF0000', dashed=True),
-                        _line_key('Safety Stock (2m)', '#FF6B6B', dashed=True),
-                        _line_key(f'Min Stock ({_min_s}m)', '#FF922B', dashed=True),
-                        _line_key(f'Reorder Point ({_reorder_pt}m)', '#CC5DE8', dashed=True),
-                        _line_key(f'Max Stock ({_max_s}m)', '#51CF66', dashed=True),
-                    ])
-                    st.markdown(
-                        f'<div style="display:flex;flex-wrap:wrap;gap:6px 18px;margin:8px 0 0 0;">{_below}</div>',
-                        unsafe_allow_html=True)
                     st.markdown("---")
                 else:
                     st.info("No historical data available.")
@@ -5681,6 +5666,26 @@ _PPT_ACTION_PLAN_COLS = [
 ]
 
 
+def _ensure_pptx():
+    """True when python-pptx is importable. If missing, try a one-off `pip install python-pptx`
+    into the running environment (works on most self-hosted setups; on hosted platforms the
+    package must be listed in requirements.txt instead)."""
+    try:
+        import pptx  # noqa: F401
+        return True
+    except ImportError:
+        pass
+    try:
+        import subprocess, sys, importlib
+        subprocess.run([sys.executable, "-m", "pip", "install", "--quiet", "python-pptx"],
+                       check=True, timeout=180, capture_output=True)
+        importlib.invalidate_caches()
+        import pptx  # noqa: F401
+        return True
+    except Exception:
+        return False
+
+
 def build_action_plan_pptx(df, program_title="All Programs"):
     """Action Plan Follow Up table as a PowerPoint (.pptx) file, returned as bytes.
     Responsible Body, Due Date and Level of Urgency are intentionally excluded.
@@ -6315,6 +6320,8 @@ def render_ap_progress_follow_up(sheet_name, selected_quarter, selected_year, se
         )
     with _dl_pptx_col:
         try:
+            if not _ensure_pptx():
+                raise ImportError("python-pptx")
             _ppt_title = ", ".join(program_filter) if program_filter else "All Programs"
             pptx_data = build_action_plan_pptx(display_df, _ppt_title)
             st.download_button(
@@ -7942,6 +7949,96 @@ def _build_yearly_inputs(issue_pivot):
 # ============================================================================
 # MONTHLY DETAIL  (order: metrics → All-Models table → forecast chart → breakdown)
 # ============================================================================
+_MODEL_INFO = {
+    "SMA": ("Simple Moving Average",
+            "Averages the last few periods with equal weight, so the forecast is a flat line at the recent average.",
+            "stable demand with no clear trend or seasonality"),
+    "EMA": ("Exponential Moving Average",
+            "Like SMA but recent periods carry more weight, so it reacts faster to recent changes.",
+            "demand that shifts gradually and recent months matter most"),
+    "SES": ("Simple Exponential Smoothing",
+            "Smooths the series into one level estimate (alpha controls how fast it adapts) and projects it flat.",
+            "level demand with random noise, no trend or seasonality"),
+    "DES": ("Double Exponential Smoothing (Holt)",
+            "Smooths the level and the trend, so the forecast keeps rising or falling along the recent slope.",
+            "demand with a steady upward or downward trend"),
+    "TES": ("Triple Exponential Smoothing (Holt-Winters)",
+            "Smooths level, trend and seasonal pattern, so the forecast repeats the seasonal shape.",
+            "demand with a repeating seasonal cycle (needs enough history)"),
+    "ARIMA": ("ARIMA",
+              "Statistical model that forecasts from the series' own past values and past errors after removing trend by differencing.",
+              "demand with autocorrelation or trend but no strong seasonality"),
+    "SARIMA": ("Seasonal ARIMA",
+               "ARIMA plus a seasonal component, so it captures both autocorrelation and a repeating seasonal cycle.",
+               "demand with both autocorrelation and clear seasonality"),
+}
+
+
+def _render_model_interpretation(af, hv, best_model=None, period="month"):
+    """Plain-language reading of each model's forecast, shown under 'All Models Forecast Comparison'."""
+    if not af:
+        return
+    try:
+        hv_arr = np.asarray(hv, dtype=float) if hv is not None and len(hv) > 0 else np.array([])
+    except Exception:
+        hv_arr = np.array([])
+    hist_avg = float(np.nanmean(hv_arr)) if len(hv_arr) > 0 else None
+
+    lines = []
+    avgs = {}
+    for mn, f in af.items():
+        vals = np.asarray(f.get("values", []), dtype=float) if len(f.get("values", [])) else np.array([])
+        avg = float(f.get("avg", np.nanmean(vals) if len(vals) else 0) or 0)
+        avgs[mn] = avg
+        full, how, fit = _MODEL_INFO.get(mn, (mn, "", ""))
+
+        # compare with history
+        if hist_avg and hist_avg > 0:
+            diff = (avg - hist_avg) / hist_avg * 100
+            if abs(diff) < 5:
+                vs = f"about the same as the historical average ({hist_avg:,.0f})"
+            else:
+                vs = f"{abs(diff):.0f}% {'above' if diff > 0 else 'below'} the historical average ({hist_avg:,.0f})"
+        else:
+            vs = "no historical average to compare with"
+
+        # shape of the forecast
+        shape = "flat"
+        if len(vals) >= 2 and np.nanmean(vals) > 0:
+            slope = (vals[-1] - vals[0]) / max(1, len(vals) - 1) / np.nanmean(vals) * 100
+            rng = (np.nanmax(vals) - np.nanmin(vals)) / np.nanmean(vals) * 100
+            if abs(slope) >= 1.5:
+                shape = "rising" if slope > 0 else "falling"
+            elif rng >= 15:
+                shape = "seasonal / fluctuating"
+        tag = "  🏆 *best on error metrics*" if best_model and mn == best_model else ""
+        lines.append(
+            f"- **{mn}** ({full}){tag}: expects about **{avg:,.0f} per {period}** — {vs}; "
+            f"the forecast shape is **{shape}**. {how} Suits {fit}."
+        )
+
+    st.markdown("#### 🧭 Interpretation")
+    st.markdown("\n".join(lines))
+
+    # overall reading
+    vals_all = [v for v in avgs.values() if v is not None]
+    if len(vals_all) >= 2:
+        lo_m = min(avgs, key=avgs.get); hi_m = max(avgs, key=avgs.get)
+        mean_all = float(np.mean(vals_all))
+        spread = (avgs[hi_m] - avgs[lo_m]) / mean_all * 100 if mean_all > 0 else 0
+        if spread < 15:
+            agree = "The models **agree closely**, so the forecast is fairly reliable."
+        elif spread < 40:
+            agree = "The models show **moderate disagreement**; use the best-performing model but keep a safety margin."
+        else:
+            agree = "The models **disagree widely**, so treat the forecast with caution and review the history for outliers or stock-outs."
+        msg = (f"Per-{period} averages range from **{avgs[lo_m]:,.0f} ({lo_m})** to **{avgs[hi_m]:,.0f} ({hi_m})** "
+               f"(spread {spread:.0f}% of the mean). {agree}")
+        if best_model:
+            msg += f" Prefer **{best_model}**, which had the lowest composite error on the test data."
+        st.info(msg)
+
+
 def _render_single_monthly_detail(d, material):
     """Full per-material monthly forecast UI."""
     import matplotlib.pyplot as plt
@@ -7976,6 +8073,7 @@ def _render_single_monthly_detail(d, material):
                 "Max Month": f"{f.get('max', 0):,.0f}",
             })
         st.dataframe(pd.DataFrame(rows2), width='stretch', hide_index=True)
+        _render_model_interpretation(af, hv, best_model, period="month")
     else:
         st.info("No forecasts available.")
 
@@ -8134,6 +8232,7 @@ def _render_single_yearly_detail(d, material):
                 "Parameters": f.get("params", "-"),
             })
         st.dataframe(pd.DataFrame(rows2), width='stretch', hide_index=True)
+        _render_model_interpretation(af, hv, best_model, period="year")
     else:
         st.info("No forecasts available.")
 
@@ -9374,7 +9473,6 @@ def main():
 
         # ---------------- GROUP 1a: SELECTION (above Main Tabs) ----------------
         if _EMB and active_section == "forecasting":
-            st.markdown("#### Demand Forecasting Tool")
             sheet_name, subcategory_filter, selected_quarter, selected_year = _render_selection_panel(program_only=True)
         else:
             sheet_name, subcategory_filter, selected_quarter, selected_year = _render_selection_panel()

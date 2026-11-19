@@ -61,4 +61,5 @@ Sidebar, top to bottom: **EPSS -> Welcome, <name>! -> Modules -> the open module
 * Not run here (no Streamlit in the sandbox): files compile, but the sidebar order still needs a visual check.
 
 ## Extra package
-* PowerPoint export of the Action Plan Follow Up table needs `python-pptx` (`pip install python-pptx`). Add it to your `requirements.txt`.
+* PowerPoint export of the Action Plan Follow Up table needs `python-pptx`. It is now listed in `requirements.txt`: run `pip install -r requirements.txt` (or redeploy so the host installs it), then restart Streamlit. The app also tries a one-off `pip install python-pptx` itself, but that does not work on most hosted platforms.
+* `requirements.txt` was built from the imports in these files; `forecast_core` (not in this folder) may need more, e.g. statsmodels/scipy/scikit-learn are included as a precaution - trim what you don't need.
