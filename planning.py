@@ -4692,17 +4692,17 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
                     # ---- inside the chart box, next to the title: current NMOS + pipeline MOS ----
                     def _dot(c):
                         return f'<span style="color:{c}">●</span>'
-                    _top_txt = "   ".join([
-                        f"{_dot('#8B0000')} <b>Current NMOS:</b> {current_display_nmos:.2f}m",
-                        f"{_dot(stage_colors['GIT'])} <b>GIT_MOS:</b> {git_mos:.2f}m",
-                        f"{_dot(stage_colors['LC'])} <b>LC_MOS:</b> {lc_mos:.2f}m",
-                        f"{_dot(stage_colors['WB'])} <b>WB_MOS:</b> {wb_mos:.2f}m",
-                        f"{_dot(stage_colors['TMD'])} <b>TMD_MOS:</b> {tmd_mos:.2f}m",
-                    ])
+                    _top_items = [f"{_dot('#8B0000')} <b>Current NMOS:</b> {current_display_nmos:.2f}m"]
+                    for _lbl, _val, _key in (("GIT_MOS", git_mos, 'GIT'), ("LC_MOS", lc_mos, 'LC'),
+                                             ("WB_MOS", wb_mos, 'WB'), ("TMD_MOS", tmd_mos, 'TMD')):
+                        if _val and _val > 0:      # zero pipeline stages are not shown
+                            _top_items.append(f"{_dot(stage_colors[_key])} <b>{_lbl}:</b> {_val:.2f}m")
+                    _top_txt = "     ".join(_top_items)
+                    # second row, directly under the title (no overlap with it)
                     fig.add_annotation(
-                        xref='paper', yref='paper', x=1, y=1, yshift=48,
-                        xanchor='right', yanchor='top', showarrow=False,
-                        text=_top_txt, align='right', font=dict(size=13, color='#222'))
+                        xref='paper', yref='paper', x=0, y=1, yshift=26,
+                        xanchor='left', yanchor='top', showarrow=False,
+                        text=_top_txt, align='left', font=dict(size=13, color='#222'))
 
                     # ---- inside the chart box, next to the x-axis title "Month": line colour key ----
                     def _ln(c, label, dashed=False):
@@ -4728,7 +4728,7 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
                                    y=0.975, yref='container', yanchor='top'),
                         xaxis_title=None, yaxis_title='Months of Stock (NMOS)',
                         height=540, width=inner_chart_width,
-                        margin=dict(l=70, r=140, t=60, b=120),
+                        margin=dict(l=70, r=140, t=90, b=120),
                         showlegend=False,   # replaced by the HTML strips above / below the chart
                         hovermode='closest', dragmode=False,
                         xaxis=dict(showgrid=False, showline=True, tickmode='array',
