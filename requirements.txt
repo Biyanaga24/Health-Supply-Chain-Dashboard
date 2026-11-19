@@ -13,3 +13,5 @@ scikit-learn
 scipy
 pytz
 fpdf>=1.7.2
+python-pptx
+anthropic
