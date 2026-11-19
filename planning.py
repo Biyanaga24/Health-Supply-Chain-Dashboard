@@ -4473,20 +4473,20 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
                             fire_stage = False
                             x_trigger = None
                             crossing_threshold = None
-                            if nmos_before_depletion < _reorder_pt:
+                            if nmos_before_depletion < _min_s:
                                 fire_stage = True
                                 x_trigger = current_x_idx - 0.5
                                 crossing_threshold = nmos_before_depletion
-                            elif nmos_before_depletion >= _reorder_pt and nmos_after_depletion < _reorder_pt:
+                            elif nmos_before_depletion >= _min_s and nmos_after_depletion < _min_s:
                                 fire_stage = True
                                 denom = nmos_before_depletion - nmos_after_depletion
-                                t_frac = (nmos_before_depletion - float(_reorder_pt)) / denom if denom > 0 else 0.5
+                                t_frac = (nmos_before_depletion - float(_min_s)) / denom if denom > 0 else 0.5
                                 x_trigger = (current_x_idx - 1) + t_frac
-                                crossing_threshold = float(_reorder_pt)
+                                crossing_threshold = float(_min_s)
                             if fire_stage:
                                 stage, stage_mos, stage_po = pipeline_queue[pipeline_idx]
                                 pipeline_idx += 1
-                                y_marker = float(_reorder_pt)
+                                y_marker = float(_min_s)
                                 trigger_events.append({
                                     'x_exact': x_trigger,
                                     'y_marker': y_marker,
@@ -4655,9 +4655,10 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
                                             line=dict(width=2, color='white')),
                                 showlegend=False, hoverinfo='skip'
                             ))
-                            if ev.get('nmos_at_trigger') == float(_reorder_pt):
+                            _diamond_y = float(_reorder_pt) if stage == 'Mobilize' else float(_min_s)
+                            if ev.get('nmos_at_trigger') == _diamond_y:
                                 fig.add_trace(go.Scatter(
-                                    x=[x_draw], y=[float(_reorder_pt)], mode='markers',
+                                    x=[x_draw], y=[_diamond_y], mode='markers',
                                     marker=dict(size=9, color='white', symbol='diamond',
                                                 line=dict(width=2, color=color)),
                                     showlegend=False, hoverinfo='skip'))
