@@ -4570,11 +4570,12 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
                                     'stage_po': '',
                                     'nmos_before': nmos_before_depletion,
                                     'nmos_at_trigger': crossing_threshold,
-                                    'nmos_after': nmos_after_depletion + shortfall,
+                                    'nmos_after': float(MOBILIZE_MAX_MOS),
                                     'qty': qty,
                                     'is_current_month': False,
                                 })
-                                nmos_after_depletion += shortfall
+                                # purchase brings NMOS back up to the max stock level (18)
+                                nmos_after_depletion = float(MOBILIZE_MAX_MOS)
 
                         running_nmos = max(0.0, nmos_after_depletion)
                         projected_nmos_line.append(running_nmos)
