@@ -2870,6 +2870,21 @@ def render_unified_historical_table(df_filtered, issue_pivot, nsoh_pivot, consum
     """, unsafe_allow_html=True)
     st.dataframe(unified_df, width='stretch', hide_index=True)
 
+    with st.expander("ℹ️ Data type key (acronyms & formulas)", expanded=True):
+        st.markdown(
+            "| Data Type | Meaning | Formula |\n"
+            "|---|---|---|\n"
+            "| **NSOH** | National Stock On Hand | Units in stock at month end |\n"
+            "| **AMC** | Average Monthly Consumption | Monthly demand used for planning |\n"
+            "| **NMOS** | National Months Of Stock | NSOH ÷ AMC |\n"
+            "| **Consumption** | Quantity consumed in the month | Units |\n"
+            "| **Issue** | Quantity issued in the month | Units |\n"
+            "| **A_AMC (3m avg)** | Rolling 3-month Average Monthly Consumption | Average of Issue for the month and 2 prior months (non-zero months only) |\n"
+            "| **AMOS** | Months Of Stock on the A_AMC basis | NSOH ÷ A_AMC |\n"
+            "| **Received** | Quantity received (delivered) in the month | Units |\n"
+            "| **RMOS** | Received Months Of Stock | Received ÷ AMC |\n"
+        )
+
     output = BytesIO()
     with pd.ExcelWriter(output, engine='openpyxl') as writer:
         unified_df.to_excel(writer, index=False, sheet_name='Historical Data')
