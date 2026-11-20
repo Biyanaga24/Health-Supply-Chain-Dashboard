@@ -2605,10 +2605,7 @@ def _mapping_table(mapping_df, need_factor):
             "The material mapping Google Sheet is missing column(s): " + ", ".join(missing)
             + ". Nothing was saved - please contact the administrator."
         )
-    m = mapping_df.dropna(subset=['Original', 'Mapped']).copy()
-    m['Original'] = m['Original'].astype(str).str.strip()
-    m['Mapped'] = m['Mapped'].astype(str).str.strip()
-    m = m.drop_duplicates(subset='Original', keep='last')
+    m = mapping_df.dropna(subset=['Original', 'Mapped']).drop_duplicates(subset='Original', keep='last')
     return m
 
 
@@ -2696,7 +2693,7 @@ def process_soh_upload(raw, mapping_df):
         )
 
     # Material mapping: conversion factors (applied to ORIGINAL names) then rename
-    df['Material Description'] = df['Material Description'].astype(str).str.strip()
+    df['Material Description'] = df['Material Description'].astype(str)
     factor_map = dict(zip(mapping['Original'], pd.to_numeric(mapping['Conversion Factor'], errors='coerce')))
     factors = df['Material Description'].map(factor_map)
     factors = factors.where(factors.notna(), 1.0).astype(float)
@@ -2781,16 +2778,6 @@ def process_posting_upload(raw, mapping_df):
     if df.empty:
         raise UploadValidationError("No rows are left after removing ZMS/ZMD valuation types and POs starting with 60.")
 
-    # Rows that have BOTH no Posting Date and no Quantity (subtotals, open PO lines, SAP footers)
-    # are not deliveries: skip them with a warning instead of rejecting the whole file.
-    unusable = _blank_mask(df['Posting Date']) & _blank_mask(df['Quantity'])
-    if unusable.any():
-        warnings.append(f"{int(unusable.sum())} row(s) with no Posting Date and no Quantity were skipped "
-                        f"({_row_list(df.index[unusable])}).")
-        df = df[~unusable].copy()
-        if df.empty:
-            raise UploadValidationError("No delivery rows are left after skipping rows without Posting Date and Quantity.")
-
     # Missing data elements (checked before the Quantity > 0 filter so nothing disappears silently)
     miss = _blank_mask(df['Material Description'])
     if miss.any():
@@ -2823,8 +2810,7 @@ def process_posting_upload(raw, mapping_df):
     df['Posting Date'] = dates.dt.strftime('%Y-%m-%d')
     df['Quantity'] = qty
 
-    # Material mapping (rename only) - names are trimmed so a stray space cannot block the match
-    df['Material Description'] = df['Material Description'].astype(str).str.strip()
+    # Material mapping (rename only)
     rename_map = dict(zip(mapping['Original'], mapping['Mapped'].astype(str)))
     df['Material Description'] = df['Material Description'].map(lambda x: rename_map.get(x, x))
 
@@ -3138,20 +3124,9 @@ def save_issue_to_supabase(records):
 # ---------- Upload page ----------
 @st.cache_data(ttl=300, show_spinner=False)
 def _fetch_mapping_table():
-    """Download the material mapping sheet. Raises (so a failure is never cached) if Google
-    returns a login page instead of the data, and cleans headers / names."""
-    session = requests.Session()
-    session.trust_env = False
-    session.headers.update({'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'})
-    r = session.get(MAPPING_SHEET_CSV_URL, timeout=30)
+    r = requests.get(MAPPING_SHEET_CSV_URL, timeout=30)
     r.raise_for_status()
-    head = r.content[:300].lstrip().lower()
-    if 'html' in r.headers.get('Content-Type', '').lower() or head.startswith((b'<!doctype', b'<html')):
-        raise RuntimeError("Google returned a web page instead of the mapping sheet "
-                           "(share it as 'Anyone with the link can view').")
-    df = pd.read_csv(BytesIO(r.content), encoding='utf-8-sig')
-    df.columns = df.columns.astype(str).str.strip()
-    return df
+    return pd.read_csv(BytesIO(r.content))
 
 
 UPLOAD_KINDS = {
@@ -6433,7 +6408,43 @@ else:
     # Header: title only (EPSS badge is in the sidebar, filters + display settings sit right below this title)
     with _title_slot:
         st.markdown("""
-        <h1 class='animated-header' style='font-size: 32px; font-weight: bold; font-family: Times New Roman; margin: 0; padding: 0; line-height: 1.2; text-align: center; display: block; width: 100%;'>STOCK MANAGEMENT TOOL</h1>
+        <style>
+            .sm-app-header {
+                background: linear-gradient(135deg, #1a5276 0%, #2e86c1 50%, #1a5276 100%);
+                padding: 20px 30px;
+                border-radius: 12px;
+                margin-bottom: 20px;
+                color: white;
+                box-shadow: 0 4px 20px rgba(26, 82, 118, 0.3);
+                border: 2px solid rgba(255,255,255,0.1);
+            }
+            .sm-app-header h1.sm-app-title {
+                margin: 0 !important;
+                padding: 0 !important;
+                font-weight: 700;
+                color: #ffffff !important;
+                font-family: 'Times New Roman', Times, serif !important;
+                font-size: 2.2rem !important;
+                line-height: 1.2;
+                display: inline-block;
+                animation: smTitleFloat 3.5s ease-in-out infinite,
+                           smTitleGlow 3.5s ease-in-out infinite;
+            }
+            @keyframes smTitleFloat {
+                0%, 100% { transform: translateY(0); }
+                50%      { transform: translateY(-3px); }
+            }
+            @keyframes smTitleGlow {
+                0%, 100% { text-shadow: 0 0 4px rgba(255,255,255,0.20); }
+                50%      { text-shadow: 0 0 14px rgba(255,255,255,0.65); }
+            }
+            @media (prefers-reduced-motion: reduce) {
+                .sm-app-header h1.sm-app-title { animation: none; }
+            }
+        </style>
+        <div class="sm-app-header">
+            <h1 class="sm-app-title">📦 STOCK MANAGEMENT TOOL</h1>
+        </div>
         """, unsafe_allow_html=True)
 
     st.markdown("---")
