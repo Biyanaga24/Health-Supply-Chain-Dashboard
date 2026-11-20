@@ -1890,6 +1890,22 @@ def get_reorder_point(material=None):
     return get_stock_limits(material)[0] + 2   # 8 default (6+2), 6 for vaccine (4+2)
 
 
+def build_purchase_action(tmos, amc, max_s):
+    """Mobilize & initiate purchase request: (max stock - current TMOS) x AMC = qty.
+    Returns None when everything is OK (TMOS already at/above max, or no AMC)."""
+    try:
+        tmos = float(tmos) if pd.notna(tmos) else 0.0
+        amc = float(amc) if pd.notna(amc) else 0.0
+    except Exception:
+        return None
+    months = float(max_s) - tmos
+    if months <= 0 or amc <= 0:
+        return None
+    qty = int(months * amc)
+    return (f"Mobilize resource and initiate purchase request - "
+            f"({max_s:g} - {tmos:.1f}) x {int(amc):,} = {qty:,} units")
+
+
 def categorize_stock(nmos, material=None):
     min_s, max_s = get_stock_limits(material)
     try:
@@ -2506,9 +2522,7 @@ def compute_action_plan(df_filtered):
         if nmos < 1:
             if has_pipeline(row): action_point, responsible_body = get_pipeline_recommendation(row)
             else:
-                months_needed_stock = max(0, _max_s - tmos)
-                order_qty = int(months_needed_stock * amc) if amc > 0 and months_needed_stock > 0 else 0
-                action_point = f"Mobilize resource and initiate purchase request for {months_needed_stock:.1f} months ({order_qty:,} units)"
+                action_point = build_purchase_action(tmos, amc, _max_s) or "No purchase needed - stock is sufficient"
                 responsible_body = "MOH"
             material_problems[material]['problems'].append({
                 'Identified Problem': '🔴 Stock Out', 'Action Point': action_point,
@@ -2519,9 +2533,7 @@ def compute_action_plan(df_filtered):
         elif nmos >= 1 and (risk_of_stock == 'Risk of Stock out' or risk_type == 'Risk of Stock out'):
             if has_pipeline(row): action_point, responsible_body = get_pipeline_recommendation(row)
             else:
-                months_needed_stock = max(0, _max_s - tmos)
-                order_qty = int(months_needed_stock * amc) if amc > 0 and months_needed_stock > 0 else 0
-                action_point = f"Mobilize resource and initiate purchase request for {months_needed_stock:.1f} months ({order_qty:,} units)"
+                action_point = build_purchase_action(tmos, amc, _max_s) or "No purchase needed - stock is sufficient"
                 responsible_body = "MOH"
             material_problems[material]['problems'].append({
                 'Identified Problem': '🟡 Risk of Stock Out', 'Action Point': action_point,
@@ -2541,9 +2553,7 @@ def compute_action_plan(df_filtered):
         if 1 <= nmos < _min_s:
             if has_pipeline(row): action_point, responsible_body = get_pipeline_recommendation(row)
             else:
-                months_needed_stock = max(0, _max_s - tmos)
-                order_qty = int(months_needed_stock * amc) if amc > 0 and months_needed_stock > 0 else 0
-                action_point = f"Mobilize resource and initiate purchase request for {months_needed_stock:.1f} months ({order_qty:,} units)"
+                action_point = build_purchase_action(tmos, amc, _max_s) or "No purchase needed - stock is sufficient"
                 responsible_body = "MOH"
             material_problems[material]['problems'].append({
                 'Identified Problem': '📉 Below Minimum Stock Level', 'Action Point': action_point,
@@ -2553,9 +2563,7 @@ def compute_action_plan(df_filtered):
             })
 
         if tmos < _max_s:
-            months_needed_stock = _max_s - tmos
-            order_qty = int(months_needed_stock * amc) if amc > 0 and months_needed_stock > 0 else 0
-            action_point = f"Mobilize resource and initiate purchase request for {months_needed_stock:.1f} months ({order_qty:,} units)"
+            action_point = build_purchase_action(tmos, amc, _max_s) or "No purchase needed - stock is sufficient"
             responsible_body = "MOH"
             due_date = calculate_due_date_for_pipeline(tmos)
             material_problems[material]['problems'].append({
