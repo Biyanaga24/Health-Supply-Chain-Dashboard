@@ -1894,20 +1894,50 @@ def get_reorder_point(material=None):
 MOBILIZE_MAX_MOS = 18
 
 
-def build_purchase_action(nmos, amc, max_s=MOBILIZE_MAX_MOS):
-    """Mobilize & initiate purchase request: (max stock - NMOS of the month just before
-    initiation) x AMC = qty. Returns None when everything is OK (NMOS already at/above max, or no AMC)."""
+def project_mobilize_event(nmos, pipeline_mos, min_s, amc, max_mos=MOBILIZE_MAX_MOS, horizon=12):
+    """Same month-by-month projection as the NMOS trend chart. Each month consumes 1 MOS; pipeline
+    stages (GIT, LC, WB, TMD) are expedited when NMOS falls below the minimum; once the pipeline is
+    used up and NMOS falls below the reorder point (min + 2), a purchase must be initiated.
+    Returns None when everything is OK, else {'month_offset', 'nmos_before', 'qty'} where
+    nmos_before = NMOS of the month just before initiation and qty = (max_mos - nmos_before) x AMC."""
     try:
-        tmos = float(nmos) if pd.notna(nmos) else 0.0
+        running = float(nmos) if pd.notna(nmos) else 0.0
         amc = float(amc) if pd.notna(amc) else 0.0
     except Exception:
         return None
-    months = float(max_s) - tmos
-    if months <= 0 or amc <= 0:
+    if amc <= 0:
         return None
-    qty = int(months * amc)
-    return (f"Mobilize resource and initiate purchase request - "
-            f"({max_s:g} - {tmos:.1f}) x {int(amc):,} = {qty:,} units")
+    reorder = float(min_s) + 2
+    stages = [float(x) for x in pipeline_mos if x and float(x) > 0]
+    idx = 0
+    for i in range(1, horizon + 1):
+        before = running
+        after = running - 1.0
+        fired = False
+        if idx < len(stages) and (before < min_s or after < min_s):
+            after += stages[idx]; idx += 1; fired = True
+        if not fired and idx >= len(stages) and after < reorder:
+            shortfall = max_mos - before
+            if shortfall <= 0:
+                return None
+            return {'month_offset': i, 'nmos_before': before, 'qty': int(shortfall * amc)}
+        running = max(0.0, after)
+    return None
+
+
+def build_purchase_action(row, nmos, amc, min_s):
+    """Action text: Mobilize & initiate purchase request - (18 - NMOS of month before initiation) x AMC = qty.
+    Returns None when everything is OK (no purchase initiation needed)."""
+    def _f(k):
+        v = row.get(k, 0)
+        try: return float(v) if pd.notna(v) else 0.0
+        except Exception: return 0.0
+    ev = project_mobilize_event(nmos, [_f('GIT_MOS'), _f('LC_MOS'), _f('WB_MOS'), _f('TMD_MOS')], min_s, amc)
+    if ev is None:
+        return None
+    month_lbl = (datetime.now().replace(day=1) + pd.DateOffset(months=ev['month_offset'])).strftime('%b-%Y')
+    return (f"Mobilize resource and initiate purchase request (by {month_lbl}) - "
+            f"({MOBILIZE_MAX_MOS:g} - {ev['nmos_before']:.1f}) x {int(float(amc)):,} = {ev['qty']:,} units")
 
 
 def categorize_stock(nmos, material=None):
@@ -2526,7 +2556,7 @@ def compute_action_plan(df_filtered):
         if nmos < 1:
             if has_pipeline(row): action_point, responsible_body = get_pipeline_recommendation(row)
             else:
-                action_point = build_purchase_action(nmos, amc) or "No purchase needed - stock is sufficient"
+                action_point = build_purchase_action(row, nmos, amc, _min_s) or "No purchase needed - stock is sufficient"
                 responsible_body = "MOH"
             material_problems[material]['problems'].append({
                 'Identified Problem': '🔴 Stock Out', 'Action Point': action_point,
@@ -2537,7 +2567,7 @@ def compute_action_plan(df_filtered):
         elif nmos >= 1 and (risk_of_stock == 'Risk of Stock out' or risk_type == 'Risk of Stock out'):
             if has_pipeline(row): action_point, responsible_body = get_pipeline_recommendation(row)
             else:
-                action_point = build_purchase_action(nmos, amc) or "No purchase needed - stock is sufficient"
+                action_point = build_purchase_action(row, nmos, amc, _min_s) or "No purchase needed - stock is sufficient"
                 responsible_body = "MOH"
             material_problems[material]['problems'].append({
                 'Identified Problem': '🟡 Risk of Stock Out', 'Action Point': action_point,
@@ -2557,7 +2587,7 @@ def compute_action_plan(df_filtered):
         if 1 <= nmos < _min_s:
             if has_pipeline(row): action_point, responsible_body = get_pipeline_recommendation(row)
             else:
-                action_point = build_purchase_action(nmos, amc) or "No purchase needed - stock is sufficient"
+                action_point = build_purchase_action(row, nmos, amc, _min_s) or "No purchase needed - stock is sufficient"
                 responsible_body = "MOH"
             material_problems[material]['problems'].append({
                 'Identified Problem': '📉 Below Minimum Stock Level', 'Action Point': action_point,
@@ -2567,7 +2597,7 @@ def compute_action_plan(df_filtered):
             })
 
         if tmos < _max_s:
-            action_point = build_purchase_action(nmos, amc) or "No purchase needed - stock is sufficient"
+            action_point = build_purchase_action(row, nmos, amc, _min_s) or "No purchase needed - stock is sufficient"
             responsible_body = "MOH"
             due_date = calculate_due_date_for_pipeline(tmos)
             material_problems[material]['problems'].append({
