@@ -1890,11 +1890,11 @@ def get_reorder_point(material=None):
     return get_stock_limits(material)[0] + 2   # 8 default (6+2), 6 for vaccine (4+2)
 
 
-def build_purchase_action(tmos, amc, max_s):
-    """Mobilize & initiate purchase request: (max stock - current TMOS) x AMC = qty.
-    Returns None when everything is OK (TMOS already at/above max, or no AMC)."""
+def build_purchase_action(nmos, amc, max_s):
+    """Mobilize & initiate purchase request: (max stock - NMOS of the month just before
+    initiation) x AMC = qty. Returns None when everything is OK (NMOS already at/above max, or no AMC)."""
     try:
-        tmos = float(tmos) if pd.notna(tmos) else 0.0
+        tmos = float(nmos) if pd.notna(nmos) else 0.0
         amc = float(amc) if pd.notna(amc) else 0.0
     except Exception:
         return None
@@ -2522,7 +2522,7 @@ def compute_action_plan(df_filtered):
         if nmos < 1:
             if has_pipeline(row): action_point, responsible_body = get_pipeline_recommendation(row)
             else:
-                action_point = build_purchase_action(tmos, amc, _max_s) or "No purchase needed - stock is sufficient"
+                action_point = build_purchase_action(nmos, amc, _max_s) or "No purchase needed - stock is sufficient"
                 responsible_body = "MOH"
             material_problems[material]['problems'].append({
                 'Identified Problem': '🔴 Stock Out', 'Action Point': action_point,
@@ -2533,7 +2533,7 @@ def compute_action_plan(df_filtered):
         elif nmos >= 1 and (risk_of_stock == 'Risk of Stock out' or risk_type == 'Risk of Stock out'):
             if has_pipeline(row): action_point, responsible_body = get_pipeline_recommendation(row)
             else:
-                action_point = build_purchase_action(tmos, amc, _max_s) or "No purchase needed - stock is sufficient"
+                action_point = build_purchase_action(nmos, amc, _max_s) or "No purchase needed - stock is sufficient"
                 responsible_body = "MOH"
             material_problems[material]['problems'].append({
                 'Identified Problem': '🟡 Risk of Stock Out', 'Action Point': action_point,
@@ -2553,7 +2553,7 @@ def compute_action_plan(df_filtered):
         if 1 <= nmos < _min_s:
             if has_pipeline(row): action_point, responsible_body = get_pipeline_recommendation(row)
             else:
-                action_point = build_purchase_action(tmos, amc, _max_s) or "No purchase needed - stock is sufficient"
+                action_point = build_purchase_action(nmos, amc, _max_s) or "No purchase needed - stock is sufficient"
                 responsible_body = "MOH"
             material_problems[material]['problems'].append({
                 'Identified Problem': '📉 Below Minimum Stock Level', 'Action Point': action_point,
@@ -2563,7 +2563,7 @@ def compute_action_plan(df_filtered):
             })
 
         if tmos < _max_s:
-            action_point = build_purchase_action(tmos, amc, _max_s) or "No purchase needed - stock is sufficient"
+            action_point = build_purchase_action(nmos, amc, _max_s) or "No purchase needed - stock is sufficient"
             responsible_body = "MOH"
             due_date = calculate_due_date_for_pipeline(tmos)
             material_problems[material]['problems'].append({
@@ -4437,8 +4437,6 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
 
                     _min_s, _max_s = get_stock_limits(selected_material)
                     _reorder_pt = _min_s + 2
-                    # Current TMOS = current NMOS + all pipeline MOS (GIT + LC + WB + TMD)
-                    _tmos_now = float(current_display_nmos) + git_mos + lc_mos + wb_mos + tmd_mos
                     if current_display_nmos < 1:
                         nmos_color = '#FF0000'; status_text = "🔴 STOCK OUT"
                     elif 1 <= current_display_nmos < 2:
@@ -4515,8 +4513,9 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
 
                         if not triggered_this_month and pipeline_idx >= len(pipeline_queue) and nmos_after_depletion < _reorder_pt:
                             already_mobilized = any(ev['stage'] == 'Mobilize' for ev in trigger_events)
-                            # Everything OK (current TMOS already at/above max, or no AMC) -> no purchase request
-                            if not already_mobilized and (_max_s - _tmos_now) > 0 and amc_value > 0:
+                            # qty = (max - NMOS of the month just before initiation) x AMC.
+                            # Everything OK (that NMOS already at/above max, or no AMC) -> no purchase request
+                            if not already_mobilized and (_max_s - nmos_before_depletion) > 0 and amc_value > 0:
                                 if nmos_before_depletion < _reorder_pt:
                                     x_trigger = current_x_idx - 0.5
                                     crossing_threshold = nmos_before_depletion
@@ -4525,7 +4524,7 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
                                     t_frac = (nmos_before_depletion - float(_reorder_pt)) / denom if denom > 0 else 0.5
                                     x_trigger = (current_x_idx - 1) + t_frac
                                     crossing_threshold = float(_reorder_pt)
-                                shortfall = float(_max_s - _tmos_now)
+                                shortfall = float(_max_s - nmos_before_depletion)
                                 qty = int(shortfall * amc_value) if amc_value > 0 else 0
                                 trigger_events.append({
                                     'x_exact': x_trigger,
@@ -4639,7 +4638,7 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
                             month_curr = ev.get('month_curr', '')
                             if stage == 'Mobilize':
                                 rec_text = (f"Mobilize & initiate new purchase — "
-                                            f"({_max_s:g} − {_tmos_now:.1f}) × {int(amc_value):,} = {ev['qty']:,} units")
+                                            f"({_max_s:g} − {ev['nmos_before']:.1f}) × {int(amc_value):,} = {ev['qty']:,} units")
                                 stage_label = "🟠 Mobilize & Initiate"
                             else:
                                 po_s = str(ev['stage_po']).strip() if ev['stage_po'] is not None else ''
