@@ -4437,6 +4437,8 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
 
                     _min_s, _max_s = get_stock_limits(selected_material)
                     _reorder_pt = _min_s + 2
+                    # Current TMOS = current NMOS + all pipeline MOS (GIT + LC + WB + TMD)
+                    _tmos_now = float(current_display_nmos) + git_mos + lc_mos + wb_mos + tmd_mos
                     if current_display_nmos < 1:
                         nmos_color = '#FF0000'; status_text = "🔴 STOCK OUT"
                     elif 1 <= current_display_nmos < 2:
@@ -4513,7 +4515,8 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
 
                         if not triggered_this_month and pipeline_idx >= len(pipeline_queue) and nmos_after_depletion < _reorder_pt:
                             already_mobilized = any(ev['stage'] == 'Mobilize' for ev in trigger_events)
-                            if not already_mobilized:
+                            # Everything OK (current TMOS already at/above max, or no AMC) -> no purchase request
+                            if not already_mobilized and (_max_s - _tmos_now) > 0 and amc_value > 0:
                                 if nmos_before_depletion < _reorder_pt:
                                     x_trigger = current_x_idx - 0.5
                                     crossing_threshold = nmos_before_depletion
@@ -4522,7 +4525,7 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
                                     t_frac = (nmos_before_depletion - float(_reorder_pt)) / denom if denom > 0 else 0.5
                                     x_trigger = (current_x_idx - 1) + t_frac
                                     crossing_threshold = float(_reorder_pt)
-                                shortfall = float(_max_s - _reorder_pt)
+                                shortfall = float(_max_s - _tmos_now)
                                 qty = int(shortfall * amc_value) if amc_value > 0 else 0
                                 trigger_events.append({
                                     'x_exact': x_trigger,
@@ -4636,7 +4639,7 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
                             month_curr = ev.get('month_curr', '')
                             if stage == 'Mobilize':
                                 rec_text = (f"Mobilize & initiate new purchase — "
-                                            f"({_max_s} − {_reorder_pt}) × {int(amc_value):,} = {ev['qty']:,} units")
+                                            f"({_max_s:g} − {_tmos_now:.1f}) × {int(amc_value):,} = {ev['qty']:,} units")
                                 stage_label = "🟠 Mobilize & Initiate"
                             else:
                                 po_s = str(ev['stage_po']).strip() if ev['stage_po'] is not None else ''
