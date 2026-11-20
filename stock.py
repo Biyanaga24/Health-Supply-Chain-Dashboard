@@ -2810,9 +2810,18 @@ def process_posting_upload(raw, mapping_df):
     df['Posting Date'] = dates.dt.strftime('%Y-%m-%d')
     df['Quantity'] = qty
 
-    # Material mapping (rename only)
-    rename_map = dict(zip(mapping['Original'], mapping['Mapped'].astype(str)))
-    df['Material Description'] = df['Material Description'].map(lambda x: rename_map.get(x, x))
+    # Material mapping (rename only, as in the Posting_Date notebook).
+    # Names are compared with extra/trailing spaces removed on both sides.
+    _k = lambda v: re.sub(r"\s+", " ", str(v)).strip()
+    rename_map = {_k(o): str(m) for o, m in zip(mapping['Original'], mapping['Mapped'])}
+    keys = df['Material Description'].map(_k)
+    unmapped = sorted(set(keys[~keys.isin(rename_map.keys())]))
+    df['Material Description'] = [rename_map.get(k, orig) for k, orig in zip(keys, df['Material Description'])]
+    if unmapped:
+        warnings.append(
+            f"{len(unmapped)} material name(s) were not found in the mapping sheet and kept as they are: "
+            + "; ".join(unmapped[:8]) + (" ..." if len(unmapped) > 8 else "")
+        )
 
     # Purchase order text
     po_blank = _blank_mask(df['Purchase order'])
@@ -3122,7 +3131,7 @@ def save_issue_to_supabase(records):
 
 
 # ---------- Upload page ----------
-@st.cache_data(ttl=300, show_spinner=False)
+@st.cache_data(ttl=60, show_spinner=False)
 def _fetch_mapping_table():
     r = requests.get(MAPPING_SHEET_CSV_URL, timeout=30)
     r.raise_for_status()
