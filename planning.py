@@ -4301,7 +4301,23 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
         # TMOS = USABLE NMOS + PMOS   (computed here so it always matches the card)
         tmos = round(usable_nmos_val + pmos, 2)
 
+        def _pipeline_line(stage):
+            # "<PO>-<Qty> (<MOS>)-<STAGE>"  e.g. PO123-5,000 (1.5)-GIT
+            po = row.get(f'{stage}_PO', '')
+            po = '' if (po is None or (isinstance(po, float) and pd.isna(po)) or str(po).strip().lower() in ('nan', 'none')) else str(po).strip()
+            qty = pd.to_numeric(row.get(f'{stage}_Qty', 0), errors='coerce')
+            mos = pd.to_numeric(row.get(f'{stage}_MOS', 0), errors='coerce')
+            qty = 0 if pd.isna(qty) else qty
+            mos = 0 if pd.isna(mos) else mos
+            if not po and qty <= 0 and mos <= 0:
+                return None
+            return f"{po or '-'}-{int(qty):,} ({mos:.2f})-{stage}"
+
+        _pipe_parts = [x for x in (_pipeline_line('GIT'), _pipeline_line('LC')) if x]
+        pipeline_text = "; ".join(_pipe_parts) if _pipe_parts else "None"
+
         return {
+            'pipeline': pipeline_text,
             'nsoh': f"{int(nsoh):,}" if nsoh > 0 else "0",
             'amc': f"{int(amc):,}" if amc > 0 else "N/A",
             'pmos': round(pmos, 2),
@@ -4849,6 +4865,7 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
                     [("PMOS", f'{base_info["pmos"]:.2f}', False),
                      ("TMOS", f'{base_info["tmos"]:.2f}', False),
                      ("Risk Type", base_info["risk_type"], False)],
+                    [("Pipeline", base_info["pipeline"], False)],
                     [("Status", base_info["status"], False)],
                     [("PO_MOS", base_info["po_mos"], False)],
                 ],
@@ -5730,6 +5747,24 @@ def _ensure_pptx():
         return False
 
 
+def _set_cell_borders(cell, color="000000", width_pt=1.0):
+    """Draw a border on all four sides of a table cell (python-pptx has no API for this).
+    The <a:ln*> elements must come before the fill inside <a:tcPr>."""
+    from pptx.oxml.ns import qn
+    from lxml import etree
+    tcPr = cell._tc.get_or_add_tcPr()
+    for tag in ('a:lnL', 'a:lnR', 'a:lnT', 'a:lnB'):
+        for old_ln in tcPr.findall(qn(tag)):
+            tcPr.remove(old_ln)
+    for idx, tag in enumerate(('a:lnL', 'a:lnR', 'a:lnT', 'a:lnB')):
+        ln = etree.SubElement(tcPr, qn(tag), w=str(int(width_pt * 12700)), cap='flat', cmpd='sng', algn='ctr')
+        solid = etree.SubElement(ln, qn('a:solidFill'))
+        etree.SubElement(solid, qn('a:srgbClr'), val=color)
+        etree.SubElement(ln, qn('a:prstDash'), val='solid')
+        tcPr.remove(ln)
+        tcPr.insert(idx, ln)
+
+
 def build_action_plan_pptx(df, program_title="All Programs"):
     """Action Plan Follow Up table as a PowerPoint (.pptx) file, returned as bytes.
     Responsible Body, Due Date and Level of Urgency are intentionally excluded.
@@ -5751,12 +5786,12 @@ def build_action_plan_pptx(df, program_title="All Programs"):
     total_w = 13.333 - 2 * margin
     scale = total_w / sum(w for _, _, w in cols)
     widths = [w * scale for _, _, w in cols]
-    font_pt, line_h, pad_h, header_h = 16, 0.27, 0.12, 0.5
+    font_pt, line_h, pad_h, header_h = 14, 0.24, 0.12, 0.45
 
     def row_height(values):
         lines = 1
         for v, w in zip(values, widths):
-            chars_per_line = max(4, int(w * 8.0))
+            chars_per_line = max(4, int(w * 9.0))
             n = sum(max(1, -(-len(part) // chars_per_line)) for part in str(v).split("\n"))
             lines = max(lines, n)
         return lines * line_h + pad_h
@@ -5792,6 +5827,7 @@ def build_action_plan_pptx(df, program_title="All Programs"):
         if fill is not None:
             cell.fill.solid()
             cell.fill.fore_color.rgb = fill
+        _set_cell_borders(cell)
 
     centered = {'NMOS', 'Purchase Order', 'Order Quantity', 'Status', 'Timeliness',
                 'Current NMOS', 'Current PMOS', 'Current TMOS'}
