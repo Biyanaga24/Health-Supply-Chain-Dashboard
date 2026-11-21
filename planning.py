@@ -426,6 +426,14 @@ def inject_custom_css():
         .progress-status-card.urg-card.active {
             box-shadow: 0 0 0 2px #ffd700, 0 4px 20px rgba(255,215,0,0.45);
         }
+        .progress-status-card.urg-card.edge-compact { padding: 8px 12px; min-height: 68px; border-left-width: 7px; }
+        .progress-status-card.urg-card.edge-compact .urg-left { gap: 8px; min-width: 0; }
+        .progress-status-card.urg-card.edge-compact .urg-icon { font-size: 17px; width: 34px; height: 34px; flex: 0 0 34px; }
+        .progress-status-card.urg-card.edge-compact .urg-label {
+            font-size: 12px; letter-spacing: 0.2px; line-height: 1.15; white-space: normal;
+        }
+        .progress-status-card.urg-card.edge-compact .urg-sub { font-size: 10.5px; }
+        .progress-status-card.urg-card.edge-compact .urg-count { font-size: 26px; }
         .progress-status-card.urg-high   { --urg: #dc3545; }
         .progress-status-card.urg-medium { --urg: #f59f00; }
         .progress-status-card.urg-low    { --urg: #1971c2; }
@@ -10015,13 +10023,22 @@ def main():
             </div>
             """, unsafe_allow_html=True)
 
-            def status_card_html(label, count, status, card_class, icon, is_active=False):
+            def status_card_html(label, count, status, color, icon, total_n, is_active=False):
+                # Same look as the Level of Urgency cards: white card, coloured left edge,
+                # icon + label + share of total on the left, count on the right, share bar.
                 active_class = "active" if is_active else ""
+                share = (count / total_n * 100) if total_n else 0
                 return f"""
-                <div class="progress-status-card {card_class} {active_class}" data-status="{status}">
-                    <div class="status-icon">{icon}</div>
-                    <div class="status-number">{count}</div>
-                    <div class="status-label">{label}</div>
+                <div class="progress-status-card urg-card edge-compact {active_class}" style="--urg: {color};" data-status="{status}">
+                    <div class="urg-left">
+                        <div class="urg-icon">{icon}</div>
+                        <div>
+                            <div class="urg-label">{label}</div>
+                            <div class="urg-sub">{share:.0f}% of action points</div>
+                        </div>
+                    </div>
+                    <div class="urg-count">{count}</div>
+                    <div class="urg-bar" style="width: {share:.0f}%;"></div>
                 </div>
                 """
 
@@ -10041,17 +10058,17 @@ def main():
 
             col1, col2, col3, col4, col5 = st.columns(5)
             _status_cards = [
-                (col1, "Completed", completed, "card-completed", "✅"),
-                (col2, "Partially Completed", partial, "card-partial", "🔶"),
-                (col3, "Ongoing", ongoing, "card-ongoing", "🔄"),
-                (col4, "Pending", pending, "card-pending", "⏳"),
-                (col5, "Initiated", initiated, "card-initiated", "🚀"),
+                (col1, "Completed", completed, "#28a745", "✅"),
+                (col2, "Partially Completed", partial, "#17a2b8", "🔶"),
+                (col3, "Ongoing", ongoing, "#2e86c1", "🔄"),
+                (col4, "Pending", pending, "#e0a800", "⏳"),
+                (col5, "Initiated", initiated, "#6f42c1", "🚀"),
             ]
             for _col, _label, _count, _cls, _icon in _status_cards:
                 with _col:
                     _clickable_card(
                         f"status_{_label.replace(' ', '_').lower()}",
-                        status_card_html(_label, _count, _label, _cls, _icon, _sel == ('status', _label)),
+                        status_card_html(_label, _count, _label, _cls, _icon, total, _sel == ('status', _label)),
                         'status', _label)
 
             st.markdown(f"""
@@ -10065,20 +10082,28 @@ def main():
             </div>
             """, unsafe_allow_html=True)
 
-            def timeliness_card_html(icon, count, label, color, is_active=False):
-                glow = " box-shadow: 0 4px 20px rgba(255,215,0,0.45);" if is_active else ""
+            def timeliness_card_html(icon, count, label, color, total_n, is_active=False):
+                # Same look as the Level of Urgency cards.
+                active_class = "active" if is_active else ""
+                share = (count / total_n * 100) if total_n else 0
                 return f"""
-                <div class="progress-status-card" style="background: #ffffff; border: 2px solid {color};{glow}">
-                    <div class="status-icon">{icon}</div>
-                    <div class="status-number" style="color: {color};">{count}</div>
-                    <div class="status-label" style="color: #555;">{label}</div>
+                <div class="progress-status-card urg-card edge-compact {active_class}" style="--urg: {color};">
+                    <div class="urg-left">
+                        <div class="urg-icon">{icon}</div>
+                        <div>
+                            <div class="urg-label">{label}</div>
+                            <div class="urg-sub">{share:.0f}% of action points</div>
+                        </div>
+                    </div>
+                    <div class="urg-count">{count}</div>
+                    <div class="urg-bar" style="width: {share:.0f}%;"></div>
                 </div>
                 """
 
             tcol1, tcol2, tcol3, tcol4 = st.columns(4)
             _time_cards = [
                 (tcol1, "On Time", _on_time, "🟢", "#28a745"),
-                (tcol2, "Late", _late, "🟠", "#fcc419"),
+                (tcol2, "Late", _late, "🟠", "#f08c00"),
                 (tcol3, "Overdue", _overdue, "🔴", "#dc3545"),
                 (tcol4, "Not Yet Due", _not_yet_due, "🔵", "#2e86c1"),
             ]
@@ -10086,7 +10111,7 @@ def main():
                 with _col:
                     _clickable_card(
                         f"time_{_label.replace(' ', '_').lower()}",
-                        timeliness_card_html(_icon, _count, _label, _color, _sel == ('timeliness', _label)),
+                        timeliness_card_html(_icon, _count, _label, _color, total, _sel == ('timeliness', _label)),
                         'timeliness', _label)
 
             # --- Level of Urgency summary — clickable cards (same pattern as Status & Timeliness) ---
