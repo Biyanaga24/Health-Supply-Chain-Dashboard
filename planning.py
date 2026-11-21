@@ -388,6 +388,44 @@ def inject_custom_css():
         .progress-status-card.card-pending { background: linear-gradient(135deg, #fcc419 0%, #ff922b 100%); }
         .progress-status-card.card-initiated { background: linear-gradient(135deg, #6f42c1 0%, #cc5de8 100%); }
 
+        /* Level of Urgency cards - solid gradient, horizontal layout, share-of-total bar
+           (deliberately unlike the white, outlined Timeliness cards) */
+        .progress-status-card.urg-card {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 10px;
+            text-align: left;
+            padding: 10px 16px;
+            min-height: 74px;
+            border: 3px solid transparent;
+            position: relative;
+            overflow: hidden;
+        }
+        .progress-status-card.urg-card .urg-left { display: flex; align-items: center; gap: 12px; }
+        .progress-status-card.urg-card .urg-icon {
+            font-size: 22px;
+            width: 42px; height: 42px;
+            display: flex; align-items: center; justify-content: center;
+            border-radius: 50%;
+            background: rgba(255,255,255,0.25);
+        }
+        .progress-status-card.urg-card .urg-label {
+            font-size: 15px; font-weight: 700; color: #fff; letter-spacing: 0.5px; text-transform: uppercase;
+        }
+        .progress-status-card.urg-card .urg-sub { font-size: 11px; color: rgba(255,255,255,0.9); }
+        .progress-status-card.urg-card .urg-count {
+            font-size: 32px; font-weight: 800; color: #fff; line-height: 1;
+        }
+        .progress-status-card.urg-card .urg-bar {
+            position: absolute; left: 0; bottom: 0; height: 5px;
+            background: rgba(255,255,255,0.85);
+        }
+        .progress-status-card.urg-card.active { border-color: #ffd700; box-shadow: 0 4px 20px rgba(255,215,0,0.45); }
+        .progress-status-card.urg-high   { background: linear-gradient(135deg, #b02a37 0%, #dc3545 60%, #ff6b6b 100%); }
+        .progress-status-card.urg-medium { background: linear-gradient(135deg, #e67700 0%, #f59f00 60%, #fcc419 100%); }
+        .progress-status-card.urg-low    { background: linear-gradient(135deg, #1864ab 0%, #1971c2 60%, #4dabf7 100%); }
+
         .filter-row {
             display: grid;
             grid-template-columns: repeat(4, 1fr);
@@ -5895,6 +5933,292 @@ def build_action_plan_pptx(df, program_title="All Programs", col_spec=None, deck
     return buf.getvalue()
 
 
+_FOLLOWUP_XLSX_FONT = "Times New Roman"
+
+
+def build_followup_xlsx(df, program_title="All Programs", period_label=""):
+    """Action Plan Follow Up table as a smart, Times New Roman Excel workbook (bytes).
+
+    Sheet 1 - Excel Table (filters, banded rows, frozen header), real dates and numbers,
+              dropdown validation on Status / Urgency, colour rules on Status / Timeliness /
+              Urgency, live 'Days to Due' formula and overdue highlighting.
+    Sheet 2 - Summary with live COUNTIF formulas that follow the data sheet.
+    """
+    from openpyxl import Workbook
+    from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+    from openpyxl.utils import get_column_letter
+    from openpyxl.worksheet.table import Table, TableStyleInfo
+    from openpyxl.worksheet.datavalidation import DataValidation
+    from openpyxl.formatting.rule import FormulaRule, DataBarRule
+
+    FN = _FOLLOWUP_XLSX_FONT
+
+    def _clean(v):
+        if v is None:
+            return ""
+        try:
+            if isinstance(v, float) and pd.isna(v):
+                return ""
+        except Exception:
+            pass
+        s_ = str(v).strip()
+        return "" if s_.lower() in ("nan", "none", "nat", "null") else s_
+
+    def _to_date(v):
+        s_ = _clean(v)
+        if not s_:
+            return None
+        d = _parse_any_date(s_)
+        if d is None:
+            try:
+                d = pd.to_datetime(s_).date()
+            except Exception:
+                d = None
+        return d
+
+    def _to_num(v):
+        s_ = _clean(v)
+        if not s_ or s_.upper() == "N/A":
+            return "N/A" if s_.upper() == "N/A" else ""
+        try:
+            return float(s_.replace(",", ""))
+        except Exception:
+            return s_
+
+    # (header, kind, width)  - same order as the on-screen table, then the extras
+    spec = [
+        ("Material", "text", 30), ("NMOS", "num", 9), ("Purchase Order", "text", 16),
+        ("Order Quantity", "num", 12), ("Identified Problem", "wrap", 40), ("Action Point", "wrap", 40),
+        ("Responsible Body", "wrap", 22), ("Due Date", "date", 13), ("Completion Date", "date", 15),
+        ("Level of Urgency", "center", 12), ("Status", "center", 18), ("Timeliness", "center", 13),
+        ("Days to Due", "formula", 11), ("Current NMOS", "num", 12), ("Current PMOS", "num", 12),
+        ("Current TMOS", "num", 12), ("Program", "text", 16), ("Quarter", "center", 9), ("Year", "center", 8),
+    ]
+    headers = [h for h, _, _ in spec]
+    col_of = {h: i + 1 for i, h in enumerate(headers)}
+    L = {h: get_column_letter(i) for h, i in col_of.items()}
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Action Plan Follow Up"
+    ws.sheet_view.showGridLines = False
+
+    navy, blue = "1A5276", "2E86C1"
+    thin = Side(style="thin", color="BFC9D1")
+    border = Border(left=thin, right=thin, top=thin, bottom=thin)
+
+    n_cols = len(headers)
+    last_col = get_column_letter(n_cols)
+
+    # ---- title block
+    ws.merge_cells(f"A1:{last_col}1")
+    ws["A1"] = "Action Plan Follow Up"
+    ws["A1"].font = Font(name=FN, size=18, bold=True, color="FFFFFF")
+    ws["A1"].fill = PatternFill("solid", fgColor=navy)
+    ws["A1"].alignment = Alignment(horizontal="left", vertical="center", indent=1)
+    ws.row_dimensions[1].height = 32
+    ws.merge_cells(f"A2:{last_col}2")
+    ws["A2"] = f"Program: {program_title}" + (f"   |   Period: {period_label}" if period_label else "")
+    ws["A2"].font = Font(name=FN, size=12, bold=True, color=navy)
+    ws["A2"].alignment = Alignment(horizontal="left", indent=1)
+    ws.merge_cells(f"A3:{last_col}3")
+    ws["A3"] = f"Generated: {datetime.now().strftime('%b %d, %Y %H:%M')}   |   'Days to Due' updates automatically every time the file is opened"
+    ws["A3"].font = Font(name=FN, size=10, italic=True, color="555555")
+    ws["A3"].alignment = Alignment(horizontal="left", indent=1)
+
+    hdr_row = 5
+    first = hdr_row + 1
+
+    # ---- header
+    for h, i in col_of.items():
+        c = ws.cell(row=hdr_row, column=i, value=h)
+        c.font = Font(name=FN, size=11, bold=True, color="FFFFFF")
+        c.fill = PatternFill("solid", fgColor=blue)
+        c.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+        c.border = border
+    ws.row_dimensions[hdr_row].height = 30
+
+    # ---- body
+    rows = df.to_dict("records")
+    for r_i, rec in enumerate(rows):
+        r = first + r_i
+        status = _clean(rec.get("Status")) or "Pending"
+        vals = {
+            "Material": _clean(rec.get("Material")),
+            "NMOS": _to_num(rec.get("NMOS")),
+            "Purchase Order": _clean(rec.get("Purchase Order")),
+            "Order Quantity": _to_num(rec.get("Order Quantity")),
+            "Identified Problem": _clean(rec.get("Identified Problem")),
+            "Action Point": _clean(rec.get("Action Point")),
+            "Responsible Body": _clean(rec.get("Responsible Body")),
+            "Due Date": _to_date(rec.get("Due Date")),
+            "Completion Date": _to_date(rec.get("Completion Date")),
+            "Level of Urgency": _clean(rec.get("Level of Urgency")).title(),
+            "Status": status,
+            "Timeliness": _clean(rec.get("Timeliness")),
+            "Current NMOS": _to_num(rec.get("Current NMOS")),
+            "Current PMOS": _to_num(rec.get("Current PMOS")),
+            "Current TMOS": _to_num(rec.get("Current TMOS")),
+            "Program": _clean(rec.get("Program")),
+            "Quarter": _clean(rec.get("Quarter")),
+            "Year": _clean(rec.get("Year")),
+        }
+        due_ref, st_ref = f"{L['Due Date']}{r}", f"{L['Status']}{r}"
+        vals["Days to Due"] = (f'=IF(OR({st_ref}="Completed",{st_ref}="Partially Completed",{due_ref}=""),"",'
+                               f'{due_ref}-TODAY())')
+        for h, kind, _w in spec:
+            c = ws.cell(row=r, column=col_of[h], value=vals[h])
+            c.font = Font(name=FN, size=11, bold=(h == "Material"))
+            c.border = border
+            if kind == "wrap":
+                c.alignment = Alignment(wrap_text=True, vertical="top")
+            elif kind == "date":
+                c.number_format = "dd-mmm-yyyy"
+                c.alignment = Alignment(horizontal="center", vertical="top")
+            elif kind == "num":
+                if isinstance(vals[h], float):
+                    c.number_format = "#,##0.00" if h != "Order Quantity" else "#,##0"
+                c.alignment = Alignment(horizontal="center", vertical="top")
+            elif kind == "formula":
+                c.number_format = '0;[Red]-0;0'
+                c.alignment = Alignment(horizontal="center", vertical="top")
+            elif kind == "center":
+                c.alignment = Alignment(horizontal="center", vertical="top")
+            else:
+                c.alignment = Alignment(vertical="top", wrap_text=(h == "Material"))
+        # row height heuristic for wrapped text
+        longest = max(len(str(vals["Identified Problem"])), len(str(vals["Action Point"])))
+        ws.row_dimensions[r].height = max(20, min(150, 15 * (longest // 42 + 1)))
+
+    last = first + max(len(rows), 1) - 1
+
+    for h, _k, w in spec:
+        ws.column_dimensions[L[h]].width = w
+
+    # ---- Excel table (filter buttons, banding)
+    tbl = Table(displayName="ActionPlanFollowUp", ref=f"A{hdr_row}:{last_col}{last}")
+    tbl.tableStyleInfo = TableStyleInfo(name="TableStyleLight9", showRowStripes=True,
+                                        showFirstColumn=False, showLastColumn=False)
+    ws.add_table(tbl)
+    ws.freeze_panes = ws.cell(row=first, column=col_of["Material"] + 1)
+
+    # ---- dropdowns
+    rng = lambda h: f"{L[h]}{first}:{L[h]}{last}"
+    dv_status = DataValidation(type="list", allow_blank=True, showErrorMessage=False,
+                               formula1='"Pending,Initiated,Ongoing,Partially Completed,Completed"')
+    dv_urg = DataValidation(type="list", allow_blank=True, showErrorMessage=False,
+                            formula1='"High,Medium,Low"')
+    ws.add_data_validation(dv_status)
+    ws.add_data_validation(dv_urg)
+    dv_status.add(rng("Status"))
+    dv_urg.add(rng("Level of Urgency"))
+
+    # ---- colour rules (Status / Timeliness / Urgency / overdue dates)
+    def rule(h, text, fill, font_color="FFFFFF"):
+        top = f"{L[h]}{first}"
+        ws.conditional_formatting.add(
+            rng(h),
+            FormulaRule(formula=[f'{top}="{text}"'],
+                        fill=PatternFill("solid", bgColor=fill, fgColor=fill),
+                        font=Font(name=FN, bold=True, color=font_color)))
+
+    for t, col, fc in [("Completed", "28A745", "FFFFFF"), ("Ongoing", "2E86C1", "FFFFFF"),
+                       ("Partially Completed", "17A2B8", "FFFFFF"), ("Pending", "FFC107", "333333"),
+                       ("Initiated", "6F42C1", "FFFFFF")]:
+        rule("Status", t, col, fc)
+    for t, col, fc in [("On Time", "28A745", "FFFFFF"), ("Late", "FCC419", "333333"),
+                       ("Overdue", "DC3545", "FFFFFF"), ("Not Yet Due", "2E86C1", "FFFFFF")]:
+        rule("Timeliness", t, col, fc)
+    for t, col, fc in [("High", "DC3545", "FFFFFF"), ("Medium", "FCC419", "333333"), ("Low", "1971C2", "FFFFFF")]:
+        rule("Level of Urgency", t, col, fc)
+    dd = f"{L['Days to Due']}{first}"
+    ws.conditional_formatting.add(
+        rng("Days to Due"),
+        FormulaRule(formula=[f'AND(ISNUMBER({dd}),{dd}<0)'],
+                    font=Font(name=FN, bold=True, color="DC3545")))
+    ws.conditional_formatting.add(
+        rng("Due Date"),
+        FormulaRule(formula=[f'AND(ISNUMBER(${L["Days to Due"]}{first}),${L["Days to Due"]}{first}<0)'],
+                    font=Font(name=FN, bold=True, color="DC3545")))
+
+    # ---- print setup
+    ws.page_setup.orientation = "landscape"
+    ws.page_setup.fitToWidth = 1
+    ws.page_setup.fitToHeight = 0
+    ws.sheet_properties.pageSetUpPr.fitToPage = True
+    ws.print_title_rows = f"{hdr_row}:{hdr_row}"
+    ws.oddFooter.center.text = "Page &P of &N"
+
+    # ================= Summary sheet (live formulas)
+    sm = wb.create_sheet("Summary")
+    sm.sheet_view.showGridLines = False
+    sm.column_dimensions["A"].width = 26
+    sm.column_dimensions["B"].width = 12
+    sm.column_dimensions["C"].width = 14
+    sm.merge_cells("A1:C1")
+    sm["A1"] = f"Summary - {program_title}"
+    sm["A1"].font = Font(name=FN, size=16, bold=True, color="FFFFFF")
+    sm["A1"].fill = PatternFill("solid", fgColor=navy)
+    sm["A1"].alignment = Alignment(horizontal="left", vertical="center", indent=1)
+    sm.row_dimensions[1].height = 28
+
+    sheet_ref = "'Action Plan Follow Up'!"
+    total_cell = None
+    row = 3
+
+    def block(title, header_key, items):
+        nonlocal row
+        sm.cell(row=row, column=1, value=title).font = Font(name=FN, size=12, bold=True, color="FFFFFF")
+        for ci in (1, 2, 3):
+            sm.cell(row=row, column=ci).fill = PatternFill("solid", fgColor=blue)
+        sm.cell(row=row, column=2, value="Count").font = Font(name=FN, bold=True, color="FFFFFF")
+        sm.cell(row=row, column=3, value="% of total").font = Font(name=FN, bold=True, color="FFFFFF")
+        sm.cell(row=row, column=2).alignment = Alignment(horizontal="center")
+        sm.cell(row=row, column=3).alignment = Alignment(horizontal="center")
+        row += 1
+        start = row
+        data_rng = f"{sheet_ref}${L[header_key]}${first}:${L[header_key]}${last}"
+        for it in items:
+            a = sm.cell(row=row, column=1, value=it)
+            b = sm.cell(row=row, column=2, value=f'=COUNTIF({data_rng},A{row})')
+            c = sm.cell(row=row, column=3, value=f'=IF(SUM($B${start}:$B${start + len(items) - 1})=0,0,B{row}/SUM($B${start}:$B${start + len(items) - 1}))')
+            c.number_format = "0%"
+            for cell in (a, b, c):
+                cell.font = Font(name=FN, size=11)
+                cell.border = border
+            b.alignment = Alignment(horizontal="center")
+            c.alignment = Alignment(horizontal="center")
+            row += 1
+        sm.conditional_formatting.add(f"B{start}:B{row - 1}", DataBarRule(
+            start_type="num", start_value=0, end_type="max", color="2E86C1", showValue=True))
+        row += 1
+
+    block("Status", "Status", ["Completed", "Partially Completed", "Ongoing", "Pending", "Initiated"])
+    block("Timeliness", "Timeliness", ["On Time", "Late", "Overdue", "Not Yet Due"])
+    block("Level of Urgency", "Level of Urgency", ["High", "Medium", "Low"])
+
+    sm.cell(row=row, column=1, value="Total action points").font = Font(name=FN, bold=True, size=11)
+    t = sm.cell(row=row, column=2, value=f"=COUNTA({sheet_ref}${L['Material']}${first}:${L['Material']}${last})")
+    t.font = Font(name=FN, bold=True, size=11)
+    t.alignment = Alignment(horizontal="center")
+    row += 1
+    sm.cell(row=row, column=1, value="Completion rate").font = Font(name=FN, bold=True, size=11)
+    cr = sm.cell(row=row, column=2, value=f"=IF(B{row - 1}=0,0,COUNTIF({sheet_ref}${L['Status']}${first}:${L['Status']}${last},\"Completed\")/B{row - 1})")
+    cr.number_format = "0%"
+    cr.font = Font(name=FN, bold=True, size=11, color="28A745")
+    cr.alignment = Alignment(horizontal="center")
+    row += 1
+    sm.cell(row=row, column=1, value="On-time rate").font = Font(name=FN, bold=True, size=11)
+    otr = sm.cell(row=row, column=2, value=f"=IF(B{row - 2}=0,0,COUNTIF({sheet_ref}${L['Timeliness']}${first}:${L['Timeliness']}${last},\"On Time\")/B{row - 2})")
+    otr.number_format = "0%"
+    otr.font = Font(name=FN, bold=True, size=11, color="28A745")
+    otr.alignment = Alignment(horizontal="center")
+
+    buf = BytesIO()
+    wb.save(buf)
+    return buf.getvalue()
+
+
 def render_ap_progress_follow_up(sheet_name, selected_quarter, selected_year, selected_status):
     records = load_expert_plan_records(
         sheet_name if sheet_name != "All" else None,
@@ -6408,6 +6732,21 @@ def render_ap_progress_follow_up(sheet_name, selected_quarter, selected_year, se
 
     if 'Level of Urgency' not in display_df.columns:
         display_df['Level of Urgency'] = ''
+
+    # --- Smart Excel export of the Follow Up table (all columns) ---
+    try:
+        _xl_title = ", ".join(program_filter) if program_filter else "All Programs"
+        _xl_period = f"{target_quarter} {target_year}" if (target_quarter and target_year) else ""
+        st.download_button(
+            label="📥 Download Action Plan Follow Up (Excel)",
+            data=build_followup_xlsx(display_df, _xl_title, _xl_period),
+            file_name=f"action_plan_follow_up_{sheet_name}_{datetime.now().strftime('%Y%m%d')}.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            width='stretch',
+            key="dl_followup_xlsx"
+        )
+    except Exception as _xl_err:
+        st.caption(f"Excel export unavailable: {_xl_err}")
 
     _dl_expert_col, _dl_update_col = st.columns(2)
     _ppt_title = ", ".join(program_filter) if program_filter else "All Programs"
@@ -9757,27 +10096,36 @@ def main():
             </div>
             """, unsafe_allow_html=True)
 
-            def urgency_card_html(icon, count, label, color, text_color="#fff", is_active=False):
-                glow = " box-shadow: 0 4px 20px rgba(255,215,0,0.45);" if is_active else ""
+            def urgency_card_html(icon, count, label, css_class, total_n, is_active=False):
+                # Solid gradient card, horizontal layout with a share-of-total bar -
+                # intentionally different from the white/outlined Timeliness cards.
+                active_class = "active" if is_active else ""
+                share = (count / total_n * 100) if total_n else 0
                 return f"""
-                <div class="progress-status-card" style="background: #ffffff; border: 2px solid {color};{glow}">
-                    <div class="status-icon">{icon}</div>
-                    <div class="status-number" style="color: {color};">{count}</div>
-                    <div class="status-label" style="color: #555;">{label}</div>
+                <div class="progress-status-card urg-card {css_class} {active_class}">
+                    <div class="urg-left">
+                        <div class="urg-icon">{icon}</div>
+                        <div>
+                            <div class="urg-label">{label} Urgency</div>
+                            <div class="urg-sub">{share:.0f}% of action points</div>
+                        </div>
+                    </div>
+                    <div class="urg-count">{count}</div>
+                    <div class="urg-bar" style="width: {share:.0f}%;"></div>
                 </div>
                 """
 
             ucol1, ucol2, ucol3 = st.columns(3)
             _urg_cards = [
-                (ucol1, "High",   _urg_high,   "🔴", "#dc3545"),
-                (ucol2, "Medium", _urg_medium, "🟡", "#fcc419"),
-                (ucol3, "Low",    _urg_low,    "🔵", "#1971c2"),
+                (ucol1, "High",   _urg_high,   "🔥", "urg-high"),
+                (ucol2, "Medium", _urg_medium, "⚡", "urg-medium"),
+                (ucol3, "Low",    _urg_low,    "🌱", "urg-low"),
             ]
-            for _col, _label, _count, _icon, _color in _urg_cards:
+            for _col, _label, _count, _icon, _cls in _urg_cards:
                 with _col:
                     _clickable_card(
                         f"urg_{_label.lower()}",
-                        urgency_card_html(_icon, _count, _label, _color,
+                        urgency_card_html(_icon, _count, _label, _cls, total,
                                           is_active=_sel == ('urgency', _label)),
                         'urgency', _label)
 
