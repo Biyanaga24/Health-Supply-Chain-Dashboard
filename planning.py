@@ -5791,15 +5791,6 @@ def build_action_plan_pptx(df, program_title="All Programs", col_spec=None, deck
 
     cols = [(k, lbl, w) for k, lbl, w in (col_spec or _PPT_ACTION_PLAN_COLS) if k in df.columns]
     data = clean_dataframe_for_excel(df[[k for k, _, _ in cols]].copy()).fillna("")
-    # One group of slides per Program: each program starts on its own slide, titled with the program name.
-    if 'Program' in df.columns:
-        _prog = df['Program'].fillna("").astype(str).str.strip().replace("", program_title).tolist()
-    else:
-        _prog = [program_title] * len(df)
-    groups = {}
-    for i, pg in enumerate(_prog):
-        groups.setdefault(pg, []).append(i)
-    group_order = sorted(groups) if len(groups) > 1 else list(groups)
 
     prs = Presentation()
     prs.slide_width, prs.slide_height = Inches(13.333), Inches(7.5)
@@ -5822,22 +5813,17 @@ def build_action_plan_pptx(df, program_title="All Programs", col_spec=None, deck
         return lines * line_h + pad_h
 
     heights = [row_height(r) for r in data.astype(str).values.tolist()]
-    pages = []   # (program, [row indexes], page number within the program, pages for the program)
-    for pg in group_order:
-        grp_pages, cur, cur_h = [], [], header_h
-        for i in groups[pg]:
-            h = heights[i]
-            if cur and cur_h + h > avail_h:
-                grp_pages.append(cur)
-                cur, cur_h = [], header_h
-            cur.append(i)
-            cur_h += h
-        if cur:
-            grp_pages.append(cur)
-        for n, idxs in enumerate(grp_pages, start=1):
-            pages.append((pg, idxs, n, len(grp_pages)))
+    pages, cur, cur_h = [], [], header_h
+    for i, h in enumerate(heights):
+        if cur and cur_h + h > avail_h:
+            pages.append(cur)
+            cur, cur_h = [], header_h
+        cur.append(i)
+        cur_h += h
+    if cur:
+        pages.append(cur)
     if not pages:
-        pages = [(program_title, [], 1, 1)]
+        pages = [[]]
 
     NAVY, LIGHT, DARK = RGBColor(0x1E, 0x3C, 0x72), RGBColor(0xF2, 0xF5, 0xFA), RGBColor(0x22, 0x22, 0x22)
 
@@ -5862,7 +5848,7 @@ def build_action_plan_pptx(df, program_title="All Programs", col_spec=None, deck
     centered = {'NMOS', 'Purchase Order', 'Order Quantity', 'Status', 'Timeliness',
                 'Current NMOS', 'Current PMOS', 'Current TMOS', 'Due Date', 'Level of Urgency'}
 
-    for pg_name, idxs, pg_no, pg_total in pages:
+    for pi, idxs in enumerate(pages, start=1):
         slide = prs.slides.add_slide(blank)
         tb = slide.shapes.add_textbox(Inches(margin), Inches(title_top), Inches(total_w), Inches(title_h))
         tf = tb.text_frame
@@ -5870,8 +5856,8 @@ def build_action_plan_pptx(df, program_title="All Programs", col_spec=None, deck
         tf.margin_left = tf.margin_top = tf.margin_bottom = 0
         tf.paragraphs[0].alignment = PP_ALIGN.LEFT
         r = tf.paragraphs[0].add_run()
-        suffix = f" ({pg_no}/{pg_total})" if pg_total > 1 else ""
-        r.text = f"{pg_name} - {deck_title}{suffix}"
+        suffix = f" ({pi}/{len(pages)})" if len(pages) > 1 else ""
+        r.text = f"{deck_title} - {program_title}{suffix}"
         r.font.size, r.font.bold, r.font.name, r.font.color.rgb = Pt(20), True, "Calibri", NAVY
 
         n_rows = len(idxs) + 1
@@ -6324,37 +6310,35 @@ def render_ap_progress_follow_up(sheet_name, selected_quarter, selected_year, se
     view_mode = st.session_state.get("followup_view_mode", "Table")
 
     if view_mode == "Table":
-        from html import escape as _html_escape
-        html_table = '<div class="dataframe-container"><table class="styled-table" style="font-family: Times New Roman, Times, serif !important; font-size: 14px; width: 100%; table-layout: fixed;"><thead><tr>'
+        html_table = '<div class="dataframe-container"><table class="styled-table" style="font-family: Times New Roman, Times, serif !important; font-size: 14px; width: 100%;"><thead><tr>'
         for col in cols_to_display:
             if col == 'Status Display':
-                html_table += '<th style="font-family: Times New Roman, Times, serif !important; font-size: 15px; width: 5%;">Status</th>'
+                html_table += '<th style="font-family: Times New Roman, Times, serif !important; font-size: 15px; width: 9%;">Status</th>'
             elif col == 'Timeliness':
-                html_table += '<th style="font-family: Times New Roman, Times, serif !important; font-size: 15px; width: 6%; text-align: center;">Timeliness</th>'
+                html_table += '<th style="font-family: Times New Roman, Times, serif !important; font-size: 15px; width: 12%; text-align: center;">Timeliness</th>'
             elif col == 'Material':
-                html_table += '<th style="font-family: Times New Roman, Times, serif !important; font-size: 15px; width: 8%;">Material</th>'
+                html_table += '<th style="font-family: Times New Roman, Times, serif !important; font-size: 15px; width: 12%;">Material</th>'
             elif col == 'NMOS':
-                html_table += '<th style="font-family: Times New Roman, Times, serif !important; font-size: 14px; width: 4%; text-align: center;">NMOS</th>'
+                html_table += '<th style="font-family: Times New Roman, Times, serif !important; font-size: 14px; width: 7%; text-align: center;">NMOS</th>'
             elif col == 'Purchase Order':
-                html_table += '<th style="font-family: Times New Roman, Times, serif !important; font-size: 14px; width: 5%; text-align: center;">Purchase Order</th>'
+                html_table += '<th style="font-family: Times New Roman, Times, serif !important; font-size: 14px; width: 8%; text-align: center;">Purchase Order</th>'
             elif col == 'Order Quantity':
-                html_table += '<th style="font-family: Times New Roman, Times, serif !important; font-size: 14px; width: 5%; text-align: center;">Order Quantity</th>'
+                html_table += '<th style="font-family: Times New Roman, Times, serif !important; font-size: 14px; width: 8%; text-align: center;">Order Quantity</th>'
             elif col == 'Identified Problem':
-                html_table += '<th style="font-family: Times New Roman, Times, serif !important; font-size: 15px; width: 19%;">Identified Problem</th>'
+                html_table += '<th style="font-family: Times New Roman, Times, serif !important; font-size: 15px; width: 18%;">Identified Problem</th>'
             elif col == 'Action Point':
-                html_table += '<th style="font-family: Times New Roman, Times, serif !important; font-size: 15px; width: 19%;">Action Point</th>'
+                html_table += '<th style="font-family: Times New Roman, Times, serif !important; font-size: 15px; width: 18%;">Action Point</th>'
             elif col == 'Responsible Body':
-                html_table += '<th style="font-family: Times New Roman, Times, serif !important; font-size: 15px; width: 7%;">Responsible Body</th>'
+                html_table += '<th style="font-family: Times New Roman, Times, serif !important; font-size: 15px; width: 11%;">Responsible Body</th>'
             elif col == 'Due Date':
-                html_table += '<th style="font-family: Times New Roman, Times, serif !important; font-size: 15px; width: 6%;">Due Date</th>'
+                html_table += '<th style="font-family: Times New Roman, Times, serif !important; font-size: 15px; width: 9%;">Due Date</th>'
             elif col == 'Level of Urgency':
-                html_table += '<th style="font-family: Times New Roman, Times, serif !important; font-size: 15px; width: 5%; text-align: center;">Level of Urgency</th>'
+                html_table += '<th style="font-family: Times New Roman, Times, serif !important; font-size: 15px; width: 8%; text-align: center;">Level of Urgency</th>'
             elif col in ['Current NMOS', 'Current PMOS', 'Current TMOS']:
-                html_table += f'<th style="font-family: Times New Roman, Times, serif !important; font-size: 13px; width: 3.7%; text-align: center;">{col}</th>'
+                html_table += f'<th style="font-family: Times New Roman, Times, serif !important; font-size: 13px; width: 7%; text-align: center;">{col}</th>'
             else:
                 html_table += f'<th style="font-family: Times New Roman, Times, serif !important; font-size: 15px;">{col}</th>'
         html_table += '</tr></thead><tbody>'
-        html_table = html_table.replace('<table class="styled-table"', '<style>.fu-tbl th, .fu-tbl td {padding: 8px 6px !important; overflow-wrap: anywhere;}</style><table class="styled-table fu-tbl"', 1)
 
         for _, row in display_df.iterrows():
             html_table += '<tr class="clickable-row" data-material="' + str(row.get('Material', '')) + '">'
@@ -6362,7 +6346,7 @@ def render_ap_progress_follow_up(sheet_name, selected_quarter, selected_year, se
                 if col == 'Status Display':
                     html_table += f'<td style="font-family: Times New Roman, Times, serif !important; font-size: 14px; text-align: center;">{row[col]}</td>'
                 elif col == 'Timeliness':
-                    html_table += f'<td style="font-family: Times New Roman, Times, serif !important; font-size: 14px; text-align: center; word-break: break-word;">{row.get(col, "")}</td>'
+                    html_table += f'<td style="font-family: Times New Roman, Times, serif !important; font-size: 14px; text-align: center; white-space: nowrap;">{row.get(col, "")}</td>'
                 elif col == 'Material':
                     html_table += f'<td style="font-family: Times New Roman, Times, serif !important; font-size: 14px; font-weight: 500;">{row.get(col, "")}</td>'
                 elif col == 'NMOS':
@@ -6372,11 +6356,11 @@ def render_ap_progress_follow_up(sheet_name, selected_quarter, selected_year, se
                 elif col in ['Current NMOS', 'Current PMOS', 'Current TMOS']:
                     html_table += f'<td style="font-family: Times New Roman, Times, serif !important; font-size: 14px; text-align: center;">{row.get(col, "N/A")}</td>'
                 elif col == 'Identified Problem':
-                    html_table += f'<td style="font-family: Times New Roman, Times, serif !important; font-size: 14px; vertical-align: top;"><div title="{_html_escape(str(row.get(col, "")))}" style="display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; line-height: 1.35;">{row.get(col, "")}</div></td>'
+                    html_table += f'<td style="font-family: Times New Roman, Times, serif !important; font-size: 14px; min-width: 200px;">{row.get(col, "")}</td>'
                 elif col == 'Action Point':
-                    html_table += f'<td style="font-family: Times New Roman, Times, serif !important; font-size: 14px; vertical-align: top;"><div title="{_html_escape(str(row.get(col, "")))}" style="display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; line-height: 1.35;">{row.get(col, "")}</div></td>'
+                    html_table += f'<td style="font-family: Times New Roman, Times, serif !important; font-size: 14px; min-width: 200px;">{row.get(col, "")}</td>'
                 elif col == 'Due Date':
-                    html_table += f'<td style="font-family: Times New Roman, Times, serif !important; font-size: 14px; text-align: center; word-break: break-word;">{row.get(col, "")}</td>'
+                    html_table += f'<td style="font-family: Times New Roman, Times, serif !important; font-size: 14px; text-align: center; white-space: nowrap;">{row.get(col, "")}</td>'
                 elif col == 'Level of Urgency':
                     html_table += f'<td style="font-family: Times New Roman, Times, serif !important; font-size: 14px; text-align: center;">{row.get(col, "") or ""}</td>'
                 else:
@@ -8519,8 +8503,7 @@ def render_summary_card_table(df_records, kind, value):
     else:
         cols = ['Material', 'Program', 'NMOS', 'Purchase Order', 'Order Quantity', 'Identified Problem',
                 'Action Point', 'Responsible Body', 'Due Date', 'Level of Urgency', 'Completion Date', 'Status', 'Timeliness']
-        _sw = {'Material': 9, 'Program': 6, 'NMOS': 4, 'Purchase Order': 5, 'Order Quantity': 5, 'Identified Problem': 19, 'Action Point': 19, 'Responsible Body': 7, 'Due Date': 6, 'Level of Urgency': 4, 'Completion Date': 6, 'Status': 5, 'Timeliness': 5}
-        head = ''.join(f'<th style="{f} font-size:15px; width:{_sw.get(c, 6)}%;">{c}</th>' for c in cols)
+        head = ''.join(f'<th style="{f} font-size:15px;">{c}</th>' for c in cols)
         body = []
         for _, r in sub.iterrows():
             nmos = r.get('NMOS')
@@ -8535,19 +8518,18 @@ def render_summary_card_table(df_records, kind, value):
                 f'<td style="{f} text-align:center;">{nmos}</td>',
                 f'<td style="{f} text-align:center;">{esc(r.get("Purchase Order"))}</td>',
                 f'<td style="{f} text-align:center;">{esc(r.get("Order Quantity"))}</td>',
-                f'<td style="{f} vertical-align:top;"><div title="{esc(r.get("Identified Problem"))}" style="display:-webkit-box; -webkit-line-clamp:3; -webkit-box-orient:vertical; overflow:hidden; line-height:1.35;">{esc(r.get("Identified Problem"))}</div></td>',
-                f'<td style="{f} vertical-align:top;"><div title="{esc(r.get("Action Point"))}" style="display:-webkit-box; -webkit-line-clamp:3; -webkit-box-orient:vertical; overflow:hidden; line-height:1.35;">{esc(r.get("Action Point"))}</div></td>',
+                f'<td style="{f} min-width:200px;">{esc(r.get("Identified Problem"))}</td>',
+                f'<td style="{f} min-width:200px;">{esc(r.get("Action Point"))}</td>',
                 f'<td style="{f}">{esc(r.get("Responsible Body"))}</td>',
-                f'<td style="{f} text-align:center; word-break:break-word;">{esc(_fmt_date_pretty(r.get("Due Date")))}</td>',
+                f'<td style="{f} text-align:center; white-space:nowrap;">{esc(_fmt_date_pretty(r.get("Due Date")))}</td>',
                 f'<td style="{f} text-align:center;">{esc(r.get("Level of Urgency"))}</td>',
-                f'<td style="{f} text-align:center; word-break:break-word;">{esc(_fmt_date_pretty(r.get("Completion Date")))}</td>',
+                f'<td style="{f} text-align:center; white-space:nowrap;">{esc(_fmt_date_pretty(r.get("Completion Date")))}</td>',
                 f'<td style="{f} text-align:center;">{_badge(r.get("Status"))}</td>',
-                f'<td style="{f} text-align:center; word-break:break-word;">{_SUMMARY_TIMELINESS_ICONS.get(t, "")} {esc(t)}</td>',
+                f'<td style="{f} text-align:center; white-space:nowrap;">{_SUMMARY_TIMELINESS_ICONS.get(t, "")} {esc(t)}</td>',
             ]
             body.append('<tr>' + ''.join(cells) + '</tr>')
         st.markdown(
-            '<style>.sc-tbl th, .sc-tbl td {padding: 8px 6px !important; overflow-wrap: anywhere;}</style>'
-            '<div class="dataframe-container"><table class="styled-table sc-tbl" style="width:100%; table-layout:fixed;">'
+            '<div class="dataframe-container"><table class="styled-table" style="width:100%;">'
             f'<thead><tr>{head}</tr></thead><tbody>{"".join(body)}</tbody></table></div>',
             unsafe_allow_html=True
         )
