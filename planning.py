@@ -743,12 +743,23 @@ def _sc_badge(text, color):
 def _urgency_color(u):
     u = str(u or "").lower()
     if any(k in u for k in ("critical", "high", "urgent", "immediate")):
-        return "#dc3545"
+        return "#dc3545"   # red
     if "medium" in u or "moderate" in u:
-        return "#fd7e14"
+        return "#fcc419"   # yellow
     if "low" in u:
-        return "#28a745"
+        return "#1971c2"   # blue
     return "#6c757d"
+
+
+def _urgency_badge_html(urgency_val):
+    """Return a colored HTML badge for the Level of Urgency cell/chip."""
+    u = str(urgency_val or "").strip()
+    if not u:
+        return ""
+    color = _urgency_color(u)
+    text_color = "#333" if _urgency_color(u) == "#fcc419" else "#fff"
+    return (f'<span style="display:inline-block;padding:2px 10px;border-radius:12px;'
+            f'background:{color};color:{text_color};font-size:12px;font-weight:600;">{_html.escape(u)}</span>')
 
 
 def _stock_style_card_html(title, badge_html, metrics, problem, action, chips):
@@ -826,11 +837,13 @@ def _stock_info_card_html(title, rows, system_items):
     out += '<div class="sc-sub">System Generated Action Items</div>'
     if system_items:
         for i, it in enumerate(system_items, 1):
+            _urg_raw = it.get("urgency") or ""
+            _urg_badge = _urgency_badge_html(_urg_raw) if _urg_raw else "-"
             out += (f'<div class="sc-sys"><b>{i}. Identified Problem:</b> {_sc_val(it.get("problem"))}'
                     f'<br><b>Action Point:</b> {_sc_val(it.get("action"))}'
                     f'<div class="meta"><b>Responsible:</b> {_sc_val(it.get("responsible")) or "-"} &nbsp;|&nbsp; '
                     f'<b>Due:</b> {_sc_val(it.get("due_date")) or "-"} &nbsp;|&nbsp; '
-                    f'<b>Urgency:</b> {_sc_val(it.get("urgency")) or "-"}</div></div>')
+                    f'<b>Urgency:</b> {_urg_badge}</div></div>')
     else:
         out += '<div class="sc-sys">None</div>'
     out += '</div></div>'
@@ -3936,7 +3949,7 @@ def render_system_generated_action_plan(action_df, material_problems, sheet_name
                 f'<td class="col-action">{action}</td>'
                 f'<td class="col-responsible">{responsible}</td>'
                 f'<td class="col-date">{due_date}</td>'
-                f'<td class="col-status">{urgency}</td>'
+                f'<td class="col-status">{_urgency_badge_html(urgency)}</td>'
                 f'</tr>'
             )
 
@@ -5516,7 +5529,7 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
                             'Action Point':       f'<td class="col-action">{action}</td>',
                             'Responsible Body':   f'<td class="col-responsible">{resp}</td>',
                             'Due Date':           f'<td class="col-date">{due}</td>',
-                            'Level of Urgency':   f'<td class="col-status">{urgency}</td>',
+                            'Level of Urgency':   f'<td class="col-status">{_urgency_badge_html(urgency)}</td>',
                             'Completion Date':    f'<td class="col-date">{completion_display}</td>',
                             'Status':             f'<td class="col-status">{status}</td>',
                             'Timeliness':         f'<td class="col-status">{timeliness_html}</td>',
@@ -6362,7 +6375,7 @@ def render_ap_progress_follow_up(sheet_name, selected_quarter, selected_year, se
                 elif col == 'Due Date':
                     html_table += f'<td style="font-family: Times New Roman, Times, serif !important; font-size: 14px; text-align: center; white-space: nowrap;">{row.get(col, "")}</td>'
                 elif col == 'Level of Urgency':
-                    html_table += f'<td style="font-family: Times New Roman, Times, serif !important; font-size: 14px; text-align: center;">{row.get(col, "") or ""}</td>'
+                    html_table += f'<td style="font-family: Times New Roman, Times, serif !important; font-size: 14px; text-align: center;">{_urgency_badge_html(row.get(col, "") or "")}</td>'
                 else:
                     html_table += f'<td style="font-family: Times New Roman, Times, serif !important; font-size: 14px;">{row.get(col, "")}</td>'
             html_table += '</tr>'
@@ -8493,7 +8506,7 @@ def render_summary_card_table(df_records, kind, value):
                     <div class="responsible full-width">
                         <span><strong>👤 Responsible:</strong> {esc(r.get('Responsible Body'))}</span>
                         <span><strong>📅 Due:</strong> {esc(_fmt_date_pretty(r.get('Due Date')))}</span>
-                        <span><strong>🚦 Urgency:</strong> {esc(r.get('Level of Urgency'))}</span>
+                        <span><strong>🚦 Urgency:</strong> {_urgency_badge_html(r.get('Level of Urgency'))}</span>
                         <span><strong>⏱️ Timeliness:</strong> {_SUMMARY_TIMELINESS_ICONS.get(t, '')} {esc(t)}</span>
                     </div>
                 </div>
@@ -8522,7 +8535,7 @@ def render_summary_card_table(df_records, kind, value):
                 f'<td style="{f} min-width:200px;">{esc(r.get("Action Point"))}</td>',
                 f'<td style="{f}">{esc(r.get("Responsible Body"))}</td>',
                 f'<td style="{f} text-align:center; white-space:nowrap;">{esc(_fmt_date_pretty(r.get("Due Date")))}</td>',
-                f'<td style="{f} text-align:center;">{esc(r.get("Level of Urgency"))}</td>',
+                f'<td style="{f} text-align:center;">{_urgency_badge_html(r.get("Level of Urgency"))}</td>',
                 f'<td style="{f} text-align:center; white-space:nowrap;">{esc(_fmt_date_pretty(r.get("Completion Date")))}</td>',
                 f'<td style="{f} text-align:center;">{_badge(r.get("Status"))}</td>',
                 f'<td style="{f} text-align:center; white-space:nowrap;">{_SUMMARY_TIMELINESS_ICONS.get(t, "")} {esc(t)}</td>',
@@ -9713,6 +9726,34 @@ def main():
                         f"time_{_label.replace(' ', '_').lower()}",
                         timeliness_card_html(_icon, _count, _label, _color, _sel == ('timeliness', _label)),
                         'timeliness', _label)
+
+            # --- Level of Urgency summary (shown next to the Timeliness cards) ---
+            _urg_col = df_records.get('Level of Urgency', pd.Series(dtype=str)) if 'Level of Urgency' in df_records.columns else pd.Series(dtype=str)
+            _urg_high   = int((_urg_col.str.lower().str.strip() == 'high').sum())
+            _urg_medium = int((_urg_col.str.lower().str.strip() == 'medium').sum())
+            _urg_low    = int((_urg_col.str.lower().str.strip() == 'low').sum())
+            st.markdown(f"""
+            <div style="margin-top: 10px; padding: 10px 16px; background: #fff;
+                        border-radius: 10px; box-shadow: 0 1px 6px rgba(0,0,0,0.07);
+                        border-left: 4px solid #adb5bd; display: flex; align-items: center;
+                        flex-wrap: wrap; gap: 10px;">
+                <span style="font-size:14px; font-weight:700; color:#1a5276; margin-right:4px;">
+                    🚦 Level of Urgency:
+                </span>
+                <span style="display:inline-block; padding:4px 14px; border-radius:14px;
+                             background:#dc3545; color:#fff; font-size:13px; font-weight:700;">
+                    🔴 High: {_urg_high}
+                </span>
+                <span style="display:inline-block; padding:4px 14px; border-radius:14px;
+                             background:#fcc419; color:#333; font-size:13px; font-weight:700;">
+                    🟡 Medium: {_urg_medium}
+                </span>
+                <span style="display:inline-block; padding:4px 14px; border-radius:14px;
+                             background:#1971c2; color:#fff; font-size:13px; font-weight:700;">
+                    🔵 Low: {_urg_low}
+                </span>
+            </div>
+            """, unsafe_allow_html=True)
 
             # Table for the clicked card (same columns as the Action Plan Follow Up table)
             if _sel:
