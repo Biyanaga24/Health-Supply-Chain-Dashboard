@@ -5800,88 +5800,17 @@ def build_action_plan_pptx(df, program_title="All Programs", col_spec=None, deck
     margin, title_top, title_h, top, bottom = 0.2, 0.1, 0.4, 0.55, 0.15
     avail_h = 7.5 - top - bottom
     total_w = 13.333 - 2 * margin
+    scale = total_w / sum(w for _, _, w in cols)
+    widths = [w * scale for _, _, w in cols]
     font_pt, line_h, pad_h, header_h = 14, 0.225, 0.10, 0.34
-    MAX_LINES, CPI, CELL_PAD = 3, 11.0, 0.15
-    CPI_SAFE = 10.0   # conservative chars/inch for the short columns, so their words never break   # max lines per cell, chars per inch at 14 pt, cell padding (in)
-
-    def wrap_lines(text, w, cpi=None):
-        """Greedy word-wrap estimate: list of lines for `text` in a column `w` inches wide."""
-        cpl = max(3, int((w - CELL_PAD) * (cpi or CPI)))
-        out = []
-        for part in str(text).split("\n"):
-            cur = ""
-            for word in part.split(" "):
-                while len(word) > cpl:                      # very long token: hard-break
-                    if cur:
-                        out.append(cur); cur = ""
-                    out.append(word[:cpl]); word = word[cpl:]
-                trial = word if not cur else f"{cur} {word}"
-                if len(trial) <= cpl:
-                    cur = trial
-                else:
-                    out.append(cur); cur = word
-            out.append(cur)
-        return out
-
-    col_vals = [data[k].astype(str).tolist() for k, _, _ in cols]
-
-    def word_floor(vals, label):
-        """Narrowest width at which no word is broken mid-word (header is bold)."""
-        longest = max([len(wd) for t in vals for wd in str(t).replace("\n", " ").split(" ") if wd] + [1])
-        head = max([len(wd) for wd in str(label).split(" ") if wd] + [1]) * 0.13 + CELL_PAD   # bold 14 pt
-        return max(longest / CPI_SAFE + CELL_PAD, head)
-
-    def one_line_width(vals, label):
-        return max(max([len(t) for t in vals] + [1]) / CPI_SAFE + CELL_PAD, word_floor(vals, label))
-
-    def min_width(vals, label):
-        """Smallest width at which every value fits in <= MAX_LINES lines."""
-        w = max(0.5, word_floor(vals, label))
-        while w < 7.0 and any(len(wrap_lines(v, w, CPI_SAFE)) > MAX_LINES for v in vals):
-            w += 0.05
-        return w
-
-    # Short columns get exactly what they need; medium ones get their 3-line width;
-    # the long narrative columns (Identified Problem, Action Point) share what is left of the slide.
-    widths, flex = [None] * len(cols), []
-    for j, ((_, lbl, _), vals) in enumerate(zip(cols, col_vals)):
-        n1, n3 = one_line_width(vals, lbl), min_width(vals, lbl)
-        if n1 <= 1.3:
-            widths[j] = n1
-        elif n3 <= 2.2:
-            widths[j] = n3
-        else:
-            flex.append((j, n3))
-    fixed = sum(w for w in widths if w is not None)
-    if flex and total_w - fixed >= 1.5 * len(flex):
-        rest = total_w - fixed
-        wsum = sum(n3 for _, n3 in flex)
-        for j, n3 in flex:                  # more room for the column with the longer text
-            widths[j] = rest * n3 / wsum
-    else:                                   # no narrative columns (or no room): scale everything to the slide width
-        for j, n3 in flex:
-            widths[j] = n3
-        tot = sum(widths)
-        widths = [w * total_w / tot for w in widths]
-
-    def shorten(text, w):
-        """Cut text with an ellipsis so it never needs more than MAX_LINES lines at width w."""
-        text = str(text)
-        if len(wrap_lines(text, w)) <= MAX_LINES:
-            return text
-        words = text.split(" ")
-        while words and len(wrap_lines(" ".join(words) + "…", w)) > MAX_LINES:
-            words.pop()
-        return (" ".join(words) + "…") if words else text[:max(3, int((w - CELL_PAD) * CPI))] + "…"
-
-    for j, (k, _, _) in enumerate(cols):
-        data[k] = [shorten(v, widths[j]) for v in data[k].astype(str)]
-
-    header_h = max(header_h, max(len(wrap_lines(lbl, w)) for (_, lbl, _), w in zip(cols, widths)) * line_h + pad_h)
 
     def row_height(values):
-        lines = max(len(wrap_lines(v, w)) for v, w in zip(values, widths))
-        return min(lines, MAX_LINES) * line_h + pad_h
+        lines = 1
+        for v, w in zip(values, widths):
+            chars_per_line = max(4, int(w * 9.6))
+            n = sum(max(1, -(-len(part) // chars_per_line)) for part in str(v).split("\n"))
+            lines = max(lines, n)
+        return lines * line_h + pad_h
 
     heights = [row_height(r) for r in data.astype(str).values.tolist()]
     pages, cur, cur_h = [], [], header_h
@@ -6381,32 +6310,33 @@ def render_ap_progress_follow_up(sheet_name, selected_quarter, selected_year, se
     view_mode = st.session_state.get("followup_view_mode", "Table")
 
     if view_mode == "Table":
+        from html import escape as _html_escape
         html_table = '<div class="dataframe-container"><table class="styled-table" style="font-family: Times New Roman, Times, serif !important; font-size: 14px; width: 100%;"><thead><tr>'
         for col in cols_to_display:
             if col == 'Status Display':
-                html_table += '<th style="font-family: Times New Roman, Times, serif !important; font-size: 15px; width: 9%;">Status</th>'
+                html_table += '<th style="font-family: Times New Roman, Times, serif !important; font-size: 15px; width: 6%;">Status</th>'
             elif col == 'Timeliness':
-                html_table += '<th style="font-family: Times New Roman, Times, serif !important; font-size: 15px; width: 12%; text-align: center;">Timeliness</th>'
+                html_table += '<th style="font-family: Times New Roman, Times, serif !important; font-size: 15px; width: 6%; text-align: center;">Timeliness</th>'
             elif col == 'Material':
-                html_table += '<th style="font-family: Times New Roman, Times, serif !important; font-size: 15px; width: 12%;">Material</th>'
+                html_table += '<th style="font-family: Times New Roman, Times, serif !important; font-size: 15px; width: 9%;">Material</th>'
             elif col == 'NMOS':
-                html_table += '<th style="font-family: Times New Roman, Times, serif !important; font-size: 14px; width: 7%; text-align: center;">NMOS</th>'
+                html_table += '<th style="font-family: Times New Roman, Times, serif !important; font-size: 14px; width: 4%; text-align: center;">NMOS</th>'
             elif col == 'Purchase Order':
-                html_table += '<th style="font-family: Times New Roman, Times, serif !important; font-size: 14px; width: 8%; text-align: center;">Purchase Order</th>'
+                html_table += '<th style="font-family: Times New Roman, Times, serif !important; font-size: 14px; width: 5%; text-align: center;">Purchase Order</th>'
             elif col == 'Order Quantity':
-                html_table += '<th style="font-family: Times New Roman, Times, serif !important; font-size: 14px; width: 8%; text-align: center;">Order Quantity</th>'
+                html_table += '<th style="font-family: Times New Roman, Times, serif !important; font-size: 14px; width: 5%; text-align: center;">Order Quantity</th>'
             elif col == 'Identified Problem':
-                html_table += '<th style="font-family: Times New Roman, Times, serif !important; font-size: 15px; width: 18%;">Identified Problem</th>'
+                html_table += '<th style="font-family: Times New Roman, Times, serif !important; font-size: 15px; width: 22%;">Identified Problem</th>'
             elif col == 'Action Point':
-                html_table += '<th style="font-family: Times New Roman, Times, serif !important; font-size: 15px; width: 18%;">Action Point</th>'
+                html_table += '<th style="font-family: Times New Roman, Times, serif !important; font-size: 15px; width: 22%;">Action Point</th>'
             elif col == 'Responsible Body':
-                html_table += '<th style="font-family: Times New Roman, Times, serif !important; font-size: 15px; width: 11%;">Responsible Body</th>'
+                html_table += '<th style="font-family: Times New Roman, Times, serif !important; font-size: 15px; width: 7%;">Responsible Body</th>'
             elif col == 'Due Date':
-                html_table += '<th style="font-family: Times New Roman, Times, serif !important; font-size: 15px; width: 9%;">Due Date</th>'
+                html_table += '<th style="font-family: Times New Roman, Times, serif !important; font-size: 15px; width: 6%;">Due Date</th>'
             elif col == 'Level of Urgency':
-                html_table += '<th style="font-family: Times New Roman, Times, serif !important; font-size: 15px; width: 8%; text-align: center;">Level of Urgency</th>'
+                html_table += '<th style="font-family: Times New Roman, Times, serif !important; font-size: 15px; width: 5%; text-align: center;">Level of Urgency</th>'
             elif col in ['Current NMOS', 'Current PMOS', 'Current TMOS']:
-                html_table += f'<th style="font-family: Times New Roman, Times, serif !important; font-size: 13px; width: 7%; text-align: center;">{col}</th>'
+                html_table += f'<th style="font-family: Times New Roman, Times, serif !important; font-size: 13px; width: 4%; text-align: center;">{col}</th>'
             else:
                 html_table += f'<th style="font-family: Times New Roman, Times, serif !important; font-size: 15px;">{col}</th>'
         html_table += '</tr></thead><tbody>'
@@ -6427,9 +6357,9 @@ def render_ap_progress_follow_up(sheet_name, selected_quarter, selected_year, se
                 elif col in ['Current NMOS', 'Current PMOS', 'Current TMOS']:
                     html_table += f'<td style="font-family: Times New Roman, Times, serif !important; font-size: 14px; text-align: center;">{row.get(col, "N/A")}</td>'
                 elif col == 'Identified Problem':
-                    html_table += f'<td style="font-family: Times New Roman, Times, serif !important; font-size: 14px; min-width: 200px;">{row.get(col, "")}</td>'
+                    html_table += f'<td style="font-family: Times New Roman, Times, serif !important; font-size: 14px; min-width: 260px; vertical-align: top;"><div title="{_html_escape(str(row.get(col, "")))}" style="display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; line-height: 1.35;">{row.get(col, "")}</div></td>'
                 elif col == 'Action Point':
-                    html_table += f'<td style="font-family: Times New Roman, Times, serif !important; font-size: 14px; min-width: 200px;">{row.get(col, "")}</td>'
+                    html_table += f'<td style="font-family: Times New Roman, Times, serif !important; font-size: 14px; min-width: 260px; vertical-align: top;"><div title="{_html_escape(str(row.get(col, "")))}" style="display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; line-height: 1.35;">{row.get(col, "")}</div></td>'
                 elif col == 'Due Date':
                     html_table += f'<td style="font-family: Times New Roman, Times, serif !important; font-size: 14px; text-align: center; white-space: nowrap;">{row.get(col, "")}</td>'
                 elif col == 'Level of Urgency':
