@@ -5796,17 +5796,18 @@ def build_action_plan_pptx(df, program_title="All Programs", col_spec=None, deck
     prs.slide_width, prs.slide_height = Inches(13.333), Inches(7.5)
     blank = prs.slide_layouts[6]
 
-    margin, top, bottom = 0.4, 1.0, 0.35
+    # Use the whole slide: thin margins, compact title, table anchored top-left.
+    margin, title_top, title_h, top, bottom = 0.2, 0.1, 0.4, 0.55, 0.15
     avail_h = 7.5 - top - bottom
     total_w = 13.333 - 2 * margin
     scale = total_w / sum(w for _, _, w in cols)
     widths = [w * scale for _, _, w in cols]
-    font_pt, line_h, pad_h, header_h = 14, 0.24, 0.12, 0.45
+    font_pt, line_h, pad_h, header_h = 14, 0.225, 0.10, 0.34
 
     def row_height(values):
         lines = 1
         for v, w in zip(values, widths):
-            chars_per_line = max(4, int(w * 9.0))
+            chars_per_line = max(4, int(w * 9.6))
             n = sum(max(1, -(-len(part) // chars_per_line)) for part in str(v).split("\n"))
             lines = max(lines, n)
         return lines * line_h + pad_h
@@ -5835,8 +5836,8 @@ def build_action_plan_pptx(df, program_title="All Programs", col_spec=None, deck
         run.text = str(text)
         run.font.size, run.font.bold, run.font.name = Pt(font_pt), bold, "Calibri"
         run.font.color.rgb = color
-        p.alignment = PP_ALIGN.CENTER if center else PP_ALIGN.LEFT
-        cell.vertical_anchor = MSO_ANCHOR.MIDDLE
+        p.alignment = PP_ALIGN.LEFT          # everything left-aligned
+        cell.vertical_anchor = MSO_ANCHOR.TOP  # and top-aligned
         cell.margin_left = cell.margin_right = Inches(0.05)
         cell.margin_top = cell.margin_bottom = Inches(0.03)
         if fill is not None:
@@ -5849,13 +5850,15 @@ def build_action_plan_pptx(df, program_title="All Programs", col_spec=None, deck
 
     for pi, idxs in enumerate(pages, start=1):
         slide = prs.slides.add_slide(blank)
-        tb = slide.shapes.add_textbox(Inches(margin), Inches(0.3), Inches(total_w), Inches(0.6))
+        tb = slide.shapes.add_textbox(Inches(margin), Inches(title_top), Inches(total_w), Inches(title_h))
         tf = tb.text_frame
         tf.word_wrap = True
+        tf.margin_left = tf.margin_top = tf.margin_bottom = 0
+        tf.paragraphs[0].alignment = PP_ALIGN.LEFT
         r = tf.paragraphs[0].add_run()
         suffix = f" ({pi}/{len(pages)})" if len(pages) > 1 else ""
         r.text = f"{deck_title} - {program_title}{suffix}"
-        r.font.size, r.font.bold, r.font.name, r.font.color.rgb = Pt(26), True, "Calibri", NAVY
+        r.font.size, r.font.bold, r.font.name, r.font.color.rgb = Pt(20), True, "Calibri", NAVY
 
         n_rows = len(idxs) + 1
         tbl_h = header_h + sum(heights[i] for i in idxs)
