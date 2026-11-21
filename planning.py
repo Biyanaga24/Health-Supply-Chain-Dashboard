@@ -388,8 +388,8 @@ def inject_custom_css():
         .progress-status-card.card-pending { background: linear-gradient(135deg, #fcc419 0%, #ff922b 100%); }
         .progress-status-card.card-initiated { background: linear-gradient(135deg, #6f42c1 0%, #cc5de8 100%); }
 
-        /* Level of Urgency cards - solid gradient, horizontal layout, share-of-total bar
-           (deliberately unlike the white, outlined Timeliness cards) */
+        /* Level of Urgency cards - white card with a coloured edge only
+           (unlike Timeliness cards: horizontal layout, thick coloured left edge, share bar) */
         .progress-status-card.urg-card {
             display: flex;
             align-items: center;
@@ -398,33 +398,37 @@ def inject_custom_css():
             text-align: left;
             padding: 10px 16px;
             min-height: 74px;
-            border: 3px solid transparent;
+            background: #ffffff;
+            border: 1px solid #e3e8ee;
+            border-left: 8px solid var(--urg);
             position: relative;
             overflow: hidden;
         }
         .progress-status-card.urg-card .urg-left { display: flex; align-items: center; gap: 12px; }
         .progress-status-card.urg-card .urg-icon {
-            font-size: 22px;
-            width: 42px; height: 42px;
+            font-size: 20px;
+            width: 40px; height: 40px;
             display: flex; align-items: center; justify-content: center;
             border-radius: 50%;
-            background: rgba(255,255,255,0.25);
+            background: color-mix(in srgb, var(--urg) 14%, #ffffff);
         }
         .progress-status-card.urg-card .urg-label {
-            font-size: 15px; font-weight: 700; color: #fff; letter-spacing: 0.5px; text-transform: uppercase;
+            font-size: 15px; font-weight: 700; color: var(--urg); letter-spacing: 0.5px; text-transform: uppercase;
         }
-        .progress-status-card.urg-card .urg-sub { font-size: 11px; color: rgba(255,255,255,0.9); }
+        .progress-status-card.urg-card .urg-sub { font-size: 11px; color: #666; }
         .progress-status-card.urg-card .urg-count {
-            font-size: 32px; font-weight: 800; color: #fff; line-height: 1;
+            font-size: 32px; font-weight: 800; color: var(--urg); line-height: 1;
         }
         .progress-status-card.urg-card .urg-bar {
-            position: absolute; left: 0; bottom: 0; height: 5px;
-            background: rgba(255,255,255,0.85);
+            position: absolute; left: 0; bottom: 0; height: 4px;
+            background: var(--urg);
         }
-        .progress-status-card.urg-card.active { border-color: #ffd700; box-shadow: 0 4px 20px rgba(255,215,0,0.45); }
-        .progress-status-card.urg-high   { background: linear-gradient(135deg, #b02a37 0%, #dc3545 60%, #ff6b6b 100%); }
-        .progress-status-card.urg-medium { background: linear-gradient(135deg, #e67700 0%, #f59f00 60%, #fcc419 100%); }
-        .progress-status-card.urg-low    { background: linear-gradient(135deg, #1864ab 0%, #1971c2 60%, #4dabf7 100%); }
+        .progress-status-card.urg-card.active {
+            box-shadow: 0 0 0 2px #ffd700, 0 4px 20px rgba(255,215,0,0.45);
+        }
+        .progress-status-card.urg-high   { --urg: #dc3545; }
+        .progress-status-card.urg-medium { --urg: #f59f00; }
+        .progress-status-card.urg-low    { --urg: #1971c2; }
 
         .filter-row {
             display: grid;
@@ -5885,7 +5889,7 @@ def build_action_plan_pptx(df, program_title="All Programs", col_spec=None, deck
         p = tf.paragraphs[0]
         run = p.add_run()
         run.text = str(text)
-        run.font.size, run.font.bold, run.font.name = Pt(font_pt), bold, "Calibri"
+        run.font.size, run.font.bold, run.font.name = Pt(font_pt), bold, "Times New Roman"
         run.font.color.rgb = color
         p.alignment = PP_ALIGN.LEFT          # everything left-aligned
         cell.vertical_anchor = MSO_ANCHOR.TOP  # and top-aligned
@@ -5909,7 +5913,7 @@ def build_action_plan_pptx(df, program_title="All Programs", col_spec=None, deck
         r = tf.paragraphs[0].add_run()
         suffix = f" ({pi}/{len(pages)})" if len(pages) > 1 else ""
         r.text = f"{deck_title} - {program_title}{suffix}"
-        r.font.size, r.font.bold, r.font.name, r.font.color.rgb = Pt(20), True, "Calibri", NAVY
+        r.font.size, r.font.bold, r.font.name, r.font.color.rgb = Pt(20), True, "Times New Roman", NAVY
 
         n_rows = len(idxs) + 1
         tbl_h = header_h + sum(heights[i] for i in idxs)
@@ -5939,7 +5943,7 @@ _FOLLOWUP_XLSX_FONT = "Times New Roman"
 def build_followup_xlsx(df, program_title="All Programs", period_label=""):
     """Action Plan Follow Up table as a smart, Times New Roman Excel workbook (bytes).
 
-    Sheet 1 - Excel Table (filters, banded rows, frozen header), real dates and numbers,
+    Sheet 1 - Title row + Excel Table (filters, banded rows, frozen header), real dates and numbers,
               dropdown validation on Status / Urgency, colour rules on Status / Timeliness /
               Urgency, live 'Days to Due' formula and overdue highlighting.
     Sheet 2 - Summary with live COUNTIF formulas that follow the data sheet.
@@ -6012,21 +6016,12 @@ def build_followup_xlsx(df, program_title="All Programs", period_label=""):
 
     # ---- title block
     ws.merge_cells(f"A1:{last_col}1")
-    ws["A1"] = "Action Plan Follow Up"
+    ws["A1"] = "Action Plan Follow Up - " + str(program_title) + (f" ({period_label})" if period_label else "")
     ws["A1"].font = Font(name=FN, size=18, bold=True, color="FFFFFF")
     ws["A1"].fill = PatternFill("solid", fgColor=navy)
     ws["A1"].alignment = Alignment(horizontal="left", vertical="center", indent=1)
     ws.row_dimensions[1].height = 32
-    ws.merge_cells(f"A2:{last_col}2")
-    ws["A2"] = f"Program: {program_title}" + (f"   |   Period: {period_label}" if period_label else "")
-    ws["A2"].font = Font(name=FN, size=12, bold=True, color=navy)
-    ws["A2"].alignment = Alignment(horizontal="left", indent=1)
-    ws.merge_cells(f"A3:{last_col}3")
-    ws["A3"] = f"Generated: {datetime.now().strftime('%b %d, %Y %H:%M')}   |   'Days to Due' updates automatically every time the file is opened"
-    ws["A3"].font = Font(name=FN, size=10, italic=True, color="555555")
-    ws["A3"].alignment = Alignment(horizontal="left", indent=1)
-
-    hdr_row = 5
+    hdr_row = 2
     first = hdr_row + 1
 
     # ---- header
@@ -7227,101 +7222,124 @@ def render_ap_progress_follow_up(sheet_name, selected_quarter, selected_year, se
 
         if epss_detail_data:
             epss_detail_df = pd.DataFrame(epss_detail_data)
+            _TNR = 'Times New Roman, Times, serif'
+
+            # ---- controls
+            _ec1, _ec2 = st.columns(2)
+            with _ec1:
+                _epss_sort = st.selectbox(
+                    "Sort bodies by",
+                    ["Most action points", "Lowest completion rate", "Highest completion rate", "Most pending", "Name (A-Z)"],
+                    key="epss_breakdown_sort")
+            with _ec2:
+                _epss_metric = st.radio("Show as", ["Percentage", "Count"], horizontal=True,
+                                        key="epss_breakdown_metric")
+
+            _sorters = {
+                "Most action points":      (['Total', 'Body'], [False, True]),
+                "Lowest completion rate":  (['Completed %', 'Total'], [True, False]),
+                "Highest completion rate": (['Completed %', 'Total'], [False, False]),
+                "Most pending":            (['Pending', 'Total'], [False, False]),
+                "Name (A-Z)":              (['Body'], [True]),
+            }
+            _sk, _sa = _sorters[_epss_sort]
+            epss_detail_df = epss_detail_df.sort_values(_sk, ascending=_sa).reset_index(drop=True)
+
+            # ---- auto insight line
+            _t_all = int(epss_detail_df['Total'].sum())
+            _c_all = int(epss_detail_df['Completed'].sum())
+            _p_all = int(epss_detail_df['Pending'].sum())
+            _rate_all = (_c_all / _t_all * 100) if _t_all else 0
+            _worst = epss_detail_df.sort_values(['Completed %', 'Total'], ascending=[True, False]).iloc[0]
+            _best = epss_detail_df.sort_values(['Completed %', 'Total'], ascending=[False, False]).iloc[0]
+            _most_pend = epss_detail_df.sort_values(['Pending', 'Total'], ascending=[False, False]).iloc[0]
+            _insight = (
+                f"<b>{_t_all}</b> EPSS action points across <b>{len(epss_detail_df)}</b> bodies &nbsp;|&nbsp; "
+                f"overall completion <b style='color:#28a745;'>{_rate_all:.0f}%</b> ({_c_all}/{_t_all}) &nbsp;|&nbsp; "
+                f"pending <b style='color:#b8860b;'>{_p_all}</b>"
+            )
+            _detail = []
+            if len(epss_detail_df) > 1:
+                _detail.append(f"🏆 Best: <b>{_html.escape(str(_best['Body']))}</b> ({_best['Completed %']:.0f}% completed)")
+                _detail.append(f"⚠️ Needs attention: <b>{_html.escape(str(_worst['Body']))}</b> ({_worst['Completed %']:.0f}% completed)")
+            if _most_pend['Pending'] > 0:
+                _detail.append(f"⏳ Most pending: <b>{_html.escape(str(_most_pend['Body']))}</b> ({int(_most_pend['Pending'])})")
+            st.markdown(
+                f"<div style=\"background:#eaf2f8;border-left:5px solid #2e86c1;border-radius:8px;padding:10px 14px;"
+                f"font-family:{_TNR};font-size:14px;margin-bottom:8px;\">{_insight}"
+                + ("<br>" + " &nbsp;|&nbsp; ".join(_detail) if _detail else "") + "</div>",
+                unsafe_allow_html=True)
+
+            # ---- chart: horizontal stacked bars, labelled only where there is something to show
+            _as_pct = (_epss_metric == "Percentage")
+            _cats = [f"{b}  (n={t})" for b, t in zip(epss_detail_df['Body'], epss_detail_df['Total'])]
+            statuses = ['Completed', 'Not Completed', 'Pending']
+            status_colors_bar = {'Completed': '#28a745', 'Not Completed': '#2e86c1', 'Pending': '#ffc107'}
+            label_colors = {'Completed': 'white', 'Not Completed': 'white', 'Pending': '#333'}
 
             fig_epss = go.Figure()
-
-            statuses = ['Completed', 'Not Completed', 'Pending']
-            status_colors_bar = {
-                'Completed': '#28a745',
-                'Not Completed': '#2e86c1',
-                'Pending': '#ffc107'
-            }
-
             for status in statuses:
-                epss_tip_labels = [
-                    f"{pct:.0f}% ({cnt})"
-                    for pct, cnt in zip(epss_detail_df[f'{status} %'], epss_detail_df[status])
+                _cnt = epss_detail_df[status]
+                _pct = epss_detail_df[f'{status} %']
+                _vals = _pct if _as_pct else _cnt
+                _txt = [
+                    ("" if c == 0 else (f"{p:.0f}% ({c})" if _as_pct else f"{c}"))
+                    for p, c in zip(_pct, _cnt)
                 ]
-
                 fig_epss.add_trace(go.Bar(
                     name=status,
-                    x=epss_detail_df['Body'],
-                    y=epss_detail_df[f'{status} %'],
-                    marker_color=status_colors_bar.get(status, '#666'),
-                    text=epss_tip_labels,
-                    textposition='outside',
-                    textfont=dict(size=11, color='#1a5276', family='Times New Roman, Times, serif'),
-                    hovertemplate='<b>%{x}</b><br>%{fullData.name}: %{y:.1f}%<br>Count: %{customdata}<extra></extra>',
-                    customdata=epss_detail_df[status],
-                    cliponaxis=False
+                    y=_cats,
+                    x=_vals,
+                    orientation='h',
+                    marker_color=status_colors_bar[status],
+                    text=_txt,
+                    textposition='inside',
+                    insidetextanchor='middle',
+                    textfont=dict(size=12, color=label_colors[status], family=_TNR),
+                    customdata=list(zip(_cnt, _pct)),
+                    hovertemplate='<b>%{y}</b><br>' + status + ': %{customdata[0]} (%{customdata[1]:.1f}%)<extra></extra>',
                 ))
 
             fig_epss.update_layout(
-                title=dict(
-                    text="EPSS Detailed Breakdown by Body",
-                    font=dict(size=16, color='#1a5276', family='Times New Roman, Times, serif')
-                ),
-                xaxis_title=dict(text="EPSS Body", font=dict(size=13, family='Times New Roman, Times, serif')),
-                yaxis_title=dict(text="Percentage (%)", font=dict(size=13, family='Times New Roman, Times, serif')),
+                title=dict(text="EPSS Detailed Breakdown by Body",
+                           font=dict(size=16, color='#1a5276', family=_TNR)),
                 barmode='stack',
-                height=400,
-                legend=dict(
-                    orientation='h',
-                    yanchor='bottom',
-                    y=1.02,
-                    xanchor='center',
-                    x=0.5,
-                    font=dict(size=12, family='Times New Roman, Times, serif')
-                ),
+                height=max(280, 62 * len(_cats) + 140),
+                legend=dict(orientation='h', yanchor='bottom', y=1.02, xanchor='center', x=0.5,
+                            font=dict(size=12, family=_TNR)),
                 xaxis=dict(
-                    tickfont=dict(size=11, family='Times New Roman, Times, serif'),
-                    showgrid=False,
-                    showline=True,
-                    linecolor='#333',
-                    linewidth=1.5
+                    title=dict(text="Percentage of action points" if _as_pct else "Number of action points",
+                               font=dict(size=13, family=_TNR)),
+                    tickfont=dict(size=11, family=_TNR),
+                    showgrid=False, showline=True, linecolor='#333', linewidth=1.5,
+                    **(dict(range=[0, 100], ticksuffix='%', tickformat='.0f') if _as_pct else dict(rangemode='tozero', dtick=1 if int(epss_detail_df['Total'].max()) <= 10 else None)),
                 ),
-                yaxis=dict(
-                    tickfont=dict(size=11, family='Times New Roman, Times, serif'),
-                    showgrid=False, # GRID REMOVED
-                    showline=True,
-                    linecolor='#333',
-                    linewidth=1.5,
-                    range=[0, 115],
-                    tickformat='.0f',
-                    ticksuffix='%'
-                ),
+                yaxis=dict(autorange='reversed', tickfont=dict(size=12, family=_TNR),
+                           showline=True, linecolor='#333', linewidth=1.5),
                 plot_bgcolor='white',
-                margin=dict(l=50, r=30, t=80, b=50),
-                font=dict(family='Times New Roman, Times, serif')
+                margin=dict(l=20, r=30, t=80, b=50),
+                font=dict(family=_TNR),
             )
+            st.plotly_chart(fig_epss, width='stretch', config={'displayModeBar': 'hover'},
+                            key="epss_breakdown_chart")
 
-            for i, row in epss_detail_df.iterrows():
-                fig_epss.add_annotation(
-                    x=row['Body'],
-                    y=112,
-                    text=f"n={row['Total']}",
-                    showarrow=False,
-                    font=dict(size=11, color='#1a5276', family='Times New Roman, Times, serif', weight='bold'),
-                    bgcolor='rgba(255,255,255,0.9)',
-                    bordercolor='#ccc',
-                    borderwidth=1,
-                    borderpad=4
-                )
-
-            st.plotly_chart(
-                fig_epss,
-                width='stretch',
-                config={'displayModeBar': 'hover'}
-            )
-
+            # ---- table: progress bars, sortable, same order as the chart
             st.markdown("#### EPSS Summary Table")
-            epss_display = epss_detail_df.copy()
-            epss_display['Completed %'] = epss_display['Completed %'].round(1)
-            epss_display['Not Completed %'] = epss_display['Not Completed %'].round(1)
-            epss_display['Pending %'] = epss_display['Pending %'].round(1)
-            epss_display = epss_display[['Body', 'Total', 'Completed', 'Completed %', 'Not Completed', 'Not Completed %', 'Pending', 'Pending %']]
-            epss_display.columns = ['Body', 'Total', 'Completed', 'Completed %', 'Not Completed', 'Not Completed %', 'Pending', 'Pending %']
-            st.dataframe(epss_display, width='stretch', hide_index=True)
+            epss_display = epss_detail_df[['Body', 'Total', 'Completed', 'Completed %', 'Not Completed',
+                                           'Not Completed %', 'Pending', 'Pending %']].copy()
+            for _pc in ('Completed %', 'Not Completed %', 'Pending %'):
+                epss_display[_pc] = epss_display[_pc].round(1)
+            try:
+                _pcfg = lambda label: st.column_config.ProgressColumn(label, min_value=0, max_value=100, format="%.0f%%")
+                st.dataframe(
+                    epss_display, width='stretch', hide_index=True,
+                    column_config={
+                        'Completed %': _pcfg("Completed %"),
+                        'Not Completed %': _pcfg("Not Completed %"),
+                        'Pending %': _pcfg("Pending %"),
+                    })
+            except Exception:
+                st.dataframe(epss_display, width='stretch', hide_index=True)
 
             st.markdown("---")
 
@@ -10095,8 +10113,8 @@ def main():
             """, unsafe_allow_html=True)
 
             def urgency_card_html(icon, count, label, css_class, total_n, is_active=False):
-                # Solid gradient card, horizontal layout with a share-of-total bar -
-                # intentionally different from the white/outlined Timeliness cards.
+                # White card, coloured left edge only, horizontal layout + share bar -
+                # intentionally different from the fully outlined Timeliness cards.
                 active_class = "active" if is_active else ""
                 share = (count / total_n * 100) if total_n else 0
                 return f"""
