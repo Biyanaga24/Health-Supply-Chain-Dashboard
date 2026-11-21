@@ -8457,11 +8457,18 @@ def _clickable_card(key, card_html, kind, value):
                   on_click=_toggle_summary_card, args=(kind, value))
 
 
+_URGENCY_ICONS = {'High': '🔴', 'Medium': '🟡', 'Low': '🔵'}
+
+
 def render_summary_card_table(df_records, kind, value):
     """Table (or cards, following the sidebar view) for the clicked summary card."""
     if kind == 'status':
         sub = df_records[df_records['Status'] == value]
         label = f"{value} Action Points"
+    elif kind == 'urgency':
+        sub = df_records[df_records['_Urgency'] == value]
+        icon = _URGENCY_ICONS.get(value, '🚦')
+        label = f"{icon} {value} Urgency Action Points"
     else:
         sub = df_records[df_records['_Timeliness'] == value]
         label = f"{_SUMMARY_TIMELINESS_ICONS.get(value, '')} {value} Action Points"
@@ -9727,33 +9734,52 @@ def main():
                         timeliness_card_html(_icon, _count, _label, _color, _sel == ('timeliness', _label)),
                         'timeliness', _label)
 
-            # --- Level of Urgency summary (shown next to the Timeliness cards) ---
-            _urg_col = df_records.get('Level of Urgency', pd.Series(dtype=str)) if 'Level of Urgency' in df_records.columns else pd.Series(dtype=str)
-            _urg_high   = int((_urg_col.str.lower().str.strip() == 'high').sum())
-            _urg_medium = int((_urg_col.str.lower().str.strip() == 'medium').sum())
-            _urg_low    = int((_urg_col.str.lower().str.strip() == 'low').sum())
+            # --- Level of Urgency summary — clickable cards (same pattern as Status & Timeliness) ---
+            # Normalise urgency to Title-case for consistent matching
+            if 'Level of Urgency' in df_records.columns:
+                df_records['_Urgency'] = df_records['Level of Urgency'].apply(
+                    lambda v: str(v).strip().title() if v and str(v).strip().lower() not in ('nan', 'none', '') else 'Unknown'
+                )
+            else:
+                df_records['_Urgency'] = 'Unknown'
+
+            _urg_high   = int((df_records['_Urgency'] == 'High').sum())
+            _urg_medium = int((df_records['_Urgency'] == 'Medium').sum())
+            _urg_low    = int((df_records['_Urgency'] == 'Low').sum())
+
             st.markdown(f"""
-            <div style="margin-top: 10px; padding: 10px 16px; background: #fff;
-                        border-radius: 10px; box-shadow: 0 1px 6px rgba(0,0,0,0.07);
-                        border-left: 4px solid #adb5bd; display: flex; align-items: center;
-                        flex-wrap: wrap; gap: 10px;">
-                <span style="font-size:14px; font-weight:700; color:#1a5276; margin-right:4px;">
-                    🚦 Level of Urgency:
-                </span>
-                <span style="display:inline-block; padding:4px 14px; border-radius:14px;
-                             background:#dc3545; color:#fff; font-size:13px; font-weight:700;">
-                    🔴 High: {_urg_high}
-                </span>
-                <span style="display:inline-block; padding:4px 14px; border-radius:14px;
-                             background:#fcc419; color:#333; font-size:13px; font-weight:700;">
-                    🟡 Medium: {_urg_medium}
-                </span>
-                <span style="display:inline-block; padding:4px 14px; border-radius:14px;
-                             background:#1971c2; color:#fff; font-size:13px; font-weight:700;">
-                    🔵 Low: {_urg_low}
-                </span>
+            <div class="progress-summary-container" style="margin-top: 10px;">
+                <h4 class="progress-summary-title" style="font-size: 16px;">🚦 Level of Urgency Summary
+                    <span style="font-size: 14px; font-weight: 500; color: #555;">
+                        — Total Action Points: <b style="color: #1a5276;">{total}</b>
+                    </span>
+                </h4>
             </div>
             """, unsafe_allow_html=True)
+
+            def urgency_card_html(icon, count, label, color, text_color="#fff", is_active=False):
+                glow = " box-shadow: 0 4px 20px rgba(255,215,0,0.45);" if is_active else ""
+                return f"""
+                <div class="progress-status-card" style="background: #ffffff; border: 2px solid {color};{glow}">
+                    <div class="status-icon">{icon}</div>
+                    <div class="status-number" style="color: {color};">{count}</div>
+                    <div class="status-label" style="color: #555;">{label}</div>
+                </div>
+                """
+
+            ucol1, ucol2, ucol3 = st.columns(3)
+            _urg_cards = [
+                (ucol1, "High",   _urg_high,   "🔴", "#dc3545"),
+                (ucol2, "Medium", _urg_medium, "🟡", "#fcc419"),
+                (ucol3, "Low",    _urg_low,    "🔵", "#1971c2"),
+            ]
+            for _col, _label, _count, _icon, _color in _urg_cards:
+                with _col:
+                    _clickable_card(
+                        f"urg_{_label.lower()}",
+                        urgency_card_html(_icon, _count, _label, _color,
+                                          is_active=_sel == ('urgency', _label)),
+                        'urgency', _label)
 
             # Table for the clicked card (same columns as the Action Plan Follow Up table)
             if _sel:
