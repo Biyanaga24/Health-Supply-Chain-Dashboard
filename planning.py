@@ -5728,6 +5728,20 @@ _PPT_ACTION_PLAN_COLS = [
 ]
 
 
+# Expert Action Plan deck: Material ... Level of Urgency
+_PPT_EXPERT_PLAN_COLS = [
+    ('Material', 'Material', 1.55),
+    ('NMOS', 'NMOS', 0.65),
+    ('Purchase Order', 'Purchase Order', 1.0),
+    ('Order Quantity', 'Order Qty', 0.85),
+    ('Identified Problem', 'Identified Problem', 2.2),
+    ('Action Point', 'Action Point', 2.2),
+    ('Responsible Body', 'Responsible Body', 1.2),
+    ('Due Date', 'Due Date', 1.0),
+    ('Level of Urgency', 'Level of Urgency', 0.9),
+]
+
+
 def _ensure_pptx():
     """True when python-pptx is importable. If missing, try a one-off `pip install python-pptx`
     into the running environment (works on most self-hosted setups; on hosted platforms the
@@ -5766,7 +5780,7 @@ def _set_cell_borders(cell, color="000000", width_pt=0.5):
         tcPr.insert(idx, ln)
 
 
-def build_action_plan_pptx(df, program_title="All Programs"):
+def build_action_plan_pptx(df, program_title="All Programs", col_spec=None, deck_title="Update Action Plan"):
     """Action Plan Follow Up table as a PowerPoint (.pptx) file, returned as bytes.
     Responsible Body, Due Date and Level of Urgency are intentionally excluded.
     Long tables are split over several slides."""
@@ -5775,7 +5789,7 @@ def build_action_plan_pptx(df, program_title="All Programs"):
     from pptx.dml.color import RGBColor
     from pptx.enum.text import PP_ALIGN, MSO_ANCHOR
 
-    cols = [(k, lbl, w) for k, lbl, w in _PPT_ACTION_PLAN_COLS if k in df.columns]
+    cols = [(k, lbl, w) for k, lbl, w in (col_spec or _PPT_ACTION_PLAN_COLS) if k in df.columns]
     data = clean_dataframe_for_excel(df[[k for k, _, _ in cols]].copy()).fillna("")
 
     prs = Presentation()
@@ -5831,7 +5845,7 @@ def build_action_plan_pptx(df, program_title="All Programs"):
         _set_cell_borders(cell)
 
     centered = {'NMOS', 'Purchase Order', 'Order Quantity', 'Status', 'Timeliness',
-                'Current NMOS', 'Current PMOS', 'Current TMOS'}
+                'Current NMOS', 'Current PMOS', 'Current TMOS', 'Due Date', 'Level of Urgency'}
 
     for pi, idxs in enumerate(pages, start=1):
         slide = prs.slides.add_slide(blank)
@@ -5840,7 +5854,7 @@ def build_action_plan_pptx(df, program_title="All Programs"):
         tf.word_wrap = True
         r = tf.paragraphs[0].add_run()
         suffix = f" ({pi}/{len(pages)})" if len(pages) > 1 else ""
-        r.text = f"Action Plan Follow Up - {program_title}{suffix}"
+        r.text = f"{deck_title} - {program_title}{suffix}"
         r.font.size, r.font.bold, r.font.name, r.font.color.rgb = Pt(26), True, "Calibri", NAVY
 
         n_rows = len(idxs) + 1
@@ -6376,45 +6390,39 @@ def render_ap_progress_follow_up(sheet_name, selected_quarter, selected_year, se
             ))
         _render_stock_style_cards(_cards)
 
-    output = BytesIO()
-    with pd.ExcelWriter(output, engine='openpyxl') as writer:
-        _exp_cols = [
-            'Material', 'NMOS', 'Purchase Order', 'Order Quantity',
-            'Identified Problem', 'Action Point', 'Responsible Body',
-            'Due Date', 'Level of Urgency', 'Status', 'Timeliness', 'Current NMOS', 'Current PMOS', 'Current TMOS'
-        ]
-        if 'Level of Urgency' not in display_df.columns:
-            display_df['Level of Urgency'] = ''
-        df_to_export = display_df[_exp_cols].copy()
-        df_to_export_clean = clean_dataframe_for_excel(df_to_export)
-        df_to_export_clean.to_excel(writer, index=False, sheet_name='Action Plan')
-    excel_data = output.getvalue()
+    if 'Level of Urgency' not in display_df.columns:
+        display_df['Level of Urgency'] = ''
 
-    _dl_xlsx_col, _dl_pptx_col = st.columns(2)
-    with _dl_xlsx_col:
-        st.download_button(
-            label="📥 Download Detailed Action Plan (XLSX)",
-            data=excel_data,
-            file_name=f"detailed_action_plan_{sheet_name}_{datetime.now().strftime('%Y%m%d')}.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            width='stretch'
-        )
-    with _dl_pptx_col:
-        try:
-            if not _ensure_pptx():
-                raise ImportError("python-pptx")
-            _ppt_title = ", ".join(program_filter) if program_filter else "All Programs"
-            pptx_data = build_action_plan_pptx(display_df, _ppt_title)
+    _dl_expert_col, _dl_update_col = st.columns(2)
+    _ppt_title = ", ".join(program_filter) if program_filter else "All Programs"
+    _ppt_stamp = datetime.now().strftime('%Y%m%d')
+    _ppt_mime = "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+    try:
+        if not _ensure_pptx():
+            raise ImportError("python-pptx")
+        with _dl_expert_col:
             st.download_button(
-                label="📥 Download Action Plan Table (PowerPoint)",
-                data=pptx_data,
-                file_name=f"action_plan_table_{sheet_name}_{datetime.now().strftime('%Y%m%d')}.pptx",
-                mime="application/vnd.openxmlformats-officedocument.presentationml.presentation",
+                label="📥 Download Expert Action Plan (PowerPoint)",
+                data=build_action_plan_pptx(display_df, _ppt_title,
+                                            col_spec=_PPT_EXPERT_PLAN_COLS,
+                                            deck_title="Expert Action Plan"),
+                file_name=f"expert_action_plan_{sheet_name}_{_ppt_stamp}.pptx",
+                mime=_ppt_mime,
                 width='stretch',
-                key="dl_action_plan_pptx"
+                key="dl_expert_action_plan_pptx"
             )
-        except ImportError:
-            st.caption("PowerPoint export needs the `python-pptx` package (pip install python-pptx).")
+        with _dl_update_col:
+            st.download_button(
+                label="📥 Download Update Action Plan (PowerPoint)",
+                data=build_action_plan_pptx(display_df, _ppt_title,
+                                            deck_title="Update Action Plan"),
+                file_name=f"update_action_plan_{sheet_name}_{_ppt_stamp}.pptx",
+                mime=_ppt_mime,
+                width='stretch',
+                key="dl_update_action_plan_pptx"
+            )
+    except ImportError:
+        st.caption("PowerPoint export needs the `python-pptx` package (pip install python-pptx).")
 
     st.markdown("---")
 
