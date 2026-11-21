@@ -4305,6 +4305,7 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
             # "<PO>-<Qty> (<MOS>)-<STAGE>"  e.g. PO123-5,000 (1.5)-GIT
             po = row.get(f'{stage}_PO', '')
             po = '' if (po is None or (isinstance(po, float) and pd.isna(po)) or str(po).strip().lower() in ('nan', 'none')) else str(po).strip()
+            po = re.sub(r'^(\d+)\.0+$', r'\1', po)   # PO numbers are text, not numbers: 11761.0 -> 11761
             qty = pd.to_numeric(row.get(f'{stage}_Qty', 0), errors='coerce')
             mos = pd.to_numeric(row.get(f'{stage}_MOS', 0), errors='coerce')
             qty = 0 if pd.isna(qty) else qty
@@ -4313,7 +4314,7 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
                 return None
             return f"{po or '-'}-{int(qty):,} ({mos:.2f})-{stage}"
 
-        _pipe_parts = [x for x in (_pipeline_line('GIT'), _pipeline_line('LC')) if x]
+        _pipe_parts = [x for x in (_pipeline_line(_st) for _st in ('GIT', 'LC', 'WB', 'TMD')) if x]
         pipeline_text = "; ".join(_pipe_parts) if _pipe_parts else "None"
 
         return {
@@ -5747,7 +5748,7 @@ def _ensure_pptx():
         return False
 
 
-def _set_cell_borders(cell, color="000000", width_pt=1.0):
+def _set_cell_borders(cell, color="000000", width_pt=0.5):
     """Draw a border on all four sides of a table cell (python-pptx has no API for this).
     The <a:ln*> elements must come before the fill inside <a:tcPr>."""
     from pptx.oxml.ns import qn
