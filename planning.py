@@ -5985,14 +5985,14 @@ def build_followup_xlsx(df, program_title="All Programs", period_label=""):
         except Exception:
             return s_
 
-    # (header, kind, width)  - same order as the on-screen table, then the extras
+    # (header, kind, width)  - same order as the on-screen table, plus Completion Date and Days to Due
     spec = [
         ("Material", "text", 30), ("NMOS", "num", 9), ("Purchase Order", "text", 16),
         ("Order Quantity", "num", 12), ("Identified Problem", "wrap", 40), ("Action Point", "wrap", 40),
         ("Responsible Body", "wrap", 22), ("Due Date", "date", 13), ("Completion Date", "date", 15),
         ("Level of Urgency", "center", 12), ("Status", "center", 18), ("Timeliness", "center", 13),
         ("Days to Due", "formula", 11), ("Current NMOS", "num", 12), ("Current PMOS", "num", 12),
-        ("Current TMOS", "num", 12), ("Program", "text", 16), ("Quarter", "center", 9), ("Year", "center", 8),
+        ("Current TMOS", "num", 12),
     ]
     headers = [h for h, _, _ in spec]
     col_of = {h: i + 1 for i, h in enumerate(headers)}
@@ -6059,9 +6059,6 @@ def build_followup_xlsx(df, program_title="All Programs", period_label=""):
             "Current NMOS": _to_num(rec.get("Current NMOS")),
             "Current PMOS": _to_num(rec.get("Current PMOS")),
             "Current TMOS": _to_num(rec.get("Current TMOS")),
-            "Program": _clean(rec.get("Program")),
-            "Quarter": _clean(rec.get("Quarter")),
-            "Year": _clean(rec.get("Year")),
         }
         due_ref, st_ref = f"{L['Due Date']}{r}", f"{L['Status']}{r}"
         vals["Days to Due"] = (f'=IF(OR({st_ref}="Completed",{st_ref}="Partially Completed",{due_ref}=""),"",'
@@ -6733,25 +6730,26 @@ def render_ap_progress_follow_up(sheet_name, selected_quarter, selected_year, se
     if 'Level of Urgency' not in display_df.columns:
         display_df['Level of Urgency'] = ''
 
-    # --- Smart Excel export of the Follow Up table (all columns) ---
-    try:
-        _xl_title = ", ".join(program_filter) if program_filter else "All Programs"
-        _xl_period = f"{target_quarter} {target_year}" if (target_quarter and target_year) else ""
-        st.download_button(
-            label="📥 Download Action Plan Follow Up (Excel)",
-            data=build_followup_xlsx(display_df, _xl_title, _xl_period),
-            file_name=f"action_plan_follow_up_{sheet_name}_{datetime.now().strftime('%Y%m%d')}.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            width='stretch',
-            key="dl_followup_xlsx"
-        )
-    except Exception as _xl_err:
-        st.caption(f"Excel export unavailable: {_xl_err}")
-
-    _dl_expert_col, _dl_update_col = st.columns(2)
+    # --- Downloads side by side: Excel (smart, all columns) | Expert Action Plan PPT | Update Action Plan PPT ---
+    _dl_excel_col, _dl_expert_col, _dl_update_col = st.columns(3)
     _ppt_title = ", ".join(program_filter) if program_filter else "All Programs"
     _ppt_stamp = datetime.now().strftime('%Y%m%d')
     _ppt_mime = "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+
+    with _dl_excel_col:
+        try:
+            _xl_period = f"{target_quarter} {target_year}" if (target_quarter and target_year) else ""
+            st.download_button(
+                label="📥 Download Action Plan Follow Up (Excel)",
+                data=build_followup_xlsx(display_df, _ppt_title, _xl_period),
+                file_name=f"action_plan_follow_up_{sheet_name}_{_ppt_stamp}.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                width='stretch',
+                key="dl_followup_xlsx"
+            )
+        except Exception as _xl_err:
+            st.caption(f"Excel export unavailable: {_xl_err}")
+
     try:
         if not _ensure_pptx():
             raise ImportError("python-pptx")
