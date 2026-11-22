@@ -7000,9 +7000,14 @@ def render_ap_progress_follow_up(sheet_name, selected_quarter, selected_year, se
                     return 'Other'
 
             org_counts = {}
-            for body in all_bodies:
-                org = get_organization(body)
-                org_counts[org] = org_counts.get(org, 0) + 1
+            for body_str in filtered_df['Responsible Body'].dropna():
+                bodies = [b.strip() for b in body_str.split(',') if b.strip()]
+                seen_orgs = set()
+                for body in bodies:
+                    org = get_organization(body)
+                    seen_orgs.add(org)
+                for org in seen_orgs:
+                    org_counts[org] = org_counts.get(org, 0) + 1
 
             org_df = pd.DataFrame(list(org_counts.items()), columns=['Organization', 'Count'])
             org_df['Percentage'] = (org_df['Count'] / total * 100).round(1)
@@ -7189,7 +7194,10 @@ def render_ap_progress_follow_up(sheet_name, selected_quarter, selected_year, se
         st.markdown("---")
 
     epss_body_set = sorted({b for b in all_bodies if _org_of(b) == 'EPSS'})
-    epss_total = sum(1 for b in all_bodies if _org_of(b) == 'EPSS')
+    epss_total = sum(
+        1 for body_str in filtered_df['Responsible Body'].dropna()
+        if any(_org_of(b.strip()) == 'EPSS' for b in body_str.split(',') if b.strip())
+    )
 
     if epss_total > 0 and all_bodies:
         st.markdown("### 📊 EPSS Detailed Breakdown")
