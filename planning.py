@@ -5850,22 +5850,6 @@ def build_action_plan_pptx(df, program_title="All Programs", col_spec=None, deck
     from pptx.dml.color import RGBColor
     from pptx.enum.text import PP_ALIGN, MSO_ANCHOR
 
-    # Urgency palette  (pastel bg + contrasting text)
-    _URG_BG = {
-        'high':   (RGBColor(0xFF, 0xE0, 0xE0), RGBColor(0x7B, 0x00, 0x00)),   # light red / dark red text
-        'medium': (RGBColor(0xFF, 0xF3, 0xCD), RGBColor(0x5A, 0x3D, 0x00)),   # light amber / dark brown text
-        'low':    (RGBColor(0xD1, 0xEC, 0xF1), RGBColor(0x0C, 0x3D, 0x4A)),   # light teal / dark teal text
-    }
-    _URG_DEFAULT_BG = (None, None)   # falls back to stripe colour
-
-    # Timeliness palette
-    _TIM_BG = {
-        'on time':      (RGBColor(0x28, 0xA7, 0x45), RGBColor(0xFF, 0xFF, 0xFF)),  # green / white
-        'late':         (RGBColor(0xFC, 0xC4, 0x19), RGBColor(0x33, 0x33, 0x33)),  # amber / dark
-        'overdue':      (RGBColor(0xDC, 0x35, 0x45), RGBColor(0xFF, 0xFF, 0xFF)),  # red / white
-        'not yet due':  (RGBColor(0x2E, 0x86, 0xC1), RGBColor(0xFF, 0xFF, 0xFF)),  # blue / white
-    }
-
     cols = [(k, lbl, w) for k, lbl, w in (col_spec or _PPT_ACTION_PLAN_COLS) if k in df.columns]
     # Keep urgency column in source data for row colouring even if not displayed
     extra_cols = []
@@ -5955,26 +5939,37 @@ def build_action_plan_pptx(df, program_title="All Programs", col_spec=None, deck
         for ri, i in enumerate(idxs, start=1):
             table.rows[ri].height = Inches(heights[i])
 
-            # --- Urgency-based row background (Expert PPT) ---
-            if urgency_row_color:
-                urg_val = str(data.iloc[i].get('Level of Urgency', '')).strip().lower()
-                row_bg, row_fg = _URG_BG.get(urg_val, _URG_DEFAULT_BG)
-            else:
-                row_bg, row_fg = None, None
-
             stripe_fill = LIGHT if ri % 2 == 0 else RGBColor(0xFF, 0xFF, 0xFF)
 
             for j, (k, _, _) in enumerate(cols):
-                # Choose cell background
-                cell_fill = row_bg if row_bg is not None else stripe_fill
-                cell_text_color = row_fg if row_fg is not None else DARK
+                cell_text_color = DARK
+                cell_fill = stripe_fill
 
-                # --- Timeliness cell color (Update PPT) ---
-                if timeliness_cell_color and k == 'Timeliness':
+                # --- Level of Urgency cell: colored text only (Expert PPT) ---
+                if urgency_row_color and k == 'Level of Urgency':
+                    urg_val = str(data.iloc[i][k]).strip().lower()
+                    _urg_colors = {
+                        'high':   RGBColor(0xC0, 0x00, 0x00),   # bold red
+                        'medium': RGBColor(0xB8, 0x6E, 0x00),   # amber/orange
+                        'low':    RGBColor(0x0C, 0x60, 0x40),   # dark green
+                    }
+                    cell_text_color = _urg_colors.get(urg_val, DARK)
+                    style(table.cell(ri, j), data.iloc[i][k], bold=True,
+                          color=cell_text_color, fill=cell_fill, center=(k in centered))
+
+                # --- Timeliness cell: colored text only (Update PPT) ---
+                elif timeliness_cell_color and k == 'Timeliness':
                     tim_val = str(data.iloc[i][k]).strip().lower()
-                    tim_bg, tim_fg = _TIM_BG.get(tim_val, (cell_fill, cell_text_color))
-                    style(table.cell(ri, j), data.iloc[i][k], bold=(k == 'Material'),
-                          color=tim_fg, fill=tim_bg, center=(k in centered))
+                    _tim_colors = {
+                        'on time':     RGBColor(0x28, 0xA7, 0x45),  # green
+                        'late':        RGBColor(0xB8, 0x6E, 0x00),  # amber
+                        'overdue':     RGBColor(0xC0, 0x00, 0x00),  # red
+                        'not yet due': RGBColor(0x2E, 0x86, 0xC1),  # blue
+                    }
+                    cell_text_color = _tim_colors.get(tim_val, DARK)
+                    style(table.cell(ri, j), data.iloc[i][k], bold=True,
+                          color=cell_text_color, fill=cell_fill, center=(k in centered))
+
                 else:
                     style(table.cell(ri, j), data.iloc[i][k], bold=(k == 'Material'),
                           color=cell_text_color, fill=cell_fill, center=(k in centered))
