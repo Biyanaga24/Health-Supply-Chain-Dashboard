@@ -5835,17 +5835,44 @@ def _set_cell_borders(cell, color="000000", width_pt=0.5):
         tcPr.insert(idx, ln)
 
 
-def build_action_plan_pptx(df, program_title="All Programs", col_spec=None, deck_title="Update Action Plan"):
+def build_action_plan_pptx(df, program_title="All Programs", col_spec=None, deck_title="Update Action Plan",
+                           urgency_row_color=False, timeliness_cell_color=False):
     """Action Plan Follow Up table as a PowerPoint (.pptx) file, returned as bytes.
-    Responsible Body, Due Date and Level of Urgency are intentionally excluded.
-    Long tables are split over several slides."""
+    Long tables are split over several slides.
+
+    urgency_row_color   – when True, each data row's background is tinted by its
+                          Level of Urgency value (High=red, Medium=amber, Low=teal).
+    timeliness_cell_color – when True, each Timeliness cell is coloured
+                          (On Time=green, Late=amber, Overdue=red, Not Yet Due=blue).
+    """
     from pptx import Presentation
     from pptx.util import Inches, Pt
     from pptx.dml.color import RGBColor
     from pptx.enum.text import PP_ALIGN, MSO_ANCHOR
 
+    # Urgency palette  (pastel bg + contrasting text)
+    _URG_BG = {
+        'high':   (RGBColor(0xFF, 0xE0, 0xE0), RGBColor(0x7B, 0x00, 0x00)),   # light red / dark red text
+        'medium': (RGBColor(0xFF, 0xF3, 0xCD), RGBColor(0x5A, 0x3D, 0x00)),   # light amber / dark brown text
+        'low':    (RGBColor(0xD1, 0xEC, 0xF1), RGBColor(0x0C, 0x3D, 0x4A)),   # light teal / dark teal text
+    }
+    _URG_DEFAULT_BG = (None, None)   # falls back to stripe colour
+
+    # Timeliness palette
+    _TIM_BG = {
+        'on time':      (RGBColor(0x28, 0xA7, 0x45), RGBColor(0xFF, 0xFF, 0xFF)),  # green / white
+        'late':         (RGBColor(0xFC, 0xC4, 0x19), RGBColor(0x33, 0x33, 0x33)),  # amber / dark
+        'overdue':      (RGBColor(0xDC, 0x35, 0x45), RGBColor(0xFF, 0xFF, 0xFF)),  # red / white
+        'not yet due':  (RGBColor(0x2E, 0x86, 0xC1), RGBColor(0xFF, 0xFF, 0xFF)),  # blue / white
+    }
+
     cols = [(k, lbl, w) for k, lbl, w in (col_spec or _PPT_ACTION_PLAN_COLS) if k in df.columns]
-    data = clean_dataframe_for_excel(df[[k for k, _, _ in cols]].copy()).fillna("")
+    # Keep urgency column in source data for row colouring even if not displayed
+    extra_cols = []
+    if urgency_row_color and 'Level of Urgency' not in [k for k, _, _ in cols]:
+        extra_cols = ['Level of Urgency']
+    src_keys = [k for k, _, _ in cols] + [c for c in extra_cols if c in df.columns]
+    data = clean_dataframe_for_excel(df[src_keys].copy()).fillna("")
 
     prs = Presentation()
     prs.slide_width, prs.slide_height = Inches(13.333), Inches(7.5)
@@ -5927,10 +5954,30 @@ def build_action_plan_pptx(df, program_title="All Programs", col_spec=None, deck
             style(table.cell(0, j), lbl, bold=True, color=RGBColor(0xFF, 0xFF, 0xFF), fill=NAVY, center=True)
         for ri, i in enumerate(idxs, start=1):
             table.rows[ri].height = Inches(heights[i])
-            fill = LIGHT if ri % 2 == 0 else RGBColor(0xFF, 0xFF, 0xFF)
+
+            # --- Urgency-based row background (Expert PPT) ---
+            if urgency_row_color:
+                urg_val = str(data.iloc[i].get('Level of Urgency', '')).strip().lower()
+                row_bg, row_fg = _URG_BG.get(urg_val, _URG_DEFAULT_BG)
+            else:
+                row_bg, row_fg = None, None
+
+            stripe_fill = LIGHT if ri % 2 == 0 else RGBColor(0xFF, 0xFF, 0xFF)
+
             for j, (k, _, _) in enumerate(cols):
-                style(table.cell(ri, j), data.iloc[i][k], bold=(k == 'Material'),
-                      fill=fill, center=(k in centered))
+                # Choose cell background
+                cell_fill = row_bg if row_bg is not None else stripe_fill
+                cell_text_color = row_fg if row_fg is not None else DARK
+
+                # --- Timeliness cell color (Update PPT) ---
+                if timeliness_cell_color and k == 'Timeliness':
+                    tim_val = str(data.iloc[i][k]).strip().lower()
+                    tim_bg, tim_fg = _TIM_BG.get(tim_val, (cell_fill, cell_text_color))
+                    style(table.cell(ri, j), data.iloc[i][k], bold=(k == 'Material'),
+                          color=tim_fg, fill=tim_bg, center=(k in centered))
+                else:
+                    style(table.cell(ri, j), data.iloc[i][k], bold=(k == 'Material'),
+                          color=cell_text_color, fill=cell_fill, center=(k in centered))
 
     buf = BytesIO()
     prs.save(buf)
@@ -6753,7 +6800,8 @@ def render_ap_progress_follow_up(sheet_name, selected_quarter, selected_year, se
                 label="📥 Download Expert Action Plan (PowerPoint)",
                 data=build_action_plan_pptx(display_df, _ppt_title,
                                             col_spec=_PPT_EXPERT_PLAN_COLS,
-                                            deck_title="Expert Action Plan"),
+                                            deck_title="Expert Action Plan",
+                                            urgency_row_color=True),
                 file_name=f"expert_action_plan_{sheet_name}_{_ppt_stamp}.pptx",
                 mime=_ppt_mime,
                 width='stretch',
@@ -6763,7 +6811,8 @@ def render_ap_progress_follow_up(sheet_name, selected_quarter, selected_year, se
             st.download_button(
                 label="📥 Download Update Action Plan (PowerPoint)",
                 data=build_action_plan_pptx(display_df, _ppt_title,
-                                            deck_title="Update Action Plan"),
+                                            deck_title="Update Action Plan",
+                                            timeliness_cell_color=True),
                 file_name=f"update_action_plan_{sheet_name}_{_ppt_stamp}.pptx",
                 mime=_ppt_mime,
                 width='stretch',
