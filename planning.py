@@ -804,6 +804,26 @@ def _urgency_badge_html(urgency_val):
             f'background:{color};color:{text_color};font-size:12px;font-weight:600;">{_html.escape(u)}</span>')
 
 
+def _timeliness_badge_html(timeliness_val):
+    """Return a colored HTML badge for the Timeliness cell, matching the Status/Urgency style."""
+    t = str(timeliness_val or "").strip()
+    if not t:
+        return ""
+    tl = t.lower()
+    if tl == "on time":
+        color, text_color = "#28a745", "#fff"
+    elif tl == "late":
+        color, text_color = "#fcc419", "#333"
+    elif tl == "overdue":
+        color, text_color = "#dc3545", "#fff"
+    elif tl == "not yet due":
+        color, text_color = "#2e86c1", "#fff"
+    else:
+        color, text_color = "#6c757d", "#fff"
+    return (f'<span style="display:inline-block;padding:2px 10px;border-radius:12px;'
+            f'background:{color};color:{text_color};font-size:12px;font-weight:600;">{_html.escape(t)}</span>')
+
+
 def _stock_style_card_html(title, badge_html, metrics, problem, action, chips):
     """One card in the same look as the Stock Info card (blue frame, grey body, white tiles)."""
     m_html = "".join(
@@ -6717,7 +6737,7 @@ def render_ap_progress_follow_up(sheet_name, selected_quarter, selected_year, se
                 if col == 'Status Display':
                     html_table += f'<td style="font-family: Times New Roman, Times, serif !important; font-size: 14px; text-align: center;">{row[col]}</td>'
                 elif col == 'Timeliness':
-                    html_table += f'<td style="font-family: Times New Roman, Times, serif !important; font-size: 14px; text-align: center; white-space: nowrap;">{row.get(col, "")}</td>'
+                    html_table += f'<td style="font-family: Times New Roman, Times, serif !important; font-size: 14px; text-align: center; white-space: nowrap;">{_timeliness_badge_html(row.get(col, ""))}</td>'
                 elif col == 'Material':
                     html_table += f'<td style="font-family: Times New Roman, Times, serif !important; font-size: 14px; font-weight: 500;">{row.get(col, "")}</td>'
                 elif col == 'NMOS':
