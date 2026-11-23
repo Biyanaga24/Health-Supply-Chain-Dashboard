@@ -516,6 +516,16 @@ def inject_custom_css():
         }
         .progress-summary-title span, .progress-summary-title b { color: #ffffff !important; }
 
+        /* Inverted variant: white background, blue text (Urgency & Criticality subtitles) */
+        .progress-summary-title.title-inverted {
+            color: #1a5276 !important;
+            background: #ffffff;
+            border: 1.5px solid #2e86c1;
+            border-left: 5px solid #1a5276;
+        }
+        .progress-summary-title.title-inverted span,
+        .progress-summary-title.title-inverted b { color: #1a5276 !important; }
+
         .js-plotly-plot .plotly .main-svg { overflow: visible !important; }
         .js-plotly-plot .plotly .xaxislayer-above, 
         .js-plotly-plot .plotly .yaxislayer-above {
@@ -6553,7 +6563,7 @@ def render_progress_status_summary(sheet_name, selected_quarter, selected_year):
 
             st.markdown(f"""
             <div class="progress-summary-container" style="margin-top: 10px;">
-                <h4 class="progress-summary-title" style="font-size: 14px;">🚦 Level of Urgency Summary
+                <h4 class="progress-summary-title title-inverted" style="font-size: 14px;">🚦 Level of Urgency Summary
                     <span style="font-size: 13px; font-weight: 500; color: #555;">
                         — Total Action Points: <b style="color: #1a5276;">{total}</b>
                     </span>
@@ -6606,7 +6616,7 @@ def render_progress_status_summary(sheet_name, selected_quarter, selected_year):
 
             st.markdown(f"""
             <div class="progress-summary-container" style="margin-top: 10px;">
-                <h4 class="progress-summary-title" style="font-size: 14px;">🎯 Criticality Summary
+                <h4 class="progress-summary-title title-inverted" style="font-size: 14px;">🎯 Criticality Summary
                     <span style="font-size: 13px; font-weight: 500; color: #555;">
                         — Urgency × Timeliness (FCEF) &nbsp;|&nbsp; Total: <b style="color: #1a5276;">{total}</b>
                     </span>
