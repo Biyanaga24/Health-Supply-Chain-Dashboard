@@ -458,7 +458,7 @@ def inject_custom_css():
         }
         .progress-status-card.crit-card .urg-sub { font-size: 11px; color: #666; }
         .progress-status-card.crit-card .urg-count {
-            font-size: 32px; font-weight: 800; color: var(--crit); line-height: 1;
+            font-size: 22px; font-weight: 800; color: var(--crit); line-height: 1;
         }
         .progress-status-card.crit-card .urg-bar {
             position: absolute; left: 0; bottom: 0; height: 4px;
@@ -10339,15 +10339,18 @@ def main():
                 # White card, coloured left edge only, horizontal layout + share bar -
                 # intentionally different from the fully outlined Timeliness cards.
                 active_class = "active" if is_active else ""
+                share = (count / total_n * 100) if total_n else 0
                 return f"""
                 <div class="progress-status-card urg-card {css_class} {active_class}">
                     <div class="urg-left">
                         <div class="urg-icon">{icon}</div>
                         <div>
                             <div class="urg-label">{label} Urgency</div>
+                            <div class="urg-sub">{share:.0f}% of action points</div>
                         </div>
                     </div>
                     <div class="urg-count">{count}</div>
+                    <div class="urg-bar" style="width: {share:.0f}%;"></div>
                 </div>
                 """
 
