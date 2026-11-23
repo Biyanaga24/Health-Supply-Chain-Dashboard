@@ -6406,6 +6406,240 @@ def build_followup_xlsx(df, program_title="All Programs", period_label=""):
     return buf.getvalue()
 
 
+def render_progress_status_summary(sheet_name, selected_quarter, selected_year):
+    """Progress Status / Timeliness / Urgency / Criticality summary cards (latest quarter).
+    Rendered inside the Action Plan Follow Up tab, just above the table."""
+    records = load_expert_plan_records(
+        sheet_name if sheet_name != "All" else None,
+        selected_quarter if selected_quarter != "All" else None,
+        selected_year if selected_year != "All" else None
+    )
+
+    if records:
+        df_records = pd.DataFrame(records)
+        if 'Status' in df_records.columns and 'Quarter' in df_records.columns and 'Year' in df_records.columns:
+            quarter_order = {'Q1': 1, 'Q2': 2, 'Q3': 3, 'Q4': 4}
+            df_records['Quarter_Sort'] = df_records['Year'].astype(str) + df_records['Quarter'].map(quarter_order).astype(str)
+            latest_quarter_val = df_records.loc[df_records['Quarter_Sort'].idxmax()]['Quarter']
+            latest_year_val = df_records.loc[df_records['Quarter_Sort'].idxmax()]['Year']
+
+            df_records = df_records[(df_records['Quarter'] == latest_quarter_val) & (df_records['Year'] == latest_year_val)]
+
+            df_records = df_records.copy()
+            df_records['_Timeliness'] = df_records.apply(
+                lambda r: _timeliness_label(r.get('Status'), r.get('Due Date'), r.get('Completion Date')), axis=1)
+
+            total = len(df_records)
+            completed = len(df_records[df_records['Status'] == 'Completed'])
+            ongoing = len(df_records[df_records['Status'] == 'Ongoing'])
+            partial = len(df_records[df_records['Status'] == 'Partially Completed'])
+            pending = len(df_records[df_records['Status'] == 'Pending'])
+            initiated = len(df_records[df_records['Status'] == 'Initiated'])
+            completion_rate = (completed / total * 100) if total else 0
+
+            _on_time = int((df_records['_Timeliness'] == 'On Time').sum())
+            _late = int((df_records['_Timeliness'] == 'Late').sum())
+            _overdue = int((df_records['_Timeliness'] == 'Overdue').sum())
+            _not_yet_due = int((df_records['_Timeliness'] == 'Not Yet Due').sum())
+
+            on_time_rate = (_on_time / total * 100) if total else 0
+
+            program_display = sheet_name if sheet_name != "All" else "All Programs"
+
+            st.markdown(f"""
+            <div class="progress-summary-container">
+                <h3 class="progress-summary-title">📊 {program_display} - {latest_quarter_val} {latest_year_val} Progress Status and Timeliness Summary</h3>
+            </div>
+            """, unsafe_allow_html=True)
+
+            def status_card_html(label, count, status, card_class, icon, is_active=False):
+                active_class = "active" if is_active else ""
+                return f"""
+                <div class="progress-status-card {card_class} {active_class}" data-status="{status}">
+                    <div class="status-icon">{icon}</div>
+                    <div class="status-number">{count}</div>
+                    <div class="status-label">{label}</div>
+                </div>
+                """
+
+            _sel = st.session_state.get('summary_card_sel')
+
+            # Status Summary — total + completion rate as plain text (no Total card)
+            st.markdown(f"""
+            <div class="progress-summary-container" style="margin-top: 5px;">
+                <h4 class="progress-summary-title" style="font-size: 16px;">📋 Status Summary
+                    <span style="font-size: 14px; font-weight: 500; color: #555;">
+                        — Total Action Points: <b style="color: #1a5276;">{total}</b>
+                        &nbsp;|&nbsp; ✅ Completion Rate: <b style="color: #28a745;">{completion_rate:.0f}%</b> ({completed}/{total})
+                    </span>
+                </h4>
+            </div>
+            """, unsafe_allow_html=True)
+
+            col1, col2, col3, col4, col5 = st.columns(5)
+            _status_cards = [
+                (col1, "Completed", completed, "card-completed", "✅"),
+                (col2, "Partially Completed", partial, "card-partial", "🔶"),
+                (col3, "Ongoing", ongoing, "card-ongoing", "🔄"),
+                (col4, "Pending", pending, "card-pending", "⏳"),
+                (col5, "Initiated", initiated, "card-initiated", "🚀"),
+            ]
+            for _col, _label, _count, _cls, _icon in _status_cards:
+                with _col:
+                    _clickable_card(
+                        f"status_{_label.replace(' ', '_').lower()}",
+                        status_card_html(_label, _count, _label, _cls, _icon, _sel == ('status', _label)),
+                        'status', _label)
+
+            st.markdown(f"""
+            <div class="progress-summary-container" style="margin-top: 10px;">
+                <h4 class="progress-summary-title" style="font-size: 16px;">⏱️ Timeliness Summary
+                    <span style="font-size: 14px; font-weight: 500; color: #555;">
+                        — Total Action Points: <b style="color: #1a5276;">{total}</b>
+                        &nbsp;|&nbsp; 🟢 On-Time Rate: <b style="color: #28a745;">{on_time_rate:.0f}%</b> ({_on_time}/{total})
+                    </span>
+                </h4>
+            </div>
+            """, unsafe_allow_html=True)
+
+            def timeliness_card_html(icon, count, label, color, is_active=False):
+                glow = " box-shadow: 0 4px 20px rgba(255,215,0,0.45);" if is_active else ""
+                return f"""
+                <div class="progress-status-card" style="background: #ffffff; border: 2px solid {color};{glow}">
+                    <div class="status-icon">{icon}</div>
+                    <div class="status-number" style="color: {color};">{count}</div>
+                    <div class="status-label" style="color: #555;">{label}</div>
+                </div>
+                """
+
+            tcol1, tcol2, tcol3, tcol4 = st.columns(4)
+            _time_cards = [
+                (tcol1, "On Time", _on_time, "🟢", "#28a745"),
+                (tcol2, "Late", _late, "🟠", "#fcc419"),
+                (tcol3, "Overdue", _overdue, "🔴", "#dc3545"),
+                (tcol4, "Not Yet Due", _not_yet_due, "🔵", "#2e86c1"),
+            ]
+            for _col, _label, _count, _icon, _color in _time_cards:
+                with _col:
+                    _clickable_card(
+                        f"time_{_label.replace(' ', '_').lower()}",
+                        timeliness_card_html(_icon, _count, _label, _color, _sel == ('timeliness', _label)),
+                        'timeliness', _label)
+
+            # --- Level of Urgency summary — clickable cards (same pattern as Status & Timeliness) ---
+            # Normalise urgency to Title-case for consistent matching
+            if 'Level of Urgency' in df_records.columns:
+                df_records['_Urgency'] = df_records['Level of Urgency'].apply(
+                    lambda v: str(v).strip().title() if v and str(v).strip().lower() not in ('nan', 'none', '') else 'Unknown'
+                )
+            else:
+                df_records['_Urgency'] = 'Unknown'
+
+            _urg_high   = int((df_records['_Urgency'] == 'High').sum())
+            _urg_medium = int((df_records['_Urgency'] == 'Medium').sum())
+            _urg_low    = int((df_records['_Urgency'] == 'Low').sum())
+
+            st.markdown(f"""
+            <div class="progress-summary-container" style="margin-top: 10px;">
+                <h4 class="progress-summary-title" style="font-size: 16px;">🚦 Level of Urgency Summary
+                    <span style="font-size: 14px; font-weight: 500; color: #555;">
+                        — Total Action Points: <b style="color: #1a5276;">{total}</b>
+                    </span>
+                </h4>
+            </div>
+            """, unsafe_allow_html=True)
+
+            def urgency_card_html(icon, count, label, css_class, total_n, is_active=False):
+                # White card, coloured left edge only, horizontal layout + share bar -
+                # intentionally different from the fully outlined Timeliness cards.
+                active_class = "active" if is_active else ""
+                share = (count / total_n * 100) if total_n else 0
+                return f"""
+                <div class="progress-status-card urg-card {css_class} {active_class}">
+                    <div class="urg-left">
+                        <div class="urg-icon">{icon}</div>
+                        <div>
+                            <div class="urg-label">{label} Urgency</div>
+                            <div class="urg-sub">{share:.0f}% of action points</div>
+                        </div>
+                    </div>
+                    <div class="urg-count">{count}</div>
+                    <div class="urg-bar" style="width: {share:.0f}%;"></div>
+                </div>
+                """
+
+            ucol1, ucol2, ucol3 = st.columns(3)
+            _urg_cards = [
+                (ucol1, "High",   _urg_high,   "🔥", "urg-high"),
+                (ucol2, "Medium", _urg_medium, "⚡", "urg-medium"),
+                (ucol3, "Low",    _urg_low,    "🌱", "urg-low"),
+            ]
+            for _col, _label, _count, _icon, _cls in _urg_cards:
+                with _col:
+                    _clickable_card(
+                        f"urg_{_label.lower()}",
+                        urgency_card_html(_icon, _count, _label, _cls, total,
+                                          is_active=_sel == ('urgency', _label)),
+                        'urgency', _label)
+
+            # --- Criticality summary — computed from Urgency × Timeliness (FCEF) ---
+            df_records['_Criticality'] = df_records.apply(
+                lambda r: compute_criticality(r.get('Level of Urgency', ''), r.get('_Timeliness', ''), r.get('Status')), axis=1
+            )
+            _crit_critical = int((df_records['_Criticality'] == 'Critical').sum())
+            _crit_high     = int((df_records['_Criticality'] == 'High').sum())
+            _crit_moderate = int((df_records['_Criticality'] == 'Moderate').sum())
+            _crit_low      = int((df_records['_Criticality'] == 'Low').sum())
+            _crit_closed   = int((df_records['_Criticality'] == 'Closed').sum())
+
+            st.markdown(f"""
+            <div class="progress-summary-container" style="margin-top: 10px;">
+                <h4 class="progress-summary-title" style="font-size: 16px;">🎯 Criticality Summary
+                    <span style="font-size: 13px; font-weight: 400; color: #555;">
+                        — Urgency × Timeliness (FCEF) &nbsp;|&nbsp; Total: <b style="color: #1a5276;">{total}</b>
+                    </span>
+                </h4>
+            </div>
+            """, unsafe_allow_html=True)
+
+            def criticality_card_html(icon, count, label, css_class, total_n, is_active=False):
+                active_class = "active" if is_active else ""
+                return f"""
+                <div class="progress-status-card crit-card {css_class} {active_class}">
+                    <div class="urg-left">
+                        <div class="urg-icon">{icon}</div>
+                        <div>
+                            <div class="urg-label">{label}</div>
+                            <div class="urg-count">{count}</div>
+                        </div>
+                    </div>
+                </div>
+                """
+
+            ccol1, ccol2, ccol3, ccol4, ccol5 = st.columns(5)
+            _crit_cards = [
+                (ccol1, "Critical", _crit_critical, "🔴", "crit-critical"),
+                (ccol2, "High",     _crit_high,     "🟠", "crit-high"),
+                (ccol3, "Moderate", _crit_moderate, "🔵", "crit-moderate"),
+                (ccol4, "Low",      _crit_low,      "🟢", "crit-low"),
+                (ccol5, "Closed",   _crit_closed,   "⚫", "crit-closed"),
+            ]
+            for _col, _label, _count, _icon, _cls in _crit_cards:
+                with _col:
+                    _clickable_card(
+                        f"crit_{_label.lower()}",
+                        criticality_card_html(_icon, _count, _label, _cls, total,
+                                              is_active=_sel == ('criticality', _label)),
+                        'criticality', _label)
+
+            # Table for the clicked card (same columns as the Action Plan Follow Up table)
+            if _sel:
+                st.markdown("---")
+                render_summary_card_table(df_records, _sel[0], _sel[1])
+
+            st.markdown("---")
+
+
 def render_ap_progress_follow_up(sheet_name, selected_quarter, selected_year, selected_status):
     records = load_expert_plan_records(
         sheet_name if sheet_name != "All" else None,
@@ -6526,6 +6760,11 @@ def render_ap_progress_follow_up(sheet_name, selected_quarter, selected_year, se
             latest_row = df_tmp.loc[df_tmp['_qsort'].idxmax()]
             target_quarter = latest_row['Quarter']
             target_year = latest_row['Year']
+
+    # ======================================================================
+    # PROGRESS STATUS / TIMELINESS / URGENCY / CRITICALITY SUMMARY
+    # ======================================================================
+    render_progress_status_summary(sheet_name, selected_quarter, selected_year)
 
     # ======================================================================
     # HEADER
@@ -10191,239 +10430,6 @@ def main():
     if df_filtered.empty:
         st.error("No data available for the selected filters.")
         st.stop()
-
-    # ============================================================
-    # PROGRESS SUMMARY (supply-planning only)
-    # ============================================================
-    records = load_expert_plan_records(
-        sheet_name if sheet_name != "All" else None,
-        selected_quarter if selected_quarter != "All" else None,
-        selected_year if selected_year != "All" else None
-    )
-
-    if records and active_section == "supply_planning":
-        df_records = pd.DataFrame(records)
-        if 'Status' in df_records.columns and 'Quarter' in df_records.columns and 'Year' in df_records.columns:
-            quarter_order = {'Q1': 1, 'Q2': 2, 'Q3': 3, 'Q4': 4}
-            df_records['Quarter_Sort'] = df_records['Year'].astype(str) + df_records['Quarter'].map(quarter_order).astype(str)
-            latest_quarter_val = df_records.loc[df_records['Quarter_Sort'].idxmax()]['Quarter']
-            latest_year_val = df_records.loc[df_records['Quarter_Sort'].idxmax()]['Year']
-
-            df_records = df_records[(df_records['Quarter'] == latest_quarter_val) & (df_records['Year'] == latest_year_val)]
-
-            df_records = df_records.copy()
-            df_records['_Timeliness'] = df_records.apply(
-                lambda r: _timeliness_label(r.get('Status'), r.get('Due Date'), r.get('Completion Date')), axis=1)
-
-            total = len(df_records)
-            completed = len(df_records[df_records['Status'] == 'Completed'])
-            ongoing = len(df_records[df_records['Status'] == 'Ongoing'])
-            partial = len(df_records[df_records['Status'] == 'Partially Completed'])
-            pending = len(df_records[df_records['Status'] == 'Pending'])
-            initiated = len(df_records[df_records['Status'] == 'Initiated'])
-            completion_rate = (completed / total * 100) if total else 0
-
-            _on_time = int((df_records['_Timeliness'] == 'On Time').sum())
-            _late = int((df_records['_Timeliness'] == 'Late').sum())
-            _overdue = int((df_records['_Timeliness'] == 'Overdue').sum())
-            _not_yet_due = int((df_records['_Timeliness'] == 'Not Yet Due').sum())
-
-            on_time_rate = (_on_time / total * 100) if total else 0
-
-            program_display = sheet_name if sheet_name != "All" else "All Programs"
-
-            st.markdown(f"""
-            <div class="progress-summary-container">
-                <h3 class="progress-summary-title">📊 {program_display} - {latest_quarter_val} {latest_year_val} Progress Status and Timeliness Summary</h3>
-            </div>
-            """, unsafe_allow_html=True)
-
-            def status_card_html(label, count, status, card_class, icon, is_active=False):
-                active_class = "active" if is_active else ""
-                return f"""
-                <div class="progress-status-card {card_class} {active_class}" data-status="{status}">
-                    <div class="status-icon">{icon}</div>
-                    <div class="status-number">{count}</div>
-                    <div class="status-label">{label}</div>
-                </div>
-                """
-
-            _sel = st.session_state.get('summary_card_sel')
-
-            # Status Summary — total + completion rate as plain text (no Total card)
-            st.markdown(f"""
-            <div class="progress-summary-container" style="margin-top: 5px;">
-                <h4 class="progress-summary-title" style="font-size: 16px;">📋 Status Summary
-                    <span style="font-size: 14px; font-weight: 500; color: #555;">
-                        — Total Action Points: <b style="color: #1a5276;">{total}</b>
-                        &nbsp;|&nbsp; ✅ Completion Rate: <b style="color: #28a745;">{completion_rate:.0f}%</b> ({completed}/{total})
-                    </span>
-                </h4>
-            </div>
-            """, unsafe_allow_html=True)
-
-            col1, col2, col3, col4, col5 = st.columns(5)
-            _status_cards = [
-                (col1, "Completed", completed, "card-completed", "✅"),
-                (col2, "Partially Completed", partial, "card-partial", "🔶"),
-                (col3, "Ongoing", ongoing, "card-ongoing", "🔄"),
-                (col4, "Pending", pending, "card-pending", "⏳"),
-                (col5, "Initiated", initiated, "card-initiated", "🚀"),
-            ]
-            for _col, _label, _count, _cls, _icon in _status_cards:
-                with _col:
-                    _clickable_card(
-                        f"status_{_label.replace(' ', '_').lower()}",
-                        status_card_html(_label, _count, _label, _cls, _icon, _sel == ('status', _label)),
-                        'status', _label)
-
-            st.markdown(f"""
-            <div class="progress-summary-container" style="margin-top: 10px;">
-                <h4 class="progress-summary-title" style="font-size: 16px;">⏱️ Timeliness Summary
-                    <span style="font-size: 14px; font-weight: 500; color: #555;">
-                        — Total Action Points: <b style="color: #1a5276;">{total}</b>
-                        &nbsp;|&nbsp; 🟢 On-Time Rate: <b style="color: #28a745;">{on_time_rate:.0f}%</b> ({_on_time}/{total})
-                    </span>
-                </h4>
-            </div>
-            """, unsafe_allow_html=True)
-
-            def timeliness_card_html(icon, count, label, color, is_active=False):
-                glow = " box-shadow: 0 4px 20px rgba(255,215,0,0.45);" if is_active else ""
-                return f"""
-                <div class="progress-status-card" style="background: #ffffff; border: 2px solid {color};{glow}">
-                    <div class="status-icon">{icon}</div>
-                    <div class="status-number" style="color: {color};">{count}</div>
-                    <div class="status-label" style="color: #555;">{label}</div>
-                </div>
-                """
-
-            tcol1, tcol2, tcol3, tcol4 = st.columns(4)
-            _time_cards = [
-                (tcol1, "On Time", _on_time, "🟢", "#28a745"),
-                (tcol2, "Late", _late, "🟠", "#fcc419"),
-                (tcol3, "Overdue", _overdue, "🔴", "#dc3545"),
-                (tcol4, "Not Yet Due", _not_yet_due, "🔵", "#2e86c1"),
-            ]
-            for _col, _label, _count, _icon, _color in _time_cards:
-                with _col:
-                    _clickable_card(
-                        f"time_{_label.replace(' ', '_').lower()}",
-                        timeliness_card_html(_icon, _count, _label, _color, _sel == ('timeliness', _label)),
-                        'timeliness', _label)
-
-            # --- Level of Urgency summary — clickable cards (same pattern as Status & Timeliness) ---
-            # Normalise urgency to Title-case for consistent matching
-            if 'Level of Urgency' in df_records.columns:
-                df_records['_Urgency'] = df_records['Level of Urgency'].apply(
-                    lambda v: str(v).strip().title() if v and str(v).strip().lower() not in ('nan', 'none', '') else 'Unknown'
-                )
-            else:
-                df_records['_Urgency'] = 'Unknown'
-
-            _urg_high   = int((df_records['_Urgency'] == 'High').sum())
-            _urg_medium = int((df_records['_Urgency'] == 'Medium').sum())
-            _urg_low    = int((df_records['_Urgency'] == 'Low').sum())
-
-            st.markdown(f"""
-            <div class="progress-summary-container" style="margin-top: 10px;">
-                <h4 class="progress-summary-title" style="font-size: 16px;">🚦 Level of Urgency Summary
-                    <span style="font-size: 14px; font-weight: 500; color: #555;">
-                        — Total Action Points: <b style="color: #1a5276;">{total}</b>
-                    </span>
-                </h4>
-            </div>
-            """, unsafe_allow_html=True)
-
-            def urgency_card_html(icon, count, label, css_class, total_n, is_active=False):
-                # White card, coloured left edge only, horizontal layout + share bar -
-                # intentionally different from the fully outlined Timeliness cards.
-                active_class = "active" if is_active else ""
-                share = (count / total_n * 100) if total_n else 0
-                return f"""
-                <div class="progress-status-card urg-card {css_class} {active_class}">
-                    <div class="urg-left">
-                        <div class="urg-icon">{icon}</div>
-                        <div>
-                            <div class="urg-label">{label} Urgency</div>
-                            <div class="urg-sub">{share:.0f}% of action points</div>
-                        </div>
-                    </div>
-                    <div class="urg-count">{count}</div>
-                    <div class="urg-bar" style="width: {share:.0f}%;"></div>
-                </div>
-                """
-
-            ucol1, ucol2, ucol3 = st.columns(3)
-            _urg_cards = [
-                (ucol1, "High",   _urg_high,   "🔥", "urg-high"),
-                (ucol2, "Medium", _urg_medium, "⚡", "urg-medium"),
-                (ucol3, "Low",    _urg_low,    "🌱", "urg-low"),
-            ]
-            for _col, _label, _count, _icon, _cls in _urg_cards:
-                with _col:
-                    _clickable_card(
-                        f"urg_{_label.lower()}",
-                        urgency_card_html(_icon, _count, _label, _cls, total,
-                                          is_active=_sel == ('urgency', _label)),
-                        'urgency', _label)
-
-            # --- Criticality summary — computed from Urgency × Timeliness (FCEF) ---
-            df_records['_Criticality'] = df_records.apply(
-                lambda r: compute_criticality(r.get('Level of Urgency', ''), r.get('_Timeliness', ''), r.get('Status')), axis=1
-            )
-            _crit_critical = int((df_records['_Criticality'] == 'Critical').sum())
-            _crit_high     = int((df_records['_Criticality'] == 'High').sum())
-            _crit_moderate = int((df_records['_Criticality'] == 'Moderate').sum())
-            _crit_low      = int((df_records['_Criticality'] == 'Low').sum())
-            _crit_closed   = int((df_records['_Criticality'] == 'Closed').sum())
-
-            st.markdown(f"""
-            <div class="progress-summary-container" style="margin-top: 10px;">
-                <h4 class="progress-summary-title" style="font-size: 16px;">🎯 Criticality Summary
-                    <span style="font-size: 13px; font-weight: 400; color: #555;">
-                        — Urgency × Timeliness (FCEF) &nbsp;|&nbsp; Total: <b style="color: #1a5276;">{total}</b>
-                    </span>
-                </h4>
-            </div>
-            """, unsafe_allow_html=True)
-
-            def criticality_card_html(icon, count, label, css_class, total_n, is_active=False):
-                active_class = "active" if is_active else ""
-                return f"""
-                <div class="progress-status-card crit-card {css_class} {active_class}">
-                    <div class="urg-left">
-                        <div class="urg-icon">{icon}</div>
-                        <div>
-                            <div class="urg-label">{label}</div>
-                            <div class="urg-count">{count}</div>
-                        </div>
-                    </div>
-                </div>
-                """
-
-            ccol1, ccol2, ccol3, ccol4, ccol5 = st.columns(5)
-            _crit_cards = [
-                (ccol1, "Critical", _crit_critical, "🔴", "crit-critical"),
-                (ccol2, "High",     _crit_high,     "🟠", "crit-high"),
-                (ccol3, "Moderate", _crit_moderate, "🔵", "crit-moderate"),
-                (ccol4, "Low",      _crit_low,      "🟢", "crit-low"),
-                (ccol5, "Closed",   _crit_closed,   "⚫", "crit-closed"),
-            ]
-            for _col, _label, _count, _icon, _cls in _crit_cards:
-                with _col:
-                    _clickable_card(
-                        f"crit_{_label.lower()}",
-                        criticality_card_html(_icon, _count, _label, _cls, total,
-                                              is_active=_sel == ('criticality', _label)),
-                        'criticality', _label)
-
-            # Table for the clicked card (same columns as the Action Plan Follow Up table)
-            if _sel:
-                st.markdown("---")
-                render_summary_card_table(df_records, _sel[0], _sel[1])
-
-            st.markdown("---")
 
     # ============================================================
     # DATA COMPUTATION
