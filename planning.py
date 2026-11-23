@@ -7613,7 +7613,7 @@ def render_ap_progress_follow_up(sheet_name, selected_quarter, selected_year, se
                 })
 
         if orgs_with_data:
-            st.markdown('<h3 class="progress-summary-title">🥧 Organization Action Plan Status Distribution</h3>', unsafe_allow_html=True)
+            st.markdown(f'<h3 class="progress-summary-title">🥧 {program_title} Organization Action Plan Status Distribution</h3>', unsafe_allow_html=True)
             pie_cols = st.columns(len(orgs_with_data))
 
             pie_colors = ['#28a745', '#2e86c1', '#ffc107']
