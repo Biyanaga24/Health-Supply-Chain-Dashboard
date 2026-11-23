@@ -229,7 +229,12 @@ def inject_custom_css():
         [class*="st-key-main_tabbar"] [role="radiogroup"] > label > div:first-child { display: none !important; }
         [class*="st-key-main_tabbar"] [role="radiogroup"] > label p {
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif !important;
-            font-size: 24px !important; font-weight: 900 !important; color: #4a5a6a;
+            font-size: 30px !important; font-weight: 900 !important; color: #4a5a6a;
+        }
+        [class*="st-key-main_tabbar"] [role="radiogroup"] > label p,
+        [class*="st-key-main_tabbar"] [role="radiogroup"] > label span,
+        [class*="st-key-main_tabbar"] [role="radiogroup"] > label div[data-testid="stMarkdownContainer"] {
+            font-size: 30px !important; font-weight: 900 !important;
         }
         [class*="st-key-main_tabbar"] [role="radiogroup"] > label:hover { background: rgba(46,134,193,0.10); }
         [class*="st-key-main_tabbar"] [role="radiogroup"] > label:has(input:checked) {
@@ -7380,6 +7385,8 @@ def render_ap_progress_follow_up(sheet_name, selected_quarter, selected_year, se
     # ======================================================================
     # BAR CHARTS — Program & Organization - GRID LINES REMOVED
     # ======================================================================
+    st.markdown(f'<h3 class="progress-summary-title">📊 {program_title} Action Points by Program and Organization</h3>', unsafe_allow_html=True)
+
     col_bar1, col_bar2 = st.columns(2)
 
     with col_bar1:
@@ -7606,7 +7613,7 @@ def render_ap_progress_follow_up(sheet_name, selected_quarter, selected_year, se
                 })
 
         if orgs_with_data:
-            st.markdown('<h3 class="progress-summary-title">🥧 Organization Status Distribution</h3>', unsafe_allow_html=True)
+            st.markdown('<h3 class="progress-summary-title">🥧 Organization Action Plan Status Distribution</h3>', unsafe_allow_html=True)
             pie_cols = st.columns(len(orgs_with_data))
 
             pie_colors = ['#28a745', '#2e86c1', '#ffc107']
