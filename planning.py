@@ -433,10 +433,9 @@ def inject_custom_css():
         /* Criticality cards — same horizontal layout as urgency cards */
         .progress-status-card.crit-card {
             display: flex;
-            flex-direction: column;
-            align-items: flex-start;
-            justify-content: center;
-            gap: 6px;
+            align-items: center;
+            justify-content: flex-start;
+            gap: 10px;
             text-align: left;
             padding: 10px 16px;
             min-height: 74px;
@@ -10397,9 +10396,9 @@ def main():
                         <div class="urg-icon">{icon}</div>
                         <div>
                             <div class="urg-label">{label}</div>
+                            <div class="urg-count">{count}</div>
                         </div>
                     </div>
-                    <div class="urg-count">{count}</div>
                 </div>
                 """
 
