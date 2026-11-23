@@ -229,7 +229,7 @@ def inject_custom_css():
         [class*="st-key-main_tabbar"] [role="radiogroup"] > label > div:first-child { display: none !important; }
         [class*="st-key-main_tabbar"] [role="radiogroup"] > label p {
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif !important;
-            font-size: 15px; font-weight: 600; color: #4a5a6a;
+            font-size: 18px; font-weight: 600; color: #4a5a6a;
         }
         [class*="st-key-main_tabbar"] [role="radiogroup"] > label:hover { background: rgba(46,134,193,0.10); }
         [class*="st-key-main_tabbar"] [role="radiogroup"] > label:has(input:checked) {
@@ -237,6 +237,9 @@ def inject_custom_css():
             border-bottom: 3px solid #d6336c;
         }
         [class*="st-key-main_tabbar"] [role="radiogroup"] > label:has(input:checked) p { color: #1a5276; }
+
+        /* Sidebar Main Tabs buttons: larger text */
+        [class*="st-key-btn_nav_"] button, [class*="st-key-btn_nav_"] button p { font-size: 16px !important; }
 
         /* Sidebar Navigation Buttons */
         [data-testid="stSidebar"] [data-testid="stSidebarUserContent"],
@@ -7011,6 +7014,12 @@ def render_ap_progress_follow_up(sheet_name, selected_quarter, selected_year, se
         axis=1
     )
 
+    display_df['Criticality'] = display_df.apply(
+        lambda r: compute_criticality(
+            r.get('Level of Urgency', ''), r.get('Timeliness', ''), r.get('Status', '')),
+        axis=1
+    )
+
     def calculate_current_pmos(row):
         tmos = row.get('Current TMOS', 'N/A')
         nmos = row.get('Current NMOS', 'N/A')
@@ -7064,11 +7073,12 @@ def render_ap_progress_follow_up(sheet_name, selected_quarter, selected_year, se
         'Level of Urgency',
         'Status Display',
         'Timeliness',
+        'Criticality',
         'Current NMOS',
         'Current PMOS',
         'Current TMOS'
     ]
-    cols_to_display = [c for c in cols_to_display if c in display_df.columns or c in ('Status Display', 'Timeliness')]
+    cols_to_display = [c for c in cols_to_display if c in display_df.columns or c in ('Status Display', 'Timeliness', 'Criticality')]
 
     view_mode = st.session_state.get("followup_view_mode", "Table")
 
@@ -7079,6 +7089,8 @@ def render_ap_progress_follow_up(sheet_name, selected_quarter, selected_year, se
                 html_table += '<th style="font-family: Times New Roman, Times, serif !important; font-size: 15px; width: 9%;">Status</th>'
             elif col == 'Timeliness':
                 html_table += '<th style="font-family: Times New Roman, Times, serif !important; font-size: 15px; width: 12%; text-align: center;">Timeliness</th>'
+            elif col == 'Criticality':
+                html_table += '<th style="font-family: Times New Roman, Times, serif !important; font-size: 15px; width: 9%; text-align: center;">Criticality</th>'
             elif col == 'Material':
                 html_table += '<th style="font-family: Times New Roman, Times, serif !important; font-size: 15px; width: 12%;">Material</th>'
             elif col == 'NMOS':
@@ -7110,6 +7122,8 @@ def render_ap_progress_follow_up(sheet_name, selected_quarter, selected_year, se
                     html_table += f'<td style="font-family: Times New Roman, Times, serif !important; font-size: 14px; text-align: center;">{row[col]}</td>'
                 elif col == 'Timeliness':
                     html_table += f'<td style="font-family: Times New Roman, Times, serif !important; font-size: 14px; text-align: center; white-space: nowrap;">{_timeliness_badge_html(row.get(col, ""))}</td>'
+                elif col == 'Criticality':
+                    html_table += f'<td style="font-family: Times New Roman, Times, serif !important; font-size: 14px; text-align: center; white-space: nowrap;">{_criticality_badge_html(row.get(col, ""))}</td>'
                 elif col == 'Material':
                     html_table += f'<td style="font-family: Times New Roman, Times, serif !important; font-size: 14px; font-weight: 500;">{row.get(col, "")}</td>'
                 elif col == 'NMOS':
@@ -10357,9 +10371,9 @@ def main():
 
         # ---------------- GROUP 1b: MAIN TABS ----------------
         MAIN_TABS_ALL = [
-            ("Historical Data", "Historical Data"),
-            ("Expert Action Plan", "Expert Action Plan"),
             ("Action Plan Follow Up", "Action Plan Follow Up"),
+            ("Expert Action Plan", "Expert Action Plan"),
+            ("Historical Data", "Historical Data"),
             ("System Generated Action Plan", "System Generated Action Plan"),
         ]
 
@@ -10488,20 +10502,22 @@ def main():
 
             # Main-panel tab bar (shares state with the sidebar buttons)
             _label_by_key = {k: l for l, k in available_main_tabs}
-            with st.container(key="main_tabbar"):
-                # Radio uses its OWN widget key so Streamlit's widget-key cleanup can
-                # never delete "current_page"; the two are synced explicitly.
-                def _sync_main_tab():
-                    _picked = st.session_state.get("main_tab_radio")
-                    if _picked is not None:
-                        st.session_state["current_page"] = _picked
-                st.session_state["main_tab_radio"] = _tab_key
-                st.radio(
-                    "Main tabs", _tab_keys, key="main_tab_radio", horizontal=True,
-                    format_func=lambda k: _label_by_key.get(k, k),
-                    label_visibility="collapsed",
-                    on_change=_sync_main_tab,
-                )
+            # A single assigned tab needs no tab bar on the main panel
+            if len(_tab_keys) > 1:
+                with st.container(key="main_tabbar"):
+                    # Radio uses its OWN widget key so Streamlit's widget-key cleanup can
+                    # never delete "current_page"; the two are synced explicitly.
+                    def _sync_main_tab():
+                        _picked = st.session_state.get("main_tab_radio")
+                        if _picked is not None:
+                            st.session_state["current_page"] = _picked
+                    st.session_state["main_tab_radio"] = _tab_key
+                    st.radio(
+                        "Main tabs", _tab_keys, key="main_tab_radio", horizontal=True,
+                        format_func=lambda k: _label_by_key.get(k, k),
+                        label_visibility="collapsed",
+                        on_change=_sync_main_tab,
+                    )
             _tab_key = st.session_state.get("current_page", _tab_keys[0])
 
             # Show the tab selected in the sidebar or in the tab bar
