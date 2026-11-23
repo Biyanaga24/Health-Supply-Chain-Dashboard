@@ -238,9 +238,6 @@ def inject_custom_css():
         }
         [class*="st-key-main_tabbar"] [role="radiogroup"] > label:has(input:checked) p { color: #1a5276; }
 
-        /* Sidebar Main Tabs buttons: larger text */
-        [class*="st-key-btn_nav_"] button, [class*="st-key-btn_nav_"] button p { font-size: 18px !important; font-weight: 800 !important; }
-
         /* Sidebar Navigation Buttons */
         [data-testid="stSidebar"] [data-testid="stSidebarUserContent"],
         [data-testid="stSidebar"] > div > div { padding-left: 0.6rem !important; padding-right: 0.6rem !important; }
@@ -506,7 +503,7 @@ def inject_custom_css():
         .progress-summary-container .stColumns { gap: 5px; }
 
         .progress-summary-title {
-            font-size: 18px;
+            font-size: 16px;
             font-weight: 700;
             color: #1a5276;
             margin: 5px 0 5px 0;
@@ -6475,8 +6472,8 @@ def render_progress_status_summary(sheet_name, selected_quarter, selected_year):
             # Status Summary — total + completion rate as plain text (no Total card)
             st.markdown(f"""
             <div class="progress-summary-container" style="margin-top: 5px;">
-                <h4 class="progress-summary-title" style="font-size: 16px;">📋 Status Summary
-                    <span style="font-size: 14px; font-weight: 500; color: #555;">
+                <h4 class="progress-summary-title" style="font-size: 14px;">📋 Status Summary
+                    <span style="font-size: 13px; font-weight: 500; color: #555;">
                         — Total Action Points: <b style="color: #1a5276;">{total}</b>
                         &nbsp;|&nbsp; ✅ Completion Rate: <b style="color: #28a745;">{completion_rate:.0f}%</b> ({completed}/{total})
                     </span>
@@ -6501,8 +6498,8 @@ def render_progress_status_summary(sheet_name, selected_quarter, selected_year):
 
             st.markdown(f"""
             <div class="progress-summary-container" style="margin-top: 10px;">
-                <h4 class="progress-summary-title" style="font-size: 16px;">⏱️ Timeliness Summary
-                    <span style="font-size: 14px; font-weight: 500; color: #555;">
+                <h4 class="progress-summary-title" style="font-size: 14px;">⏱️ Timeliness Summary
+                    <span style="font-size: 13px; font-weight: 500; color: #555;">
                         — Total Action Points: <b style="color: #1a5276;">{total}</b>
                         &nbsp;|&nbsp; 🟢 On-Time Rate: <b style="color: #28a745;">{on_time_rate:.0f}%</b> ({_on_time}/{total})
                     </span>
@@ -6534,6 +6531,12 @@ def render_progress_status_summary(sheet_name, selected_quarter, selected_year):
                         timeliness_card_html(_icon, _count, _label, _color, _sel == ('timeliness', _label)),
                         'timeliness', _label)
 
+            st.markdown(f"""
+            <div class="progress-summary-container" style="margin-top: 10px;">
+                <h3 class="progress-summary-title">📊 {program_display} - {latest_quarter_val} {latest_year_val} Level of Urgency and Criticality Summary</h3>
+            </div>
+            """, unsafe_allow_html=True)
+
             # --- Level of Urgency summary — clickable cards (same pattern as Status & Timeliness) ---
             # Normalise urgency to Title-case for consistent matching
             if 'Level of Urgency' in df_records.columns:
@@ -6549,8 +6552,8 @@ def render_progress_status_summary(sheet_name, selected_quarter, selected_year):
 
             st.markdown(f"""
             <div class="progress-summary-container" style="margin-top: 10px;">
-                <h4 class="progress-summary-title" style="font-size: 16px;">🚦 Level of Urgency Summary
-                    <span style="font-size: 14px; font-weight: 500; color: #555;">
+                <h4 class="progress-summary-title" style="font-size: 14px;">🚦 Level of Urgency Summary
+                    <span style="font-size: 13px; font-weight: 500; color: #555;">
                         — Total Action Points: <b style="color: #1a5276;">{total}</b>
                     </span>
                 </h4>
@@ -6602,8 +6605,8 @@ def render_progress_status_summary(sheet_name, selected_quarter, selected_year):
 
             st.markdown(f"""
             <div class="progress-summary-container" style="margin-top: 10px;">
-                <h4 class="progress-summary-title" style="font-size: 16px;">🎯 Criticality Summary
-                    <span style="font-size: 14px; font-weight: 500; color: #555;">
+                <h4 class="progress-summary-title" style="font-size: 14px;">🎯 Criticality Summary
+                    <span style="font-size: 13px; font-weight: 500; color: #555;">
                         — Urgency × Timeliness (FCEF) &nbsp;|&nbsp; Total: <b style="color: #1a5276;">{total}</b>
                     </span>
                 </h4>
@@ -6781,9 +6784,9 @@ def render_ap_progress_follow_up(sheet_name, selected_quarter, selected_year, se
     # HEADER
     # ======================================================================
     if target_quarter and target_year:
-        st.markdown(f"### 📋 {target_quarter}, {target_year} - {program_name} Action Plan Summary Table")
+        st.markdown(f'<h3 class="progress-summary-title">📋 {target_quarter}, {target_year} - {program_name} Action Plan Summary Table</h3>', unsafe_allow_html=True)
     else:
-        st.markdown(f"### 📋 {program_name} Action Plan Summary Table")
+        st.markdown(f'<h3 class="progress-summary-title">📋 {program_name} Action Plan Summary Table</h3>', unsafe_allow_html=True)
 
     # ======================================================================
     # FILTER ROW
@@ -7237,7 +7240,7 @@ def render_ap_progress_follow_up(sheet_name, selected_quarter, selected_year, se
     selected_program_names = program_filter if program_filter else ["All Programs"]
     program_title = ", ".join(selected_program_names)
 
-    st.markdown(f"### 📊 {program_title} Action Plan Status and Timeliness Distribution")
+    st.markdown(f'<h3 class="progress-summary-title">📊 {program_title} Action Plan Status and Timeliness Distribution</h3>', unsafe_allow_html=True)
 
     status_labels = ['Pending', 'Not Completed', 'Partially Completed', 'Completed']
     status_values = [pending, not_completed, partial, completed]
@@ -7591,7 +7594,7 @@ def render_ap_progress_follow_up(sheet_name, selected_quarter, selected_year, se
                 })
 
         if orgs_with_data:
-            st.markdown("### 🥧 Organization Status Distribution")
+            st.markdown('<h3 class="progress-summary-title">🥧 Organization Status Distribution</h3>', unsafe_allow_html=True)
             pie_cols = st.columns(len(orgs_with_data))
 
             pie_colors = ['#28a745', '#2e86c1', '#ffc107']
@@ -9305,7 +9308,7 @@ def render_summary_card_table(df_records, kind, value):
 
     c_title, c_close = st.columns([6, 1])
     with c_title:
-        st.markdown(f"### 📋 {label} ({len(sub)})")
+        st.markdown(f'<h3 class="progress-summary-title">📋 {label} ({len(sub)})</h3>', unsafe_allow_html=True)
     with c_close:
         st.button("✖ Close", key="summary_card_close", width='stretch',
                   on_click=_close_summary_card)
