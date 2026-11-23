@@ -229,7 +229,7 @@ def inject_custom_css():
         [class*="st-key-main_tabbar"] [role="radiogroup"] > label > div:first-child { display: none !important; }
         [class*="st-key-main_tabbar"] [role="radiogroup"] > label p {
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif !important;
-            font-size: 20px; font-weight: 800; color: #4a5a6a;
+            font-size: 24px !important; font-weight: 900 !important; color: #4a5a6a;
         }
         [class*="st-key-main_tabbar"] [role="radiogroup"] > label:hover { background: rgba(46,134,193,0.10); }
         [class*="st-key-main_tabbar"] [role="radiogroup"] > label:has(input:checked) {
@@ -505,15 +505,16 @@ def inject_custom_css():
         .progress-summary-title {
             font-size: 16px;
             font-weight: 700;
-            color: #1a5276;
+            color: #ffffff !important;
             margin: 5px 0 5px 0;
             font-family: 'Times New Roman', Times, serif !important;
-            background: linear-gradient(90deg, #ffffff 0%, #e8f1f9 100%);
-            border-left: 5px solid #2e86c1;
+            background: linear-gradient(90deg, #1a5276 0%, #2e86c1 100%);
+            border-left: 5px solid #e8f1f9;
             border-radius: 8px;
             padding: 8px 14px;
-            box-shadow: 0 1px 4px rgba(0,0,0,0.06);
+            box-shadow: 0 1px 4px rgba(0,0,0,0.12);
         }
+        .progress-summary-title span, .progress-summary-title b { color: #ffffff !important; }
 
         .js-plotly-plot .plotly .main-svg { overflow: visible !important; }
         .js-plotly-plot .plotly .xaxislayer-above, 
@@ -6532,7 +6533,7 @@ def render_progress_status_summary(sheet_name, selected_quarter, selected_year):
                         'timeliness', _label)
 
             st.markdown(f"""
-            <div class="progress-summary-container" style="margin-top: 10px;">
+            <div class="progress-summary-container" style="margin-top: 40px;">
                 <h3 class="progress-summary-title">📊 {program_display} - {latest_quarter_val} {latest_year_val} Level of Urgency and Criticality Summary</h3>
             </div>
             """, unsafe_allow_html=True)
