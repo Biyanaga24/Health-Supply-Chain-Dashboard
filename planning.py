@@ -10339,18 +10339,16 @@ def main():
                 # White card, coloured left edge only, horizontal layout + share bar -
                 # intentionally different from the fully outlined Timeliness cards.
                 active_class = "active" if is_active else ""
-                share = (count / total_n * 100) if total_n else 0
                 return f"""
                 <div class="progress-status-card urg-card {css_class} {active_class}">
                     <div class="urg-left">
                         <div class="urg-icon">{icon}</div>
                         <div>
                             <div class="urg-label">{label} Urgency</div>
-                            <div class="urg-sub">{share:.0f}% of action points</div>
+                            
                         </div>
                     </div>
                     <div class="urg-count">{count}</div>
-                    <div class="urg-bar" style="width: {share:.0f}%;"></div>
                 </div>
                 """
 
@@ -10390,18 +10388,16 @@ def main():
 
             def criticality_card_html(icon, count, label, css_class, total_n, is_active=False):
                 active_class = "active" if is_active else ""
-                share = (count / total_n * 100) if total_n else 0
                 return f"""
                 <div class="progress-status-card crit-card {css_class} {active_class}">
                     <div class="urg-left">
                         <div class="urg-icon">{icon}</div>
                         <div>
                             <div class="urg-label">{label}</div>
-                            <div class="urg-sub">{share:.0f}% of action points</div>
+                            
                         </div>
                     </div>
                     <div class="urg-count">{count}</div>
-                    <div class="urg-bar" style="width: {share:.0f}%;"></div>
                 </div>
                 """
 
