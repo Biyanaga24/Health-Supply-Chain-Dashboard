@@ -10345,7 +10345,6 @@ def main():
                         <div class="urg-icon">{icon}</div>
                         <div>
                             <div class="urg-label">{label} Urgency</div>
-                            
                         </div>
                     </div>
                     <div class="urg-count">{count}</div>
@@ -10394,7 +10393,6 @@ def main():
                         <div class="urg-icon">{icon}</div>
                         <div>
                             <div class="urg-label">{label}</div>
-                            
                         </div>
                     </div>
                     <div class="urg-count">{count}</div>
