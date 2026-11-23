@@ -229,7 +229,7 @@ def inject_custom_css():
         [class*="st-key-main_tabbar"] [role="radiogroup"] > label > div:first-child { display: none !important; }
         [class*="st-key-main_tabbar"] [role="radiogroup"] > label p {
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif !important;
-            font-size: 18px; font-weight: 600; color: #4a5a6a;
+            font-size: 20px; font-weight: 800; color: #4a5a6a;
         }
         [class*="st-key-main_tabbar"] [role="radiogroup"] > label:hover { background: rgba(46,134,193,0.10); }
         [class*="st-key-main_tabbar"] [role="radiogroup"] > label:has(input:checked) {
@@ -239,7 +239,7 @@ def inject_custom_css():
         [class*="st-key-main_tabbar"] [role="radiogroup"] > label:has(input:checked) p { color: #1a5276; }
 
         /* Sidebar Main Tabs buttons: larger text */
-        [class*="st-key-btn_nav_"] button, [class*="st-key-btn_nav_"] button p { font-size: 16px !important; }
+        [class*="st-key-btn_nav_"] button, [class*="st-key-btn_nav_"] button p { font-size: 18px !important; font-weight: 800 !important; }
 
         /* Sidebar Navigation Buttons */
         [data-testid="stSidebar"] [data-testid="stSidebarUserContent"],
@@ -511,6 +511,11 @@ def inject_custom_css():
             color: #1a5276;
             margin: 5px 0 5px 0;
             font-family: 'Times New Roman', Times, serif !important;
+            background: linear-gradient(90deg, #ffffff 0%, #e8f1f9 100%);
+            border-left: 5px solid #2e86c1;
+            border-radius: 8px;
+            padding: 8px 14px;
+            box-shadow: 0 1px 4px rgba(0,0,0,0.06);
         }
 
         .js-plotly-plot .plotly .main-svg { overflow: visible !important; }
@@ -6598,7 +6603,7 @@ def render_progress_status_summary(sheet_name, selected_quarter, selected_year):
             st.markdown(f"""
             <div class="progress-summary-container" style="margin-top: 10px;">
                 <h4 class="progress-summary-title" style="font-size: 16px;">🎯 Criticality Summary
-                    <span style="font-size: 13px; font-weight: 400; color: #555;">
+                    <span style="font-size: 14px; font-weight: 500; color: #555;">
                         — Urgency × Timeliness (FCEF) &nbsp;|&nbsp; Total: <b style="color: #1a5276;">{total}</b>
                     </span>
                 </h4>
@@ -6769,6 +6774,9 @@ def render_ap_progress_follow_up(sheet_name, selected_quarter, selected_year, se
     # ======================================================================
     render_progress_status_summary(sheet_name, selected_quarter, selected_year)
 
+    # White bar sits above the title
+    st.markdown('<div class="filter-row">', unsafe_allow_html=True)
+
     # ======================================================================
     # HEADER
     # ======================================================================
@@ -6780,7 +6788,6 @@ def render_ap_progress_follow_up(sheet_name, selected_quarter, selected_year, se
     # ======================================================================
     # FILTER ROW
     # ======================================================================
-    st.markdown('<div class="filter-row">', unsafe_allow_html=True)
 
     col_filter0, col_filter_mat, col_filter1, col_filter2, col_filter3, col_filter_view = st.columns(6)
 
@@ -10271,7 +10278,7 @@ def main():
     if 'summary_card_sel' not in st.session_state:
         st.session_state.summary_card_sel = None
     if 'current_page' not in st.session_state:
-        st.session_state.current_page = "Historical Data"
+        st.session_state.current_page = "Action Plan Follow Up"
 
     inject_custom_css()
     inject_javascript()
