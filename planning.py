@@ -430,6 +430,49 @@ def inject_custom_css():
         .progress-status-card.urg-medium { --urg: #f59f00; }
         .progress-status-card.urg-low    { --urg: #1971c2; }
 
+        /* Criticality cards — same horizontal layout as urgency cards */
+        .progress-status-card.crit-card {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 10px;
+            text-align: left;
+            padding: 10px 16px;
+            min-height: 74px;
+            background: #ffffff;
+            border: 1px solid #e3e8ee;
+            border-left: 8px solid var(--crit);
+            position: relative;
+            overflow: hidden;
+        }
+        .progress-status-card.crit-card .urg-left { display: flex; align-items: center; gap: 12px; }
+        .progress-status-card.crit-card .urg-icon {
+            font-size: 20px;
+            width: 40px; height: 40px;
+            display: flex; align-items: center; justify-content: center;
+            border-radius: 50%;
+            background: color-mix(in srgb, var(--crit) 14%, #ffffff);
+        }
+        .progress-status-card.crit-card .urg-label {
+            font-size: 15px; font-weight: 700; color: var(--crit); letter-spacing: 0.5px; text-transform: uppercase;
+        }
+        .progress-status-card.crit-card .urg-sub { font-size: 11px; color: #666; }
+        .progress-status-card.crit-card .urg-count {
+            font-size: 32px; font-weight: 800; color: var(--crit); line-height: 1;
+        }
+        .progress-status-card.crit-card .urg-bar {
+            position: absolute; left: 0; bottom: 0; height: 4px;
+            background: var(--crit);
+        }
+        .progress-status-card.crit-card.active {
+            box-shadow: 0 0 0 2px #ffd700, 0 4px 20px rgba(255,215,0,0.45);
+        }
+        .progress-status-card.crit-critical { --crit: #dc3545; }
+        .progress-status-card.crit-high     { --crit: #f59f00; }
+        .progress-status-card.crit-moderate { --crit: #17a2b8; }
+        .progress-status-card.crit-low      { --crit: #28a745; }
+        .progress-status-card.crit-closed   { --crit: #6c757d; }
+
         .filter-row {
             display: grid;
             grid-template-columns: repeat(4, 1fr);
@@ -822,6 +865,90 @@ def _timeliness_badge_html(timeliness_val):
         color, text_color = "#6c757d", "#fff"
     return (f'<span style="display:inline-block;padding:2px 10px;border-radius:12px;'
             f'background:{color};color:{text_color};font-size:12px;font-weight:600;">{_html.escape(t)}</span>')
+
+
+# ---------------------------------------------------------------------------
+# FCEF — Follow-up Criticality & Escalation Framework
+# Criticality = Urgency  ✕  Timeliness  (per the FCEF matrix)
+# ---------------------------------------------------------------------------
+_CRITICALITY_MATRIX = {
+    # (urgency_norm, timeliness_norm) → criticality
+    ('high',   'not yet due'): 'High',
+    ('high',   'on time'):     'High',
+    ('high',   'late'):        'Critical',
+    ('high',   'overdue'):     'Critical',
+    ('medium', 'not yet due'): 'Low',
+    ('medium', 'on time'):     'Moderate',
+    ('medium', 'late'):        'High',
+    ('medium', 'overdue'):     'Critical',
+    ('low',    'not yet due'): 'Low',
+    ('low',    'on time'):     'Low',
+    ('low',    'late'):        'Moderate',
+    ('low',    'overdue'):     'High',
+}
+
+_CRITICALITY_COLOR = {
+    'Critical': ('#dc3545', '#fff'),
+    'High':     ('#f59f00', '#333'),
+    'Moderate': ('#17a2b8', '#fff'),
+    'Low':      ('#28a745', '#fff'),
+    'Closed':   ('#6c757d', '#fff'),
+}
+
+_CRITICALITY_CSS = {
+    'Critical': 'crit-critical',
+    'High':     'crit-high',
+    'Moderate': 'crit-moderate',
+    'Low':      'crit-low',
+    'Closed':   'crit-closed',
+}
+
+_CRITICALITY_ICON = {
+    'Critical': '🔴',
+    'High':     '🟠',
+    'Moderate': '🔵',
+    'Low':      '🟢',
+    'Closed':   '⚫',
+}
+
+
+def compute_criticality(urgency_val, timeliness_label, status=None):
+    """Return the FCEF criticality string.
+
+    Rules:
+      * Completed            -> 'Closed' (regardless of urgency / timeliness)
+      * Initiated            -> new action point: timeliness is treated as 'Not Yet Due'
+      * Partially Completed / Ongoing / Pending -> FCEF matrix (Urgency x Timeliness)
+    """
+    st_norm = str(status or '').strip().lower()
+    if st_norm == 'completed':
+        return 'Closed'
+    u = str(urgency_val or '').strip().lower()
+    t = str(timeliness_label or '').strip().lower()
+    if st_norm == 'initiated':
+        t = 'not yet due'
+    # Normalise urgency to high / medium / low
+    if u in ('high',):
+        u_norm = 'high'
+    elif u in ('medium',):
+        u_norm = 'medium'
+    elif u in ('low',):
+        u_norm = 'low'
+    else:
+        return ''   # unknown urgency → no criticality
+    return _CRITICALITY_MATRIX.get((u_norm, t), '')
+
+
+def _criticality_badge_html(criticality_val):
+    """Return a colored HTML badge for the Criticality cell."""
+    c = str(criticality_val or '').strip()
+    if not c:
+        return ''
+    color, text_color = _CRITICALITY_COLOR.get(c, ('#6c757d', '#fff'))
+    icon = _CRITICALITY_ICON.get(c, '')
+    return (f'<span style="display:inline-block;padding:2px 10px;border-radius:12px;'
+            f'background:{color};color:{text_color};font-size:12px;font-weight:600;">'
+            f'{icon} {_html.escape(c)}</span>')
 
 
 def _stock_style_card_html(title, badge_html, metrics, problem, action, chips):
@@ -5577,6 +5704,7 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
 
                         t_icon, t_label = compute_timeliness(status, due_raw, completion_raw)
                         timeliness_html = f'{t_icon} {t_label}'
+                        criticality = compute_criticality(urgency, t_label, status)
 
                         cell_map = {
                             'Material':           f'<td class="col-material"><strong>{material}</strong></td>',
@@ -5595,6 +5723,7 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
                             'Completion Date':    f'<td class="col-date">{completion_display}</td>',
                             'Status':             f'<td class="col-status">{status}</td>',
                             'Timeliness':         f'<td class="col-status">{timeliness_html}</td>',
+                            'Criticality':        f'<td class="col-status">{_criticality_badge_html(criticality)}</td>',
                         }
                         row_cells = "".join(cell_map[c] for c in cols if c in cell_map)
                         rows_html_parts.append(f'<tr>{row_cells}</tr>')
@@ -5647,8 +5776,8 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
                             cols = ['Material', 'NSOH', 'AMC', 'PMOS', 'NMOS', 'TMOS',
                                     'Purchase Order', 'Order Quantity', 'Identified Problem',
                                     'Action Point', 'Responsible Body', 'Due Date', 'Level of Urgency',
-                                    'Completion Date', 'Status', 'Timeliness']
-                            cols = [c for c in cols if c in quarter_df.columns or c in ('Timeliness', 'Completion Date', 'Level of Urgency')]
+                                    'Completion Date', 'Status', 'Timeliness', 'Criticality']
+                            cols = [c for c in cols if c in quarter_df.columns or c in ('Timeliness', 'Completion Date', 'Level of Urgency', 'Criticality')]
                             table_html = build_expert_html_table(quarter_df, cols)
                             st.markdown(table_html, unsafe_allow_html=True)
                             st.markdown("---")
@@ -5665,11 +5794,13 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
                                     row.get('Due Date', ''),
                                     row.get('Completion Date', '')
                                 )
+                                _crit = compute_criticality(_urg, t_label, status)
                                 chips = [
                                     ('👤', 'Responsible', row.get('Responsible Body', '')),
                                     ('📅', 'Due', due_display),
                                     ('🚦', 'Urgency', _urg),
                                     ('⏱️', 'Timeliness', f'{t_icon} {t_label}'),
+                                    ('🎯', 'Criticality', _crit),
                                 ]
                                 if completion_display:
                                     chips.append(('✅', 'Completed', completion_display))
@@ -5696,8 +5827,8 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
                         cols = ['Material', 'NSOH', 'AMC', 'PMOS', 'NMOS', 'TMOS',
                                 'Purchase Order', 'Order Quantity', 'Identified Problem',
                                 'Action Point', 'Responsible Body', 'Due Date', 'Level of Urgency',
-                                'Completion Date', 'Status', 'Timeliness']
-                        cols = [c for c in cols if c in filtered_df.columns or c in ('Timeliness', 'Completion Date', 'Level of Urgency')]
+                                'Completion Date', 'Status', 'Timeliness', 'Criticality']
+                        cols = [c for c in cols if c in filtered_df.columns or c in ('Timeliness', 'Completion Date', 'Level of Urgency', 'Criticality')]
                         table_html = build_expert_html_table(filtered_df, cols)
                         st.markdown(table_html, unsafe_allow_html=True)
                     else:
@@ -5712,11 +5843,13 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
                                 row.get('Due Date', ''),
                                 row.get('Completion Date', '')
                             )
+                            _crit2 = compute_criticality(_urg2, t_label, status)
                             chips2 = [
                                 ('👤', 'Responsible', row.get('Responsible Body', '')),
                                 ('📅', 'Due', due_display),
                                 ('🚦', 'Urgency', _urg2),
                                 ('⏱️', 'Timeliness', f'{t_icon} {t_label}'),
+                                ('🎯', 'Criticality', _crit2),
                             ]
                             if completion_display:
                                 chips2.append(('✅', 'Completed', completion_display))
@@ -8896,6 +9029,15 @@ def render_summary_card_table(df_records, kind, value):
         sub = df_records[df_records['_Urgency'] == value]
         icon = _URGENCY_ICONS.get(value, '🚦')
         label = f"{icon} {value} Urgency Action Points"
+    elif kind == 'criticality':
+        # Ensure _Criticality is computed if the caller didn't add it yet
+        if '_Criticality' not in df_records.columns:
+            df_records = df_records.copy()
+            df_records['_Criticality'] = df_records.apply(
+                lambda r: compute_criticality(r.get('Level of Urgency', ''), r.get('_Timeliness', ''), r.get('Status')), axis=1)
+        sub = df_records[df_records['_Criticality'] == value]
+        icon = _CRITICALITY_ICON.get(value, '🎯')
+        label = f"{icon} {value} Criticality Action Points"
     else:
         sub = df_records[df_records['_Timeliness'] == value]
         label = f"{_SUMMARY_TIMELINESS_ICONS.get(value, '')} {value} Action Points"
@@ -8942,6 +9084,7 @@ def render_summary_card_table(df_records, kind, value):
                         <span><strong>📅 Due:</strong> {esc(_fmt_date_pretty(r.get('Due Date')))}</span>
                         <span><strong>🚦 Urgency:</strong> {_urgency_badge_html(r.get('Level of Urgency'))}</span>
                         <span><strong>⏱️ Timeliness:</strong> {_SUMMARY_TIMELINESS_ICONS.get(t, '')} {esc(t)}</span>
+                        <span><strong>🎯 Criticality:</strong> {_criticality_badge_html(compute_criticality(r.get('Level of Urgency', ''), t, r.get('Status')))}</span>
                     </div>
                 </div>
             </div>
@@ -8949,7 +9092,7 @@ def render_summary_card_table(df_records, kind, value):
         st.markdown('</div>', unsafe_allow_html=True)
     else:
         cols = ['Material', 'Program', 'NMOS', 'Purchase Order', 'Order Quantity', 'Identified Problem',
-                'Action Point', 'Responsible Body', 'Due Date', 'Level of Urgency', 'Completion Date', 'Status', 'Timeliness']
+                'Action Point', 'Responsible Body', 'Due Date', 'Level of Urgency', 'Completion Date', 'Status', 'Timeliness', 'Criticality']
         head = ''.join(f'<th style="{f} font-size:15px;">{c}</th>' for c in cols)
         body = []
         for _, r in sub.iterrows():
@@ -8959,6 +9102,7 @@ def render_summary_card_table(df_records, kind, value):
             except Exception:
                 nmos = esc(nmos)
             t = r['_Timeliness']
+            _crit_val = compute_criticality(r.get('Level of Urgency', ''), t, r.get('Status'))
             cells = [
                 f'<td style="{f} font-weight:500;">{esc(r.get("Material"))}</td>',
                 f'<td style="{f}">{esc(r.get("Program"))}</td>',
@@ -8973,6 +9117,7 @@ def render_summary_card_table(df_records, kind, value):
                 f'<td style="{f} text-align:center; white-space:nowrap;">{esc(_fmt_date_pretty(r.get("Completion Date")))}</td>',
                 f'<td style="{f} text-align:center;">{_badge(r.get("Status"))}</td>',
                 f'<td style="{f} text-align:center; white-space:nowrap;">{_SUMMARY_TIMELINESS_ICONS.get(t, "")} {esc(t)}</td>',
+                f'<td style="{f} text-align:center;">{_criticality_badge_html(_crit_val)}</td>',
             ]
             body.append('<tr>' + ''.join(cells) + '</tr>')
         st.markdown(
@@ -8981,9 +9126,15 @@ def render_summary_card_table(df_records, kind, value):
             unsafe_allow_html=True
         )
 
+    # Ensure _Criticality is on sub for export
+    if '_Criticality' not in sub.columns:
+        sub = sub.copy()
+        sub['_Criticality'] = sub.apply(
+            lambda r: compute_criticality(r.get('Level of Urgency', ''), r.get('_Timeliness', ''), r.get('Status')), axis=1)
     export_cols = ['Material', 'Program', 'NMOS', 'Purchase Order', 'Order Quantity', 'Identified Problem',
-                   'Action Point', 'Responsible Body', 'Due Date', 'Level of Urgency', 'Completion Date', 'Status', '_Timeliness']
-    export_df = sub[[c for c in export_cols if c in sub.columns]].rename(columns={'_Timeliness': 'Timeliness'}).copy()
+                   'Action Point', 'Responsible Body', 'Due Date', 'Level of Urgency', 'Completion Date', 'Status', '_Timeliness', '_Criticality']
+    export_df = sub[[c for c in export_cols if c in sub.columns]].rename(
+        columns={'_Timeliness': 'Timeliness', '_Criticality': 'Criticality'}).copy()
     for dc in ('Due Date', 'Completion Date'):
         if dc in export_df.columns:
             export_df[dc] = export_df[dc].apply(_fmt_date_pretty)
@@ -10188,18 +10339,16 @@ def main():
                 # White card, coloured left edge only, horizontal layout + share bar -
                 # intentionally different from the fully outlined Timeliness cards.
                 active_class = "active" if is_active else ""
-                share = (count / total_n * 100) if total_n else 0
                 return f"""
                 <div class="progress-status-card urg-card {css_class} {active_class}">
                     <div class="urg-left">
                         <div class="urg-icon">{icon}</div>
                         <div>
                             <div class="urg-label">{label} Urgency</div>
-                            <div class="urg-sub">{share:.0f}% of action points</div>
+                            
                         </div>
                     </div>
                     <div class="urg-count">{count}</div>
-                    <div class="urg-bar" style="width: {share:.0f}%;"></div>
                 </div>
                 """
 
@@ -10216,6 +10365,57 @@ def main():
                         urgency_card_html(_icon, _count, _label, _cls, total,
                                           is_active=_sel == ('urgency', _label)),
                         'urgency', _label)
+
+            # --- Criticality summary — computed from Urgency × Timeliness (FCEF) ---
+            df_records['_Criticality'] = df_records.apply(
+                lambda r: compute_criticality(r.get('Level of Urgency', ''), r.get('_Timeliness', ''), r.get('Status')), axis=1
+            )
+            _crit_critical = int((df_records['_Criticality'] == 'Critical').sum())
+            _crit_high     = int((df_records['_Criticality'] == 'High').sum())
+            _crit_moderate = int((df_records['_Criticality'] == 'Moderate').sum())
+            _crit_low      = int((df_records['_Criticality'] == 'Low').sum())
+            _crit_closed   = int((df_records['_Criticality'] == 'Closed').sum())
+
+            st.markdown(f"""
+            <div class="progress-summary-container" style="margin-top: 10px;">
+                <h4 class="progress-summary-title" style="font-size: 16px;">🎯 Criticality Summary
+                    <span style="font-size: 13px; font-weight: 400; color: #555;">
+                        — Urgency × Timeliness (FCEF) &nbsp;|&nbsp; Total: <b style="color: #1a5276;">{total}</b>
+                    </span>
+                </h4>
+            </div>
+            """, unsafe_allow_html=True)
+
+            def criticality_card_html(icon, count, label, css_class, total_n, is_active=False):
+                active_class = "active" if is_active else ""
+                return f"""
+                <div class="progress-status-card crit-card {css_class} {active_class}">
+                    <div class="urg-left">
+                        <div class="urg-icon">{icon}</div>
+                        <div>
+                            <div class="urg-label">{label}</div>
+                            
+                        </div>
+                    </div>
+                    <div class="urg-count">{count}</div>
+                </div>
+                """
+
+            ccol1, ccol2, ccol3, ccol4, ccol5 = st.columns(5)
+            _crit_cards = [
+                (ccol1, "Critical", _crit_critical, "🔴", "crit-critical"),
+                (ccol2, "High",     _crit_high,     "🟠", "crit-high"),
+                (ccol3, "Moderate", _crit_moderate, "🔵", "crit-moderate"),
+                (ccol4, "Low",      _crit_low,      "🟢", "crit-low"),
+                (ccol5, "Closed",   _crit_closed,   "⚫", "crit-closed"),
+            ]
+            for _col, _label, _count, _icon, _cls in _crit_cards:
+                with _col:
+                    _clickable_card(
+                        f"crit_{_label.lower()}",
+                        criticality_card_html(_icon, _count, _label, _cls, total,
+                                              is_active=_sel == ('criticality', _label)),
+                        'criticality', _label)
 
             # Table for the clicked card (same columns as the Action Plan Follow Up table)
             if _sel:
