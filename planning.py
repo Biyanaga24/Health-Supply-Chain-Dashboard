@@ -516,7 +516,7 @@ def inject_custom_css():
         }
         .progress-summary-title span, .progress-summary-title b { color: #ffffff !important; }
 
-        /* No-background variant: blue text, transparent background (Status, Urgency & Criticality subtitles) */
+        /* No-background variant: blue text, transparent background (Status, Timeliness, Urgency & Criticality subtitles) */
         .progress-summary-title.title-inverted {
             color: #1a5276 !important;
             background: none !important;
@@ -6510,7 +6510,7 @@ def render_progress_status_summary(sheet_name, selected_quarter, selected_year):
 
             st.markdown(f"""
             <div class="progress-summary-container" style="margin-top: 10px;">
-                <h4 class="progress-summary-title" style="font-size: 14px;">⏱️ Timeliness Summary
+                <h4 class="progress-summary-title title-inverted" style="font-size: 14px;">⏱️ Timeliness Summary
                     <span style="font-size: 13px; font-weight: 500; color: #555;">
                         — Total Action Points: <b style="color: #1a5276;">{total}</b>
                         &nbsp;|&nbsp; 🟢 On-Time Rate: <b style="color: #28a745;">{on_time_rate:.0f}%</b> ({_on_time}/{total})
