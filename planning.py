@@ -471,6 +471,7 @@ def inject_custom_css():
         .progress-status-card.crit-high     { --crit: #f59f00; }
         .progress-status-card.crit-moderate { --crit: #17a2b8; }
         .progress-status-card.crit-low      { --crit: #28a745; }
+        .progress-status-card.crit-closed   { --crit: #6c757d; }
 
         .filter-row {
             display: grid;
@@ -891,6 +892,7 @@ _CRITICALITY_COLOR = {
     'High':     ('#f59f00', '#333'),
     'Moderate': ('#17a2b8', '#fff'),
     'Low':      ('#28a745', '#fff'),
+    'Closed':   ('#6c757d', '#fff'),
 }
 
 _CRITICALITY_CSS = {
@@ -898,6 +900,7 @@ _CRITICALITY_CSS = {
     'High':     'crit-high',
     'Moderate': 'crit-moderate',
     'Low':      'crit-low',
+    'Closed':   'crit-closed',
 }
 
 _CRITICALITY_ICON = {
@@ -905,13 +908,25 @@ _CRITICALITY_ICON = {
     'High':     '🟠',
     'Moderate': '🔵',
     'Low':      '🟢',
+    'Closed':   '⚫',
 }
 
 
-def compute_criticality(urgency_val, timeliness_label):
-    """Return the FCEF criticality string for a given urgency + timeliness pair."""
+def compute_criticality(urgency_val, timeliness_label, status=None):
+    """Return the FCEF criticality string.
+
+    Rules:
+      * Completed            -> 'Closed' (regardless of urgency / timeliness)
+      * Initiated            -> new action point: timeliness is treated as 'Not Yet Due'
+      * Partially Completed / Ongoing / Pending -> FCEF matrix (Urgency x Timeliness)
+    """
+    st_norm = str(status or '').strip().lower()
+    if st_norm == 'completed':
+        return 'Closed'
     u = str(urgency_val or '').strip().lower()
     t = str(timeliness_label or '').strip().lower()
+    if st_norm == 'initiated':
+        t = 'not yet due'
     # Normalise urgency to high / medium / low
     if u in ('high',):
         u_norm = 'high'
@@ -5689,7 +5704,7 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
 
                         t_icon, t_label = compute_timeliness(status, due_raw, completion_raw)
                         timeliness_html = f'{t_icon} {t_label}'
-                        criticality = compute_criticality(urgency, t_label)
+                        criticality = compute_criticality(urgency, t_label, status)
 
                         cell_map = {
                             'Material':           f'<td class="col-material"><strong>{material}</strong></td>',
@@ -5779,7 +5794,7 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
                                     row.get('Due Date', ''),
                                     row.get('Completion Date', '')
                                 )
-                                _crit = compute_criticality(_urg, t_label)
+                                _crit = compute_criticality(_urg, t_label, status)
                                 chips = [
                                     ('👤', 'Responsible', row.get('Responsible Body', '')),
                                     ('📅', 'Due', due_display),
@@ -5828,7 +5843,7 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
                                 row.get('Due Date', ''),
                                 row.get('Completion Date', '')
                             )
-                            _crit2 = compute_criticality(_urg2, t_label)
+                            _crit2 = compute_criticality(_urg2, t_label, status)
                             chips2 = [
                                 ('👤', 'Responsible', row.get('Responsible Body', '')),
                                 ('📅', 'Due', due_display),
@@ -9019,7 +9034,7 @@ def render_summary_card_table(df_records, kind, value):
         if '_Criticality' not in df_records.columns:
             df_records = df_records.copy()
             df_records['_Criticality'] = df_records.apply(
-                lambda r: compute_criticality(r.get('Level of Urgency', ''), r.get('_Timeliness', '')), axis=1)
+                lambda r: compute_criticality(r.get('Level of Urgency', ''), r.get('_Timeliness', ''), r.get('Status')), axis=1)
         sub = df_records[df_records['_Criticality'] == value]
         icon = _CRITICALITY_ICON.get(value, '🎯')
         label = f"{icon} {value} Criticality Action Points"
@@ -9069,7 +9084,7 @@ def render_summary_card_table(df_records, kind, value):
                         <span><strong>📅 Due:</strong> {esc(_fmt_date_pretty(r.get('Due Date')))}</span>
                         <span><strong>🚦 Urgency:</strong> {_urgency_badge_html(r.get('Level of Urgency'))}</span>
                         <span><strong>⏱️ Timeliness:</strong> {_SUMMARY_TIMELINESS_ICONS.get(t, '')} {esc(t)}</span>
-                        <span><strong>🎯 Criticality:</strong> {_criticality_badge_html(compute_criticality(r.get('Level of Urgency', ''), t))}</span>
+                        <span><strong>🎯 Criticality:</strong> {_criticality_badge_html(compute_criticality(r.get('Level of Urgency', ''), t, r.get('Status')))}</span>
                     </div>
                 </div>
             </div>
@@ -9087,7 +9102,7 @@ def render_summary_card_table(df_records, kind, value):
             except Exception:
                 nmos = esc(nmos)
             t = r['_Timeliness']
-            _crit_val = compute_criticality(r.get('Level of Urgency', ''), t)
+            _crit_val = compute_criticality(r.get('Level of Urgency', ''), t, r.get('Status'))
             cells = [
                 f'<td style="{f} font-weight:500;">{esc(r.get("Material"))}</td>',
                 f'<td style="{f}">{esc(r.get("Program"))}</td>',
@@ -9115,7 +9130,7 @@ def render_summary_card_table(df_records, kind, value):
     if '_Criticality' not in sub.columns:
         sub = sub.copy()
         sub['_Criticality'] = sub.apply(
-            lambda r: compute_criticality(r.get('Level of Urgency', ''), r.get('_Timeliness', '')), axis=1)
+            lambda r: compute_criticality(r.get('Level of Urgency', ''), r.get('_Timeliness', ''), r.get('Status')), axis=1)
     export_cols = ['Material', 'Program', 'NMOS', 'Purchase Order', 'Order Quantity', 'Identified Problem',
                    'Action Point', 'Responsible Body', 'Due Date', 'Level of Urgency', 'Completion Date', 'Status', '_Timeliness', '_Criticality']
     export_df = sub[[c for c in export_cols if c in sub.columns]].rename(
@@ -10355,12 +10370,13 @@ def main():
 
             # --- Criticality summary — computed from Urgency × Timeliness (FCEF) ---
             df_records['_Criticality'] = df_records.apply(
-                lambda r: compute_criticality(r.get('Level of Urgency', ''), r.get('_Timeliness', '')), axis=1
+                lambda r: compute_criticality(r.get('Level of Urgency', ''), r.get('_Timeliness', ''), r.get('Status')), axis=1
             )
             _crit_critical = int((df_records['_Criticality'] == 'Critical').sum())
             _crit_high     = int((df_records['_Criticality'] == 'High').sum())
             _crit_moderate = int((df_records['_Criticality'] == 'Moderate').sum())
             _crit_low      = int((df_records['_Criticality'] == 'Low').sum())
+            _crit_closed   = int((df_records['_Criticality'] == 'Closed').sum())
 
             st.markdown(f"""
             <div class="progress-summary-container" style="margin-top: 10px;">
@@ -10389,12 +10405,13 @@ def main():
                 </div>
                 """
 
-            ccol1, ccol2, ccol3, ccol4 = st.columns(4)
+            ccol1, ccol2, ccol3, ccol4, ccol5 = st.columns(5)
             _crit_cards = [
                 (ccol1, "Critical", _crit_critical, "🔴", "crit-critical"),
                 (ccol2, "High",     _crit_high,     "🟠", "crit-high"),
                 (ccol3, "Moderate", _crit_moderate, "🔵", "crit-moderate"),
                 (ccol4, "Low",      _crit_low,      "🟢", "crit-low"),
+                (ccol5, "Closed",   _crit_closed,   "⚫", "crit-closed"),
             ]
             for _col, _label, _count, _icon, _cls in _crit_cards:
                 with _col:
