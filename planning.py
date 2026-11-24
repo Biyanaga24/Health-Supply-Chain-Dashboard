@@ -1990,6 +1990,7 @@ def _load_expert_plan_records_cached(program, quarter, year, allowed_programs):
                     'Completion Date': rec.get('completion_date'),
                     'Justification': rec.get('justification') or '',
                     'Corrective Action': rec.get('corrective_action') or '',
+                    'Corrective Due Date': rec.get('corrective_due_date') or '',
                     'Status': rec.get('status', 'Pending'), 'Quarter': rec.get('quarter'),
                     'Year': rec.get('year'), 'Program': rec.get('program'),
                     'Updated At': rec.get('updated_at'), 'Created At': rec.get('created_at'),
@@ -2053,7 +2054,7 @@ def save_expert_plan_record(record):
         st.error(f"Save failed: {e}"); return False
 
 
-def save_ap_review_entry(record_id, justification, corrective_action):
+def save_ap_review_entry(record_id, justification, corrective_action, corrective_due_date=None):
     """Save only the AP Progress Review fields of one record (never touches the plan itself)."""
     supabase = get_supabase()
     if supabase is None:
@@ -2062,15 +2063,16 @@ def save_ap_review_entry(record_id, justification, corrective_action):
         supabase.table("expert_plan_records").update({
             "justification": (justification or "").strip(),
             "corrective_action": (corrective_action or "").strip(),
+            "corrective_due_date": corrective_due_date.isoformat() if corrective_due_date else None,
         }).eq("record_id", record_id).execute()
         load_expert_plan_records.clear()
         return True
     except Exception as e:
-        if "justification" in str(e) or "corrective_action" in str(e):
-            st.error("Justification / Corrective Action could not be saved: add two text columns named "
-                     "'justification' and 'corrective_action' to the 'expert_plan_records' table in Supabase "
-                     "(SQL: alter table expert_plan_records add column justification text, "
-                     "add column corrective_action text;).")
+        if any(k in str(e) for k in ("justification", "corrective_action", "corrective_due_date")):
+            st.error("The review fields could not be saved: add these columns to the 'expert_plan_records' "
+                     "table in Supabase (SQL: alter table expert_plan_records add column if not exists "
+                     "justification text, add column if not exists corrective_action text, "
+                     "add column if not exists corrective_due_date date;).")
         else:
             st.error(f"Save failed: {e}")
         return False
@@ -6723,7 +6725,8 @@ def render_ap_progress_review(sheet_name, selected_quarter, selected_year):
 
     df = pd.DataFrame(records)
     for c in ("Material", "NMOS", "Purchase Order", "Order Quantity", "Identified Problem",
-              "Justification", "Corrective Action", "Status", "Program"):
+              "Justification", "Corrective Action", "Corrective Due Date", "Status", "Program",
+              "Action Point", "Due Date", "Completion Date"):
         if c not in df.columns:
             df[c] = ""
 
@@ -6735,6 +6738,27 @@ def render_ap_progress_review(sheet_name, selected_quarter, selected_year):
         latest = df.loc[_key.idxmax()]
         df = df[(df["Quarter"] == latest["Quarter"]) & (df["Year"].astype(str) == str(latest["Year"]))]
         st.markdown(f"**{latest['Quarter']}, {latest['Year']}**")
+
+    def _to_date(v):
+        d = pd.to_datetime(v, errors="coerce")
+        return None if pd.isna(d) else d.date()
+
+    def _timeliness(status, due, done):
+        due_d, done_d = _to_date(due), _to_date(done)
+        if str(status).strip().lower() == "completed":
+            return "On Time" if (due_d is None or done_d is None or done_d <= due_d) else "Late"
+        if due_d is not None and due_d < datetime.now().date():
+            return "Overdue"
+        return "Not Yet Due"
+
+    df = df.copy()
+    df["Timeliness"] = df.apply(lambda r: _timeliness(r["Status"], r["Due Date"], r["Completion Date"]), axis=1)
+    # Review only what needs explaining: not completed, and neither On Time nor Not Yet Due
+    df = df[(df["Status"].astype(str).str.strip().str.lower() != "completed")
+            & (~df["Timeliness"].isin(["On Time", "Not Yet Due"]))]
+    if df.empty:
+        st.info("No action points need review: every action point is either completed, on time or not yet due.")
+        return
 
     c1, c2, c3 = st.columns(3)
     with c1:
@@ -6767,6 +6791,9 @@ def render_ap_progress_review(sheet_name, selected_quarter, selected_year):
         "Purchase Order": df["Purchase Order"].map(_clean),
         "Order Quantity": df["Order Quantity"].map(_clean),
         "Identified Problem": df["Identified Problem"].map(_clean),
+        "Status": df["Status"].map(_clean),
+        "Timeliness": df["Timeliness"],
+        "Action Point": df["Action Point"].map(_clean),
         "Justification": df["Justification"].map(_clean),
         "Corrective Action": df["Corrective Action"].map(_clean),
     })
@@ -6777,8 +6804,7 @@ def render_ap_progress_review(sheet_name, selected_quarter, selected_year):
     # Progress Update Data: plain-text entry for one material at a time
     # ------------------------------------------------------------------
     st.markdown("### Progress Update Data")
-    labels = [f"{_clean(df.at[i, 'Material'])} | {_clean(df.at[i, 'Program'])}"
-              for i in range(len(df))]
+    labels = [_clean(df.at[i, "Material"]) for i in range(len(df))]
     pick = st.selectbox("Material Description", range(len(df)),
                         format_func=lambda i: labels[i], key="apr_pick")
     rid = str(df.at[pick, "record_id"])
@@ -6791,9 +6817,12 @@ def render_ap_progress_review(sheet_name, selected_quarter, selected_year):
     corrective = st.text_area("Corrective Action", value=_clean(df.at[pick, "Corrective Action"]),
                               key=f"apr_corr_{rid}", height=120,
                               label_visibility="collapsed")
+    st.markdown("**Due Date** (for the Corrective Action)")
+    corr_due = st.date_input("Corrective Action Due Date", value=_to_date(df.at[pick, "Corrective Due Date"]),
+                             key=f"apr_due_{rid}", label_visibility="collapsed")
 
     if st.button("💾 Save Progress Update", key="apr_save", type="primary"):
-        if save_ap_review_entry(df.at[pick, "record_id"], justification, corrective):
+        if save_ap_review_entry(df.at[pick, "record_id"], justification, corrective, corr_due):
             st.success("Progress update saved.")
             st.rerun()
 
