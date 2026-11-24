@@ -6796,11 +6796,13 @@ def render_ap_progress_review(sheet_name, selected_quarter, selected_year):
         "Timeliness": df["Timeliness"],
         "Justification": df["Justification"].map(_clean),
         "Corrective Action": df["Corrective Action"].map(_clean),
+        "Due Date": df["Corrective Due Date"].apply(
+            lambda v: _to_date(v).strftime("%b %d, %Y") if _to_date(v) else ""),
     })
 
     # Smart table: same styled table as the Action Plan Dashboard (badges, Times New Roman)
     _F = "font-family: Times New Roman, Times, serif !important;"
-    _center = {"NMOS", "Purchase Order", "Order Quantity", "Status", "Timeliness"}
+    _center = {"NMOS", "Purchase Order", "Order Quantity", "Status", "Timeliness", "Due Date"}
     _wide = {"Identified Problem", "Action Point", "Justification", "Corrective Action"}
     _t = (f'<div class="dataframe-container"><table class="styled-table" '
           f'style="{_F} font-size: 14px; width: 100%;"><thead><tr>')
@@ -6831,29 +6833,62 @@ def render_ap_progress_review(sheet_name, selected_quarter, selected_year):
     st.markdown(_t, unsafe_allow_html=True)
 
     # ------------------------------------------------------------------
-    # Progress Update Data: plain-text entry for one material at a time
+    # Progress Update Data: pick a material, then Edit or Delete its review entry
     # ------------------------------------------------------------------
     st.markdown("### Progress Update Data")
     labels = [_clean(df.at[i, "Material"]) for i in range(len(df))]
     pick = st.selectbox("Material Description", range(len(df)),
                         format_func=lambda i: labels[i], key="apr_pick")
     rid = str(df.at[pick, "record_id"])
+    editing = st.session_state.get("apr_edit_id") == rid
+    deleting = st.session_state.get("apr_delete_id") == rid
 
-    st.markdown("**Justification**")
-    justification = st.text_area("Justification", value=_clean(df.at[pick, "Justification"]),
-                                 key=f"apr_just_{rid}", height=120,
-                                 label_visibility="collapsed")
-    st.markdown("**Corrective Action**")
-    corrective = st.text_area("Corrective Action", value=_clean(df.at[pick, "Corrective Action"]),
-                              key=f"apr_corr_{rid}", height=120,
-                              label_visibility="collapsed")
-    st.markdown("**Due Date** (for the Corrective Action)")
-    corr_due = st.date_input("Corrective Action Due Date", value=_to_date(df.at[pick, "Corrective Due Date"]),
-                             key=f"apr_due_{rid}", label_visibility="collapsed")
+    if not editing and not deleting:
+        b1, b2, _sp = st.columns([1, 1, 4])
+        if b1.button("✏️ Edit", key="apr_edit_btn", width="stretch"):
+            st.session_state["apr_edit_id"] = rid
+            st.session_state["apr_delete_id"] = None
+            st.rerun()
+        if b2.button("🗑️ Delete", key="apr_delete_btn", width="stretch"):
+            st.session_state["apr_delete_id"] = rid
+            st.session_state["apr_edit_id"] = None
+            st.rerun()
 
-    if st.button("💾 Save Progress Update", key="apr_save", type="primary"):
-        if save_ap_review_entry(df.at[pick, "record_id"], justification, corrective, corr_due):
-            st.success("Progress update saved.")
+    if deleting:
+        st.warning("Delete the Justification, Corrective Action and Due Date of this action point? "
+                   "The action plan record itself is not deleted.")
+        d1, d2, _sp = st.columns([1, 1, 4])
+        if d1.button("✅ Confirm Delete", key="apr_delete_confirm", type="primary", width="stretch"):
+            if save_ap_review_entry(df.at[pick, "record_id"], "", "", None):
+                st.session_state["apr_delete_id"] = None
+                st.success("Review entry deleted.")
+                st.rerun()
+        if d2.button("✖ Cancel", key="apr_delete_cancel", width="stretch"):
+            st.session_state["apr_delete_id"] = None
+            st.rerun()
+
+    if editing:
+        st.markdown("**Justification**")
+        justification = st.text_area("Justification", value=_clean(df.at[pick, "Justification"]),
+                                     key=f"apr_just_{rid}", height=120,
+                                     label_visibility="collapsed")
+        st.markdown("**Corrective Action**")
+        corrective = st.text_area("Corrective Action", value=_clean(df.at[pick, "Corrective Action"]),
+                                  key=f"apr_corr_{rid}", height=120,
+                                  label_visibility="collapsed")
+        st.markdown("**Due Date** (for the Corrective Action)")
+        corr_due = st.date_input("Corrective Action Due Date", value=_to_date(df.at[pick, "Corrective Due Date"]),
+                                 key=f"apr_due_{rid}", label_visibility="collapsed")
+        e1, e2, _sp = st.columns([1, 1, 4])
+        if e1.button("💾 Save", key="apr_save", type="primary", width="stretch"):
+            if save_ap_review_entry(df.at[pick, "record_id"], justification, corrective, corr_due):
+                st.session_state["apr_edit_id"] = None
+                st.success("Progress update saved.")
+                st.rerun()
+        if e2.button("✖ Cancel", key="apr_edit_cancel", width="stretch"):
+            for k in (f"apr_just_{rid}", f"apr_corr_{rid}", f"apr_due_{rid}"):
+                st.session_state.pop(k, None)   # discard unsaved typing
+            st.session_state["apr_edit_id"] = None
             st.rerun()
 
 
@@ -10326,7 +10361,7 @@ def render_chatbot(sheet_name, selected_quarter, selected_year, action_df, df_fi
 
 
 # ============================================================================
-# SELECTION PANEL (main panel, above the tab content)
+# SELECTION PANEL (sidebar, above Main Tabs)
 # ============================================================================
 def _render_selection_panel(program_only=False):
     sheet_id_amc = "14VvZ7IyOmpM4SZrY5_ArHDgLkeFN4inW"
@@ -10364,7 +10399,7 @@ def _render_selection_panel(program_only=False):
 
     with st.container(border=True):
         st.markdown('<div class="sb-group-title" style="border-bottom:none;padding-bottom:0;margin-bottom:14px;">🎯 Selection</div>', unsafe_allow_html=True)
-        cols = st.columns(5)  # side by side (lives in the main panel)
+        cols = [st.container() for _ in range(5)]  # stacked (lives in the sidebar)
 
         _prog_choices = [p for p in program_list if p != "All"]
         _prev = [p for p in (_prog_list(st.session_state.selected_program) or []) if p in _prog_choices]
@@ -10579,6 +10614,14 @@ def main():
             # the module is chosen in the shell's "Modules" list
             active_section = st.session_state.get("active_section", "supply_planning")
 
+        # ---------------- GROUP 1a: SELECTION (above Main Tabs) ----------------
+        if _EMB and active_section == "forecasting":
+            sheet_name, subcategory_filter, selected_quarter, selected_year = _render_selection_panel(program_only=True)
+        else:
+            sheet_name, subcategory_filter, selected_quarter, selected_year = _render_selection_panel()
+
+        st.markdown('<div style="margin-top: 14px;"></div>', unsafe_allow_html=True)
+
         # ---------------- GROUP 1b: MAIN TABS ----------------
         MAIN_TABS_ALL = [
             ("Action Plan Dashboard", "Action Plan Dashboard"),
@@ -10642,14 +10685,6 @@ def main():
 
                 if st.button("🚪 Logout", width='stretch'):
                     logout()
-
-    # ============================================================
-    # SELECTION (main panel)
-    # ============================================================
-    if _EMB and active_section == "forecasting":
-        sheet_name, subcategory_filter, selected_quarter, selected_year = _render_selection_panel(program_only=True)
-    else:
-        sheet_name, subcategory_filter, selected_quarter, selected_year = _render_selection_panel()
 
     # ============================================================
     # DATA LOADING
