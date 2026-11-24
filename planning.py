@@ -6791,14 +6791,44 @@ def render_ap_progress_review(sheet_name, selected_quarter, selected_year):
         "Purchase Order": df["Purchase Order"].map(_clean),
         "Order Quantity": df["Order Quantity"].map(_clean),
         "Identified Problem": df["Identified Problem"].map(_clean),
+        "Action Point": df["Action Point"].map(_clean),
         "Status": df["Status"].map(_clean),
         "Timeliness": df["Timeliness"],
-        "Action Point": df["Action Point"].map(_clean),
         "Justification": df["Justification"].map(_clean),
         "Corrective Action": df["Corrective Action"].map(_clean),
     })
 
-    st.dataframe(view, hide_index=True, width="stretch")
+    # Smart table: same styled table as the Action Plan Dashboard (badges, Times New Roman)
+    _F = "font-family: Times New Roman, Times, serif !important;"
+    _center = {"NMOS", "Purchase Order", "Order Quantity", "Status", "Timeliness"}
+    _wide = {"Identified Problem", "Action Point", "Justification", "Corrective Action"}
+    _t = (f'<div class="dataframe-container"><table class="styled-table" '
+          f'style="{_F} font-size: 14px; width: 100%;"><thead><tr>')
+    for col in view.columns:
+        _al = " text-align: center;" if col in _center else ""
+        _t += f'<th style="{_F} font-size: 15px;{_al}">{_html.escape(col)}</th>'
+    _t += '</tr></thead><tbody>'
+    for _, r in view.iterrows():
+        _t += '<tr>'
+        for col in view.columns:
+            v = r[col]
+            if col == "Status":
+                cell = _sc_badge(v, _SUMMARY_STATUS_COLORS.get(v, "#6c757d")) if v else ""
+            elif col == "Timeliness":
+                cell = _timeliness_badge_html(v)
+            else:
+                cell = _html.escape(str(v))
+            _st = f"{_F} font-size: 14px;"
+            if col in _center:
+                _st += " text-align: center; white-space: nowrap;"
+            if col in _wide:
+                _st += " min-width: 200px;"
+            if col == "Material Description":
+                _st += " font-weight: 500;"
+            _t += f'<td style="{_st}">{cell}</td>'
+        _t += '</tr>'
+    _t += '</tbody></table></div>'
+    st.markdown(_t, unsafe_allow_html=True)
 
     # ------------------------------------------------------------------
     # Progress Update Data: plain-text entry for one material at a time
