@@ -2345,26 +2345,6 @@ def load_issue_data():
         return pd.DataFrame()
 
 
-@st.cache_data(ttl=600, show_spinner="Loading issue data from Supabase...")
-def load_issue_data_full(cache_bust=0):
-    """Full issue_data table (all columns incl. delivery_date), cached so that changing
-    a date filter does NOT re-download everything from Supabase on each rerun.
-    Call load_issue_data_full.clear() after uploading new issue data."""
-    client = st.session_state.get('supabase_client')
-    if client is None:
-        return pd.DataFrame()
-    rows, start, size = [], 0, 10000
-    while True:
-        res = client.table("issue_data").select("*").range(start, start + size - 1).execute()
-        if not res.data:
-            break
-        rows.extend(res.data)
-        if len(res.data) < size:
-            break
-        start += size
-    return pd.DataFrame(rows)
-
-
 # ---------------------------------------------------
 # Create Aggregated Views for Issue Data (Performance Optimization)
 # ---------------------------------------------------
@@ -3141,7 +3121,6 @@ def save_issue_to_supabase(records):
         client.table("issue_data").upsert(
             records[i:i + 1000], on_conflict="material_descr,delivery_date,plant,region_descr"
         ).execute()
-    load_issue_data_full.clear()   # new issue data uploaded -> drop the cached copy
     return len(records)
 
 
@@ -3804,7 +3783,7 @@ with _SB:
             st.warning(notif)
 
 _title_slot = st.container()
-_FILTER_PAGES = ("Dashboard", "Advanced Analytics", "Executive Summary", "Issue Data")
+_FILTER_PAGES = ("Dashboard", "Advanced Analytics", "Executive Summary")
 _filters_visible = st.session_state.get('nav_page', 'Dashboard') in _FILTER_PAGES
 _sb_flt = _SB.container()   # filters live in the sidebar, right above Navigation
 _fc = [_sb_flt] * 5 if _filters_visible else None
@@ -4691,15 +4670,38 @@ elif page == "Issue Data":
         st.error("Supabase client not initialized")
         st.stop()
 
-    try:
-        issue_df = load_issue_data_full().copy()
-    except Exception as e:
-        st.error(f"Error loading data: {e}")
-        st.stop()
+    with st.spinner("Loading issue data from Supabase..."):
+        all_data = []
+        start = 0
+        batch_size = 1000
 
-    if issue_df.empty:
-        st.info("No issue data available. Please upload data to the issue_data table.")
-        st.stop()
+        while True:
+            try:
+                result = (
+                    st.session_state.supabase_client.table("issue_data")
+                    .select("*")
+                    .range(start, start + batch_size - 1)
+                    .execute()
+                )
+
+                if not result.data:
+                    break
+
+                all_data.extend(result.data)
+                start += batch_size
+
+                if len(result.data) < batch_size:
+                    break
+
+            except Exception as e:
+                st.error(f"Error loading data: {e}")
+                break
+
+        if not all_data:
+            st.info("No issue data available. Please upload data to the issue_data table.")
+            st.stop()
+
+        issue_df = pd.DataFrame(all_data)
 
     # Rename columns
     column_rename = {
@@ -4716,55 +4718,28 @@ elif page == "Issue Data":
     if 'Delivery Date' in issue_df.columns:
         issue_df['Delivery Date'] = pd.to_datetime(issue_df['Delivery Date'], errors='coerce')
 
-    # Filter by program materials - matched on a normalised key (trim, collapse spaces, ignore case,
-    # non-breaking spaces) so tiny spelling/spacing differences between Supabase and Google Sheets
-    # do not drop rows. Matched rows are renamed to the Google Sheets spelling.
-    _sheet_key_map = {}
-    for _m in program_materials:
-        _k = _normalize_material(str(_m).replace("\u00a0", " "))
-        if _k and _k not in _sheet_key_map:
-            _sheet_key_map[_k] = str(_m).replace("\u00a0", " ").strip()
-    program_materials = list(_sheet_key_map.values())
-
-    issue_df['_mkey'] = issue_df['Material Description'].astype(str).str.replace("\u00a0", " ", regex=False).map(_normalize_material)
-    _unmatched_issue = sorted(issue_df.loc[~issue_df['_mkey'].isin(_sheet_key_map), 'Material Description'].dropna().astype(str).unique())
-    issue_df = issue_df[issue_df['_mkey'].isin(_sheet_key_map)].copy()
-    issue_df['Material Description'] = issue_df['_mkey'].map(_sheet_key_map)
-    issue_df = issue_df.drop(columns=['_mkey'])
+    # Filter by program materials
+    issue_df = issue_df[issue_df['Material Description'].isin(program_materials)]
 
     if issue_df.empty:
         st.warning("No matching materials found between Issue Data and Google Sheets.")
-        if _unmatched_issue:
-            with st.expander(f"Issue Data materials not found in Google Sheets ({len(_unmatched_issue)})"):
-                st.write(_unmatched_issue[:200])
         st.stop()
-    if _unmatched_issue:
-        with st.expander(f"⚠️ {len(_unmatched_issue)} Issue Data material name(s) not found in the selected Google Sheets programs"):
-            st.caption("These names exist in issue_data but match no Material Description in the Google Sheet "
-                       "(different wording, not in the selected program, etc.), so they are excluded.")
-            st.write(_unmatched_issue[:200])
 
     # Remove Head Office from plants
     issue_df = issue_df[~issue_df['Plant'].str.contains('Head Office|HO01', case=False, na=False)]
 
     # ========== DATE RANGE FILTER ==========
     st.markdown("### 📅 Filter by Time (Delivery Date)")
+    col_date1, col_date2 = st.columns(2)
 
     if 'Delivery Date' in issue_df.columns and issue_df['Delivery Date'].notna().any():
         min_date = issue_df['Delivery Date'].min().date()
         max_date = issue_df['Delivery Date'].max().date()
 
-        with st.form("issue_date_filter_form", border=False):
-            col_date1, col_date2, col_apply = st.columns([2, 2, 1])
-            with col_date1:
-                start_date = st.date_input("From Date", value=min_date, min_value=min_date, max_value=max_date, key="issue_from_date")
-            with col_date2:
-                end_date = st.date_input("To Date", value=max_date, min_value=min_date, max_value=max_date, key="issue_to_date")
-            with col_apply:
-                st.write("")
-                st.form_submit_button("Apply", use_container_width=True, type="primary")
-        if start_date > end_date:
-            st.warning("'From Date' is after 'To Date' - showing no rows. Please adjust the range.")
+        with col_date1:
+            start_date = st.date_input("From Date", value=min_date, min_value=min_date, max_value=max_date)
+        with col_date2:
+            end_date = st.date_input("To Date", value=max_date, min_value=min_date, max_value=max_date)
 
         mask = (issue_df['Delivery Date'].dt.date >= start_date) & (issue_df['Delivery Date'].dt.date <= end_date)
         display_issue_df = issue_df[mask].copy()
@@ -4848,9 +4823,8 @@ elif page == "Issue Data":
                 # Build HSOH data
                 hsoh_records = []
 
-                _df_mkey = df['Material Description'].astype(str).str.replace("\u00a0", " ", regex=False).map(_normalize_material)
                 for material in program_materials:
-                    material_row = df[_df_mkey == _normalize_material(material)]
+                    material_row = df[df['Material Description'] == material]
                     if material_row.empty:
                         continue
 
