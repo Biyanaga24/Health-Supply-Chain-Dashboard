@@ -43,9 +43,22 @@ from forecast_core import (
 TAB_OPTIONS = [
     "Historical Data",
     "Expert Action Plan",
-    "Action Plan Follow Up",
+    "Action Plan Dashboard",
+    "AP Progress Review",
     "System Generated Action Plan",
 ]
+
+# Users whose saved tab access still says "Action Plan Follow Up" keep their access
+# to the renamed dashboard (and get the new review tab with it).
+_LEGACY_TAB_ALIASES = {"Action Plan Follow Up": ["Action Plan Dashboard", "AP Progress Review"]}
+
+
+def _expand_legacy_tabs(tabs):
+    out = []
+    for t in (tabs or []):
+        out.append(t)
+        out.extend(_LEGACY_TAB_ALIASES.get(t, []))
+    return out
 
 # ============================================================================
 # CUSTOM CSS (Sidebar & Tabs styling removed for standard buttons)
@@ -1975,6 +1988,8 @@ def _load_expert_plan_records_cached(program, quarter, year, allowed_programs):
                     'Responsible Body': rec.get('responsible_body'),
                     'Due Date': rec.get('due_date'), 'Level of Urgency': rec.get('level_of_urgency') or '',
                     'Completion Date': rec.get('completion_date'),
+                    'Justification': rec.get('justification') or '',
+                    'Corrective Action': rec.get('corrective_action') or '',
                     'Status': rec.get('status', 'Pending'), 'Quarter': rec.get('quarter'),
                     'Year': rec.get('year'), 'Program': rec.get('program'),
                     'Updated At': rec.get('updated_at'), 'Created At': rec.get('created_at'),
@@ -2036,6 +2051,29 @@ def save_expert_plan_record(record):
         return True
     except Exception as e:
         st.error(f"Save failed: {e}"); return False
+
+
+def save_ap_review_entry(record_id, justification, corrective_action):
+    """Save only the AP Progress Review fields of one record (never touches the plan itself)."""
+    supabase = get_supabase()
+    if supabase is None:
+        return False
+    try:
+        supabase.table("expert_plan_records").update({
+            "justification": (justification or "").strip(),
+            "corrective_action": (corrective_action or "").strip(),
+        }).eq("record_id", record_id).execute()
+        load_expert_plan_records.clear()
+        return True
+    except Exception as e:
+        if "justification" in str(e) or "corrective_action" in str(e):
+            st.error("Justification / Corrective Action could not be saved: add two text columns named "
+                     "'justification' and 'corrective_action' to the 'expert_plan_records' table in Supabase "
+                     "(SQL: alter table expert_plan_records add column justification text, "
+                     "add column corrective_action text;).")
+        else:
+            st.error(f"Save failed: {e}")
+        return False
 
 
 def delete_expert_plan_record(record_id):
@@ -6012,7 +6050,7 @@ def _set_cell_borders(cell, color="000000", width_pt=0.5):
 
 def build_action_plan_pptx(df, program_title="All Programs", col_spec=None, deck_title="Update Action Plan",
                            urgency_row_color=False, timeliness_cell_color=False):
-    """Action Plan Follow Up table as a PowerPoint (.pptx) file, returned as bytes.
+    """Action Plan Dashboard table as a PowerPoint (.pptx) file, returned as bytes.
     Long tables are split over several slides.
 
     urgency_row_color   – when True, each data row's background is tinted by its
@@ -6158,7 +6196,7 @@ _FOLLOWUP_XLSX_FONT = "Times New Roman"
 
 
 def build_followup_xlsx(df, program_title="All Programs", period_label=""):
-    """Action Plan Follow Up table as a smart, Times New Roman Excel workbook (bytes).
+    """Action Plan Dashboard table as a smart, Times New Roman Excel workbook (bytes).
 
     Sheet 1 - Title row + Excel Table (filters, banded rows, frozen header), real dates and numbers,
               dropdown validation on Status / Urgency, colour rules on Status / Timeliness /
@@ -6221,7 +6259,7 @@ def build_followup_xlsx(df, program_title="All Programs", period_label=""):
 
     wb = Workbook()
     ws = wb.active
-    ws.title = "Action Plan Follow Up"
+    ws.title = "Action Plan Dashboard"
     ws.sheet_view.showGridLines = False
 
     navy, blue = "1A5276", "2E86C1"
@@ -6233,7 +6271,7 @@ def build_followup_xlsx(df, program_title="All Programs", period_label=""):
 
     # ---- title block
     ws.merge_cells(f"A1:{last_col}1")
-    ws["A1"] = "Action Plan Follow Up - " + str(program_title) + (f" ({period_label})" if period_label else "")
+    ws["A1"] = "Action Plan Dashboard - " + str(program_title) + (f" ({period_label})" if period_label else "")
     ws["A1"].font = Font(name=FN, size=18, bold=True, color="FFFFFF")
     ws["A1"].fill = PatternFill("solid", fgColor=navy)
     ws["A1"].alignment = Alignment(horizontal="left", vertical="center", indent=1)
@@ -6305,7 +6343,7 @@ def build_followup_xlsx(df, program_title="All Programs", period_label=""):
         ws.column_dimensions[L[h]].width = w
 
     # ---- Excel table (filter buttons, banding)
-    tbl = Table(displayName="ActionPlanFollowUp", ref=f"A{hdr_row}:{last_col}{last}")
+    tbl = Table(displayName="ActionPlanDashboard", ref=f"A{hdr_row}:{last_col}{last}")
     tbl.tableStyleInfo = TableStyleInfo(name="TableStyleLight9", showRowStripes=True,
                                         showFirstColumn=False, showLastColumn=False)
     ws.add_table(tbl)
@@ -6371,7 +6409,7 @@ def build_followup_xlsx(df, program_title="All Programs", period_label=""):
     sm["A1"].alignment = Alignment(horizontal="left", vertical="center", indent=1)
     sm.row_dimensions[1].height = 28
 
-    sheet_ref = "'Action Plan Follow Up'!"
+    sheet_ref = "'Action Plan Dashboard'!"
     total_cell = None
     row = 3
 
@@ -6430,7 +6468,7 @@ def build_followup_xlsx(df, program_title="All Programs", period_label=""):
 
 def render_progress_status_summary(sheet_name, selected_quarter, selected_year):
     """Progress Status / Timeliness / Urgency / Criticality summary cards (latest quarter).
-    Rendered inside the Action Plan Follow Up tab, just above the table."""
+    Rendered inside the Action Plan Dashboard tab, just above the table."""
     records = load_expert_plan_records(
         sheet_name if sheet_name != "All" else None,
         selected_quarter if selected_quarter != "All" else None,
@@ -6660,12 +6698,104 @@ def render_progress_status_summary(sheet_name, selected_quarter, selected_year):
                                               is_active=_sel == ('criticality', _label)),
                         'criticality', _label)
 
-            # Table for the clicked card (same columns as the Action Plan Follow Up table)
+            # Table for the clicked card (same columns as the Action Plan Dashboard table)
             if _sel:
                 st.markdown("---")
                 render_summary_card_table(df_records, _sel[0], _sel[1])
 
             st.markdown("---")
+
+
+def render_ap_progress_review(sheet_name, selected_quarter, selected_year):
+    """AP Progress Review: one row per Expert Action Plan record, with the reviewer's
+    Justification and Corrective Action captured next to the plan's own facts."""
+    records = load_expert_plan_records(
+        sheet_name if sheet_name != "All" else None,
+        selected_quarter if selected_quarter != "All" else None,
+        selected_year if selected_year != "All" else None
+    )
+    program_name = sheet_name if sheet_name != "All" else "All Programs"
+    st.markdown(f"## 📝 {program_name} AP Progress Review")
+
+    if not records:
+        st.info("No Expert Action Plan records available for this program with the selected filters.")
+        return
+
+    df = pd.DataFrame(records)
+    for c in ("Material", "NMOS", "Purchase Order", "Order Quantity", "Identified Problem",
+              "Justification", "Corrective Action", "Status", "Program"):
+        if c not in df.columns:
+            df[c] = ""
+
+    # Latest quarter/year of the selection (same rule as the dashboard)
+    if "Quarter" in df.columns and "Year" in df.columns:
+        _q = {"Q1": 1, "Q2": 2, "Q3": 3, "Q4": 4}
+        _key = (pd.to_numeric(df["Year"], errors="coerce").fillna(0).astype(int) * 10
+                + df["Quarter"].map(_q).fillna(0).astype(int))
+        latest = df.loc[_key.idxmax()]
+        df = df[(df["Quarter"] == latest["Quarter"]) & (df["Year"].astype(str) == str(latest["Year"]))]
+        st.markdown(f"**{latest['Quarter']}, {latest['Year']}**")
+
+    c1, c2, c3 = st.columns(3)
+    with c1:
+        programs = sorted(df["Program"].dropna().astype(str).unique().tolist())
+        prog_f = st.multiselect("Program", programs, key="apr_program_filter", placeholder="All")
+    with c2:
+        mats = sorted(df["Material"].dropna().astype(str).unique().tolist())
+        mat_f = st.multiselect("Material Description", mats, key="apr_material_filter", placeholder="All")
+    with c3:
+        stats = sorted(df["Status"].dropna().astype(str).unique().tolist())
+        stat_f = st.multiselect("Status", stats, key="apr_status_filter", placeholder="All")
+
+    if prog_f:
+        df = df[df["Program"].astype(str).isin(prog_f)]
+    if mat_f:
+        df = df[df["Material"].astype(str).isin(mat_f)]
+    if stat_f:
+        df = df[df["Status"].astype(str).isin(stat_f)]
+    if df.empty:
+        st.info("No records match the selected filters.")
+        return
+
+    def _clean(v):
+        return "" if v is None or pd.isna(v) or str(v).strip().lower() in ("nan", "none") else str(v).strip()
+
+    df = df.sort_values("Material").reset_index(drop=True)
+    view = pd.DataFrame({
+        "Material Description": df["Material"].map(_clean),
+        "NMOS": df["NMOS"].apply(lambda x: f"{float(x):.2f}" if _clean(x) != "" else "N/A"),
+        "Purchase Order": df["Purchase Order"].map(_clean),
+        "Order Quantity": df["Order Quantity"].map(_clean),
+        "Identified Problem": df["Identified Problem"].map(_clean),
+        "Justification": df["Justification"].map(_clean),
+        "Corrective Action": df["Corrective Action"].map(_clean),
+    })
+
+    st.dataframe(view, hide_index=True, width="stretch")
+
+    # ------------------------------------------------------------------
+    # Progress Update Data: plain-text entry for one material at a time
+    # ------------------------------------------------------------------
+    st.markdown("### Progress Update Data")
+    labels = [f"{_clean(df.at[i, 'Material'])} | {_clean(df.at[i, 'Program'])}"
+              for i in range(len(df))]
+    pick = st.selectbox("Material Description", range(len(df)),
+                        format_func=lambda i: labels[i], key="apr_pick")
+    rid = str(df.at[pick, "record_id"])
+
+    st.markdown("**Justification**")
+    justification = st.text_area("Justification", value=_clean(df.at[pick, "Justification"]),
+                                 key=f"apr_just_{rid}", height=120,
+                                 label_visibility="collapsed")
+    st.markdown("**Corrective Action**")
+    corrective = st.text_area("Corrective Action", value=_clean(df.at[pick, "Corrective Action"]),
+                              key=f"apr_corr_{rid}", height=120,
+                              label_visibility="collapsed")
+
+    if st.button("💾 Save Progress Update", key="apr_save", type="primary"):
+        if save_ap_review_entry(df.at[pick, "record_id"], justification, corrective):
+            st.success("Progress update saved.")
+            st.rerun()
 
 
 def render_ap_progress_follow_up(sheet_name, selected_quarter, selected_year, selected_status):
@@ -7210,7 +7340,7 @@ def render_ap_progress_follow_up(sheet_name, selected_quarter, selected_year, se
         try:
             _xl_period = f"{target_quarter} {target_year}" if (target_quarter and target_year) else ""
             st.download_button(
-                label="📥 Download Action Plan Follow Up (Excel)",
+                label="📥 Download Action Plan Dashboard (Excel)",
                 data=build_followup_xlsx(display_df, _ppt_title, _xl_period),
                 file_name=f"action_plan_follow_up_{sheet_name}_{_ppt_stamp}.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -10300,7 +10430,7 @@ def main():
     if 'summary_card_sel' not in st.session_state:
         st.session_state.summary_card_sel = None
     if 'current_page' not in st.session_state:
-        st.session_state.current_page = "Action Plan Follow Up"
+        st.session_state.current_page = "Action Plan Dashboard"
 
     inject_custom_css()
     inject_javascript()
@@ -10400,7 +10530,8 @@ def main():
 
         # ---------------- GROUP 1b: MAIN TABS ----------------
         MAIN_TABS_ALL = [
-            ("Action Plan Follow Up", "Action Plan Follow Up"),
+            ("Action Plan Dashboard", "Action Plan Dashboard"),
+            ("AP Progress Review", "AP Progress Review"),
             ("Expert Action Plan", "Expert Action Plan"),
             ("Historical Data", "Historical Data"),
             ("System Generated Action Plan", "System Generated Action Plan"),
@@ -10408,7 +10539,7 @@ def main():
 
         available_main_tabs = []
         if active_section == "supply_planning":
-            _user_tabs = get_user_tab_access()
+            _user_tabs = _expand_legacy_tabs(get_user_tab_access())
             if _user_tabs and "All" not in _user_tabs:
                 available_main_tabs = [(l, k) for l, k in MAIN_TABS_ALL if k in _user_tabs]
             else:
@@ -10562,9 +10693,12 @@ def main():
                     df_filtered, material_problems, action_df, sheet_name, nsoh_pivot,
                     selected_quarter, selected_year, deliveries_pivot=deliveries_pivot)
 
-            elif _tab_key == "Action Plan Follow Up":
+            elif _tab_key == "Action Plan Dashboard":
                 render_ap_progress_follow_up(sheet_name, selected_quarter, selected_year,
                                              st.session_state.selected_status)
+
+            elif _tab_key == "AP Progress Review":
+                render_ap_progress_review(sheet_name, selected_quarter, selected_year)
 
             elif _tab_key == "System Generated Action Plan":
                 render_supply_planning_exercise(
