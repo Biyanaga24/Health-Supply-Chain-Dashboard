@@ -10326,7 +10326,7 @@ def render_chatbot(sheet_name, selected_quarter, selected_year, action_df, df_fi
 
 
 # ============================================================================
-# SELECTION PANEL (sidebar, above Main Tabs)
+# SELECTION PANEL (main panel, above the tab content)
 # ============================================================================
 def _render_selection_panel(program_only=False):
     sheet_id_amc = "14VvZ7IyOmpM4SZrY5_ArHDgLkeFN4inW"
@@ -10364,7 +10364,7 @@ def _render_selection_panel(program_only=False):
 
     with st.container(border=True):
         st.markdown('<div class="sb-group-title" style="border-bottom:none;padding-bottom:0;margin-bottom:14px;">🎯 Selection</div>', unsafe_allow_html=True)
-        cols = [st.container() for _ in range(5)]  # stacked (lives in the sidebar)
+        cols = st.columns(5)  # side by side (lives in the main panel)
 
         _prog_choices = [p for p in program_list if p != "All"]
         _prev = [p for p in (_prog_list(st.session_state.selected_program) or []) if p in _prog_choices]
@@ -10579,14 +10579,6 @@ def main():
             # the module is chosen in the shell's "Modules" list
             active_section = st.session_state.get("active_section", "supply_planning")
 
-        # ---------------- GROUP 1a: SELECTION (above Main Tabs) ----------------
-        if _EMB and active_section == "forecasting":
-            sheet_name, subcategory_filter, selected_quarter, selected_year = _render_selection_panel(program_only=True)
-        else:
-            sheet_name, subcategory_filter, selected_quarter, selected_year = _render_selection_panel()
-
-        st.markdown('<div style="margin-top: 14px;"></div>', unsafe_allow_html=True)
-
         # ---------------- GROUP 1b: MAIN TABS ----------------
         MAIN_TABS_ALL = [
             ("Action Plan Dashboard", "Action Plan Dashboard"),
@@ -10652,6 +10644,14 @@ def main():
                     logout()
 
     # ============================================================
+    # SELECTION (main panel)
+    # ============================================================
+    if _EMB and active_section == "forecasting":
+        sheet_name, subcategory_filter, selected_quarter, selected_year = _render_selection_panel(program_only=True)
+    else:
+        sheet_name, subcategory_filter, selected_quarter, selected_year = _render_selection_panel()
+
+    # ============================================================
     # DATA LOADING
     # ============================================================
     if not st.session_state.data_loaded:
@@ -10712,34 +10712,14 @@ def main():
             st.warning("You don't have access to any Supply Planning tabs. Please contact your administrator.")
         else:
             _tab_keys = [_key for _lbl, _key in available_main_tabs]
-            # .get(): Streamlit drops widget-bound keys (the tab radio below uses
-            # key="current_page") on any run where that widget isn't rendered.
             _tab_key = st.session_state.get("current_page")
             if _tab_key not in _tab_keys:
                 _tab_key = _tab_keys[0]
                 st.session_state.current_page = _tab_key
 
-            # Main-panel tab bar (shares state with the sidebar buttons)
-            _label_by_key = {k: l for l, k in available_main_tabs}
-            # A single assigned tab needs no tab bar on the main panel
-            if len(_tab_keys) > 1:
-                with st.container(key="main_tabbar"):
-                    # Radio uses its OWN widget key so Streamlit's widget-key cleanup can
-                    # never delete "current_page"; the two are synced explicitly.
-                    def _sync_main_tab():
-                        _picked = st.session_state.get("main_tab_radio")
-                        if _picked is not None:
-                            st.session_state["current_page"] = _picked
-                    st.session_state["main_tab_radio"] = _tab_key
-                    st.radio(
-                        "Main tabs", _tab_keys, key="main_tab_radio", horizontal=True,
-                        format_func=lambda k: _label_by_key.get(k, k),
-                        label_visibility="collapsed",
-                        on_change=_sync_main_tab,
-                    )
             _tab_key = st.session_state.get("current_page", _tab_keys[0])
 
-            # Show the tab selected in the sidebar or in the tab bar
+            # Show the tab selected in the sidebar
             if _tab_key == "Historical Data":
                 st.markdown(f"## 📊 {sheet_name if sheet_name != 'All' else 'All Programs'} Historical Data")
                 render_unified_historical_table(
