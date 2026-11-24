@@ -4728,22 +4728,16 @@ elif page == "Issue Data":
 
     # ========== DATE RANGE FILTER ==========
     st.markdown("### 📅 Filter by Time (Delivery Date)")
+    col_date1, col_date2 = st.columns(2)
 
     if 'Delivery Date' in issue_df.columns and issue_df['Delivery Date'].notna().any():
         min_date = issue_df['Delivery Date'].min().date()
         max_date = issue_df['Delivery Date'].max().date()
 
-        with st.form("issue_date_filter_form", border=False):
-            col_date1, col_date2, col_apply = st.columns([2, 2, 1])
-            with col_date1:
-                start_date = st.date_input("From Date", value=min_date, min_value=min_date, max_value=max_date, key="issue_from_date")
-            with col_date2:
-                end_date = st.date_input("To Date", value=max_date, min_value=min_date, max_value=max_date, key="issue_to_date")
-            with col_apply:
-                st.write("")
-                st.form_submit_button("Apply", use_container_width=True, type="primary")
-        if start_date > end_date:
-            st.warning("'From Date' is after 'To Date' - showing no rows. Please adjust the range.")
+        with col_date1:
+            start_date = st.date_input("From Date", value=min_date, min_value=min_date, max_value=max_date)
+        with col_date2:
+            end_date = st.date_input("To Date", value=max_date, min_value=min_date, max_value=max_date)
 
         mask = (issue_df['Delivery Date'].dt.date >= start_date) & (issue_df['Delivery Date'].dt.date <= end_date)
         display_issue_df = issue_df[mask].copy()
