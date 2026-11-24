@@ -2345,26 +2345,6 @@ def load_issue_data():
         return pd.DataFrame()
 
 
-@st.cache_data(ttl=600, show_spinner="Loading issue data from Supabase...")
-def load_issue_data_full(cache_bust=0):
-    """Full issue_data table (all columns incl. delivery_date), cached so that changing
-    a date filter does NOT re-download everything from Supabase on each rerun.
-    Call load_issue_data_full.clear() after uploading new issue data."""
-    client = st.session_state.get('supabase_client')
-    if client is None:
-        return pd.DataFrame()
-    rows, start, size = [], 0, 10000
-    while True:
-        res = client.table("issue_data").select("*").range(start, start + size - 1).execute()
-        if not res.data:
-            break
-        rows.extend(res.data)
-        if len(res.data) < size:
-            break
-        start += size
-    return pd.DataFrame(rows)
-
-
 # ---------------------------------------------------
 # Create Aggregated Views for Issue Data (Performance Optimization)
 # ---------------------------------------------------
@@ -3142,7 +3122,6 @@ def save_issue_to_supabase(records):
         client.table("issue_data").upsert(
             records[i:i + 1000], on_conflict="material_descr,delivery_date,plant,region_descr"
         ).execute()
-    load_issue_data_full.clear()   # new issue data uploaded -> drop the cached copy
     return len(records)
 
 
@@ -3805,7 +3784,7 @@ with _SB:
             st.warning(notif)
 
 _title_slot = st.container()
-_FILTER_PAGES = ("Dashboard", "Advanced Analytics", "Executive Summary", "Issue Data")
+_FILTER_PAGES = ("Dashboard", "Advanced Analytics", "Executive Summary")
 _filters_visible = st.session_state.get('nav_page', 'Dashboard') in _FILTER_PAGES
 _sb_flt = _SB.container()   # filters live in the sidebar, right above Navigation
 _fc = [_sb_flt] * 5 if _filters_visible else None
@@ -4692,15 +4671,38 @@ elif page == "Issue Data":
         st.error("Supabase client not initialized")
         st.stop()
 
-    try:
-        issue_df = load_issue_data_full().copy()
-    except Exception as e:
-        st.error(f"Error loading data: {e}")
-        st.stop()
+    with st.spinner("Loading issue data from Supabase..."):
+        all_data = []
+        start = 0
+        batch_size = 1000
 
-    if issue_df.empty:
-        st.info("No issue data available. Please upload data to the issue_data table.")
-        st.stop()
+        while True:
+            try:
+                result = (
+                    st.session_state.supabase_client.table("issue_data")
+                    .select("*")
+                    .range(start, start + batch_size - 1)
+                    .execute()
+                )
+
+                if not result.data:
+                    break
+
+                all_data.extend(result.data)
+                start += batch_size
+
+                if len(result.data) < batch_size:
+                    break
+
+            except Exception as e:
+                st.error(f"Error loading data: {e}")
+                break
+
+        if not all_data:
+            st.info("No issue data available. Please upload data to the issue_data table.")
+            st.stop()
+
+        issue_df = pd.DataFrame(all_data)
 
     # Rename columns
     column_rename = {
