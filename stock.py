@@ -4716,12 +4716,33 @@ elif page == "Issue Data":
     if 'Delivery Date' in issue_df.columns:
         issue_df['Delivery Date'] = pd.to_datetime(issue_df['Delivery Date'], errors='coerce')
 
-    # Filter by program materials
-    issue_df = issue_df[issue_df['Material Description'].isin(program_materials)]
+    # Filter by program materials - matched on a normalised key (trim, collapse spaces, ignore case,
+    # non-breaking spaces) so tiny spelling/spacing differences between Supabase and Google Sheets
+    # do not drop rows. Matched rows are renamed to the Google Sheets spelling.
+    _sheet_key_map = {}
+    for _m in program_materials:
+        _k = _normalize_material(str(_m).replace("\u00a0", " "))
+        if _k and _k not in _sheet_key_map:
+            _sheet_key_map[_k] = str(_m).replace("\u00a0", " ").strip()
+    program_materials = list(_sheet_key_map.values())
+
+    issue_df['_mkey'] = issue_df['Material Description'].astype(str).str.replace("\u00a0", " ", regex=False).map(_normalize_material)
+    _unmatched_issue = sorted(issue_df.loc[~issue_df['_mkey'].isin(_sheet_key_map), 'Material Description'].dropna().astype(str).unique())
+    issue_df = issue_df[issue_df['_mkey'].isin(_sheet_key_map)].copy()
+    issue_df['Material Description'] = issue_df['_mkey'].map(_sheet_key_map)
+    issue_df = issue_df.drop(columns=['_mkey'])
 
     if issue_df.empty:
         st.warning("No matching materials found between Issue Data and Google Sheets.")
+        if _unmatched_issue:
+            with st.expander(f"Issue Data materials not found in Google Sheets ({len(_unmatched_issue)})"):
+                st.write(_unmatched_issue[:200])
         st.stop()
+    if _unmatched_issue:
+        with st.expander(f"⚠️ {len(_unmatched_issue)} Issue Data material name(s) not found in the selected Google Sheets programs"):
+            st.caption("These names exist in issue_data but match no Material Description in the Google Sheet "
+                       "(different wording, not in the selected program, etc.), so they are excluded.")
+            st.write(_unmatched_issue[:200])
 
     # Remove Head Office from plants
     issue_df = issue_df[~issue_df['Plant'].str.contains('Head Office|HO01', case=False, na=False)]
@@ -4827,8 +4848,9 @@ elif page == "Issue Data":
                 # Build HSOH data
                 hsoh_records = []
 
+                _df_mkey = df['Material Description'].astype(str).str.replace("\u00a0", " ", regex=False).map(_normalize_material)
                 for material in program_materials:
-                    material_row = df[df['Material Description'] == material]
+                    material_row = df[_df_mkey == _normalize_material(material)]
                     if material_row.empty:
                         continue
 
