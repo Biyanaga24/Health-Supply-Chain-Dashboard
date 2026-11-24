@@ -2863,14 +2863,9 @@ def process_issue_upload(raw, mapping_df):
     df = raw.dropna(how="all").copy()
     rows_read = len(df)
 
-    # Net Value > 0 only (same as the notebook)
-    net, _ = _to_number(df['Net Value'])
-    not_issued = int((net <= 0).sum())
-    df = df[net > 0].copy()
-    if not_issued:
-        warnings.append(f"{not_issued:,} row(s) with a Net Value of 0 or less (or empty) were skipped.")
+    # Rows are NOT filtered by Net Value: every row is kept, whatever its Net Value.
     if df.empty:
-        raise UploadValidationError("No rows with a Net Value greater than 0 were found.")
+        raise UploadValidationError("The uploaded file has no data rows.")
 
     # Missing / invalid data elements
     for col in ('Material Descr', 'Plant'):
@@ -3164,7 +3159,7 @@ UPLOAD_KINDS = {
         "process": process_issue_upload, "save": save_issue_to_supabase,
         "save_note": "Saving **adds new issue lines and updates matching ones** "
                      "(same material + plant + region + delivery date); nothing is deleted.",
-        "help": "Only rows with a Net Value above 0 are used. Quantities are multiplied by the conversion factor and "
+        "help": "All rows are used (no Net Value filter). Quantities are multiplied by the conversion factor and "
                 "materials are renamed using the material mapping Google Sheet, then summed per material, plant, "
                 "delivery date and region.",
     },
