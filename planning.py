@@ -676,16 +676,6 @@ def inject_custom_css():
             border-bottom: 2px solid #2e86c1;
         }
 
-        /* Main Tabs on the main panel: bold, full width */
-        [class*="st-key-main_tab_"] button {
-            font-weight: 700 !important;
-            width: 100% !important;
-        }
-        [class*="st-key-main_tab_"] button p {
-            font-weight: 700 !important;
-            font-size: 1rem !important;
-        }
-
         /* Main Tabs in the sidebar: left-aligned labels */
         [class*="st-key-btn_nav_"] button {
             justify-content: flex-start !important;
@@ -10977,15 +10967,16 @@ def main():
                 _tab_key = _tab_keys[0]
                 st.session_state.current_page = _tab_key
 
-            # Main-panel tab bar: one bold button per tab, spread over the full width.
-            # Shares st.session_state.current_page with the sidebar buttons.
-            _tab_cols = st.columns(len(available_main_tabs))
-            for _col, (_lbl, _key) in zip(_tab_cols, available_main_tabs):
-                with _col:
-                    if st.button(_lbl, key=f"main_tab_{_key}", width='stretch',
-                                 type="primary" if _key == _tab_key else "secondary"):
-                        st.session_state.current_page = _key
-                        st.rerun()
+            # Main-panel tab bar: display only (no background, not clickable). The active tab is
+            # underlined; it follows st.session_state.current_page, which the sidebar buttons set.
+            _tabs_html = "".join(
+                f'<div style="flex:1; text-align:center; padding:6px 4px; font-weight:700; font-size:1rem; '
+                f'color:{"#1a5276" if _key == _tab_key else "#6b7280"}; '
+                f'border-bottom:3px solid {"#1a5276" if _key == _tab_key else "transparent"};">'
+                f'{_html.escape(_lbl)}</div>'
+                for _lbl, _key in available_main_tabs)
+            st.markdown(f'<div style="display:flex; width:100%; margin-bottom:12px;">{_tabs_html}</div>',
+                        unsafe_allow_html=True)
 
             # Show the selected tab
             if _tab_key == "Historical Data":
