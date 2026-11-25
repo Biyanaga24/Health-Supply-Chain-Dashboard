@@ -6841,10 +6841,30 @@ def render_ap_progress_review(sheet_name, selected_quarter, selected_year):
     df = df.copy()
     df["Timeliness"] = df.apply(lambda r: _timeliness(r["Status"], r["Due Date"], r["Completion Date"]), axis=1)
     # Review only what needs explaining: not completed, and neither On Time nor Not Yet Due
-    df = df[(df["Status"].astype(str).str.strip().str.lower() != "completed")
-            & (~df["Timeliness"].isin(["On Time", "Not Yet Due"]))]
+    _open = df["Status"].astype(str).str.strip().str.lower() != "completed"
+    n_not_yet_due = int((_open & (df["Timeliness"] == "Not Yet Due")).sum())   # not reviewable: due date can't be changed
+    df = df[_open & (~df["Timeliness"].isin(["On Time", "Not Yet Due"]))]
+    n_ready = len(df)
+    n_pending = int((df["Status"].astype(str).str.strip().str.lower() == "pending").sum())
+    n_overdue = int((df["Timeliness"] == "Overdue").sum())
+
+    def _count_card(label, value, color, note=""):
+        return (f'<div style="flex:1; min-width:150px; background:#ffffff; border:1px solid #d6dde5; '
+                f'border-top:5px solid {color}; border-radius:8px; padding:10px 14px;">'
+                f'<div style="font-size:0.85rem; color:#5d6d7e; font-weight:600;">{label}</div>'
+                f'<div style="font-size:1.9rem; font-weight:700; color:{color}; line-height:1.2;">{value}</div>'
+                f'<div style="font-size:0.75rem; color:#7f8c8d;">{note}&nbsp;</div></div>')
+
+    st.markdown(
+        '<div style="display:flex; gap:12px; flex-wrap:wrap; margin-bottom:14px;">'
+        + _count_card("Ready for Review", n_ready, "#2e86c1", "Open and past due")
+        + _count_card("Pending", n_pending, "#e67e22", "of those ready for review")
+        + _count_card("Overdue", n_overdue, "#c0392b", "of those ready for review")
+        + _count_card("Not Yet Due", n_not_yet_due, "#7f8c8d", "Not included: due date can't be changed")
+        + '</div>', unsafe_allow_html=True)
+
     if df.empty:
-        st.info("No action points need review: every action point is either completed, on time or not yet due.")
+        st.info("No action points are ready for review: every action point is either completed, on time or not yet due.")
         return
 
     def _clean(v):
