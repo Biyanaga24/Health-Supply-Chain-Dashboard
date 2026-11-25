@@ -6887,8 +6887,10 @@ def render_ap_progress_review(sheet_name, selected_quarter, selected_year):
     # ------------------------------------------------------------------
     st.markdown("### Progress Update Data")
     materials = sorted({_clean(m) for m in df["Material"] if _clean(m)})
-    material = st.selectbox("Material Description", materials, key="apr_pick")
-    mdf = df[df["Material"].map(_clean) == material].reset_index(drop=True)
+    material = st.selectbox("Material Description", materials, index=None,
+                            placeholder="Select Material", key="apr_pick")
+    mdf = (df[df["Material"].map(_clean) == material].reset_index(drop=True)
+           if material else df.iloc[0:0])
     multi = len(mdf) > 1
 
     for i in range(len(mdf)):
@@ -6910,6 +6912,8 @@ def render_ap_progress_review(sheet_name, selected_quarter, selected_year):
             st.caption(f"NMOS: {nmos}  |  Purchase Order: {_clean(row['Purchase Order'])}  |  "
                        f"Order Quantity: {_clean(row['Order Quantity'])}  |  "
                        f"Responsible Body: {_clean(row['Responsible Body'])}")
+            _ap_due = _to_date(row["Due Date"])
+            st.markdown(f"**Action Point Due Date:** {_ap_due.strftime('%b %d, %Y') if _ap_due else 'Not set'}")
             st.markdown(f"**Identified Problem:** {_html.escape(_clean(row['Identified Problem']))}",
                         unsafe_allow_html=True)
 
@@ -6917,7 +6921,7 @@ def render_ap_progress_review(sheet_name, selected_quarter, selected_year):
             f1, f2, f3 = st.columns([2, 2, 1])
             justification = f1.text_area("Justification", value=saved_j, key=f"apr_just_{rid}", height=110)
             corrective = f2.text_area("Corrective Action", value=saved_c, key=f"apr_corr_{rid}", height=110)
-            corr_due = f3.date_input("Due Date", value=saved_d, key=f"apr_due_{rid}")
+            corr_due = f3.date_input("Corrective Action Due Date", value=saved_d, key=f"apr_due_{rid}")
 
             if st.session_state.get("apr_delete_id") == rid:
                 st.warning("Delete the saved Justification, Corrective Action and Due Date of this action point? "
