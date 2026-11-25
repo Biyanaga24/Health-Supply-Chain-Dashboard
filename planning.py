@@ -6903,19 +6903,21 @@ def render_ap_progress_review(sheet_name, selected_quarter, selected_year):
         has_saved = bool(saved_j or saved_c or saved_d)
 
         with st.container(border=True):
-            # Headline: the action point itself, with its badges on the same line
-            h1, h2 = st.columns([5, 2])
-            title = _html.escape(_clean(row["Action Point"]))
-            h1.markdown(f"**{i + 1}. {title}**" if multi else f"**{title}**", unsafe_allow_html=True)
-            h2.markdown((_sc_badge(status, _SUMMARY_STATUS_COLORS.get(status, "#6c757d")) if status else "")
-                        + " " + _timeliness_badge_html(row["Timeliness"]), unsafe_allow_html=True)
+            # Stock Info style card: action point as the title, details as tiles and chips
             _ap_due = _to_date(row["Due Date"])
-            st.caption(f"NMOS: {nmos}  |  Purchase Order: {_clean(row['Purchase Order'])}  |  "
-                       f"Order Quantity: {_clean(row['Order Quantity'])}  |  "
-                       f"Responsible Body: {_clean(row['Responsible Body'])}  |  "
-                       f"Action Point Due Date: {_ap_due.strftime('%b %d, %Y') if _ap_due else 'Not set'}")
-            st.markdown(f"**Identified Problem:** {_html.escape(_clean(row['Identified Problem']))}",
-                        unsafe_allow_html=True)
+            _ap_title = _clean(row["Action Point"])
+            _render_stock_style_cards([_stock_style_card_html(
+                title=f"{i + 1}. {_ap_title}" if multi else _ap_title,
+                badge_html=((_sc_badge(status, _SUMMARY_STATUS_COLORS.get(status, "#6c757d")) if status else "")
+                            + " " + _timeliness_badge_html(row["Timeliness"])),
+                metrics=[("NMOS", nmos),
+                         ("Purchase Order", _clean(row["Purchase Order"])),
+                         ("Order Quantity", _clean(row["Order Quantity"]))],
+                problem=_clean(row["Identified Problem"]),
+                action="",
+                chips=[("👤", "Responsible Body", _clean(row["Responsible Body"])),
+                       ("📅", "Action Point Due Date", _ap_due.strftime("%b %d, %Y") if _ap_due else "Not set")],
+            )])
 
             # Justification | Corrective Action | Due Date on one row (prefilled when already saved)
             f1, f2, f3 = st.columns([2, 2, 1])
