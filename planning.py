@@ -676,6 +676,18 @@ def inject_custom_css():
             border-bottom: 2px solid #2e86c1;
         }
 
+        /* Main Tabs in the sidebar: left-aligned labels */
+        [class*="st-key-btn_nav_"] button {
+            justify-content: flex-start !important;
+            text-align: left !important;
+        }
+        [class*="st-key-btn_nav_"] button > div,
+        [class*="st-key-btn_nav_"] button p {
+            width: 100%;
+            text-align: left !important;
+            justify-content: flex-start !important;
+        }
+
         /* Clickable summary cards: an invisible button is stretched over the (unchanged) card so a click toggles the table below it. */
         [class*="st-key-sumcard_"] { position: relative; }
         [class*="st-key-sumcard_"] [data-testid="stElementContainer"]:has(button),
