@@ -1019,8 +1019,10 @@ def _stock_style_card_html(title, badge_html, metrics, problem, action, chips):
     return out
 
 
-def _render_stock_style_cards(cards_html_list):
-    st.markdown(_SC_CSS + '<div class="sc-grid">' + "".join(cards_html_list) + '</div>',
+def _render_stock_style_cards(cards_html_list, full_width=False):
+    # full_width: one card per row, stretched across the whole panel
+    _grid_style = ' style="grid-template-columns:1fr;"' if full_width else ''
+    st.markdown(_SC_CSS + f'<div class="sc-grid"{_grid_style}>' + "".join(cards_html_list) + '</div>',
                 unsafe_allow_html=True)
 
 
@@ -6917,7 +6919,7 @@ def render_ap_progress_review(sheet_name, selected_quarter, selected_year):
                 action="",
                 chips=[("👤", "Responsible Body", _clean(row["Responsible Body"])),
                        ("📅", "Action Point Due Date", _ap_due.strftime("%b %d, %Y") if _ap_due else "Not set")],
-            )])
+            )], full_width=True)
 
             # Justification | Corrective Action | Due Date on one row (prefilled when already saved)
             f1, f2, f3 = st.columns([2, 2, 1])
