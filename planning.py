@@ -6887,8 +6887,8 @@ def render_ap_progress_review(sheet_name, selected_quarter, selected_year):
     # ------------------------------------------------------------------
     st.markdown("### Progress Update Data")
     materials = sorted({_clean(m) for m in df["Material"] if _clean(m)})
-    material = st.selectbox("Material Description", materials, index=None,
-                            placeholder="Select Material", key="apr_pick")
+    _choice = st.selectbox("Material Description", ["Select Material"] + materials, index=0, key="apr_pick")
+    material = None if _choice == "Select Material" else _choice
     mdf = (df[df["Material"].map(_clean) == material].reset_index(drop=True)
            if material else df.iloc[0:0])
     multi = len(mdf) > 1
@@ -6909,11 +6909,11 @@ def render_ap_progress_review(sheet_name, selected_quarter, selected_year):
             h1.markdown(f"**{i + 1}. {title}**" if multi else f"**{title}**", unsafe_allow_html=True)
             h2.markdown((_sc_badge(status, _SUMMARY_STATUS_COLORS.get(status, "#6c757d")) if status else "")
                         + " " + _timeliness_badge_html(row["Timeliness"]), unsafe_allow_html=True)
+            _ap_due = _to_date(row["Due Date"])
             st.caption(f"NMOS: {nmos}  |  Purchase Order: {_clean(row['Purchase Order'])}  |  "
                        f"Order Quantity: {_clean(row['Order Quantity'])}  |  "
-                       f"Responsible Body: {_clean(row['Responsible Body'])}")
-            _ap_due = _to_date(row["Due Date"])
-            st.markdown(f"**Action Point Due Date:** {_ap_due.strftime('%b %d, %Y') if _ap_due else 'Not set'}")
+                       f"Responsible Body: {_clean(row['Responsible Body'])}  |  "
+                       f"Action Point Due Date: {_ap_due.strftime('%b %d, %Y') if _ap_due else 'Not set'}")
             st.markdown(f"**Identified Problem:** {_html.escape(_clean(row['Identified Problem']))}",
                         unsafe_allow_html=True)
 
