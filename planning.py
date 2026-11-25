@@ -694,8 +694,10 @@ def inject_custom_css():
         }
         [class*="st-key-main_tab_"] button[kind="primary"],
         [class*="st-key-main_tab_"] button[data-testid="stBaseButton-primary"] {
-            background: #1a5276 !important;
-            border-color: #1a5276 !important;
+            /* same colour as the active sidebar tab */
+            background: linear-gradient(135deg, #f59f00 0%, #f76707 35%, #d6336c 70%, #7048e8 100%) !important;
+            border: 1px solid #ffd43b !important;
+            box-shadow: 0 3px 12px rgba(214, 51, 108, 0.40) !important;
         }
         [class*="st-key-main_tab_"] button[kind="primary"] p,
         [class*="st-key-main_tab_"] button[data-testid="stBaseButton-primary"] p {
