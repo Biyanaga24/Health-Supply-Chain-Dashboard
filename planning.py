@@ -6781,6 +6781,15 @@ def build_ap_review_xlsx(view, program_title="All Programs"):
     return buf.getvalue()
 
 
+def _apr_clear_fields(rid):
+    """Empty the Justification / Corrective Action / Due Date input boxes of one card
+    (button callback, so it runs before the widgets are drawn). Saved data is untouched
+    until the user clicks Save."""
+    st.session_state[f"apr_just_{rid}"] = ""
+    st.session_state[f"apr_corr_{rid}"] = ""
+    st.session_state[f"apr_due_{rid}"] = None
+
+
 def render_ap_progress_review(sheet_name, selected_quarter, selected_year):
     """AP Progress Review: one row per Expert Action Plan record, with the reviewer's
     Justification and Corrective Action captured next to the plan's own facts."""
@@ -6807,6 +6816,7 @@ def render_ap_progress_review(sheet_name, selected_quarter, selected_year):
         if c not in df.columns:
             df[c] = ""
 
+    period_label = ""
     # Latest quarter/year of the selection (same rule as the dashboard)
     if "Quarter" in df.columns and "Year" in df.columns:
         _q = {"Q1": 1, "Q2": 2, "Q3": 3, "Q4": 4}
@@ -6814,7 +6824,7 @@ def render_ap_progress_review(sheet_name, selected_quarter, selected_year):
                 + df["Quarter"].map(_q).fillna(0).astype(int))
         latest = df.loc[_key.idxmax()]
         df = df[(df["Quarter"] == latest["Quarter"]) & (df["Year"].astype(str) == str(latest["Year"]))]
-        st.markdown(f"**{latest['Quarter']}, {latest['Year']}**")
+        period_label = f"{latest['Quarter']}, {latest['Year']}"
 
     def _to_date(v):
         d = pd.to_datetime(v, errors="coerce")
@@ -6902,10 +6912,8 @@ def render_ap_progress_review(sheet_name, selected_quarter, selected_year):
                 if b2.button("🗑️ Delete", key=f"apr_delete_btn_{rid}", width="stretch", disabled=not has_saved):
                     st.session_state["apr_delete_id"] = rid
                     st.rerun()
-                if b3.button("✖ Cancel", key=f"apr_cancel_{rid}", width="stretch"):
-                    for k in (f"apr_just_{rid}", f"apr_corr_{rid}", f"apr_due_{rid}"):
-                        st.session_state.pop(k, None)   # discard unsaved typing
-                    st.rerun()
+                b3.button("🧹 Clear", key=f"apr_clear_{rid}", width="stretch",
+                          on_click=_apr_clear_fields, args=(rid,))
 
     # ------------------------------------------------------------------
     # Table: only action points whose Justification / Corrective Action / Due Date were entered
@@ -6915,7 +6923,7 @@ def render_ap_progress_review(sheet_name, selected_quarter, selected_year):
     rdf = df[_has_entry].reset_index(drop=True)
     if rdf.empty:
         return
-    st.markdown("### Reviewed Action Points")
+    st.markdown(f"### {' '.join(x for x in (program_name, period_label, 'Reviewed Action Points') if x)}")
 
     # Filters apply to this table only
     c1, c2, c3 = st.columns(3)
