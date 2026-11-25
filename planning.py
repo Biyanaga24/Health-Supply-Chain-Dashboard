@@ -676,6 +676,16 @@ def inject_custom_css():
             border-bottom: 2px solid #2e86c1;
         }
 
+        /* Main Tabs on the main panel: bold, full width */
+        [class*="st-key-main_tab_"] button {
+            font-weight: 700 !important;
+            width: 100% !important;
+        }
+        [class*="st-key-main_tab_"] button p {
+            font-weight: 700 !important;
+            font-size: 1rem !important;
+        }
+
         /* Main Tabs in the sidebar: left-aligned labels */
         [class*="st-key-btn_nav_"] button {
             justify-content: flex-start !important;
@@ -10967,9 +10977,17 @@ def main():
                 _tab_key = _tab_keys[0]
                 st.session_state.current_page = _tab_key
 
-            _tab_key = st.session_state.get("current_page", _tab_keys[0])
+            # Main-panel tab bar: one bold button per tab, spread over the full width.
+            # Shares st.session_state.current_page with the sidebar buttons.
+            _tab_cols = st.columns(len(available_main_tabs))
+            for _col, (_lbl, _key) in zip(_tab_cols, available_main_tabs):
+                with _col:
+                    if st.button(_lbl, key=f"main_tab_{_key}", width='stretch',
+                                 type="primary" if _key == _tab_key else "secondary"):
+                        st.session_state.current_page = _key
+                        st.rerun()
 
-            # Show the tab selected in the sidebar
+            # Show the selected tab
             if _tab_key == "Historical Data":
                 st.markdown(f"## 📊 {sheet_name if sheet_name != 'All' else 'All Programs'} Historical Data")
                 render_unified_historical_table(
