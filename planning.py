@@ -848,6 +848,7 @@ _SC_CSS = (
     ".sc-metrics.inline .sc-metric .k,.sc-metrics.inline .sc-metric .v{display:inline;margin:0;}"
     ".sc-metrics.inline .sc-metric .k{text-transform:none;font-size:13px;letter-spacing:0;margin-right:5px;}"
     ".sc-metrics.inline .sc-metric .v{font-size:15px;}"
+    ".sc-metrics.inline .sc-metric{text-align:left;padding:7px 12px;}"
     ".sc-block{background:#fff;border-radius:8px;padding:8px 12px;margin-top:6px;font-size:14px;line-height:1.45;"
     "border-left:4px solid #2e86c1;}"
     ".sc-block.problem{background:#fdecea;border-left-color:#dc3545;}"
