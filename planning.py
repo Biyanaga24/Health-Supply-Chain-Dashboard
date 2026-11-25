@@ -845,6 +845,9 @@ _SC_CSS = (
     ".sc-metric{background:#fff;border-radius:8px;padding:7px 6px;text-align:center;}"
     ".sc-metric .k{display:block;font-size:11px;color:#6b7280;text-transform:uppercase;letter-spacing:.4px;}"
     ".sc-metric .v{display:block;font-size:15px;font-weight:700;color:#1a5276;margin-top:2px;}"
+    ".sc-metrics.inline .sc-metric .k,.sc-metrics.inline .sc-metric .v{display:inline;margin:0;}"
+    ".sc-metrics.inline .sc-metric .k{text-transform:none;font-size:13px;letter-spacing:0;margin-right:5px;}"
+    ".sc-metrics.inline .sc-metric .v{font-size:15px;}"
     ".sc-block{background:#fff;border-radius:8px;padding:8px 12px;margin-top:6px;font-size:14px;line-height:1.45;"
     "border-left:4px solid #2e86c1;}"
     ".sc-block.problem{background:#fdecea;border-left-color:#dc3545;}"
@@ -998,15 +1001,16 @@ def _criticality_badge_html(criticality_val):
             f'{icon} {_html.escape(c)}</span>')
 
 
-def _stock_style_card_html(title, badge_html, metrics, problem, action, chips, chips_extra_html=""):
+def _stock_style_card_html(title, badge_html, metrics, problem, action, chips, chips_extra_html="",
+                           inline_metrics=False):
     """One card in the same look as the Stock Info card (blue frame, grey body, white tiles)."""
     m_html = "".join(
-        f'<div class="sc-metric"><span class="k">{_html.escape(str(k))}</span>'
+        f'<div class="sc-metric"><span class="k">{_html.escape(str(k))}{":" if inline_metrics else ""}</span>'
         f'<span class="v">{_sc_val(v) or "-"}</span></div>' for k, v in metrics
     )
     out = (f'<div class="sc-card"><div class="sc-inner">'
            f'<div class="sc-head"><h4 class="sc-title">📦 {_sc_val(title)}</h4>{badge_html}</div>'
-           f'<div class="sc-metrics">{m_html}</div>')
+           f'<div class="sc-metrics{" inline" if inline_metrics else ""}">{m_html}</div>')
     if _sc_val(problem):
         out += f'<div class="sc-block problem"><b>⚠️ Identified Problem:</b> {_sc_val(problem)}</div>'
     if _sc_val(action):
@@ -6921,6 +6925,7 @@ def render_ap_progress_review(sheet_name, selected_quarter, selected_year):
                        ("📅", "Due Date", _ap_due.strftime("%b %d, %Y") if _ap_due else "Not set")],
                 chips_extra_html=(f'<span class="sc-chip">📊 <b>Status:</b> {_status_badge}</span>'
                                   f'<span class="sc-chip">⏱️ <b>Timeliness:</b> {_timeliness_badge_html(row["Timeliness"])}</span>'),
+                inline_metrics=True,
             )], full_width=True)
 
             # Justification | Corrective Action | Due Date on one row (prefilled when already saved)
