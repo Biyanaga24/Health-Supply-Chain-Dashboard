@@ -6786,63 +6786,78 @@ def render_ap_progress_review(sheet_name, selected_quarter, selected_year):
 
     df = df.sort_values("Material").reset_index(drop=True)
     # ------------------------------------------------------------------
-    # Progress Update Data: pick a material, then Edit or Delete its review entry
+    # Progress Update Data: pick a material, see its open action points as cards
     # ------------------------------------------------------------------
     st.markdown("### Progress Update Data")
-    labels = [_clean(df.at[i, "Material"]) for i in range(len(df))]
-    pick = st.selectbox("Material Description", range(len(df)),
-                        format_func=lambda i: labels[i], key="apr_pick")
-    rid = str(df.at[pick, "record_id"])
-    editing = st.session_state.get("apr_edit_id") == rid
-    deleting = st.session_state.get("apr_delete_id") == rid
+    materials = sorted({_clean(m) for m in df["Material"] if _clean(m)})
+    material = st.selectbox("Material Description", materials, key="apr_pick")
+    mdf = df[df["Material"].map(_clean) == material].reset_index(drop=True)
+    multi = len(mdf) > 1
 
-    if not editing and not deleting:
-        b1, b2, _sp = st.columns([1, 1, 4])
-        if b1.button("✏️ Edit", key="apr_edit_btn", width="stretch"):
-            st.session_state["apr_edit_id"] = rid
-            st.session_state["apr_delete_id"] = None
-            st.rerun()
-        if b2.button("🗑️ Delete", key="apr_delete_btn", width="stretch"):
-            st.session_state["apr_delete_id"] = rid
-            st.session_state["apr_edit_id"] = None
-            st.rerun()
+    for i in range(len(mdf)):
+        row = mdf.iloc[i]
+        rid = str(row["record_id"])
+        editing = st.session_state.get("apr_edit_id") == rid
+        deleting = st.session_state.get("apr_delete_id") == rid
+        nmos = f"{float(row['NMOS']):.2f}" if _clean(row["NMOS"]) != "" else "N/A"
+        status = _clean(row["Status"])
 
-    if deleting:
-        st.warning("Delete the Justification, Corrective Action and Due Date of this action point? "
-                   "The action plan record itself is not deleted.")
-        d1, d2, _sp = st.columns([1, 1, 4])
-        if d1.button("✅ Confirm Delete", key="apr_delete_confirm", type="primary", width="stretch"):
-            if save_ap_review_entry(df.at[pick, "record_id"], "", "", None):
-                st.session_state["apr_delete_id"] = None
-                st.success("Review entry deleted.")
-                st.rerun()
-        if d2.button("✖ Cancel", key="apr_delete_cancel", width="stretch"):
-            st.session_state["apr_delete_id"] = None
-            st.rerun()
+        with st.container(border=True):
+            if multi:
+                st.markdown(f"**Action Point {i + 1}**")
+            k1, k2, k3, k4, k5 = st.columns(5)
+            k1.markdown(f"**NMOS**<br>{_html.escape(nmos)}", unsafe_allow_html=True)
+            k2.markdown(f"**Purchase Order**<br>{_html.escape(_clean(row['Purchase Order']))}", unsafe_allow_html=True)
+            k3.markdown(f"**Order Quantity**<br>{_html.escape(_clean(row['Order Quantity']))}", unsafe_allow_html=True)
+            k4.markdown("**Status**<br>" + (_sc_badge(status, _SUMMARY_STATUS_COLORS.get(status, "#6c757d")) if status else ""),
+                        unsafe_allow_html=True)
+            k5.markdown("**Timeliness**<br>" + _timeliness_badge_html(row["Timeliness"]), unsafe_allow_html=True)
+            st.markdown(f"**Identified Problem:** {_html.escape(_clean(row['Identified Problem']))}")
+            st.markdown(f"**Action Point:** {_html.escape(_clean(row['Action Point']))}")
 
-    if editing:
-        st.markdown("**Justification**")
-        justification = st.text_area("Justification", value=_clean(df.at[pick, "Justification"]),
-                                     key=f"apr_just_{rid}", height=120,
-                                     label_visibility="collapsed")
-        st.markdown("**Corrective Action**")
-        corrective = st.text_area("Corrective Action", value=_clean(df.at[pick, "Corrective Action"]),
-                                  key=f"apr_corr_{rid}", height=120,
-                                  label_visibility="collapsed")
-        st.markdown("**Due Date** (for the Corrective Action)")
-        corr_due = st.date_input("Corrective Action Due Date", value=_to_date(df.at[pick, "Corrective Due Date"]),
-                                 key=f"apr_due_{rid}", label_visibility="collapsed")
-        e1, e2, _sp = st.columns([1, 1, 4])
-        if e1.button("💾 Save", key="apr_save", type="primary", width="stretch"):
-            if save_ap_review_entry(df.at[pick, "record_id"], justification, corrective, corr_due):
-                st.session_state["apr_edit_id"] = None
-                st.success("Progress update saved.")
-                st.rerun()
-        if e2.button("✖ Cancel", key="apr_edit_cancel", width="stretch"):
-            for k in (f"apr_just_{rid}", f"apr_corr_{rid}", f"apr_due_{rid}"):
-                st.session_state.pop(k, None)   # discard unsaved typing
-            st.session_state["apr_edit_id"] = None
-            st.rerun()
+            if not editing and not deleting:
+                b1, b2, _sp = st.columns([1, 1, 4])
+                if b1.button("✏️ Edit", key=f"apr_edit_btn_{rid}", width="stretch"):
+                    st.session_state["apr_edit_id"] = rid
+                    st.session_state["apr_delete_id"] = None
+                    st.rerun()
+                if b2.button("🗑️ Delete", key=f"apr_delete_btn_{rid}", width="stretch"):
+                    st.session_state["apr_delete_id"] = rid
+                    st.session_state["apr_edit_id"] = None
+                    st.rerun()
+
+            if deleting:
+                st.warning("Delete the Justification, Corrective Action and Due Date of this action point? "
+                           "The action plan record itself is not deleted.")
+                d1, d2, _sp = st.columns([1, 1, 4])
+                if d1.button("✅ Confirm Delete", key=f"apr_delete_confirm_{rid}", type="primary", width="stretch"):
+                    if save_ap_review_entry(row["record_id"], "", "", None):
+                        st.session_state["apr_delete_id"] = None
+                        st.success("Review entry deleted.")
+                        st.rerun()
+                if d2.button("✖ Cancel", key=f"apr_delete_cancel_{rid}", width="stretch"):
+                    st.session_state["apr_delete_id"] = None
+                    st.rerun()
+
+            if editing:
+                f1, f2, f3 = st.columns([2, 2, 1])
+                justification = f1.text_area("Justification", value=_clean(row["Justification"]),
+                                             key=f"apr_just_{rid}", height=120)
+                corrective = f2.text_area("Corrective Action", value=_clean(row["Corrective Action"]),
+                                          key=f"apr_corr_{rid}", height=120)
+                corr_due = f3.date_input("Due Date", value=_to_date(row["Corrective Due Date"]),
+                                         key=f"apr_due_{rid}")
+                e1, e2, _sp = st.columns([1, 1, 4])
+                if e1.button("💾 Save", key=f"apr_save_{rid}", type="primary", width="stretch"):
+                    if save_ap_review_entry(row["record_id"], justification, corrective, corr_due):
+                        st.session_state["apr_edit_id"] = None
+                        st.success("Progress update saved.")
+                        st.rerun()
+                if e2.button("✖ Cancel", key=f"apr_edit_cancel_{rid}", width="stretch"):
+                    for k in (f"apr_just_{rid}", f"apr_corr_{rid}", f"apr_due_{rid}"):
+                        st.session_state.pop(k, None)   # discard unsaved typing
+                    st.session_state["apr_edit_id"] = None
+                    st.rerun()
 
     # ------------------------------------------------------------------
     # Table: only action points whose Justification / Corrective Action / Due Date were entered
