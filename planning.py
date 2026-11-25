@@ -10711,12 +10711,12 @@ def main():
         render_admin_page()
         st.stop()
 
-    # Narrow gap between sidebar and main panel — main tool only
+    # Small gap between sidebar and main panel — main tool only
     # (login, profile and admin pages keep their normal margins)
     st.markdown("""
     <style>
     [data-testid="stMainBlockContainer"], .block-container {
-        padding-left: 1rem !important;
+        padding-left: 2rem !important;
         padding-right: 1rem !important;
         padding-top: 0.5rem !important;
     }
