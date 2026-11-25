@@ -6840,13 +6840,12 @@ def render_ap_progress_review(sheet_name, selected_quarter, selected_year):
 
     df = df.copy()
     df["Timeliness"] = df.apply(lambda r: _timeliness(r["Status"], r["Due Date"], r["Completion Date"]), axis=1)
-    # Review only what needs explaining: not completed, and neither On Time nor Not Yet Due
-    _open = df["Status"].astype(str).str.strip().str.lower() != "completed"
-    n_not_yet_due = int((_open & (df["Timeliness"] == "Not Yet Due")).sum())   # not reviewable: due date can't be changed
-    df = df[_open & (~df["Timeliness"].isin(["On Time", "Not Yet Due"]))]
+    # Review every action point that is not completed (Overdue and Not Yet Due)
+    df = df[df["Status"].astype(str).str.strip().str.lower() != "completed"]
     n_ready = len(df)
     n_pending = int((df["Status"].astype(str).str.strip().str.lower() == "pending").sum())
     n_overdue = int((df["Timeliness"] == "Overdue").sum())
+    n_not_yet_due = int((df["Timeliness"] == "Not Yet Due").sum())
 
     def _count_card(label, value, color, note=""):
         return (f'<div style="flex:1; min-width:150px; background:#ffffff; border:1px solid #d6dde5; '
@@ -6857,14 +6856,14 @@ def render_ap_progress_review(sheet_name, selected_quarter, selected_year):
 
     st.markdown(
         '<div style="display:flex; gap:12px; flex-wrap:wrap; margin-bottom:14px;">'
-        + _count_card("Ready for Review", n_ready, "#2e86c1", "Open and past due")
+        + _count_card("Ready for Review", n_ready, "#2e86c1", "Open action points")
         + _count_card("Pending", n_pending, "#e67e22", "of those ready for review")
         + _count_card("Overdue", n_overdue, "#c0392b", "of those ready for review")
-        + _count_card("Not Yet Due", n_not_yet_due, "#7f8c8d", "Not included: due date can't be changed")
+        + _count_card("Not Yet Due", n_not_yet_due, "#7f8c8d", "of those ready for review")
         + '</div>', unsafe_allow_html=True)
 
     if df.empty:
-        st.info("No action points are ready for review: every action point is either completed, on time or not yet due.")
+        st.info("No action points are ready for review: every action point is completed.")
         return
 
     def _clean(v):
@@ -10512,7 +10511,7 @@ def render_chatbot(sheet_name, selected_quarter, selected_year, action_df, df_fi
 
 
 # ============================================================================
-# SELECTION PANEL (sidebar, above Main Tabs)
+# SELECTION PANEL (sidebar, below Main Tabs)
 # ============================================================================
 def _render_selection_panel(program_only=False):
     sheet_id_amc = "14VvZ7IyOmpM4SZrY5_ArHDgLkeFN4inW"
@@ -10765,15 +10764,7 @@ def main():
             # the module is chosen in the shell's "Modules" list
             active_section = st.session_state.get("active_section", "supply_planning")
 
-        # ---------------- GROUP 1a: SELECTION (above Main Tabs) ----------------
-        if _EMB and active_section == "forecasting":
-            sheet_name, subcategory_filter, selected_quarter, selected_year = _render_selection_panel(program_only=True)
-        else:
-            sheet_name, subcategory_filter, selected_quarter, selected_year = _render_selection_panel()
-
-        st.markdown('<div style="margin-top: 14px;"></div>', unsafe_allow_html=True)
-
-        # ---------------- GROUP 1b: MAIN TABS ----------------
+        # ---------------- GROUP 1a: MAIN TABS ----------------
         MAIN_TABS_ALL = [
             ("Action Plan Dashboard", "Action Plan Dashboard"),
             ("AP Progress Review", "AP Progress Review"),
@@ -10806,6 +10797,14 @@ def main():
                     st.caption("No tabs assigned. Contact your administrator.")
         else:
             st.session_state.current_page = "Forecasting"
+
+        st.markdown('<div style="margin-top: 14px;"></div>', unsafe_allow_html=True)
+
+        # ---------------- GROUP 1b: SELECTION (below Main Tabs) ----------------
+        if _EMB and active_section == "forecasting":
+            sheet_name, subcategory_filter, selected_quarter, selected_year = _render_selection_panel(program_only=True)
+        else:
+            sheet_name, subcategory_filter, selected_quarter, selected_year = _render_selection_panel()
 
         if not _EMB:
             # Spacer pushes Admin & Account toward the bottom of the sidebar
