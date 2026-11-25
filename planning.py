@@ -41,9 +41,9 @@ from forecast_core import (
 # TAB CONSTANTS
 # ============================================================================
 TAB_OPTIONS = [
+    "Action Plan Dashboard",
     "Historical Data",
     "Expert Action Plan",
-    "Action Plan Dashboard",
     "AP Progress Review",
     "System Generated Action Plan",
 ]
@@ -10870,9 +10870,9 @@ def main():
         # ---------------- GROUP 1a: MAIN TABS ----------------
         MAIN_TABS_ALL = [
             ("AP Dashboard", "Action Plan Dashboard"),
-            ("AP Progress Review", "AP Progress Review"),
-            ("Expert Action Plan", "Expert Action Plan"),
             ("Historical Data", "Historical Data"),
+            ("Expert Action Plan", "Expert Action Plan"),
+            ("AP Progress Review", "AP Progress Review"),
             ("System Action Plan", "System Generated Action Plan"),
         ]
 
