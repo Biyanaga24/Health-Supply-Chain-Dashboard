@@ -6708,6 +6708,79 @@ def render_progress_status_summary(sheet_name, selected_quarter, selected_year):
             st.markdown("---")
 
 
+_PPT_AP_REVIEW_COLS = [
+    ('Material Description', 'Material Description', 1.6),
+    ('NMOS', 'NMOS', 0.7),
+    ('Purchase Order', 'Purchase Order', 1.0),
+    ('Order Quantity', 'Order Quantity', 0.9),
+    ('Identified Problem', 'Identified Problem', 2.2),
+    ('Corrective Action', 'Corrective Action', 2.4),
+    ('Responsible Body', 'Responsible Body', 1.3),
+    ('Due Date', 'Due Date', 1.0),
+]
+
+
+def build_ap_review_xlsx(view, program_title="All Programs"):
+    """AP Progress Review table (all columns) as a Times New Roman Excel table (bytes)."""
+    import io
+    from openpyxl import Workbook
+    from openpyxl.styles import Font, PatternFill, Alignment
+    from openpyxl.utils import get_column_letter
+    from openpyxl.worksheet.table import Table, TableStyleInfo
+
+    FN = _FOLLOWUP_XLSX_FONT
+    cols = list(view.columns)
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "AP Progress Review"
+    ws["A1"] = f"AP Progress Review - {program_title}"
+    ws["A1"].font = Font(name=FN, size=14, bold=True, color="1A5276")
+
+    hdr_row = 3
+    for j, c in enumerate(cols, start=1):
+        cell = ws.cell(row=hdr_row, column=j, value=c)
+        cell.font = Font(name=FN, size=12, bold=True, color="FFFFFF")
+        cell.fill = PatternFill("solid", fgColor="1A5276")
+        cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+
+    tl_fill = {"On Time": "D4EDDA", "Late": "FFE8B3", "Overdue": "F8D7DA", "Not Yet Due": "D6EAF8"}
+    for i, (_, r) in enumerate(view.iterrows(), start=hdr_row + 1):
+        for j, c in enumerate(cols, start=1):
+            v = r[c]
+            if c == "Due Date":
+                d = pd.to_datetime(v, errors="coerce")
+                v = d.to_pydatetime() if not pd.isna(d) else None
+            elif c == "NMOS":
+                try:
+                    v = float(v)
+                except (TypeError, ValueError):
+                    pass
+            cell = ws.cell(row=i, column=j, value=v)
+            cell.font = Font(name=FN, size=11)
+            cell.alignment = Alignment(vertical="top", wrap_text=True,
+                                       horizontal="center" if c in ("NMOS", "Purchase Order", "Order Quantity",
+                                                                    "Status", "Timeliness", "Due Date") else "left")
+            if c == "Due Date" and v is not None:
+                cell.number_format = "dd-mmm-yyyy"
+            if c == "NMOS" and isinstance(v, float):
+                cell.number_format = "0.00"
+            if c == "Timeliness" and v in tl_fill:
+                cell.fill = PatternFill("solid", fgColor=tl_fill[v])
+
+    last = hdr_row + len(view)
+    tbl = Table(displayName="APProgressReview", ref=f"A{hdr_row}:{get_column_letter(len(cols))}{last}")
+    tbl.tableStyleInfo = TableStyleInfo(name="TableStyleLight1", showRowStripes=True)
+    ws.add_table(tbl)
+    ws.freeze_panes = ws.cell(row=hdr_row + 1, column=1)
+    for j, c in enumerate(cols, start=1):
+        longest = max([len(str(c))] + [len(str(x)) for x in view[c].tolist()])
+        ws.column_dimensions[get_column_letter(j)].width = min(max(12, longest + 2), 45)
+
+    buf = io.BytesIO()
+    wb.save(buf)
+    return buf.getvalue()
+
+
 def render_ap_progress_review(sheet_name, selected_quarter, selected_year):
     """AP Progress Review: one row per Expert Action Plan record, with the reviewer's
     Justification and Corrective Action captured next to the plan's own facts."""
@@ -6717,7 +6790,11 @@ def render_ap_progress_review(sheet_name, selected_quarter, selected_year):
         selected_year if selected_year != "All" else None
     )
     program_name = sheet_name if sheet_name != "All" else "All Programs"
-    st.markdown(f"## 📝 {program_name} AP Progress Review")
+    st.markdown(
+        f'<div style="background: linear-gradient(90deg, #1a5276 0%, #2e86c1 100%); color: #ffffff; '
+        f'padding: 14px 20px; border-radius: 10px; margin: 4px 0 14px 0; font-size: 1.6rem; '
+        f'font-weight: 700;">📝 {_html.escape(program_name)} AP Progress Review</div>',
+        unsafe_allow_html=True)
 
     if not records:
         st.info("No Expert Action Plan records available for this program with the selected filters.")
@@ -6726,7 +6803,7 @@ def render_ap_progress_review(sheet_name, selected_quarter, selected_year):
     df = pd.DataFrame(records)
     for c in ("Material", "NMOS", "Purchase Order", "Order Quantity", "Identified Problem",
               "Justification", "Corrective Action", "Corrective Due Date", "Status", "Program",
-              "Action Point", "Due Date", "Completion Date"):
+              "Action Point", "Due Date", "Completion Date", "Responsible Body"):
         if c not in df.columns:
             df[c] = ""
 
@@ -6760,27 +6837,6 @@ def render_ap_progress_review(sheet_name, selected_quarter, selected_year):
         st.info("No action points need review: every action point is either completed, on time or not yet due.")
         return
 
-    c1, c2, c3 = st.columns(3)
-    with c1:
-        programs = sorted(df["Program"].dropna().astype(str).unique().tolist())
-        prog_f = st.multiselect("Program", programs, key="apr_program_filter", placeholder="All")
-    with c2:
-        mats = sorted(df["Material"].dropna().astype(str).unique().tolist())
-        mat_f = st.multiselect("Material Description", mats, key="apr_material_filter", placeholder="All")
-    with c3:
-        stats = sorted(df["Status"].dropna().astype(str).unique().tolist())
-        stat_f = st.multiselect("Status", stats, key="apr_status_filter", placeholder="All")
-
-    if prog_f:
-        df = df[df["Program"].astype(str).isin(prog_f)]
-    if mat_f:
-        df = df[df["Material"].astype(str).isin(mat_f)]
-    if stat_f:
-        df = df[df["Status"].astype(str).isin(stat_f)]
-    if df.empty:
-        st.info("No records match the selected filters.")
-        return
-
     def _clean(v):
         return "" if v is None or pd.isna(v) or str(v).strip().lower() in ("nan", "none") else str(v).strip()
 
@@ -6811,7 +6867,8 @@ def render_ap_progress_review(sheet_name, selected_quarter, selected_year):
             h2.markdown((_sc_badge(status, _SUMMARY_STATUS_COLORS.get(status, "#6c757d")) if status else "")
                         + " " + _timeliness_badge_html(row["Timeliness"]), unsafe_allow_html=True)
             st.caption(f"NMOS: {nmos}  |  Purchase Order: {_clean(row['Purchase Order'])}  |  "
-                       f"Order Quantity: {_clean(row['Order Quantity'])}")
+                       f"Order Quantity: {_clean(row['Order Quantity'])}  |  "
+                       f"Responsible Body: {_clean(row['Responsible Body'])}")
             st.markdown(f"**Identified Problem:** {_html.escape(_clean(row['Identified Problem']))}",
                         unsafe_allow_html=True)
 
@@ -6859,6 +6916,28 @@ def render_ap_progress_review(sheet_name, selected_quarter, selected_year):
     if rdf.empty:
         return
     st.markdown("### Reviewed Action Points")
+
+    # Filters apply to this table only
+    c1, c2, c3 = st.columns(3)
+    with c1:
+        prog_f = st.multiselect("Program", sorted(rdf["Program"].dropna().astype(str).unique().tolist()),
+                                key="apr_program_filter", placeholder="All")
+    with c2:
+        mat_f = st.multiselect("Material Description", sorted(rdf["Material"].dropna().astype(str).unique().tolist()),
+                               key="apr_material_filter", placeholder="All")
+    with c3:
+        stat_f = st.multiselect("Status", sorted(rdf["Status"].dropna().astype(str).unique().tolist()),
+                                key="apr_status_filter", placeholder="All")
+    if prog_f:
+        rdf = rdf[rdf["Program"].astype(str).isin(prog_f)]
+    if mat_f:
+        rdf = rdf[rdf["Material"].astype(str).isin(mat_f)]
+    if stat_f:
+        rdf = rdf[rdf["Status"].astype(str).isin(stat_f)]
+    rdf = rdf.reset_index(drop=True)
+    if rdf.empty:
+        st.info("No reviewed action points match the selected filters.")
+        return
     view = pd.DataFrame({
         "Material Description": rdf["Material"].map(_clean),
         "NMOS": rdf["NMOS"].apply(lambda x: f"{float(x):.2f}" if _clean(x) != "" else "N/A"),
@@ -6870,6 +6949,7 @@ def render_ap_progress_review(sheet_name, selected_quarter, selected_year):
         "Timeliness": rdf["Timeliness"],
         "Justification": rdf["Justification"].map(_clean),
         "Corrective Action": rdf["Corrective Action"].map(_clean),
+        "Responsible Body": rdf["Responsible Body"].map(_clean),
         "Due Date": rdf["Corrective Due Date"].apply(
             lambda v: _to_date(v).strftime("%b %d, %Y") if _to_date(v) else ""),
     })
@@ -6877,7 +6957,7 @@ def render_ap_progress_review(sheet_name, selected_quarter, selected_year):
     # Smart table: same styled table as the Action Plan Dashboard (badges, Times New Roman)
     _F = "font-family: Times New Roman, Times, serif !important;"
     _center = {"NMOS", "Purchase Order", "Order Quantity", "Status", "Timeliness", "Due Date"}
-    _wide = {"Identified Problem", "Action Point", "Justification", "Corrective Action"}
+    _wide = {"Identified Problem", "Action Point", "Justification", "Corrective Action", "Responsible Body"}
     _t = (f'<div class="dataframe-container"><table class="styled-table" '
           f'style="{_F} font-size: 14px; width: 100%;"><thead><tr>')
     for col in view.columns:
@@ -6905,6 +6985,34 @@ def render_ap_progress_review(sheet_name, selected_quarter, selected_year):
         _t += '</tr>'
     _t += '</tbody></table></div>'
     st.markdown(_t, unsafe_allow_html=True)
+
+    # Downloads: Excel (all columns) and PowerPoint (selected columns)
+    _stamp = datetime.now().strftime("%Y%m%d")
+    dl1, dl2 = st.columns(2)
+    with dl1:
+        try:
+            st.download_button(
+                label="📥 Download AP Progress Review (Excel)",
+                data=build_ap_review_xlsx(view, program_name),
+                file_name=f"ap_progress_review_{program_name}_{_stamp}.xlsx".replace(" ", "_"),
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                width="stretch", key="dl_apr_xlsx")
+        except Exception as _e:
+            st.caption(f"Excel export unavailable: {_e}")
+    with dl2:
+        try:
+            if not _ensure_pptx():
+                raise ImportError("python-pptx")
+            ppt_view = view.rename(columns={"Material Description": "Material Description"})
+            st.download_button(
+                label="📥 Download AP Progress Review (PowerPoint)",
+                data=build_action_plan_pptx(ppt_view, program_name, col_spec=_PPT_AP_REVIEW_COLS,
+                                            deck_title="AP Progress Review"),
+                file_name=f"ap_progress_review_{program_name}_{_stamp}.pptx".replace(" ", "_"),
+                mime="application/vnd.openxmlformats-officedocument.presentationml.presentation",
+                width="stretch", key="dl_apr_pptx")
+        except ImportError:
+            st.caption("PowerPoint export needs the `python-pptx` package (pip install python-pptx).")
 
 
 def render_ap_progress_follow_up(sheet_name, selected_quarter, selected_year, selected_status):
