@@ -50,6 +50,13 @@ TAB_OPTIONS = [
 
 # Users whose saved tab access still says "Action Plan Follow Up" keep their access
 # to the renamed dashboard (and get the new review tab with it).
+# Display names. The internal tab keys stay as they are, because they are what is stored in
+# each user's tab access.
+TAB_LABELS = {
+    "Action Plan Dashboard": "AP Dashboard",
+    "System Generated Action Plan": "System Action Plan",
+}
+
 _LEGACY_TAB_ALIASES = {"Action Plan Follow Up": ["Action Plan Dashboard", "AP Progress Review"]}
 
 
@@ -1319,10 +1326,13 @@ def render_admin_page():
                             current_tabs = current_tabs
                         else:
                             current_tabs = []
+                        current_tabs = list(dict.fromkeys(
+                            t for t in _expand_legacy_tabs(current_tabs) if t in TAB_OPTIONS + ["All"]))
                         if not current_tabs:
                             current_tabs = ['All']
                         new_tabs = st.multiselect("Select Tabs", TAB_OPTIONS + ["All"],
                                                   default=current_tabs,
+                                                  format_func=lambda t: TAB_LABELS.get(t, t),
                                                   key=f"edit_tabs_{selected_user['id']}")
                         if st.button("📑 Update Tabs", key=f"update_tabs_{selected_user['id']}", width='stretch'):
                             if update_user_tab_access(str(selected_user['id']), new_tabs):
@@ -3716,7 +3726,7 @@ def render_unified_historical_table(df_filtered, issue_pivot, nsoh_pivot, consum
 def render_supply_planning_exercise(df_filtered, supply_df, supply_plan, ordered_materials_tuple, sheet_name, action_df):
     st.markdown(f"""
     <div class="custom-card">
-        <h3 style='font-size: 24px; font-weight: bold; margin-bottom: 10px;'>📦 {sheet_name if sheet_name != 'All' else 'All Programs'} - System Generated Action Plan</h3>
+        <h3 style='font-size: 24px; font-weight: bold; margin-bottom: 10px;'>📦 {sheet_name if sheet_name != 'All' else 'All Programs'} - System Action Plan</h3>
         <p style='color: #666; margin-bottom: 0;'>Automated supply planning based on stock levels and consumption</p>
     </div>
     """, unsafe_allow_html=True)
@@ -4036,7 +4046,7 @@ def render_action_plan_graph(df_filtered, material_problems, action_df, nsoh_piv
 def render_system_generated_action_plan(action_df, material_problems, sheet_name):
     st.markdown(f"""
     <div class="custom-card">
-        <h3 style='font-size: 20px; font-weight: bold; margin-bottom: 10px;'>📝 {sheet_name if sheet_name != 'All' else 'All Programs'} - System Generated Action Plan</h3>
+        <h3 style='font-size: 20px; font-weight: bold; margin-bottom: 10px;'>📝 {sheet_name if sheet_name != 'All' else 'All Programs'} - System Action Plan</h3>
         <p style='color: #666; margin-bottom: 0;'>Automated action items based on stock analysis</p>
     </div>
     """, unsafe_allow_html=True)
@@ -6320,7 +6330,7 @@ def build_followup_xlsx(df, program_title="All Programs", period_label=""):
 
     wb = Workbook()
     ws = wb.active
-    ws.title = "Action Plan Dashboard"
+    ws.title = "AP Dashboard"
     ws.sheet_view.showGridLines = False
 
     navy, blue = "1A5276", "2E86C1"
@@ -6332,7 +6342,7 @@ def build_followup_xlsx(df, program_title="All Programs", period_label=""):
 
     # ---- title block
     ws.merge_cells(f"A1:{last_col}1")
-    ws["A1"] = "Action Plan Dashboard - " + str(program_title) + (f" ({period_label})" if period_label else "")
+    ws["A1"] = "AP Dashboard - " + str(program_title) + (f" ({period_label})" if period_label else "")
     ws["A1"].font = Font(name=FN, size=18, bold=True, color="FFFFFF")
     ws["A1"].fill = PatternFill("solid", fgColor=navy)
     ws["A1"].alignment = Alignment(horizontal="left", vertical="center", indent=1)
@@ -6470,7 +6480,7 @@ def build_followup_xlsx(df, program_title="All Programs", period_label=""):
     sm["A1"].alignment = Alignment(horizontal="left", vertical="center", indent=1)
     sm.row_dimensions[1].height = 28
 
-    sheet_ref = "'Action Plan Dashboard'!"
+    sheet_ref = "'AP Dashboard'!"
     total_cell = None
     row = 3
 
@@ -7677,7 +7687,7 @@ def render_ap_progress_follow_up(sheet_name, selected_quarter, selected_year, se
         try:
             _xl_period = f"{target_quarter} {target_year}" if (target_quarter and target_year) else ""
             st.download_button(
-                label="📥 Download Action Plan Dashboard (Excel)",
+                label="📥 Download AP Dashboard (Excel)",
                 data=build_followup_xlsx(display_df, _ppt_title, _xl_period),
                 file_name=f"action_plan_follow_up_{sheet_name}_{_ppt_stamp}.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -10859,11 +10869,11 @@ def main():
 
         # ---------------- GROUP 1a: MAIN TABS ----------------
         MAIN_TABS_ALL = [
-            ("Action Plan Dashboard", "Action Plan Dashboard"),
+            ("AP Dashboard", "Action Plan Dashboard"),
             ("AP Progress Review", "AP Progress Review"),
             ("Expert Action Plan", "Expert Action Plan"),
             ("Historical Data", "Historical Data"),
-            ("System Generated Action Plan", "System Generated Action Plan"),
+            ("System Action Plan", "System Generated Action Plan"),
         ]
 
         available_main_tabs = []
