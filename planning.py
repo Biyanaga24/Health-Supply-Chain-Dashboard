@@ -998,7 +998,7 @@ def _criticality_badge_html(criticality_val):
             f'{icon} {_html.escape(c)}</span>')
 
 
-def _stock_style_card_html(title, badge_html, metrics, problem, action, chips):
+def _stock_style_card_html(title, badge_html, metrics, problem, action, chips, chips_extra_html=""):
     """One card in the same look as the Stock Info card (blue frame, grey body, white tiles)."""
     m_html = "".join(
         f'<div class="sc-metric"><span class="k">{_html.escape(str(k))}</span>'
@@ -1015,7 +1015,7 @@ def _stock_style_card_html(title, badge_html, metrics, problem, action, chips):
         f'<span class="sc-chip">{icon} <b>{_html.escape(lbl)}:</b> {_sc_val(val) or "-"}</span>'
         for icon, lbl, val in chips
     )
-    out += f'<div class="sc-chips">{chip_html}</div></div></div>'
+    out += f'<div class="sc-chips">{chip_html}{chips_extra_html}</div></div></div>'
     return out
 
 
@@ -6905,20 +6905,22 @@ def render_ap_progress_review(sheet_name, selected_quarter, selected_year):
         has_saved = bool(saved_j or saved_c or saved_d)
 
         with st.container(border=True):
-            # Stock Info style card: action point as the title, details as tiles and chips
+            # Stock Info style card. Rows: NMOS/PO/Qty | Identified Problem | Action Point |
+            # Responsible Body, Due Date, Status, Timeliness
             _ap_due = _to_date(row["Due Date"])
-            _ap_title = _clean(row["Action Point"])
+            _status_badge = _sc_badge(status, _SUMMARY_STATUS_COLORS.get(status, "#6c757d")) if status else "-"
             _render_stock_style_cards([_stock_style_card_html(
-                title=f"{i + 1}. {_ap_title}" if multi else _ap_title,
-                badge_html=((_sc_badge(status, _SUMMARY_STATUS_COLORS.get(status, "#6c757d")) if status else "")
-                            + " " + _timeliness_badge_html(row["Timeliness"])),
+                title=f"Action Point {i + 1}: {material}" if multi else material,
+                badge_html="",
                 metrics=[("NMOS", nmos),
                          ("Purchase Order", _clean(row["Purchase Order"])),
                          ("Order Quantity", _clean(row["Order Quantity"]))],
                 problem=_clean(row["Identified Problem"]),
-                action="",
+                action=_clean(row["Action Point"]),
                 chips=[("👤", "Responsible Body", _clean(row["Responsible Body"])),
-                       ("📅", "Action Point Due Date", _ap_due.strftime("%b %d, %Y") if _ap_due else "Not set")],
+                       ("📅", "Due Date", _ap_due.strftime("%b %d, %Y") if _ap_due else "Not set")],
+                chips_extra_html=(f'<span class="sc-chip">📊 <b>Status:</b> {_status_badge}</span>'
+                                  f'<span class="sc-chip">⏱️ <b>Timeliness:</b> {_timeliness_badge_html(row["Timeliness"])}</span>'),
             )], full_width=True)
 
             # Justification | Corrective Action | Due Date on one row (prefilled when already saved)
