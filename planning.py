@@ -855,6 +855,10 @@ _SC_CSS = (
     ".sc-chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px;}"
     ".sc-chip{background:#fff;border-radius:20px;padding:4px 11px;font-size:12px;color:#333;}"
     ".sc-chip b{color:#1a5276;}"
+    ".sc-grid.flush{gap:0;margin:0;}"
+    ".sc-grid.flush .sc-card{background:transparent;padding:0;border-radius:0;box-shadow:none;}"
+    ".sc-grid.flush .sc-card:hover{transform:none;box-shadow:none;}"
+    ".sc-grid.flush .sc-inner{border-radius:0;}"
     "</style>"
 )
 
@@ -1002,15 +1006,22 @@ def _criticality_badge_html(criticality_val):
 
 
 def _stock_style_card_html(title, badge_html, metrics, problem, action, chips, chips_extra_html="",
-                           inline_metrics=False):
+                           inline_metrics=False, extra_metrics=None, title_icon="📦"):
     """One card in the same look as the Stock Info card (blue frame, grey body, white tiles)."""
     m_html = "".join(
         f'<div class="sc-metric"><span class="k">{_html.escape(str(k))}{":" if inline_metrics else ""}</span>'
         f'<span class="v">{_sc_val(v) or "-"}</span></div>' for k, v in metrics
     )
     out = (f'<div class="sc-card"><div class="sc-inner">'
-           f'<div class="sc-head"><h4 class="sc-title">📦 {_sc_val(title)}</h4>{badge_html}</div>'
+           + (f'<div class="sc-head"><h4 class="sc-title">{title_icon + " " if title_icon else ""}{_sc_val(title)}</h4>{badge_html}</div>'
+              if (title or badge_html) else '') +
            f'<div class="sc-metrics{" inline" if inline_metrics else ""}">{m_html}</div>')
+    if extra_metrics:
+        x_html = "".join(
+            f'<div class="sc-metric"><span class="k">{_html.escape(str(k))}{":" if inline_metrics else ""}</span>'
+            f'<span class="v">{_sc_val(v) or "-"}</span></div>' for k, v in extra_metrics
+        )
+        out += f'<div class="sc-metrics{" inline" if inline_metrics else ""}" style="margin-top:0;">{x_html}</div>'
     if _sc_val(problem):
         out += f'<div class="sc-block problem"><b>⚠️ Identified Problem:</b> {_sc_val(problem)}</div>'
     if _sc_val(action):
@@ -1023,11 +1034,12 @@ def _stock_style_card_html(title, badge_html, metrics, problem, action, chips, c
     return out
 
 
-def _render_stock_style_cards(cards_html_list, full_width=False):
+def _render_stock_style_cards(cards_html_list, full_width=False, flush=False):
     # full_width: one card per row, stretched across the whole panel
+    # flush: no visible frame/gap, so the card touches the panel on all sides
     _grid_style = ' style="grid-template-columns:1fr;"' if full_width else ''
-    st.markdown(_SC_CSS + f'<div class="sc-grid"{_grid_style}>' + "".join(cards_html_list) + '</div>',
-                unsafe_allow_html=True)
+    st.markdown(_SC_CSS + f'<div class="sc-grid{" flush" if flush else ""}"{_grid_style}>'
+                + "".join(cards_html_list) + '</div>', unsafe_allow_html=True)
 
 
 _SC_STOCK_CSS = (
@@ -6808,7 +6820,7 @@ def _apr_clear_fields(rid):
     st.session_state[f"apr_due_{rid}"] = None
 
 
-def render_ap_progress_review(sheet_name, selected_quarter, selected_year):
+def render_ap_progress_review(sheet_name, selected_quarter, selected_year, df_filtered=None):
     """AP Progress Review: one row per Expert Action Plan record, with the reviewer's
     Justification and Corrective Action captured next to the plan's own facts."""
     records = load_expert_plan_records(
@@ -6899,6 +6911,27 @@ def render_ap_progress_review(sheet_name, selected_quarter, selected_year):
            if material else df.iloc[0:0])
     multi = len(mdf) > 1
 
+    def _current_mos(mat):
+        """Current NMOS / PMOS / TMOS of a material from the live stock data (same source as Stock Info)."""
+        out = {"NMOS": "N/A", "PMOS": "N/A", "TMOS": "N/A"}
+        if df_filtered is None or "Material Description" not in getattr(df_filtered, "columns", []):
+            return out
+        m = df_filtered[df_filtered["Material Description"] == mat]
+        if m.empty:
+            return out
+        r = m.iloc[0]
+        vals = {}
+        for k in ("NMOS", "PMOS", "TMOS"):
+            v = pd.to_numeric(r.get(k, np.nan), errors="coerce")
+            vals[k] = None if pd.isna(v) else float(v)
+        if vals["PMOS"] is None and vals["TMOS"] is not None and vals["NMOS"] is not None:
+            vals["PMOS"] = vals["TMOS"] - vals["NMOS"]
+        if vals["TMOS"] is None and vals["NMOS"] is not None and vals["PMOS"] is not None:
+            vals["TMOS"] = vals["NMOS"] + vals["PMOS"]
+        return {k: (f"{v:.2f}" if v is not None else "N/A") for k, v in vals.items()}
+
+    cur = _current_mos(material) if material else {}
+
     for i in range(len(mdf)):
         row = mdf.iloc[i]
         rid = str(row["record_id"])
@@ -6908,13 +6941,17 @@ def render_ap_progress_review(sheet_name, selected_quarter, selected_year):
         saved_d = _to_date(row["Corrective Due Date"])
         has_saved = bool(saved_j or saved_c or saved_d)
 
-        with st.container(border=True):
+        with st.container():
             # Stock Info style card. Rows: NMOS/PO/Qty | Identified Problem | Action Point |
             # Responsible Body, Due Date, Status, Timeliness
             _ap_due = _to_date(row["Due Date"])
             _status_badge = _sc_badge(status, _SUMMARY_STATUS_COLORS.get(status, "#6c757d")) if status else "-"
             _render_stock_style_cards([_stock_style_card_html(
-                title=f"Action Point {i + 1}: {material}" if multi else material,
+                title=f"Action Point {i + 1}" if multi else "",
+                title_icon="",
+                extra_metrics=[("Current NMOS", cur.get("NMOS", "N/A")),
+                               ("Current PMOS", cur.get("PMOS", "N/A")),
+                               ("Current TMOS", cur.get("TMOS", "N/A"))],
                 badge_html="",
                 metrics=[("NMOS", nmos),
                          ("Purchase Order", _clean(row["Purchase Order"])),
@@ -6926,7 +6963,7 @@ def render_ap_progress_review(sheet_name, selected_quarter, selected_year):
                 chips_extra_html=(f'<span class="sc-chip">📊 <b>Status:</b> {_status_badge}</span>'
                                   f'<span class="sc-chip">⏱️ <b>Timeliness:</b> {_timeliness_badge_html(row["Timeliness"])}</span>'),
                 inline_metrics=True,
-            )], full_width=True)
+            )], full_width=True, flush=True)
 
             # Justification | Corrective Action | Due Date on one row (prefilled when already saved)
             f1, f2, f3 = st.columns([2, 2, 1])
@@ -10949,7 +10986,7 @@ def main():
                                              st.session_state.selected_status)
 
             elif _tab_key == "AP Progress Review":
-                render_ap_progress_review(sheet_name, selected_quarter, selected_year)
+                render_ap_progress_review(sheet_name, selected_quarter, selected_year, df_filtered)
 
             elif _tab_key == "System Generated Action Plan":
                 render_supply_planning_exercise(
