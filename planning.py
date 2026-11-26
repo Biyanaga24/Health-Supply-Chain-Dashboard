@@ -6850,6 +6850,17 @@ def build_ap_review_xlsx(view, program_title="All Programs"):
     return buf.getvalue()
 
 
+def _apr_delete_saved(rid, record_id):
+    """Confirm-Delete callback: wipe the saved Justification, Corrective Action and
+    Corrective Due Date in the database AND empty the three input widgets. Runs as a
+    button callback so the widget values can be reset before the widgets are drawn."""
+    if save_ap_review_entry(record_id, "", "", None):
+        st.session_state[f"apr_just_{rid}"] = ""
+        st.session_state[f"apr_corr_{rid}"] = ""
+        st.session_state[f"apr_due_{rid}"] = None
+    st.session_state["apr_delete_id"] = None
+
+
 def _apr_clear_fields(rid):
     """Empty the Justification / Corrective Action / Due Date input boxes of one card
     (button callback, so it runs before the widgets are drawn). Saved data is untouched
@@ -7014,12 +7025,8 @@ def render_ap_progress_review(sheet_name, selected_quarter, selected_year, df_fi
                 st.warning("Delete the saved Justification, Corrective Action and Due Date of this action point? "
                            "The action plan record itself is not deleted.")
                 d1, d2, _sp = st.columns([1, 1, 4])
-                if d1.button("✅ Confirm Delete", key=f"apr_delete_confirm_{rid}", type="primary", width="stretch"):
-                    if save_ap_review_entry(row["record_id"], "", "", None):
-                        for k in (f"apr_just_{rid}", f"apr_corr_{rid}", f"apr_due_{rid}"):
-                            st.session_state.pop(k, None)
-                        st.session_state["apr_delete_id"] = None
-                        st.rerun()
+                d1.button("✅ Confirm Delete", key=f"apr_delete_confirm_{rid}", type="primary", width="stretch",
+                          on_click=_apr_delete_saved, args=(rid, row["record_id"]))
                 if d2.button("✖ Cancel", key=f"apr_delete_cancel_{rid}", width="stretch"):
                     st.session_state["apr_delete_id"] = None
                     st.rerun()
