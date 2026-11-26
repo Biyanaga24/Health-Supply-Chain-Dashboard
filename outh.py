@@ -1197,6 +1197,121 @@ def _access_editor(uid, module, label, program_options, tab_options, supply_styl
                 st.error("❌ Failed to update tab access.")
 
 
+def _single_user_editor(row):
+    """Edit one user (role, status, modules, per-module restrictions)."""
+    uid = row["id"]
+    uid = int(uid) if str(uid).isdigit() else uid
+
+    col_role, col_active, col_mods = st.columns([1, 1, 2])
+    with col_role:
+        st.markdown("##### 🔑 Role")
+        cur_role = row.get("role") if row.get("role") in ROLES else "viewer"
+        new_role = st.selectbox("Role", ROLES, index=ROLES.index(cur_role), key=f"role_{uid}",
+                                format_func=lambda x: {"viewer": "👁️ View", "editor": "✏️ Editor", "admin": "👑 Admin"}[x])
+        if st.button("🔑 Update Role", key=f"upd_role_{uid}", use_container_width=True):
+            if update_user_role(uid, new_role):
+                _ok_box(f"Role updated to <b>{new_role}</b>")
+    with col_active:
+        st.markdown("##### 🚦 Account")
+        is_act = st.checkbox("Account active", value=row.get("is_active") is not False, key=f"act_{uid}")
+        if st.button("💾 Save Status", key=f"upd_act_{uid}", use_container_width=True):
+            if uid == st.session_state['user']['id'] and not is_act:
+                st.error("❌ You cannot deactivate your own account!")
+            elif toggle_user_active(uid, is_act):
+                _ok_box("Status updated")
+    with col_mods:
+        st.markdown("##### 🧩 Module Access")
+        cur_mods = [m for m in (row.get("module_access") or "").split(",") if m.strip() in MODULES]
+        cur_mods = [m.strip() for m in cur_mods]
+        new_mods = st.multiselect("Modules this user can open", list(MODULES), default=cur_mods,
+                                  format_func=lambda k: _MODULE_LABEL[k], key=f"mods_{uid}",
+                                  help="Admins can always open every module.")
+        if st.button("🧩 Update Modules", key=f"upd_mods_{uid}", use_container_width=True):
+            if update_user_modules(uid, new_mods):
+                _ok_box("Module access updated")
+
+    st.markdown("#### 🔒 Restrictions per module")
+    e1, e2 = st.columns(2)
+    with e1:
+        _access_editor(uid, "stock", "📦 Stock Management", PROGRAM_OPTIONS, MAIN_TAB_OPTIONS, supply_style=False)
+    with e2:
+        _access_editor(uid, "supply", "🗂️ Supply Planning & 📈 Forecasting", PROGRAM_OPTIONS, SUPPLY_TAB_OPTIONS, supply_style=True)
+
+
+def _bulk_user_editor(rows):
+    """Apply one change to several selected users at once. Nothing is pre-filled, because the users may differ."""
+    me = st.session_state['user']['id']
+    uids = [(int(r["id"]) if str(r["id"]).isdigit() else r["id"]) for _, r in rows.iterrows()]
+    n = len(uids)
+    sig = "_".join(str(u) for u in uids)           # new selection -> fresh widgets
+    st.info(f"✏️ Bulk edit: each button below applies **only its own setting** to all **{n}** selected users.")
+
+    def _apply(fn, what, skip_self=False):
+        done, failed = 0, []
+        for u in uids:
+            if skip_self and u == me:
+                continue
+            try:
+                ok = fn(u)
+            except Exception:
+                ok = False
+            if ok:
+                done += 1
+            else:
+                failed.append(str(u))
+        if failed:
+            st.error(f"❌ {what}: failed for {len(failed)} user(s) (ids: {', '.join(failed)}). Updated {done}.")
+        else:
+            _ok_box(f"{what}: updated {done} user(s)")
+        if skip_self and me in uids:
+            st.caption("Your own account was skipped.")
+
+    col_role, col_active, col_mods = st.columns([1, 1, 2])
+    with col_role:
+        st.markdown("##### 🔑 Role")
+        new_role = st.selectbox("Role for all selected", ROLES, key=f"bulk_role_{sig}",
+                                format_func=lambda x: {"viewer": "👁️ View", "editor": "✏️ Editor", "admin": "👑 Admin"}[x])
+        if st.button(f"🔑 Update Role ({n})", key=f"bulk_upd_role_{sig}", use_container_width=True):
+            _apply(lambda u: update_user_role(u, new_role), f"Role set to {new_role}", skip_self=(new_role != "admin"))
+    with col_active:
+        st.markdown("##### 🚦 Account")
+        is_act = st.checkbox("Account active", value=True, key=f"bulk_act_{sig}")
+        if st.button(f"💾 Save Status ({n})", key=f"bulk_upd_act_{sig}", use_container_width=True):
+            _apply(lambda u: toggle_user_active(u, is_act), "Status", skip_self=not is_act)
+    with col_mods:
+        st.markdown("##### 🧩 Module Access")
+        new_mods = st.multiselect("Modules for all selected", list(MODULES), format_func=lambda k: _MODULE_LABEL[k],
+                                  key=f"bulk_mods_{sig}", help="Replaces each selected user's modules with this list.")
+        if st.button(f"🧩 Update Modules ({n})", key=f"bulk_upd_mods_{sig}", use_container_width=True):
+            _apply(lambda u: update_user_modules(u, new_mods), "Module access")
+
+    st.markdown("#### 🔒 Restrictions per module")
+
+    def _bulk_access(module, label, program_options, tab_options, supply_style):
+        st.markdown(f"##### {label}")
+        c1, c2 = st.columns(2)
+        with c1:
+            sel = st.multiselect("Programs", program_options, key=f"bulk_prog_{module}_{sig}",
+                                 help=("No selection = NO programs." if supply_style else "No selection = All programs."))
+            if st.button(f"📋 Update Programs ({n})", key=f"bulk_upd_prog_{module}_{sig}", use_container_width=True):
+                vals = sel if (sel or supply_style) else ["All"]
+                _apply(lambda u: update_module_access(u, module, "program", vals), "Program access")
+        with c2:
+            sel_t = st.multiselect("Tabs", tab_options, key=f"bulk_tab_{module}_{sig}",
+                                   format_func=lambda t: SUPPLY_TAB_LABELS.get(t, t) if module == "supply" else t,
+                                   help="No selection = All tabs.")
+            if st.button(f"🗂️ Update Tabs ({n})", key=f"bulk_upd_tab_{module}_{sig}", use_container_width=True):
+                vals = ["All"] if (not sel_t or set(sel_t) == set(tab_options)) else sel_t
+                _apply(lambda u: update_module_access(u, module, "tab", vals), "Tab access")
+
+    e1, e2 = st.columns(2)
+    with e1:
+        _bulk_access("stock", "📦 Stock Management", PROGRAM_OPTIONS, MAIN_TAB_OPTIONS, False)
+    with e2:
+        _bulk_access("supply", "🗂️ Supply Planning & 📈 Forecasting", PROGRAM_OPTIONS, SUPPLY_TAB_OPTIONS, True)
+
+
+
 def show_admin_panel():
     """Unified admin panel: approvals, module access, roles, restrictions, resets."""
     st.markdown("<h1 style='font-size: 32px; font-weight: bold; color: #4A90D9; font-family: Times New Roman, Times, serif;'>👑 Admin Panel - User Management</h1>", unsafe_allow_html=True)
@@ -1273,45 +1388,17 @@ def show_admin_panel():
             st.markdown("---")
             st.markdown("### ✏️ Edit User")
             names = [f"{r['full_name']} ({r['email']})" for _, r in all_users.iterrows()]
-            idx = st.selectbox("Select User to Edit", range(len(names)), format_func=lambda x: names[x], key="edit_user_select")
-            row = all_users.iloc[idx]
-            uid = row["id"]
-            uid = int(uid) if str(uid).isdigit() else uid
-
-            col_role, col_active, col_mods = st.columns([1, 1, 2])
-            with col_role:
-                st.markdown("##### 🔑 Role")
-                cur_role = row.get("role") if row.get("role") in ROLES else "viewer"
-                new_role = st.selectbox("Role", ROLES, index=ROLES.index(cur_role), key=f"role_{uid}",
-                                        format_func=lambda x: {"viewer": "👁️ View", "editor": "✏️ Editor", "admin": "👑 Admin"}[x])
-                if st.button("🔑 Update Role", key=f"upd_role_{uid}", use_container_width=True):
-                    if update_user_role(uid, new_role):
-                        _ok_box(f"Role updated to <b>{new_role}</b>")
-            with col_active:
-                st.markdown("##### 🚦 Account")
-                is_act = st.checkbox("Account active", value=row.get("is_active") is not False, key=f"act_{uid}")
-                if st.button("💾 Save Status", key=f"upd_act_{uid}", use_container_width=True):
-                    if uid == st.session_state['user']['id'] and not is_act:
-                        st.error("❌ You cannot deactivate your own account!")
-                    elif toggle_user_active(uid, is_act):
-                        _ok_box("Status updated")
-            with col_mods:
-                st.markdown("##### 🧩 Module Access")
-                cur_mods = [m for m in (row.get("module_access") or "").split(",") if m.strip() in MODULES]
-                cur_mods = [m.strip() for m in cur_mods]
-                new_mods = st.multiselect("Modules this user can open", list(MODULES), default=cur_mods,
-                                          format_func=lambda k: _MODULE_LABEL[k], key=f"mods_{uid}",
-                                          help="Admins can always open every module.")
-                if st.button("🧩 Update Modules", key=f"upd_mods_{uid}", use_container_width=True):
-                    if update_user_modules(uid, new_mods):
-                        _ok_box("Module access updated")
-
-            st.markdown("#### 🔒 Restrictions per module")
-            e1, e2 = st.columns(2)
-            with e1:
-                _access_editor(uid, "stock", "📦 Stock Management", PROGRAM_OPTIONS, MAIN_TAB_OPTIONS, supply_style=False)
-            with e2:
-                _access_editor(uid, "supply", "🗂️ Supply Planning & 📈 Forecasting", PROGRAM_OPTIONS, SUPPLY_TAB_OPTIONS, supply_style=True)
+            all_sel = st.checkbox("Select all users", key="edit_user_all")
+            picked = st.multiselect("Select user(s) to edit", range(len(names)), format_func=lambda x: names[x],
+                                    default=list(range(len(names))) if all_sel else None,
+                                    key=f"edit_user_select_{'all' if all_sel else 'some'}",
+                                    help="Pick one user to edit them, or several to change the same setting for all of them.")
+            if not picked:
+                st.info("Select at least one user.")
+            elif len(picked) == 1:
+                _single_user_editor(all_users.iloc[picked[0]])
+            else:
+                _bulk_user_editor(all_users.iloc[picked])
 
             st.markdown("---")
             st.markdown("### 🗑️ Delete User")
