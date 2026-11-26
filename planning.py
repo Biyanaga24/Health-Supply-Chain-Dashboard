@@ -10807,7 +10807,7 @@ def main():
     st.markdown("""
     <style>
     [data-testid="stMainBlockContainer"], .block-container {
-        padding-left: 2rem !important;
+        padding-left: 3.2rem !important;
         padding-right: 1rem !important;
         padding-top: 0.5rem !important;
     }
