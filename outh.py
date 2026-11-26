@@ -1096,7 +1096,28 @@ def show_user_statistics():
         if st.button("📸 Export Charts", use_container_width=True):
             st.info("Charts exported - Use browser screenshot or Plotly save functionality")
 
-SUPPLY_TAB_OPTIONS = ["Historical Data", "Expert Action Plan", "Action Plan Follow Up", "System Generated Action Plan"]
+# Keep in sync with TAB_OPTIONS in planning.py (internal keys are what is stored in each user's tab access).
+SUPPLY_TAB_OPTIONS = [
+    "Action Plan Dashboard",
+    "Historical Data",
+    "Expert Action Plan",
+    "AP Progress Review",
+    "System Generated Action Plan",
+]
+SUPPLY_TAB_LABELS = {                      # display names only
+    "Action Plan Dashboard": "AP Dashboard",
+    "System Generated Action Plan": "System Action Plan",
+}
+# Old saved value -> the tabs it now stands for (users saved before the split keep their access)
+_LEGACY_TAB_ALIASES = {"Action Plan Follow Up": ["Action Plan Dashboard", "AP Progress Review"]}
+
+
+def _expand_legacy_tabs(tabs):
+    out = []
+    for t in (tabs or []):
+        out.append(t)
+        out.extend(_LEGACY_TAB_ALIASES.get(t, []))
+    return list(dict.fromkeys(out))
 _MODULE_LABEL = {k: f"{MODULE_ICONS[k]} {v}" for k, v in MODULES.items()}
 
 
@@ -1162,10 +1183,11 @@ def _access_editor(uid, module, label, program_options, tab_options, supply_styl
             else:
                 st.error("❌ Failed to update program access.")
     with c2:
-        cur = get_module_access(uid, module, "tab")
+        cur = _expand_legacy_tabs(get_module_access(uid, module, "tab"))
         if not cur or "All" in cur:
             cur = list(tab_options)
         sel_t = st.multiselect("Tabs", tab_options, default=[t for t in cur if t in tab_options],
+                               format_func=lambda t: SUPPLY_TAB_LABELS.get(t, t) if module == "supply" else t,
                                key=f"tab_{module}_{uid}")
         if st.button("🗂️ Update Tabs", key=f"upd_tab_{module}_{uid}", use_container_width=True):
             vals = ["All"] if (not sel_t or set(sel_t) == set(tab_options)) else sel_t
