@@ -7035,6 +7035,16 @@ def render_ap_progress_review(sheet_name, selected_quarter, selected_year, df_fi
             corr_due = f3.date_input("Corrective Action Due Date", value=saved_d, min_value=_corr_min,
                                      key=f"apr_due_{rid}")
 
+            # Green "Saved" indicator: a fresh confirmation right after Save, and a quiet badge while saved data exists
+            if st.session_state.get("apr_just_saved") == rid:
+                st.markdown('<div style="background:#d4edda; color:#155724; border:1px solid #28a745; '
+                            'border-radius:8px; padding:8px 14px; font-weight:700; margin:4px 0;">'
+                            '✅ Saved</div>', unsafe_allow_html=True)
+                st.session_state["apr_just_saved"] = None
+            elif has_saved:
+                st.markdown('<div style="color:#28a745; font-weight:700; margin:4px 0;">✅ Saved</div>',
+                            unsafe_allow_html=True)
+
             if st.session_state.get("apr_delete_id") == rid:
                 st.warning("Delete the saved Justification, Corrective Action and Due Date of this action point? "
                            "The action plan record itself is not deleted.")
@@ -7052,7 +7062,7 @@ def render_ap_progress_review(sheet_name, selected_quarter, selected_year, df_fi
                     elif corr_due and corr_due < datetime.now().date() and corr_due != saved_d:
                         st.warning("Corrective Action Due Date cannot be in the past. Select today or a later date.")
                     elif save_ap_review_entry(row["record_id"], justification, corrective, corr_due):
-                        st.success("Progress update saved.")
+                        st.session_state["apr_just_saved"] = rid
                         st.rerun()
                 if b2.button("🗑️ Delete", key=f"apr_delete_btn_{rid}", width="stretch", disabled=not has_saved):
                     st.session_state["apr_delete_id"] = rid
@@ -7138,13 +7148,16 @@ def render_ap_progress_review(sheet_name, selected_quarter, selected_year, df_fi
                 cell = _timeliness_badge_html(v)
             else:
                 cell = _html.escape(str(v))
-            _st = f"{_F} font-size: 14px;"
+            # Top-aligned cells; long text wraps inside its column instead of stretching the table
+            _st = f"{_F} font-size: 14px; vertical-align: top;"
             if col in _center:
                 _st += " text-align: center; white-space: nowrap;"
-            if col in _wide:
-                _st += " min-width: 200px;"
-            if col == "Material Description":
-                _st += " font-weight: 500;"
+            elif col in _wide:
+                _st += (" min-width: 240px; max-width: 380px; white-space: pre-wrap;"
+                        " overflow-wrap: anywhere; word-break: break-word; line-height: 1.45;")
+            elif col == "Material Description":
+                _st += (" min-width: 180px; max-width: 260px; white-space: normal;"
+                        " overflow-wrap: anywhere; font-weight: 500;")
             _t += f'<td style="{_st}">{cell}</td>'
         _t += '</tr>'
     _t += '</tbody></table></div>'
