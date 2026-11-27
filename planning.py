@@ -7009,6 +7009,9 @@ def render_ap_progress_review(sheet_name, selected_quarter, selected_year, df_fi
             _render_stock_style_cards([_stock_style_card_html(
                 title=f"Action Point {i + 1}" if multi else "",
                 title_icon="",
+                extra_metrics=[("Current NMOS", cur.get("NMOS", "N/A")),
+                               ("Current PMOS", cur.get("PMOS", "N/A")),
+                               ("Current TMOS", cur.get("TMOS", "N/A"))],
                 badge_html="",
                 metrics=[("NMOS", nmos),
                          ("Purchase Order", _clean(row["Purchase Order"])),
@@ -7016,10 +7019,7 @@ def render_ap_progress_review(sheet_name, selected_quarter, selected_year, df_fi
                 problem=_clean(row["Identified Problem"]),
                 action=_clean(row["Action Point"]),
                 chips=[("👤", "Responsible Body", _clean(row["Responsible Body"])),
-                       ("📅", "Due Date", _ap_due.strftime("%b %d, %Y") if _ap_due else "Not set"),
-                       ("📈", "Current NMOS", cur.get("NMOS", "N/A")),
-                       ("📈", "Current PMOS", cur.get("PMOS", "N/A")),
-                       ("📈", "Current TMOS", cur.get("TMOS", "N/A"))],
+                       ("📅", "Due Date", _ap_due.strftime("%b %d, %Y") if _ap_due else "Not set")],
                 chips_extra_html=(f'<span class="sc-chip">📊 <b>Status:</b> {_status_badge}</span>'
                                   f'<span class="sc-chip">⏱️ <b>Timeliness:</b> {_timeliness_badge_html(row["Timeliness"])}</span>'),
                 inline_metrics=True,
@@ -7073,7 +7073,9 @@ def render_ap_progress_review(sheet_name, selected_quarter, selected_year, df_fi
     # Filters apply to this table only
     c1, c2, c3 = st.columns(3)
     with c1:
-        prog_f = st.multiselect("Program", sorted(rdf["Program"].dropna().astype(str).unique().tolist()),
+        _prog_opts = sorted(rdf["Program"].dropna().astype(str).unique().tolist())
+        prog_f = st.multiselect("Program", _prog_opts,
+                                default=["HIV"] if "HIV" in _prog_opts else [],
                                 key="apr_program_filter", placeholder="All")
     with c2:
         mat_f = st.multiselect("Material Description", sorted(rdf["Material"].dropna().astype(str).unique().tolist()),
