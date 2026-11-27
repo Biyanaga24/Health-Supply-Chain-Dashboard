@@ -7095,9 +7095,6 @@ def render_ap_progress_review(sheet_name, selected_quarter, selected_year, df_fi
     view = pd.DataFrame({
         "Material Description": rdf["Material"].map(_clean),
         "NMOS": rdf["NMOS"].apply(lambda x: f"{float(x):.2f}" if _clean(x) != "" else "N/A"),
-        "Current NMOS": rdf["Material"].map(lambda m: _cur_by_mat[_clean(m)]["NMOS"]),
-        "Current PMOS": rdf["Material"].map(lambda m: _cur_by_mat[_clean(m)]["PMOS"]),
-        "Current TMOS": rdf["Material"].map(lambda m: _cur_by_mat[_clean(m)]["TMOS"]),
         "Purchase Order": rdf["Purchase Order"].map(_clean),
         "Order Quantity": rdf["Order Quantity"].map(_clean),
         "Identified Problem": rdf["Identified Problem"].map(_clean),
@@ -7109,6 +7106,10 @@ def render_ap_progress_review(sheet_name, selected_quarter, selected_year, df_fi
         "Responsible Body": rdf["Responsible Body"].map(_clean),
         "Due Date": rdf["Corrective Due Date"].apply(
             lambda v: _to_date(v).strftime("%b %d, %Y") if _to_date(v) else ""),
+
+        "Current NMOS": rdf["Material"].map(lambda m: _cur_by_mat[_clean(m)]["NMOS"]),
+        "Current PMOS": rdf["Material"].map(lambda m: _cur_by_mat[_clean(m)]["PMOS"]),
+        "Current TMOS": rdf["Material"].map(lambda m: _cur_by_mat[_clean(m)]["TMOS"]),
     })
 
     # Smart table: same styled table as the Action Plan Dashboard (badges, Times New Roman)
