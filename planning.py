@@ -6789,13 +6789,13 @@ def render_progress_status_summary(sheet_name, selected_quarter, selected_year):
 _PPT_AP_REVIEW_COLS = [
     ('Material Description', 'Material Description', 1.6),
     ('NMOS', 'NMOS', 0.7),
-    ('Current NMOS', 'Current NMOS', 0.8),
     ('Purchase Order', 'Purchase Order', 1.0),
     ('Order Quantity', 'Order Quantity', 0.9),
     ('Identified Problem', 'Identified Problem', 2.2),
     ('Corrective Action', 'Corrective Action', 2.4),
     ('Responsible Body', 'Responsible Body', 1.3),
     ('Due Date', 'Due Date', 1.0),
+    ('Current NMOS', 'Current NMOS', 0.8),
 ]
 
 
