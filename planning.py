@@ -5504,9 +5504,15 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
 
             with col_due:
                 st.markdown('<p style="font-weight: bold; color: black; font-size: 15px; margin-bottom: 5px;">Due Date</p>', unsafe_allow_html=True)
+                _today_d = datetime.now().date()
+                # No back planning: earliest selectable date is today. When editing a record that
+                # already has an older due date, that saved date stays selectable so the widget
+                # does not crash (a changed date is still checked on save).
+                _due_min = min(_today_d, _due_default_for_picker) if _due_default_for_picker else _today_d
                 due_date_obj = st.date_input(
                     "",
                     value=_due_default_for_picker,
+                    min_value=_due_min,
                     key=f"ap_due_date_picker_{locked_material}_{'edit' if is_editing else 'add'}",
                     label_visibility="collapsed",
                     format="YYYY-MM-DD"
@@ -5555,6 +5561,9 @@ def render_expert_action_plan_with_status(df_filtered, material_problems, action
                     st.warning("Please select a Status.")
                 elif not due_date:
                     st.warning("Please select a Due Date.")
+                elif (due_date_obj < datetime.now().date()
+                      and due_date_obj != _due_default_for_picker):
+                    st.warning("Due Date cannot be in the past. Please select today or a later date.")
                 elif status in ("Completed", "Partially Completed") and not completion_date:
                     st.warning("Please select a Completion Date (required when Status = Completed or Partially Completed).")
                 elif identified_problem and action_point and due_date:
@@ -6780,6 +6789,7 @@ def render_progress_status_summary(sheet_name, selected_quarter, selected_year):
 _PPT_AP_REVIEW_COLS = [
     ('Material Description', 'Material Description', 1.6),
     ('NMOS', 'NMOS', 0.7),
+    ('Current NMOS', 'Current NMOS', 0.8),
     ('Purchase Order', 'Purchase Order', 1.0),
     ('Order Quantity', 'Order Quantity', 0.9),
     ('Identified Problem', 'Identified Problem', 2.2),
@@ -6827,7 +6837,7 @@ def build_ap_review_xlsx(view, program_title="All Programs"):
             cell = ws.cell(row=i, column=j, value=v)
             cell.font = Font(name=FN, size=11)
             cell.alignment = Alignment(vertical="top", wrap_text=True,
-                                       horizontal="center" if c in ("NMOS", "Purchase Order", "Order Quantity",
+                                       horizontal="center" if c in ("NMOS", "Current NMOS", "Current PMOS", "Current TMOS", "Purchase Order", "Order Quantity",
                                                                     "Status", "Timeliness", "Due Date") else "left")
             if c == "Due Date" and v is not None:
                 cell.number_format = "dd-mmm-yyyy"
@@ -7019,7 +7029,11 @@ def render_ap_progress_review(sheet_name, selected_quarter, selected_year, df_fi
             f1, f2, f3 = st.columns([2, 2, 1])
             justification = f1.text_area("Justification", value=saved_j, key=f"apr_just_{rid}", height=110)
             corrective = f2.text_area("Corrective Action", value=saved_c, key=f"apr_corr_{rid}", height=110)
-            corr_due = f3.date_input("Corrective Action Due Date", value=saved_d, key=f"apr_due_{rid}")
+            _today_d = datetime.now().date()
+            # No back planning (a previously saved older date stays selectable so the widget doesn't crash)
+            _corr_min = min(_today_d, saved_d) if saved_d else _today_d
+            corr_due = f3.date_input("Corrective Action Due Date", value=saved_d, min_value=_corr_min,
+                                     key=f"apr_due_{rid}")
 
             if st.session_state.get("apr_delete_id") == rid:
                 st.warning("Delete the saved Justification, Corrective Action and Due Date of this action point? "
@@ -7035,6 +7049,8 @@ def render_ap_progress_review(sheet_name, selected_quarter, selected_year, df_fi
                 if b1.button("💾 Save", key=f"apr_save_{rid}", type="primary", width="stretch"):
                     if not (_clean(justification) or _clean(corrective) or corr_due):
                         st.warning("Enter a Justification, Corrective Action or Due Date first.")
+                    elif corr_due and corr_due < datetime.now().date() and corr_due != saved_d:
+                        st.warning("Corrective Action Due Date cannot be in the past. Select today or a later date.")
                     elif save_ap_review_entry(row["record_id"], justification, corrective, corr_due):
                         st.success("Progress update saved.")
                         st.rerun()
@@ -7075,9 +7091,13 @@ def render_ap_progress_review(sheet_name, selected_quarter, selected_year, df_fi
     if rdf.empty:
         st.info("No reviewed action points match the selected filters.")
         return
+    _cur_by_mat = {m: _current_mos(m) for m in rdf["Material"].map(_clean).unique()}
     view = pd.DataFrame({
         "Material Description": rdf["Material"].map(_clean),
         "NMOS": rdf["NMOS"].apply(lambda x: f"{float(x):.2f}" if _clean(x) != "" else "N/A"),
+        "Current NMOS": rdf["Material"].map(lambda m: _cur_by_mat[_clean(m)]["NMOS"]),
+        "Current PMOS": rdf["Material"].map(lambda m: _cur_by_mat[_clean(m)]["PMOS"]),
+        "Current TMOS": rdf["Material"].map(lambda m: _cur_by_mat[_clean(m)]["TMOS"]),
         "Purchase Order": rdf["Purchase Order"].map(_clean),
         "Order Quantity": rdf["Order Quantity"].map(_clean),
         "Identified Problem": rdf["Identified Problem"].map(_clean),
@@ -7093,7 +7113,7 @@ def render_ap_progress_review(sheet_name, selected_quarter, selected_year, df_fi
 
     # Smart table: same styled table as the Action Plan Dashboard (badges, Times New Roman)
     _F = "font-family: Times New Roman, Times, serif !important;"
-    _center = {"NMOS", "Purchase Order", "Order Quantity", "Status", "Timeliness", "Due Date"}
+    _center = {"NMOS", "Current NMOS", "Current PMOS", "Current TMOS", "Purchase Order", "Order Quantity", "Status", "Timeliness", "Due Date"}
     _wide = {"Identified Problem", "Action Point", "Justification", "Corrective Action", "Responsible Body"}
     _t = (f'<div class="dataframe-container"><table class="styled-table" '
           f'style="{_F} font-size: 14px; width: 100%;"><thead><tr>')
