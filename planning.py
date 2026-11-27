@@ -7112,6 +7112,10 @@ def render_ap_progress_review(sheet_name, selected_quarter, selected_year, df_fi
         "Current TMOS": rdf["Material"].map(lambda m: _cur_by_mat[_clean(m)]["TMOS"]),
     })
 
+    # Force the on-screen / Excel column order: Current NMOS, PMOS, TMOS are always the LAST columns
+    _cur_cols = ["Current NMOS", "Current PMOS", "Current TMOS"]
+    view = view[[c for c in view.columns if c not in _cur_cols] + _cur_cols]
+
     # Smart table: same styled table as the Action Plan Dashboard (badges, Times New Roman)
     _F = "font-family: Times New Roman, Times, serif !important;"
     _center = {"NMOS", "Current NMOS", "Current PMOS", "Current TMOS", "Purchase Order", "Order Quantity", "Status", "Timeliness", "Due Date"}
