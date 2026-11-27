@@ -7131,12 +7131,12 @@ def render_ap_progress_review(sheet_name, selected_quarter, selected_year, df_fi
     # Smart table: same styled table as the Action Plan Dashboard (badges, Times New Roman)
     _F = "font-family: Times New Roman, Times, serif !important;"
     _center = {"NMOS", "Current NMOS", "Current PMOS", "Current TMOS", "Purchase Order", "Order Quantity", "Status", "Timeliness", "Due Date"}
-    _wide = {"Identified Problem", "Action Point", "Justification", "Corrective Action", "Responsible Body"}
+    _wide = {"Identified Problem", "Action Point", "Responsible Body"}
+    _long = {"Justification", "Corrective Action"}
     _t = (f'<div class="dataframe-container"><table class="styled-table" '
           f'style="{_F} font-size: 14px; width: 100%;"><thead><tr>')
     for col in view.columns:
-        _al = " text-align: center;" if col in _center else ""
-        _t += f'<th style="{_F} font-size: 15px;{_al}">{_html.escape(col)}</th>'
+        _t += f'<th style="{_F} font-size: 15px; text-align: left; vertical-align: top;">{_html.escape(col)}</th>'
     _t += '</tr></thead><tbody>'
     for _, r in view.iterrows():
         _t += '<tr>'
@@ -7149,9 +7149,13 @@ def render_ap_progress_review(sheet_name, selected_quarter, selected_year, df_fi
             else:
                 cell = _html.escape(str(v))
             # Top-aligned cells; long text wraps inside its column instead of stretching the table
-            _st = f"{_F} font-size: 14px; vertical-align: top;"
+            _st = f"{_F} font-size: 14px; vertical-align: top; text-align: left;"
             if col in _center:
-                _st += " text-align: center; white-space: nowrap;"
+                _st += " white-space: nowrap;"
+            elif col in _long:
+                # Justification / Corrective Action: paragraphs of text, so give them the most room
+                _st += (" min-width: 340px; max-width: 560px; white-space: pre-wrap;"
+                        " overflow-wrap: anywhere; word-break: break-word; line-height: 1.5;")
             elif col in _wide:
                 _st += (" min-width: 240px; max-width: 380px; white-space: pre-wrap;"
                         " overflow-wrap: anywhere; word-break: break-word; line-height: 1.45;")
