@@ -6880,6 +6880,168 @@ def _apr_clear_fields(rid):
     st.session_state[f"apr_due_{rid}"] = None
 
 
+def _render_ap_review_analysis(df, clean, to_date, current_mos):
+    """Review analysis for the open action points of AP Progress Review: aging and slippage,
+    priority list, stock impact, responsible-body performance and review coverage."""
+    _F = "font-family: Times New Roman, Times, serif !important;"
+    today = datetime.now().date()
+    a = df.copy()
+    if "Level of Urgency" not in a.columns:
+        a["Level of Urgency"] = ""
+    a["_mat"] = a["Material"].map(clean)
+    a["_due"] = a["Due Date"].map(to_date)
+    a["_corr"] = a["Corrective Due Date"].map(to_date)
+    a["_days_over"] = a.apply(
+        lambda r: (today - r["_due"]).days if (r["Timeliness"] == "Overdue" and r["_due"]) else 0, axis=1)
+    a["_has_j"] = a["Justification"].map(clean) != ""
+    a["_has_c"] = a["Corrective Action"].map(clean) != ""
+    a["_has_d"] = a["_corr"].notna()
+    a["_has_any"] = a["_has_j"] | a["_has_c"] | a["_has_d"]
+    cur = {m: current_mos(m) for m in a["_mat"].unique() if m}
+
+    def _num(v):
+        n = pd.to_numeric(v, errors="coerce")
+        return None if pd.isna(n) else float(n)
+
+    def _card(label, value, color, note=""):
+        return (f'<div style="flex:1; min-width:150px; background:#ffffff; border:1px solid #d6dde5; '
+                f'border-top:5px solid {color}; border-radius:8px; padding:10px 14px;">'
+                f'<div style="font-size:0.85rem; color:#5d6d7e; font-weight:600;">{label}</div>'
+                f'<div style="font-size:1.7rem; font-weight:700; color:{color}; line-height:1.2;">{value}</div>'
+                f'<div style="font-size:0.75rem; color:#7f8c8d;">{note}&nbsp;</div></div>')
+
+    def _cards(items):
+        st.markdown('<div style="display:flex; gap:12px; flex-wrap:wrap; margin-bottom:10px;">'
+                    + "".join(_card(*i) for i in items) + '</div>', unsafe_allow_html=True)
+
+    def _table(headers, rows, wide=()):
+        t = (f'<div class="dataframe-container"><table class="styled-table" '
+             f'style="{_F} font-size: 14px; width: 100%;"><thead><tr>')
+        for h in headers:
+            t += f'<th style="{_F} font-size: 15px; text-align: left; vertical-align: top;">{_html.escape(h)}</th>'
+        t += '</tr></thead><tbody>'
+        for r in rows:
+            t += '<tr>'
+            for h, cell in zip(headers, r):
+                sty = f"{_F} font-size: 14px; text-align: left; vertical-align: top;"
+                if h in wide:
+                    sty += (" min-width: 240px; max-width: 420px; white-space: pre-wrap;"
+                            " overflow-wrap: anywhere; line-height: 1.45;")
+                t += f'<td style="{sty}">{cell}</td>'
+            t += '</tr>'
+        t += '</tbody></table></div>'
+        st.markdown(t, unsafe_allow_html=True)
+
+    with st.expander("📊 Review Analysis", expanded=True):
+        # 1. Overdue aging and due-date slippage
+        st.markdown("#### 1. Overdue Aging & Slippage")
+        over = a[a["Timeliness"] == "Overdue"]
+        d = over["_days_over"]
+        slip = a[a["_due"].notna() & a["_corr"].notna()].copy()
+        slip["_slip"] = slip.apply(lambda r: (r["_corr"] - r["_due"]).days, axis=1)
+        slip = slip[slip["_slip"] > 0]
+        _cards([
+            ("Overdue 1-30 days", int(((d >= 1) & (d <= 30)).sum()), "#e67e22", "open action points"),
+            ("Overdue 31-60 days", int(((d >= 31) & (d <= 60)).sum()), "#d35400", "open action points"),
+            ("Overdue 60+ days", int((d > 60).sum()), "#c0392b", "open action points"),
+            ("Average days overdue", f"{d.mean():.0f}" if len(d) else "0", "#7f8c8d", "overdue action points only"),
+            ("Due date pushed back", len(slip), "#6f42c1",
+             f"avg {slip['_slip'].mean():.0f} days later" if len(slip) else "corrective date later than due date"),
+        ])
+
+        # 2. Priority list: Critical / High criticality, with stock position
+        st.markdown("#### 2. Priority & Escalation List")
+        a["_crit"] = a.apply(lambda r: compute_criticality(r["Level of Urgency"], r["Timeliness"], r["Status"]), axis=1)
+        rank = {"Critical": 0, "High": 1}
+        pri = a[a["_crit"].isin(rank)].copy()
+        if pri.empty:
+            st.caption("No Critical or High criticality action points. Criticality needs a Level of Urgency on the action point.")
+        else:
+            pri["_rank"] = pri["_crit"].map(rank)
+            pri = pri.sort_values(["_rank", "_days_over"], ascending=[True, False]).head(10)
+            rows = []
+            for _, r in pri.iterrows():
+                c = cur.get(r["_mat"], {})
+                cn = _num(c.get("NMOS"))
+                stock = categorize_stock(cn, r["_mat"]) if cn is not None else ""
+                at_risk = "⚠️ Stockout risk" if stock in ("Stock Out", "Understock") else ""
+                rows.append([
+                    _html.escape(r["_mat"]),
+                    _html.escape(clean(r["Action Point"])),
+                    _html.escape(clean(r["Level of Urgency"])),
+                    _criticality_badge_html(r["_crit"]),
+                    str(int(r["_days_over"])) if r["_days_over"] else "-",
+                    _html.escape(c.get("NMOS", "N/A")),
+                    _html.escape(stock) if stock else "-",
+                    at_risk,
+                ])
+            _table(["Material Description", "Action Point", "Urgency", "Criticality", "Days Overdue",
+                    "Current NMOS", "Stock Status", "Flag"], rows, wide=("Action Point",))
+            st.caption("Top 10 Critical and High criticality action points (Urgency x Timeliness).")
+
+        # 3. Stock impact: saved NMOS (plan creation) vs current NMOS, per material
+        st.markdown("#### 3. Stock Impact (NMOS at plan creation vs now)")
+        imp, same, worse, wrows = 0, 0, 0, []
+        for m, g in a.groupby("_mat"):
+            if not m:
+                continue
+            then = _num(g.iloc[0]["NMOS"])
+            now = _num(cur.get(m, {}).get("NMOS"))
+            if then is None or now is None:
+                continue
+            delta = now - then
+            if delta > 0.1:
+                imp += 1
+            elif delta < -0.1:
+                worse += 1
+                wrows.append([_html.escape(m), f"{then:.2f}", f"{now:.2f}", f"{delta:+.2f}",
+                              _html.escape(categorize_stock(now, m) or "-")])
+            else:
+                same += 1
+        _cards([("Improved", imp, "#28a745", "materials, NMOS up by more than 0.1"),
+                ("Unchanged", same, "#7f8c8d", "materials, within 0.1 months"),
+                ("Worsened", worse, "#c0392b", "materials, NMOS down by more than 0.1")])
+        if wrows:
+            _table(["Material Description", "NMOS at Plan", "Current NMOS", "Change", "Stock Status"], wrows)
+
+        # 4. Responsible body performance
+        st.markdown("#### 4. Responsible Body Performance")
+
+        def _org(b):
+            b = (b or "").strip()
+            return ("EPSS" if b.startswith("EPSS_") else "MOH" if b.startswith("MOH_")
+                    else "MSH_SCS" if b.startswith("MSH_") else "Other")
+
+        stats = {}
+        for _, r in a.iterrows():
+            orgs = {_org(b) for b in clean(r["Responsible Body"]).split(",") if b.strip()} or {"Other"}
+            for o in orgs:
+                s_ = stats.setdefault(o, {"open": 0, "over": 0, "nyd": 0})
+                s_["open"] += 1
+                s_["over"] += r["Timeliness"] == "Overdue"
+                s_["nyd"] += r["Timeliness"] == "Not Yet Due"
+        brows = [[_html.escape(o), str(v["open"]), str(v["over"]), str(v["nyd"]),
+                  f"{v['over'] / v['open'] * 100:.0f}%"] for o, v in
+                 sorted(stats.items(), key=lambda kv: -kv[1]["over"])]
+        _table(["Responsible Body", "Open", "Overdue", "Not Yet Due", "% Overdue"], brows)
+        st.caption("An action point shared by several bodies is counted once for each body.")
+
+        # 5. Review coverage
+        st.markdown("#### 5. Review Coverage")
+        n = len(a)
+        pct = lambda x: f"{x / n * 100:.0f}%" if n else "0%"
+        gap = a[(a["Timeliness"] == "Overdue") & (~a["_has_any"])]
+        _cards([("With Justification", pct(int(a["_has_j"].sum())), "#2e86c1", f"{int(a['_has_j'].sum())} of {n}"),
+                ("With Corrective Action", pct(int(a["_has_c"].sum())), "#2e86c1", f"{int(a['_has_c'].sum())} of {n}"),
+                ("With Corrective Due Date", pct(int(a["_has_d"].sum())), "#2e86c1", f"{int(a['_has_d'].sum())} of {n}"),
+                ("Overdue, not reviewed", len(gap), "#c0392b", "no Justification, Action or Date")])
+        if len(gap):
+            _table(["Material Description", "Action Point", "Days Overdue"],
+                   [[_html.escape(r["_mat"]), _html.escape(clean(r["Action Point"])), str(int(r["_days_over"]))]
+                    for _, r in gap.sort_values("_days_over", ascending=False).head(10).iterrows()],
+                   wide=("Action Point",))
+
+
 def render_ap_progress_review(sheet_name, selected_quarter, selected_year, df_filtered=None):
     """AP Progress Review: one row per Expert Action Plan record, with the reviewer's
     Justification and Corrective Action captured next to the plan's own facts."""
@@ -7069,6 +7231,11 @@ def render_ap_progress_review(sheet_name, selected_quarter, selected_year, df_fi
                     st.rerun()
                 b3.button("🧹 Clear", key=f"apr_clear_{rid}", width="stretch",
                           on_click=_apr_clear_fields, args=(rid,))
+
+    # ------------------------------------------------------------------
+    # Review analysis of all open action points
+    # ------------------------------------------------------------------
+    _render_ap_review_analysis(df, _clean, _to_date, _current_mos)
 
     # ------------------------------------------------------------------
     # Table: only action points whose Justification / Corrective Action / Due Date were entered
