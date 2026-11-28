@@ -6891,8 +6891,8 @@ def _render_ap_review_analysis(df, clean, to_date, current_mos):
     a["_mat"] = a["Material"].map(clean)
     a["_due"] = a["Due Date"].map(to_date)
     a["_corr"] = a["Corrective Due Date"].map(to_date)
-    a["_days_over"] = a.apply(
-        lambda r: (today - r["_due"]).days if (r["Timeliness"] == "Overdue" and r["_due"]) else 0, axis=1)
+    a["_days_over"] = [(today - r["_due"]).days if (r["Timeliness"] == "Overdue" and r["_due"]) else 0
+                       for _, r in a.iterrows()]
     a["_has_j"] = a["Justification"].map(clean) != ""
     a["_has_c"] = a["Corrective Action"].map(clean) != ""
     a["_has_d"] = a["_corr"].notna()
@@ -6939,7 +6939,7 @@ def _render_ap_review_analysis(df, clean, to_date, current_mos):
     over = a[a["Timeliness"] == "Overdue"]
     d = over["_days_over"]
     slip = a[a["_due"].notna() & a["_corr"].notna()].copy()
-    slip["_slip"] = slip.apply(lambda r: (r["_corr"] - r["_due"]).days, axis=1)
+    slip["_slip"] = [(r["_corr"] - r["_due"]).days for _, r in slip.iterrows()]
     slip = slip[slip["_slip"] > 0]
     _cards([
         ("Overdue 1-30 days", int(((d >= 1) & (d <= 30)).sum()), "#e67e22", "open action points"),
@@ -6952,7 +6952,8 @@ def _render_ap_review_analysis(df, clean, to_date, current_mos):
 
     # 2. Priority list: Critical / High criticality, with stock position
     st.markdown("#### 2. Priority & Escalation List")
-    a["_crit"] = a.apply(lambda r: compute_criticality(r["Level of Urgency"], r["Timeliness"], r["Status"]), axis=1)
+    a["_crit"] = [compute_criticality(r["Level of Urgency"], r["Timeliness"], r["Status"])
+                  for _, r in a.iterrows()]
     rank = {"Critical": 0, "High": 1}
     pri = a[a["_crit"].isin(rank)].copy()
     if pri.empty:
