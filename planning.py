@@ -7120,6 +7120,24 @@ def render_ap_progress_review(sheet_name, selected_quarter, selected_year, df_fi
         st.info("No action points are ready for review: every action point is completed.")
         return
 
+    # Overall implementation risk: share of open action points that are overdue
+    _risk = n_overdue / n_ready * 100
+    _risk_color = "#e74c3c" if _risk >= 30 else "#e67e22" if _risk >= 15 else "#28a745"
+    st.markdown(
+        f'<div style="background:#ffffff; border:1px solid #d6dde5; border-radius:14px; '
+        f'padding:16px 22px; margin-bottom:16px;">'
+        f'<div style="font-size:1.15rem; font-weight:700; color:#1b2631;">Overall implementation risk</div>'
+        f'<div style="font-size:2.6rem; font-weight:700; color:{_risk_color}; line-height:1.3; margin-top:6px;">'
+        f'{_risk:.0f}%</div>'
+        f'<div style="font-size:0.95rem; color:#5d6d7e; margin-bottom:10px;">'
+        f'{n_overdue} overdue out of {n_ready} open action points</div>'
+        f'<div style="background:#e5e8eb; border-radius:10px; height:14px; overflow:hidden;">'
+        f'<div style="background:{_risk_color}; width:{_risk:.1f}%; height:100%; border-radius:10px;"></div></div>'
+        f'<div style="display:flex; justify-content:space-between; margin-top:10px; font-size:1.05rem;">'
+        f'<span style="color:{_risk_color}; font-weight:700;">{_risk:.0f}% Overdue</span>'
+        f'<span style="color:#5d6d7e;">{100 - _risk:.0f}% Not yet due</span></div></div>',
+        unsafe_allow_html=True)
+
     def _clean(v):
         return "" if v is None or pd.isna(v) or str(v).strip().lower() in ("nan", "none") else str(v).strip()
 
